@@ -26,6 +26,7 @@ To install in IBM Watson Studio from another Jupyter notebook:
 
 Test for sucessful install:
 > import iotfunctions as fn
+>
 > print(fn.__version__)
 
 ### Further information
