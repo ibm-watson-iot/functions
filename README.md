@@ -8,13 +8,13 @@ These instructions will get you up and running in your local environment or in W
 
 ### Prerequisites
 
-python 3.X
-numpy
-pandas
-ibm_boto3
-ibm_db
-ibm_dbi
-sqlalchemy
+ + python 3.X
+ + numpy
+ + pandas
+ + ibm_boto3
+ + ibm_db
+ + ibm_dbi
+ + sqlalchemy
 
 ### Installing
 
@@ -30,7 +30,7 @@ Test for sucessful install:
 
 ### Further information
 
-[IBM Knowledge Center IoT Platform Analytics](https://www.ibm.com/support/knowledgecenter/SSQP8H/iot/analytics/as_overview.html)
-[Sample Notebook](https://www.ibm.com/support/knowledgecenter/SSQP8H/iot/analytics/as_notebook_references.html)
++ [IBM Knowledge Center IoT Platform Analytics](https://www.ibm.com/support/knowledgecenter/SSQP8H/iot/analytics/as_overview.html)
++ [Sample Notebook](https://www.ibm.com/support/knowledgecenter/SSQP8H/iot/analytics/as_notebook_references.html)
 
 
