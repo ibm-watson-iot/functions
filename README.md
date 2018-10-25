@@ -19,10 +19,10 @@ sqlalchemy
 ### Installing
 
 To install in your local environment:
->> pip install git+https://https://github.com/ibm-watson-iot/functions.git@ --upgrade
+>> pip install git+https://github.com/ibm-watson-iot/functions.git@ --upgrade
 
 To install in IBM Watson Studio from another Jupyter notebook:
->> !pip install git+https://https://github.com/ibm-watson-iot/functions.git@ --upgrade
+>> !pip install git+https://github.com/ibm-watson-iot/functions.git@ --upgrade
 
 Test for sucessful install:
 >> import iotfunctions as fn
