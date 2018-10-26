@@ -1281,7 +1281,63 @@ class InputsAndOutputsOfMultipleTypes(BaseTransformer):
         df[self.output_number] = df[self.input_number]
         df[self.output_date] = df[self.input_date]
         df[self.output_str] = df[self.input_str]
-        return df    
+        return df
+    
+class ComputationsOnStringArray(BaseTransformer):
+    '''
+    Perform computation on a string that contains a string representation of a list of values
+    '''
+    url = PACKAGE_URL
+    # The metadata describes what columns of data are included in the array
+    column_metadata = ['x1','x2','x3','x4','x5']
+    
+    def __init__(self, input_str, output_item = 'output_item'):
+    
+        self.input_str = input_str
+        self.output_item = output_item
+        
+        super().__init__()
+        self.itemDescriptions['input_str'] = 'Array of input items modeled as single comma delimited string'
+        
+    def execute(self, df):
+        x_array = df['x_str'].str.split(',').to_dict()
+        adf = pd.DataFrame(data=x_array).transpose()
+        adf.columns = self.column_metadata
+        adf[adf.columns] = adf[adf.columns].astype(float)        
+        df[self.output_item] = 0.5 + 0.25 * adf['x1'] + -.1 * adf['x2'] + 0.05 * adf['x3']
+        
+        return df
+    
+    def get_test_data(self):
+        
+        data = {
+                'id' : [1,1,1,1,1,2,2,2,2,2],
+                'timestamp' : [
+                        dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:29PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),                
+                ],                
+                'x_str' : [self._get_str_array() for x in list(range(10))]
+                }
+        df = pd.DataFrame(data=data)
+        
+        return df
+    
+    def _get_str_array(self):
+        
+        out = ''
+        for col in self.column_metadata:
+            out = out + str(np.random.normal(1,0.1)) + ','
+        out = out[:-1]
+        
+        return out    
 
 class WriteDataFrame(BaseTransformer):
     '''
