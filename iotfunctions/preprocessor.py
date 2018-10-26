@@ -26,7 +26,7 @@ from inspect import getargspec
 from collections import OrderedDict
 from .util import cosLoad, cosSave
 
-PACKAGE_URL = 'git+https:github.com/ibm-watson-iot/functions.git@'
+PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 
 class BaseFunction(object):
     """
