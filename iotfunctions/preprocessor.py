@@ -26,7 +26,7 @@ from inspect import getargspec
 from collections import OrderedDict
 from .util import cosLoad, cosSave
 
-PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git'
+PACKAGE_URL = 'git+https://e0d724fee4d0e49dfd77de313a04e6d1a9374fe4@github.com/ibm-watson-iot/functions.git@'
 
 class BaseFunction(object):
     """
@@ -608,7 +608,7 @@ class BaseFunction(object):
         """
         If the function should be executed separately for each entity, describe the function logic in the _calc method
         """
-        return df 
+        raise NotImplementedError('Class %s is not defined correctly. It should override the _calc() method of the base class.' %self.__class__.__name__) 
 
     def _standard_item_descriptions(self):
         
@@ -1004,7 +1004,6 @@ class LookupCompany(BaseDatabaseLookup):
     """
     url = PACKAGE_URL
 
-    
     def __init__ (self, company_key , lookup_items= None, output_items=None):
         
         # sample data will be used to create table if it doesn't already exist
@@ -1052,6 +1051,116 @@ class LookupCompany(BaseDatabaseLookup):
     
         # The base class takes care of the rest
         # No execute() method required
+        
+class MergeActivityData(BaseTransformer):
+    '''
+    Merge actitivity data with time series data.
+    Activies are events that have a start and end date and generally occur sporadically.
+    Activity tables may contain an activity type.
+    This function flattens multiple activity types from multiple activity tables into separate start and end date columns for each activity.
+    '''
+    
+    url = PACKAGE_URL
+    activities_metadata = {}
+    activities_metadata['maintenance'] = ['pm','sm']
+    activities_metadata['breakdown'] = ['refuel','flat']
+    execute_by = ['id']
+    db_credentials = {
+          "connection" : "dashdb",
+          "hostname": "dashdb-entry-yp-dal10-01.services.dal.bluemix.net",
+          "password": "iq__BljDTG34",
+          "port": 50000,
+          "host": "dashdb-entry-yp-dal10-01.services.dal.bluemix.net",
+          "db": "BLUDB",
+          "database": "BLUDB",
+          "username": "dash100277",
+          "tennant_id":"DEMO-AS"
+      }
+    
+    def __init__(self,input_activities,activity_start=None,activity_end=None):
+    
+        self.input_activities = input_activities
+        self.activity_start = activity_start
+        self.activity_end = activity_end
+        super().__init__()
+        
+        self.connection = self.acquire_db_connection(start_session = False)
+        
+    def execute(self,df):
+        
+        dfs = []
+        for table,activities in list(self.activities_metadata.items()):
+            for a in activities:
+                af = self.get_data(table=table,activity=a)
+                af["activity"] = a
+                dfs.append(af)
+        adf = pd.concat(dfs)
+
+        group_base = []
+        for s in self.execute_by:
+            if s in adf.columns:
+                group_base.append(s)
+            else:
+                try:
+                    x = dfs.index.get_level_values(s)
+                except KeyError:
+                    raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
+                else:
+                    group_base.append(pd.Grouper(axis=0, level=df.index.names.index(s)))
+                    
+        if len(group_base)>0:
+            df = df.groupby(group_base).apply(self._combine_activities())                
+        else:
+            raise ValueError('This function executes by entity. execute_by should be ['<id_column>']')
+                    
+    def _combine_activities(df):
+        '''
+        incoming dataframe has start date , end date and activity code.
+        activities may overlap.
+        output dataframe corrects overlapping activities.
+        activities with later start dates take precidence over activies with earlier start dates when resolving.
+        '''
+        
+        #create a continuous range
+        early_date = dt.datetime.min
+        late_date = dt.datetime.max
+        
+        #create a new start date for each potential interruption of the continuous range
+        df = df.sort_values(['start_date'])
+        dates = [early_date]
+        dates.extend (df['start_date'].tolist())
+        end_dates = df['end_date'].tolist()
+        dates.extend (end_dates)
+        dates.sort()
+        dates.append(late_date)
+        c = pd.Series(data=None,index = dates)
+        c.name = "activity"
+        c.index.name = "start_date"
+        
+        #use original data to update the new set of intervals in slices
+        for index, row in df.iterrows():
+            end_date = row['end_date'] - dt.timedelta(seconds=1)
+            c[row['start_date']:end_date] = row['activity']
+    
+        #remove duplicates and nulls and add end date
+        dup = c.eq(c.shift())
+        c = c[~dup]
+        df =  c.to_frame().reset_index()
+        df['end_date'] = df['start_date'].shift(-1)
+        df['end_date'] = df['end_date'] - dt.timedelta(seconds=1)
+        df = df.dropna()
+        
+        return df          
+            
+                
+    def get_data(self,table,activity):
+        
+        sql = 'select id, start_date, end_date from %s where activity = "%s"'
+        df = pd.read_sql(sql, con = self.connection,  parse_dates=['start_date','end_date'])
+        
+        return df
+        
+    
 
 class NegativeRemover(BaseTransformer):
     '''
@@ -1233,8 +1342,6 @@ class MultiplyNItems(BaseTransformer):
         return df
 
 
-
-
     
 class FillForwardByEntity(BaseTransformer):    
     '''
@@ -1285,7 +1392,7 @@ class InputsAndOutputsOfMultipleTypes(BaseTransformer):
     
 class ComputationsOnStringArray(BaseTransformer):
     '''
-    Perform computation on a string that contains a string representation of a list of values
+    Perform computation on a string that contains a comma separated list of values
     '''
     url = PACKAGE_URL
     # The metadata describes what columns of data are included in the array
