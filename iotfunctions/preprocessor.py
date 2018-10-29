@@ -1111,7 +1111,7 @@ class MergeActivityData(BaseTransformer):
         if len(group_base)>0:
             df = df.groupby(group_base).apply(self._combine_activities())                
         else:
-            raise ValueError('This function executes by entity. execute_by should be ['<id_column>']')
+            raise ValueError('This function executes by entity. execute_by should be ["<id_column>"]')
                     
     def _combine_activities(df):
         '''
