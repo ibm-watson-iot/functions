@@ -1439,12 +1439,7 @@ class ComputationsOnStringArray(BaseTransformer):
     
     def _get_str_array(self):
         
-        out = ''
-        for col in self.column_metadata:
-            out = out + str(np.random.normal(1,0.1)) + ','
-        out = out[:-1]
-        
-        return out    
+        return ','.join(str(np.random.normal(1,0.1)) for col in self.column_metadata)
 
 class WriteDataFrame(BaseTransformer):
     '''
@@ -1490,5 +1485,3 @@ class FlowRateMonitor(BaseTransformer):
         df[self.output] = np.where((total_input-total_output)/ total_input > self.loss_threshold, True, False)
         
         return df
-    
-
