@@ -8,19 +8,20 @@ These instructions will get you up and running in your local environment or in W
 
 ### Prerequisites
 
- + python 3.X
- + numpy
- + pandas
- + ibm_boto3
- + ibm_db
- + ibm_dbi
- + sqlalchemy
+Python v3.5, v3.6, or v3.7 with the following modules installed:
+* ibm-cos-sdk
+* ibm_db
+* numpy
+* pandas
+* requests
+* SQLAlchemy
 
 ### Installing
 
 To install in your local environment:
 ```
-pip install git+https://github.com/ibm-watson-iot/functions.git@ --upgrade
+python3 -m pip install -r requirements.txt
+python3 -m pip install git+https://github.com/ibm-watson-iot/functions.git@ --upgrade
 ```
 
 To install in IBM Watson Studio from another Jupyter notebook:
