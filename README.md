@@ -13,7 +13,6 @@ Python v3.5, v3.6, or v3.7 with the following modules installed:
 * ibm_db
 * numpy
 * pandas
-* requests
 * SQLAlchemy
 
 ### Installing
