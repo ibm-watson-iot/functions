@@ -22,6 +22,18 @@ import ibm_db_dbi
 logger = logging.getLogger(__name__)
 
 class Database(object):
+    '''
+    Use Database objects to establish database connectivity, manage database metadata and sessions, build queries and write DataFrames to tables.
+    
+    Parameters:
+    -----------
+    credentials: dict (optional)
+        Database credentials. If none specifiedm use DB_CONNECTION_STRING environment variable
+    start_session: bool
+        Start a session when establishing connection
+    echo: bool
+        Output sql to log
+    '''
     
     def __init__(self,credentials = None, start_session = False, echo = False):
         
@@ -50,25 +62,55 @@ class Database(object):
         #TBS support alternative schema
         self.schema = None
 
-        
-    def create_all(self,tables = None, checkfirst = True ):
-        
-        self.metadata.create_all(tables = tables, checkfirst = checkfirst)
-
-    def drop_all(self,tables = None, checkfirst = True ):
-        
-        self.metadata.drop_all(tables = tables, checkfirst = checkfirst)        
-        
-    def start_session(self):
-        
-        if self.session is None:
-            self.session = self.Session()
-            
     def commit(self):
+        '''
+        Commit the active session
+        '''
         
         self.session.commit()
         self.session.close()
-        self.session = None
+        self.session = None        
+        
+    def create_all(self,tables = None, checkfirst = True ):
+        '''
+        Create database tables for logical tables defined in the database metadata
+        '''
+        self.metadata.create_all(tables = tables, checkfirst = checkfirst)
+
+    def drop_all(self,tables = None, checkfirst = True ):
+        '''
+        Drop database tables.
+        '''
+        self.metadata.drop_all(tables = tables, checkfirst = checkfirst)        
+        
+    def get_table(self,table_name):
+        '''
+        Get sql alchemchy table object for table name
+        '''
+        try:
+            table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection)        
+        except NoSuchTableError:
+            raise ValueError ('Table %s does not exist in the database' %table_name)
+        else:
+            return table
+        
+    def if_exists(self,table_name):
+        '''
+        Return True if table exists in the database
+        '''
+        try:
+            self.get_table(table_name)
+        except ValueError:
+            return False
+        
+        return True
+        
+    def start_session(self):
+        '''
+        Start a database session. 
+        '''
+        if self.session is None:
+            self.session = self.Session()
         
     def query(self,table_name):
         '''
@@ -135,8 +177,8 @@ class Database(object):
         if if_exists == 'append':
             #check table exists
             try:
-                table = Table('table_name', self.metadata, autoload=True)
-            except NoSuchTableError:
+                table = self.get_table(table_name)
+            except ValueError:
                 pass
             else:
                 table_exists = True
@@ -168,17 +210,29 @@ class BaseTable(object):
     _entity_id = 'deviceid'
     
     def __init__ (self,name,database,*args, **kw):
-        
         self.name = name
         self.database= database
         self.table = Table(self.name,self.database.metadata, *args,**kw )
         self.id_col = Column(self._entity_id,String(50))
         
-    def get_columns(self):
+    def get_table(self,table_name):
+        """
+        Get a sql alchmemy logical table from database metadata
+        """
+        self.database.start_session()
+        table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection)
+        return table
         
+    def get_columns(self):
+        """
+        Get a list of columns names
+        """
         return [column.key for column in self.table.columns]
 
     def insert(self,df, chunksize = 1000):
+        """
+        Insert a dataframe into table. Dataframe column names are expected to match table column names.
+        """
         
         df = df.reset_index()
         cols = self.get_columns()
@@ -242,26 +296,23 @@ class ResourceCalendarTable(BaseTable):
         self.resource_id = Column('resource_id',String(255))
         self.id_col = Column(self._entity_id,String(50))
         super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.resource_id, *args, **kw)
+        
+class TimeSeriesTable(BaseTable):
+    """
+    A time series table contains a timestamp and one or more metrics.
+    """
 
+    def __init__ (self,name,database,*args, **kw):
 
-class Query(object):
-    
-    def __init__(self, db, queryable ):
-        
-        self.db = db
-        try:
-            queryable.is_table
-        except KeyError:
-            pass
-        else:
-            queryable = queryable.table
-            
-        self.query = queryable
-        
-    def get_data(self, index_col = None, parse_dates = None, chunksize = 1000):
-                
-        df = pd.read_sql(self.query, con = self.db.connection , index_col = index_col ,
-                         parse_dates = parse_dates, chunksize = chunksize)
-        
-        return df
+        self.id_col = Column(self._entity_id,String(50))
+        self.timestamp = Column('timestamp',DateTime)
+        self.device_type = Column('devicetype',String(50))
+        self.logical_inteface = Column('logicalinterface_id',String(64))
+        self.format = Column('format',String(64))
+        self.updated_timestamp = Column('updated_utc',DateTime)
+        super().__init__(name,database,self.id_col,self.timestamp,
+                 self.device_type, self.logical_inteface, self.format , 
+                 self.updated_timestamp,
+                 *args, **kw)
+
 

@@ -8,6 +8,7 @@
 #
 # *****************************************************************************
 
+import math
 import os
 import urllib3
 import json
@@ -80,6 +81,7 @@ class BaseFunction(object):
     _entity_resource_dict = {}
     # mappings
     _entity_id = 'deviceid'
+    _timestamp = 'evt_timestamp'
     
     
     def __init__(self):
@@ -255,7 +257,6 @@ class BaseFunction(object):
         
         if credentials is None:
             credentials = self.db_credentials
-
         
         #If explicit credentials provided these allow connection to a db other than the ICS one.
         if not credentials is None:
@@ -545,7 +546,7 @@ class BaseFunction(object):
     
         return (metadata_inputs,metadata_outputs)
     
-    def _get_resource_assignment(self,from_date,to_date,entities):
+    def _get_resource_assignment(self,start_ts,end_ts,entities):
         '''
         Build a dict keyed on resource type and entity id for each type of resource
         '''
@@ -555,10 +556,10 @@ class BaseFunction(object):
         else:
             for resource, table in list(self.resource_calendar.items()):
                 (query,table) = self.db.query(table)
-                if not from_date is None:
-                    query = query.filter(table.c.end_date >= from_date)
-                if not to_date is None:
-                    query = query.filter(table.c.start_date < to_date)  
+                if not start_ts is None:
+                    query = query.filter(table.c.end_date >= start_ts)
+                if not end_ts is None:
+                    query = query.filter(table.c.start_date < end_ts)  
                 if not entities is None:
                     query = query.filter(table.c.deviceid.in_(entities))
                 df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=['start_date','end_date'])
@@ -752,7 +753,7 @@ class BaseFunction(object):
         
         data = {
                 'id' : [1,1,1,1,1,2,2,2,2,2],
-                'timestamp' : [
+                'evt_timestamp' : [
                         dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
@@ -813,6 +814,7 @@ class BaseFunction(object):
                 'company_code' : ['ABC','ACME','JDI','ABC','ABC','ACME','JDI','ACME','JDI','ABC']
                 }
         df = pd.DataFrame(data=data)
+        df = df.set_index(['id','evt_timestamp'])
         
         return df
         
@@ -828,15 +830,78 @@ class BaseTransformer(BaseFunction):
         super().__init__()
 
 
-class BaseDataSource(BaseTransformer):
+class BaseLoader(BaseTransformer):
     """
-    Base class for AS Transform Functions. Inherit from this class when building a custom function that adds new columns to a dataframe.
+    Base class for functions that involve merging time series data from another data source.
 
     """
     is_data_source = True
+    merge_method = 'outer' #or nearest, concat
+    #use concat when the source time series contains the same metrics as the entity type source data
+    #use nearest to align the source time series to the entity source data
+    #use outer to add new timestamps and metrics from the source
+    merge_nearest_tolerance = '1D'
+    merge_nearest_direction = 'nearest' #or backward,forward
+    source_entity_id = 'deviceid'
+    source_timestamp = 'evt_timestamp'
     
-    def __init__(self):
+    def __init__(self, input_items, output_items=None):
+        self.input_items = output_items
+        self.output_items = output_items
         super().__init__()
+
+    def _set_dms(self, dms):
+        self.db.connection = dms
+
+    def _get_dms(self):
+        return self.db.connection
+
+    def get_data(self,start_ts=None,end_ts=None,entities=None):
+        '''
+        The get_data() method is used to retrieve additional time series data that will be combined with existing pipeline data during pipeline execution.
+        '''
+        raise NotImplementedError('You must implement a get_data() method for any class that acts as a data source')
+        
+    def execute(self,df,start_ts=None,end_ts=None,entities=None):        
+        '''
+        Retrieve data and combine with pipeline data
+        '''
+        print(df)
+        new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
+        print(new_df)
+        try:
+            new_df = new_df.rename_axis(df.index.names, axis = 0)
+        except ValueError:
+            #new_df is not indexed on entity id and timestamp
+            new_df = new_df.set_index([self.source_entity_id,self.source_timestamp])   
+            new_df = new_df.rename_axis(df.index.names, axis = 0)
+        print(new_df)
+        if self.merge_method == 'outer':        
+            df = df.join(new_df,how='outer',sort=True)
+        elif self.merge_method == 'nearest':        
+            try:
+                df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp)
+            except ValueError:
+                new_df = new_df.sort_index()
+                try:
+                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp)
+                except ValueError:
+                    df = df.sort_index()
+                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp)
+        elif self.merge_method == 'concat':
+            df = pd.concat([df,new_df],sort=True)
+        else:
+            raise ValueError('Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
+    
+        column_names = {}
+        for i, name in enumerate(self.output_items):
+            column = new_df.columns[i]
+            column_names[column] = name
+        df = df.rename(columns=column_names)
+        
+        return df
+        
+
 
 
 class BaseEvent(BaseTransformer):
@@ -894,8 +959,6 @@ class BaseDatabaseLookup(BaseTransformer):
         
         self.lookup_items = self.convertStrArgToList(lookup_items,argument = 'lookup_items')
         self.output_items = self.convertStrArgToList(output_items,argument = 'output_items')
-                       
-        
         self.itemValues['lookup_items'] = cols
         
     def get_lookup_columns(self,connection):
@@ -938,7 +1001,7 @@ class BaseDatabaseLookup(BaseTransformer):
         
         self.write_frame(df=df,table_name = table_name, if_exists = 'replace')
         
-class BaseDBActivityMerge(BaseDataSource):
+class BaseDBActivityMerge(BaseLoader):
     '''
     Merge actitivity data with time series data.
     Activies are events that have a start and end date and generally occur sporadically.
@@ -963,23 +1026,23 @@ class BaseDBActivityMerge(BaseDataSource):
     
         self.input_activities = input_activities
         self.activity_duration = activity_duration
-        super().__init__()
+        super().__init__(input_items = input_activities , output_items = None)
         #for any function that requires database access, create a database object
         self.db = Database(credentials = self.db_credentials, echo = True)
         
-    def execute(self,df,
-                    from_date= None,
-                    to_date= None,
+    def get_data(self,df,
+                    start_ts= None,
+                    end_ts= None,
                     entities = None):
         
         dfs = []
         #build sql and executive it 
         for table_name,activities in list(self.activities_metadata.items()):
             for a in activities:
-                af = self.get_data(table_name=table_name,
+                af = self.read_activity_data(table_name=table_name,
                                    activity_code=a,
-                                   from_date = from_date,
-                                   to_date = to_date,
+                                   start_ts = start_ts,
+                                   end_ts = end_ts,
                                    entities = entities)
                 af["activity"] = a
                 dfs.append(af)
@@ -1004,7 +1067,7 @@ class BaseDBActivityMerge(BaseDataSource):
             add_dates |= set(self.custom_calendar_df['end_date'].tolist())
             self.add_dates = list(add_dates)
         #get resource assignment changes
-        self._entity_resource_dict = self._get_resource_assignment(from_date= adf['start_date'].min(), to_date = adf['end_date'].max(),entities=entities)
+        self._entity_resource_dict = self._get_resource_assignment(start_ts= adf['start_date'].min(), end_ts = adf['end_date'].max(),entities=entities)
         #
         group_base = []
         for s in self.execute_by:
@@ -1098,7 +1161,7 @@ class BaseDBActivityMerge(BaseDataSource):
         return df          
             
                 
-    def get_data(self,table_name,activity_code,from_date=None,to_date=None,entities=None):
+    def read_activity_data(self,table_name,activity_code,start_ts=None,end_ts=None,entities=None):
         """
         Issue a query to return a dataframe. Subject is an activity table with columns: deviceid, start_date, end_date, activity
         
@@ -1108,9 +1171,9 @@ class BaseDBActivityMerge(BaseDataSource):
             Name of source table
         activity_code: str
             The specific activity code for which to receive data
-        from_date : datetime (optional)
+        start_ts : datetime (optional)
             Date filter
-        to_date : datetime (optional)
+        end_ts : datetime (optional)
             Date filter            
         entities: list (optional)
             Filter on list of device ids
@@ -1120,10 +1183,10 @@ class BaseDBActivityMerge(BaseDataSource):
         """
         (query,table) = self.db.query(table_name)
         query = query.filter(table.c.activity == activity_code)
-        if not from_date is None:
-            query = query.filter(table.c.end_date >= from_date)
-        if not to_date is None:
-            query = query.filter(table.c.start_date < to_date)  
+        if not start_ts is None:
+            query = query.filter(table.c.end_date >= start_ts)
+        if not end_ts is None:
+            query = query.filter(table.c.start_date < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
         df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=['start_date','end_date'])
@@ -1322,6 +1385,7 @@ class OutlierRemover(BaseTransformer):
                                      np.where(df[self.source] <= self.max, df[self.source], np.nan), np.nan)
         return df
     
+
     
 class MergeActivityData(BaseDBActivityMerge):
     '''
@@ -1357,7 +1421,87 @@ class MergeActivityData(BaseDBActivityMerge):
                    "3": (21, 5.5)
                    } )
         self.resource_calendar['operator'] = 'operator_lookup'
+        
+        
+class MergeSampleTimeSeries(BaseLoader):
+    """
+    Merge the contents of a table containing time series data with entity source data
 
+    """
+    merge_method = 'nearest' #or outer, concat
+    #use concat when the source time series contains the same metrics as the entity type source data
+    #use nearest to align the source time series to the entity source data
+    #use outer to add new timestamps and metrics from the source
+    merge_nearest_tolerance = '1D'
+    merge_nearest_direction = 'nearest' 
+    db_credentials = {
+          "connection" : "dashdb",
+          "hostname": "dashdb-entry-yp-dal10-01.services.dal.bluemix.net",
+          "password": "iq__BljDTG34",
+          "port": 50000,
+          "host": "dashdb-entry-yp-dal10-01.services.dal.bluemix.net",
+          "db": "BLUDB",
+          "database": "BLUDB",
+          "username": "dash100277",
+          "tennant_id":"DEMO-AS"
+      }
+    source_table_name = 'sample_time_series'
+    source_entity_id = 'deviceid'
+    source_timestamp = 'evt_timestamp'
+    #metadata for generating sample
+    sample_metrics = ['temp','pressure','velocity']
+    sample_entities = ['entity1','entity2','entity3']
+    sample_initial_days = 3
+    sample_freq = '1min'
+    sample_incremental_min = 5
+    
+    def __init__(self, input_items, output_items=None):
+        self.input_items = output_items
+        self.output_items = output_items
+        super().__init__(input_items = input_items, output_items = output_items)
+        self.db = Database(credentials = self.db_credentials )
+
+    def get_data(self,start_ts=None,end_ts=None,entities=None):
+        
+        self.load_sample_data()
+        (query,table) = self.db.query(self.source_table_name)
+        if not start_ts is None:
+            query = query.filter(table.c.timestamp >= start_ts)
+        if not end_ts is None:
+            query = query.filter(table.c.timestamp < end_ts)  
+        if not entities is None:
+            query = query.filter(table.c.deviceid.in_(entities))
+        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self.source_timestamp])        
+        return df
+    
+    def load_sample_data(self):
+        
+        if not self.db.if_exists(self.source_table_name):
+            generator = TimeSeriesGenerator(metrics=self.sample_metrics,
+                                            ids = self.sample_entities,
+                                            freq = self.sample_freq,
+                                            days = self.sample_initial_days)
+        else:
+            generator = TimeSeriesGenerator(metrics=self.sample_metrics,
+                                            ids = self.sample_entities,
+                                            freq = self.sample_freq,
+                                            seconds = self.sample_incremental_min*60)
+            
+        df = generator.execute()
+        self.db.write_frame(df = df, table_name = self.source_table_name,
+                       version_db_writes = False,
+                       if_exists = 'append',
+                       chunksize = 1000 )
+        
+    def get_test_data(self):
+        
+        generator = TimeSeriesGenerator(metrics=['velocity'],
+                                        ids = self.sample_entities,
+                                        freq = self.sample_freq,
+                                        seconds = 300)
+        df = generator.execute()
+        df = df.set_index([self._entity_id,_timestamp])
+        return df
 
 class MultiplyArrayByConstant(BaseTransformer):
     '''
@@ -1479,7 +1623,65 @@ class MultiplyNItems(BaseTransformer):
         df[self.output_item] = df[self.input_items].product(axis=1)
         return df
 
+class TimeSeriesGenerator(BaseLoader):
 
+    ''' 
+    Used to generate sample data. Not a registerable function. Call from within a function. 
+    '''
+    
+    increase_per_day = 0.0001
+    noise = 0.1 
+    ref_date = dt.datetime.strptime('Jan 1 2018', '%b %d %Y')
+    day_harmonic = 0.1
+    day_of_week_harmonic = 0.2
+    
+    def __init__(self,metrics=None,ids=None,days=30,seconds=0,freq='1min'):
+    
+        if metrics is None:
+            metrics = ['x1','x2','x3']
+            
+        self.metrics = metrics
+        
+        if ids is None:
+            ids = ['sample_%s' %x for x in list(range(10))]
+        self.ids = ids
+        
+        self.days = 30
+        self.seconds = seconds
+        self.freq = freq
+        
+    def get_data(self,start_ts=None,end_ts=None,entities=None):
+        
+        end = dt.datetime.now()
+        start = end - dt.timedelta(days=self.days)
+        start = start - dt.timedelta(seconds=self.seconds)
+        
+        ts = pd.date_range(end=end,start=start,freq=self.freq)
+        rows = len(ts)
+        metrics_count = len(self.metrics)
+        noise = np.random.normal(0,1,(rows,metrics_count))
+        
+        df = pd.DataFrame(data=noise,columns=self.metrics)
+        df[self._entity_id] = np.random.choice(self.ids, rows)
+        df[self._timestamp] = ts
+        days_from_ref = (df[self._timestamp] - self.ref_date).dt.total_seconds() / (60*60*24)
+        day = df[self._timestamp].dt.day
+        day_of_week = df[self._timestamp].dt.dayofweek
+        
+        for m in self.metrics:
+            df[m] = df[m] + days_from_ref * self.increase_per_day
+            df[m] = df[m] + np.sin(day*4*math.pi/364.25) * self.day_harmonic
+            df[m] = df[m] + np.sin(day_of_week*2*math.pi/6) * self.day_harmonic
+            
+        df.set_index([self._entity_id,self._timestamp])
+        
+        return df
+    
+    def execute(self,df=None):
+        
+        df = self.get_data()
+        
+        return df
     
 class FillForwardByEntity(BaseTransformer):    
     '''
@@ -1557,7 +1759,7 @@ class ComputationsOnStringArray(BaseTransformer):
         
         data = {
                 'id' : [1,1,1,1,1,2,2,2,2,2],
-                'timestamp' : [
+                'evt_timestamp' : [
                         dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
