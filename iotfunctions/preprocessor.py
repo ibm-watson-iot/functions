@@ -67,6 +67,7 @@ class BaseFunction(object):
     out_table_if_exists = 'append'
     out_table_if_changed = 'replace'
     out_table_name = None 
+    write_chunk_size = 1000
     # registration metadata
     url = '<>'
     category = None
@@ -735,14 +736,7 @@ class BaseFunction(object):
         numerical status. 1 for successful write.
             
         '''
-        df = df.copy()
-        if version_db_writes is None:
-            version_db_writes = self.version_db_writes
-        if version_db_writes:
-            df['version_date'] = dt.datetime.now()
-            
-        if if_exists is None:
-            if_exists = self.out_table_if_exists           
+        df = df.copy()          
             
         if table_name is None:
             if self.out_table_prefix != '':
@@ -752,7 +746,10 @@ class BaseFunction(object):
                 
         if self.db is None:
             self.db = Database(credentials = db_credentials)
-        status = self.db.write_frame(df)
+        status = self.db.write_frame(df, table_name = table_name, 
+                                     version_db_writes = version_db_writes,
+                                     if_exists  = if_exists,
+                                     chunk_size = self.write_chunk_size)
         
         return status
 
