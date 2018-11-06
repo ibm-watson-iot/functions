@@ -1005,7 +1005,7 @@ class BaseDatabaseLookup(BaseTransformer):
                 self.create_lookup_table(df=df, table_name = self.lookup_table_name)
                 df = pd.read_sql(self.sql, connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
             else:
-                raise('Unable to retrieve data from lookup table using %s. Check that database table exists and credentials are correct. Include data in your function definition to automatically create a lookup table.' %sql)
+                raise('Unable to retrieve data from lookup table using %s. Check that database table exists and credentials are correct. Include data in your function definition to automatically create a lookup table.' %self.sql)
             
         df.columns = [x.lower() for x in list(df.columns)]
             
