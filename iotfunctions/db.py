@@ -158,12 +158,20 @@ class Database(object):
         '''
         status = 0
         df = df.reset_index()
+        # the column names id, timestamp and index are reserverd as level names. They are also reserved words
+        # in db2 so we don't use them in db2 tables.
+        # deviceid and evt_timestamp are used instead
+        if 'deviceid' not in df.columns and 'id' in df.columns:
+            df['deviceid'] = df['id']
+            df = df[[x for x in df.columns if x !='id']]
+        if 'evt_timestamp' not in df.columns and 'timestamp' in df.columns:
+            df['evt_timestamp'] = df['timestamp']
+            df = df[[x for x in df.columns if x !='timestamp']]
+        df = df[[x for x in df.columns if x !='index']]
         if version_db_writes:
             df['version_date'] = dt.datetime.now()
-        
         if table_name is None:
             raise ValueError('Function attempted to write data to a table. A name was not supplied. Specify an instance variable for out_table_name. Optionally include an out_table_prefix too')
-        
         dtypes = {}        
         #replace default mappings to clobs and booleans
         for c in list(df.columns):
@@ -171,7 +179,6 @@ class Database(object):
                 dtypes[c] = String(255)
             elif is_bool_dtype(df[c]):
                 dtypes[c] = SmallInteger()
-
         table_exists = False
         cols = None
         if if_exists == 'append':
@@ -190,8 +197,6 @@ class Database(object):
                     df = df[cols]
                 except KeyError:
                     raise KeyError('Dataframe does not have required columns %s' %cols)                
-                
-            
         self.start_session()
         try:        
             df.to_sql(name = table_name, con = self.connection, schema = self.schema,
@@ -201,13 +206,13 @@ class Database(object):
             raise
         finally:
             self.commit()
-        
         return status    
         
 class BaseTable(object):
 
     is_table = True
     _entity_id = 'deviceid'
+    _timestamp = 'evt_timestamp'
     
     def __init__ (self,name,database,*args, **kw):
         self.name = name
@@ -275,10 +280,10 @@ class ActivityTable(BaseTable):
         
     def __init__ (self,name,database,*args, **kw):
 
+        self.id_col = Column(self._entity_id,String(50))
         self.start_date = Column('start_date',DateTime)
         self.end_date = Column('end_date',DateTime)
         self.activity = Column('activity',String(255))
-        self.id_col = Column(self._entity_id,String(50))
         super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.activity, *args, **kw)
         
 class ResourceCalendarTable(BaseTable):
@@ -305,7 +310,7 @@ class TimeSeriesTable(BaseTable):
     def __init__ (self,name,database,*args, **kw):
 
         self.id_col = Column(self._entity_id,String(50))
-        self.timestamp = Column('timestamp',DateTime)
+        self.evt_timestamp = Column(self._timestamp,DateTime)
         self.device_type = Column('devicetype',String(50))
         self.logical_inteface = Column('logicalinterface_id',String(64))
         self.format = Column('format',String(64))

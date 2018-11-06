@@ -60,6 +60,7 @@ class BaseFunction(object):
     bucket = None #str
     # database connection
     db_credentials = None #dict
+    db = None
     # custom output tables
     version_db_writes = False #write a new version timestamp to custom output table with each execution
     out_table_prefix = None
@@ -79,9 +80,12 @@ class BaseFunction(object):
     # these associations may change over time.
     resource_calendar = {}
     _entity_resource_dict = {}
-    # mappings
+    # predefined column names
     _entity_id = 'deviceid'
     _timestamp = 'evt_timestamp'
+    # when entity id or timestamp are present in a dataframe index they have different names
+    _df_index_entity_id = 'id'
+    _df_index_timestamp = 'timestamp'
     
     
     def __init__(self):
@@ -284,17 +288,40 @@ class BaseFunction(object):
         '''
         Convert a comma delimited string to a list
         '''
-        
         out = string
-        
         if not string is None and isinstance(string, str):
             out = [n.strip() for n in string.split(',') if len(string.strip()) > 0]
-            
         if not argument in self.optionalItems and check_non_empty:
             if out is None or len(out) == 0:
                 raise ValueError("Required list output %s is null or empty" %argument)    
-            
         return out
+    
+    def conform_index(self,df,entity_id_col = None, timestamp_col = None):
+        '''
+        Dataframes that contain timeseries data are expected to be indexed on an id and timestamp
+        '''
+        if not df.index.names == [self._df_index_entity_id,self._df_index_timestamp]:            
+            if entity_id_col is None:
+                entity_id_col = self._entity_id
+            if timestamp_col is None:
+                timestamp_col = self._timestamp
+            try:
+                df[self._df_index_entity_id] = df[entity_id_col]
+                df[self._df_index_timestamp] = df[timestamp_col]
+            except KeyError:
+                try:
+                    df.rename_axis([self._df_index_entity_id,self._df_index_timestamp])  
+                except:
+                    msg = '''
+                    There is an error in the function code.
+                    A dataframe used in the function is being converted into standard form,
+                    but does not have a deviceid and timestamp column or a suitable existing multi-index.
+                    '''
+                    raise (msg)
+            else:
+                df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
+        
+        return df
             
     
     def _getJsonDataType(self,datatype):
@@ -562,7 +589,7 @@ class BaseFunction(object):
                     query = query.filter(table.c.start_date < end_ts)  
                 if not entities is None:
                     query = query.filter(table.c.deviceid.in_(entities))
-                df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=['start_date','end_date'])
+                df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
                 #build the resource assignment dict
                 x[resource] = self._partition_df_by_id(df)
             return x
@@ -670,7 +697,19 @@ class BaseFunction(object):
         itemDescriptions['output_items']= 'Item names for outputs produced by function'
         itemDescriptions['upper_threshold']= 'Upper threshold value for alert'
         
-        return itemDescriptions 
+        return itemDescriptions
+    
+    def rename_cols(self, df, input_names, output_names ):
+        '''
+        Rename columns using a list or original input names and a list of required output names.
+        '''
+        if len(input_names) != len(output_names):
+            raise ValueError('Error in function configuration. The number of values in an array output must match the inputs')
+        column_names = {}
+        for i, name in enumerate(input_names):
+            column_names[name] = output_names[i]
+        df = df.rename(columns=column_names)
+        return df
     
     def write_frame(self,df,
                     db_credentials = None,
@@ -840,13 +879,15 @@ class BaseLoader(BaseTransformer):
     #use concat when the source time series contains the same metrics as the entity type source data
     #use nearest to align the source time series to the entity source data
     #use outer to add new timestamps and metrics from the source
-    merge_nearest_tolerance = '1D'
+    merge_nearest_tolerance = pd.Timedelta('1D')
     merge_nearest_direction = 'nearest' #or backward,forward
     source_entity_id = 'deviceid'
     source_timestamp = 'evt_timestamp'
     
     def __init__(self, input_items, output_items=None):
-        self.input_items = output_items
+        self.input_items = input_items
+        if output_items is None:
+            output_items = [x for x in self.input_items]
         self.output_items = output_items
         super().__init__()
 
@@ -866,38 +907,27 @@ class BaseLoader(BaseTransformer):
         '''
         Retrieve data and combine with pipeline data
         '''
-        print(df)
         new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
-        print(new_df)
-        try:
-            new_df = new_df.rename_axis(df.index.names, axis = 0)
-        except ValueError:
-            #new_df is not indexed on entity id and timestamp
-            new_df = new_df.set_index([self.source_entity_id,self.source_timestamp])   
-            new_df = new_df.rename_axis(df.index.names, axis = 0)
-        print(new_df)
+        new_df = self.conform_index(new_df)
+        
         if self.merge_method == 'outer':        
             df = df.join(new_df,how='outer',sort=True)
         elif self.merge_method == 'nearest':        
             try:
-                df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp)
+                df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
             except ValueError:
-                new_df = new_df.sort_index()
+                new_df = new_df.sort_values([self._timestamp,self._entity_id])
                 try:
-                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp)
+                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
                 except ValueError:
-                    df = df.sort_index()
-                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp)
+                    df = df.sort_values([self._timestamp,self._entity_id])
+                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
         elif self.merge_method == 'concat':
             df = pd.concat([df,new_df],sort=True)
         else:
-            raise ValueError('Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
+            raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
     
-        column_names = {}
-        for i, name in enumerate(self.output_items):
-            column = new_df.columns[i]
-            column_names[column] = name
-        df = df.rename(columns=column_names)
+        df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
         
         return df
         
@@ -928,6 +958,11 @@ class BaseDatabaseLookup(BaseTransformer):
     """
     Base class for lookup functions.
     """
+    
+    #optionally provide sample data for lookup
+    #this data will be used to create a new lookup function
+    #data should be provided as a dictionary and used to create a DataFrame
+    data = None
     
     def __init__(self,
                  lookup_table_name,
@@ -967,10 +1002,13 @@ class BaseDatabaseLookup(BaseTransformer):
         try:
             df = pd.read_sql(self.sql, con = connection, index_col=lup_keys, parse_dates=date_cols)
         except :
-            df = pd.DataFrame(data=self.data)
-            df = df.set_index(keys=self.lookup_keys)
-            self.create_lookup_table(df=df, table_name = self.lookup_table_name)
-            df = pd.read_sql(self.sql, connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
+            if not self.data is None:
+                df = pd.DataFrame(data=self.data)
+                df = df.set_index(keys=self.lookup_keys)
+                self.create_lookup_table(df=df, table_name = self.lookup_table_name)
+                df = pd.read_sql(self.sql, connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
+            else:
+                raise('Unable to retrieve data from lookup table using %s. Check that database table exists and credentials are correct. Include data in your function definition to automatically create a lookup table.' %sql)
             
         df.columns = [x.lower() for x in list(df.columns)]
             
@@ -990,10 +1028,7 @@ class BaseDatabaseLookup(BaseTransformer):
             raise RuntimeError('length of names (%d) is larger than the length of query result (%d)' % (len(self.names), len(df_sql)))
 
         df = df.join(df_sql,on= self.lookup_keys, how='left')
-
-        renamed_cols = {df_sql.columns[idx]: name for idx, name in enumerate(self.output_items)}
-        df = df.rename(columns=renamed_cols)
-        
+        df = self.rename_cols(df,input_names = self.lookup_items,output_names=self.output_items)
 
         return df
     
@@ -1021,6 +1056,12 @@ class BaseDBActivityMerge(BaseLoader):
     custom_calendar = None
     # optionally align with one or more resource calendar
     remove_gaps = True
+    # column name metadata
+    # the start and end dates for activities are assumed to be designated by specific columns
+    # the type of activity performed on or using an entity is designated by the 'activity' column
+    _start_date = 'start_date'
+    _end_date = 'end_date'
+    _activity = 'activity'
     
     def __init__(self,input_activities,activity_duration=None):
     
@@ -1044,17 +1085,17 @@ class BaseDBActivityMerge(BaseLoader):
                                    start_ts = start_ts,
                                    end_ts = end_ts,
                                    entities = entities)
-                af["activity"] = a
+                af[self._activity] = a
                 dfs.append(af)
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
                 try:
-                    af = pd.read_sql(sql, con = self.db.connection,  parse_dates=['start_date','end_date'])
+                    af = pd.read_sql(sql, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
                 except:
                     logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
                     logger.warning(sql)
                     raise 
-                af["activity"] = activity
+                af[self._activity] = activity
                 dfs.append(af)      
         
         adf = pd.concat(dfs,sort=False)
@@ -1062,12 +1103,12 @@ class BaseDBActivityMerge(BaseLoader):
         self.add_dates = []
         self.custom_calendar_df = None
         if not self.custom_calendar is None:
-            self.custom_calendar_df = self.custom_calendar.get_data(start_date= adf['start_date'].min(), end_date = adf['end_date'].max())
+            self.custom_calendar_df = self.custom_calendar.get_data(start_date= adf[self._start_date].min(), end_date = adf[self._end_date].max())
             add_dates = set(self.custom_calendar_df.index.tolist())
-            add_dates |= set(self.custom_calendar_df['end_date'].tolist())
+            add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
             self.add_dates = list(add_dates)
         #get resource assignment changes
-        self._entity_resource_dict = self._get_resource_assignment(start_ts= adf['start_date'].min(), end_ts = adf['end_date'].max(),entities=entities)
+        self._entity_resource_dict = self._get_resource_assignment(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
         #
         group_base = []
         for s in self.execute_by:
@@ -1084,12 +1125,12 @@ class BaseDBActivityMerge(BaseLoader):
         if len(group_base)>0:
             adf = adf.groupby(group_base).apply(self._combine_activities)             
         else:
-            raise ValueError('This function executes by entity. execute_by should be ['<id_column>']')
+            raise ValueError('This function executes by entity. execute_by should be "id"')
             
-        adf['duration'] = (adf['end_date'] - adf['start_date']).dt.total_seconds() / 60
+        adf['duration'] = (adf[self._end_date] - adf[self._start_date]).dt.total_seconds() / 60
             
         pivot_start = PivotRowsToColumns(
-                pivot_by_item = 'activity',
+                pivot_by_item = self._activity,
                 pivot_values = self.input_activities,
                 input_item='duration',
                 null_value=None,
@@ -1114,49 +1155,49 @@ class BaseDBActivityMerge(BaseLoader):
         early_date = pd.Timestamp.min
         late_date = pd.Timestamp.max
         
-        df = df.sort_values(['start_date'])
+        df = df.sort_values([self._start_date])
         #create a new start date for each potential interruption of the continuous range
         dates = set([early_date,late_date])
-        dates |= set((df['start_date'].tolist()))
-        dates |= set((df['end_date'].tolist()))
+        dates |= set((df[self._start_date].tolist()))
+        dates |= set((df[self._end_date].tolist()))
         dates |= set(self.add_dates)
         #resource calendar changes are another potential interruption
         for resource,entity_data in list(self._entity_resource_dict.items()):
-            dates |= set(entity_data[entity]['start_date'])
+            dates |= set(entity_data[entity][self._start_date])
         dates = list(dates)
         dates.sort()
         #initialize series to track history of activities
         c = pd.Series(data='_gap_',index = dates)
         c.index = pd.to_datetime(c.index)
-        c.name = 'activity'
-        c.index.name = 'start_date'
+        c.name = self._activity
+        c.index.name = self._start_date
         #use original data to update the new set of intervals in slices
         for index, row in df.iterrows():
-            end_date = row['end_date'] - dt.timedelta(seconds=1)
-            c[row['start_date']:end_date] = row['activity']    
+            end_date = row[self._end_date] - dt.timedelta(seconds=1)
+            c[row[self._start_date]:end_date] = row[self._activity]    
         df = c.to_frame().reset_index()
         #add custom calendar data
         if not self.custom_calendar_df is None:
-            cols = [x for x in self.custom_calendar_df.columns if x != 'end_date']
-            df = df.join(self.custom_calendar_df[cols], how ='left', on = 'start_date')
+            cols = [x for x in self.custom_calendar_df.columns if x != self._end_date]
+            df = df.join(self.custom_calendar_df[cols], how ='left', on = self._start_date)
             df['shift_id'] = df['shift_id'].fillna(method='ffill')
             df['shift_day'] = df['shift_day'].fillna(method='ffill')
-            df['activity'].fillna(method='ffill')
+            df[self._activity].fillna(method='ffill')
         #perform resource lookup
         for resource,entity_data in list(self._entity_resource_dict.items()):
             dfr = entity_data[entity]
             resource_data = dfr['resource_id']
-            resource_data.index = dfr['start_date']
+            resource_data.index = dfr[self._start_date]
             resource_data.name = resource
-            df = df.join(resource_data, how ='left', on = 'start_date')
+            df = df.join(resource_data, how ='left', on = self._start_date)
             df[resource] = df[resource].fillna(method='ffill')
         #add end dates
-        df['end_date'] = df['start_date'].shift(-1)
-        df['end_date'] = df['end_date'] - dt.timedelta(seconds=1)
+        df[self._end_date] = df[self._start_date].shift(-1)
+        df[self._end_date] = df[self._end_date] - dt.timedelta(seconds=1)
         
         #remove gaps
         if self.remove_gaps:
-            df = df[df['activity']!='_gap_']
+            df = df[df[self._activity]!='_gap_']
         
         return df          
             
@@ -1189,7 +1230,7 @@ class BaseDBActivityMerge(BaseLoader):
             query = query.filter(table.c.start_date < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=['start_date','end_date'])
+        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
         return df
         
 
@@ -1432,7 +1473,7 @@ class MergeSampleTimeSeries(BaseLoader):
     #use concat when the source time series contains the same metrics as the entity type source data
     #use nearest to align the source time series to the entity source data
     #use outer to add new timestamps and metrics from the source
-    merge_nearest_tolerance = '1D'
+    merge_nearest_tolerance = pd.Timedelta('1D')
     merge_nearest_direction = 'nearest' 
     db_credentials = {
           "connection" : "dashdb",
@@ -1456,8 +1497,6 @@ class MergeSampleTimeSeries(BaseLoader):
     sample_incremental_min = 5
     
     def __init__(self, input_items, output_items=None):
-        self.input_items = output_items
-        self.output_items = output_items
         super().__init__(input_items = input_items, output_items = output_items)
         self.db = Database(credentials = self.db_credentials )
 
@@ -1495,12 +1534,12 @@ class MergeSampleTimeSeries(BaseLoader):
         
     def get_test_data(self):
         
-        generator = TimeSeriesGenerator(metrics=['velocity'],
+        generator = TimeSeriesGenerator(metrics=['acceleration'],
                                         ids = self.sample_entities,
                                         freq = self.sample_freq,
                                         seconds = 300)
         df = generator.execute()
-        df = df.set_index([self._entity_id,_timestamp])
+        df = self.conform_index(df)
         return df
 
 class MultiplyArrayByConstant(BaseTransformer):
