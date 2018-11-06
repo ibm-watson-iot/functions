@@ -745,7 +745,7 @@ class BaseFunction(object):
                 table_name='%s_%s' %(self.out_table_prefix, self.out_table_name)
             else:
                 table_name = self.out_table_name
-                
+    
         if self.db is None:
             self.db = Database(credentials = db_credentials)
         status = self.db.write_frame(df, table_name = table_name, 
@@ -979,9 +979,9 @@ class BaseDatabaseLookup(BaseTransformer):
         self.db = Database(credentials = self.db_credentials )
         #drive the output cardinality and data type from the items choosen for the lookup
         self.itemArraySource['output_items'] = 'lookup_items'
-        self.lookup_keys = self.convertStrArgToList(lookup_keys,argument = 'lookup_keys', check_non_empty = True)
+        self.lookup_keys = lookup_keys
         self.itemMaxCardinality['lookup_keys'] = len(self.lookup_keys)
-        self.parse_dates = self.convertStrArgToList(parse_dates, argument = 'parse_dates', check_non_empty = False) 
+        self.parse_dates = parse_dates 
         cols =  self.get_lookup_columns(connection=self.db.connection)
         if lookup_items is None:
             lookup_items = cols
@@ -1015,10 +1015,7 @@ class BaseDatabaseLookup(BaseTransformer):
         '''
         Execute transformation function of DataFrame to return a DataFrame
         '''
-        lup_keys = [x.upper() for x in self.lookup_keys]
-        date_cols = [x.upper() for x in self.parse_dates]
-        df_sql = pd.read_sql(self.sql, self.db.connection, index_col=lup_keys, parse_dates=date_cols)
-        df_sql.columns = [x.lower() for x in list(df_sql.columns)]
+        df_sql = pd.read_sql(self.sql, self.db.connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
         df_sql = df_sql[self.lookup_items]
                 
         if len(self.output_items) > len(df_sql.columns):
@@ -1803,10 +1800,11 @@ class ComputationsOnStringArray(BaseTransformer):
 class WriteDataFrame(BaseTransformer):
     '''
     Write the current contents of the pipeline to a database table
-    '''
-    
+    '''    
     url = PACKAGE_URL
     out_table_prefix = ''
+    version_db_writes = False
+    out_table_if_exists = 'append'
 
     def __init__(self, input_items, out_table_name, output_status= 'output_status', db_credentials=None):
         self.input_items = input_items
@@ -1817,7 +1815,8 @@ class WriteDataFrame(BaseTransformer):
         
     def execute (self, df):
         df = df.copy()
-        df[self.output_status] = self.write_frame(df=df[self.input_items])
+        df[self.output_status] = self.write_frame(df=df[self.input_items]        
+        )
         return df
     
     
