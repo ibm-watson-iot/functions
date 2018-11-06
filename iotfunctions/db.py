@@ -156,7 +156,6 @@ class Database(object):
         numerical status. 1 for successful write.
             
         '''
-        status = 0
         df = df.reset_index()
         # the column names id, timestamp and index are reserverd as level names. They are also reserved words
         # in db2 so we don't use them in db2 tables.
@@ -206,7 +205,7 @@ class Database(object):
             raise
         finally:
             self.commit()
-        return status    
+        return 1    
         
 class BaseTable(object):
 
