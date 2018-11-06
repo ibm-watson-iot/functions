@@ -749,7 +749,7 @@ class BaseFunction(object):
         status = self.db.write_frame(df, table_name = table_name, 
                                      version_db_writes = version_db_writes,
                                      if_exists  = if_exists,
-                                     chunk_size = self.write_chunk_size)
+                                     chunksize = self.write_chunk_size)
         
         return status
 
