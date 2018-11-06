@@ -40,17 +40,22 @@ class Database(object):
         #If explicit credentials provided these allow connection to a db other than the ICS one.
         if not credentials is None:
             connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(credentials['username'],credentials['password'],credentials['host'],credentials['port'],credentials['database'])
-            self.connection =  create_engine(connection_string, echo = echo)
+            
         else:
             # look for environment vaiable for the ICS DB2
             try:
+               msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
                connection_string = os.environ.get('DB_CONNECTION_STRING')
             except KeyError:
-                raise ValueError('Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set')
+                raise ValueError(msg)
             else:
-               ibm_connection = ibm_db.connect(connection_string, '', '')
-               self.connection = ibm_db_dbi.Connection(ibm_connection)
-            
+               if not connection_string is None:
+                   ev = dict(item.split("=") for item in connection_string[:-1].split(";"))
+                   connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
+               else:
+                   raise ValueError(msg)
+                   
+        self.connection =  create_engine(connection_string, echo = echo)
         self.Session = sessionmaker(bind=self.connection)
         
         if start_session:

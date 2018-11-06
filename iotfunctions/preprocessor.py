@@ -1430,17 +1430,6 @@ class MergeActivityData(BaseDBActivityMerge):
     Merge data from multiple tables containing activities with start and end dates
     '''
     execute_by = ['deviceid']
-    db_credentials = {
-          "connection" : "dashdb",
-          "hostname": "dashdb-entry-yp-dal10-01.services.dal.bluemix.net",
-          "password": "iq__BljDTG34",
-          "port": 50000,
-          "host": "dashdb-entry-yp-dal10-01.services.dal.bluemix.net",
-          "db": "BLUDB",
-          "database": "BLUDB",
-          "username": "dash100277",
-          "tennant_id":"DEMO-AS"
-      }
     
     def __init__(self,input_activities,
                  activity_duration=None):
@@ -1472,17 +1461,6 @@ class MergeSampleTimeSeries(BaseLoader):
     #use outer to add new timestamps and metrics from the source
     merge_nearest_tolerance = pd.Timedelta('1D')
     merge_nearest_direction = 'nearest' 
-    db_credentials = {
-          "connection" : "dashdb",
-          "hostname": "dashdb-entry-yp-dal10-01.services.dal.bluemix.net",
-          "password": "iq__BljDTG34",
-          "port": 50000,
-          "host": "dashdb-entry-yp-dal10-01.services.dal.bluemix.net",
-          "db": "BLUDB",
-          "database": "BLUDB",
-          "username": "dash100277",
-          "tennant_id":"DEMO-AS"
-      }
     source_table_name = 'sample_time_series'
     source_entity_id = 'deviceid'
     source_timestamp = 'evt_timestamp'
