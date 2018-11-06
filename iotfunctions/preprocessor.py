@@ -715,8 +715,7 @@ class BaseFunction(object):
                     db_credentials = None,
                     table_name=None, 
                     version_db_writes = None,
-                    if_exists = None,
-                    if_changed = None):
+                    if_exists = None):
         '''
         Write a dataframe to a database table
         
@@ -743,18 +742,17 @@ class BaseFunction(object):
             df['version_date'] = dt.datetime.now()
             
         if if_exists is None:
-            if_exists = self.out_table_if_exists
-        if if_changed is None:
-            if_changed = self.out_table_if_changed            
+            if_exists = self.out_table_if_exists           
             
         if table_name is None:
             if self.out_table_prefix != '':
                 table_name='%s_%s' %(self.out_table_prefix, self.out_table_name)
             else:
                 table_name = self.out_table_name
-        
-        status = self.db.write_frame(
-                )
+                
+        if self.db is None:
+            self.db = Database(credentials = db_credentials)
+        status = self.db.write_frame(df)
         
         return status
 
@@ -1069,7 +1067,7 @@ class BaseDBActivityMerge(BaseLoader):
         self.activity_duration = activity_duration
         super().__init__(input_items = input_activities , output_items = None)
         #for any function that requires database access, create a database object
-        self.db = Database(credentials = self.db_credentials, echo = True)
+        self.db = Database(credentials = self.db_credentials)
         
     def get_data(self,df,
                     start_ts= None,
@@ -1838,7 +1836,6 @@ class WriteDataFrame(BaseTransformer):
         self.output_status = output_status
         self.db_credentials = db_credentials
         self.out_table_name = out_table_name
-        
         super().__init__()
         
     def execute (self, df):
