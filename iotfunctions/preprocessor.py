@@ -65,7 +65,6 @@ class BaseFunction(object):
     version_db_writes = False #write a new version timestamp to custom output table with each execution
     out_table_prefix = None
     out_table_if_exists = 'append'
-    out_table_if_changed = 'replace'
     out_table_name = None 
     write_chunk_size = 1000
     # registration metadata
@@ -736,7 +735,10 @@ class BaseFunction(object):
         numerical status. 1 for successful write.
             
         '''
-        df = df.copy()          
+        df = df.copy()
+        
+        if if_exists is None:
+            if_exists = self.out_table_if_exists
             
         if table_name is None:
             if self.out_table_prefix != '':
