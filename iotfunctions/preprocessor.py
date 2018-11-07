@@ -68,7 +68,7 @@ class BaseFunction(object):
     out_table_name = None 
     write_chunk_size = 1000
     # registration metadata
-    url = '<>'
+    url = PACKAGE_URL
     category = None
     incremental_update = True
     # status
@@ -134,9 +134,6 @@ class BaseFunction(object):
             
         if self.execute_by is None:
             self.execute_by = []   
-            
-        if self.url is None:
-            self.url = PACKAGE_URL
 
         if self.tags is None:
             self.tags = []  
@@ -921,14 +918,19 @@ class BaseLoader(BaseTransformer):
                     df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
         elif self.merge_method == 'concat':
             df = pd.concat([df,new_df],sort=True)
+        elif self.merge_method == 'replace':
+            orginal_df = df
+            df = new_df
+            #add back item names from the original df so that they don't vanish from the pipeline
+            for i in orginal_df.columns:
+                if i not in df.columns:
+                    df[i] = orginal_df[i].max() #preserve type. value is not important
         else:
             raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
     
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
         
         return df
-        
-
 
 
 class BaseEvent(BaseTransformer):
@@ -1041,7 +1043,6 @@ class BaseDBActivityMerge(BaseLoader):
     To make allowance for thise slowly changing dimenions, you may include a customer calendar lookup and one or more resource lookups
     '''
     
-    url = PACKAGE_URL
     # automatically build queries to merge in data from one or more db.ActivityTable
     activities_metadata = {}
     # merge in data from one or more custom sql statement
@@ -1233,7 +1234,6 @@ class AlertThreshold(BaseEvent):
     Fire alert when metric exceeds an upper threshold or drops below a lower_theshold. Specify at least on threshold.
     """
     
-    url = PACKAGE_URL
     optionalItems = ['lower_threshold','upper_threshold']     
     
     def __init__ (self,input_item, lower_threshold=None, upper_threshold=None,
@@ -1258,15 +1258,50 @@ class AlertThreshold(BaseEvent):
         if not self.upper_threshold is None:
             df[self.output_alert_upper] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
             
-        return df    
+        return df
+    
+class CustomSource(BaseLoader):
+    """
+    Replace the automatically retrieved entity source data with new data delivered by function
+    """
+    merge_method = 'replace'
+    days = 7
+    freq = '1min' 
+    ids = [str(7300 + x) for x in list(range(5))]
+    
+    def __init__ (self, input_items, output_items=None):
+        super().__init__(input_items = input_items, output_items = output_items)
+        
+    def get_data(self,
+                 start_ts= None,
+                 end_ts= None,
+                 entities = None):
+        '''
+        This sample builds data with the TimeSeriesGenerator. You can get data from anywhere 
+        using a custom source function. When the engine executes get_data(), after initial load
+        it will pass a start date as it will be looking for data added since the last 
+        checkpoint.
+        
+        The engine may also pass a set of entity ids to retrieve data for. Since this is a 
+        custom source we will ignore the entity list provided by the engine.
+        '''
+        if start_ts is None:
+            days = self.days
+            seconds = 0
+        else:
+            days = 0
+            seconds = (dt.datetime.now - start_ts).total_seconds()
+        
+        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
+        df = ts.execute()
+        return df
     
 
 class ExecuteFunctionSingleOut(BaseTransformer):
     """
     Execute a serialized function retrieved from cloud object storage. Function returns a single output.
     """ 
-    
-    url = PACKAGE_URL
+
     optionalItems = ['parameters','bucket']       
     
     def __init__(self,function_name,cos_credentials,input_items,output_item,parameters=None,bucket=None):
@@ -1310,7 +1345,6 @@ class LookupCompany(BaseDatabaseLookup):
     """
     Lookup Company information from a database table        
     """
-    url = PACKAGE_URL
 
     def __init__ (self, company_key , lookup_items= None, output_items=None):
         
@@ -1366,8 +1400,6 @@ class NegativeRemover(BaseTransformer):
     '''
     Replace negative values with NaN
     '''
-    
-    url = PACKAGE_URL
 
     def __init__(self, names, sources=None):
         if names is None:
@@ -1392,8 +1424,6 @@ class OutlierRemover(BaseTransformer):
     '''
     Replace values outside of a threshold with NaN
     '''
-    
-    url = PACKAGE_URL
 
     def __init__(self, name, source, min, max):
         if name is None:
@@ -1520,8 +1550,6 @@ class MultiplyArrayByConstant(BaseTransformer):
     The names of the new output columns are defined in a list(array) rather than as discrete parameters.
     '''
     
-    url = PACKAGE_URL
-    
     def __init__(self, input_items, constant, output_items):
                 
         self.input_items = input_items
@@ -1541,8 +1569,6 @@ class MultiplyByTwo(BaseTransformer):
     Multiply input column by 2 to produce output column
     '''
     
-    url = PACKAGE_URL
-    
     def __init__(self, input_item, output_item = 'output_item'):
         
         self.input_item = input_item
@@ -1559,8 +1585,6 @@ class MultiplyByConstant(BaseTransformer):
     '''
     Multiply input column by a constant to produce output column
     '''
-    
-    url = PACKAGE_URL
     
     def __init__(self, input_item, constant, output_item = 'output_item'):
                 
@@ -1579,8 +1603,6 @@ class MultiplyByConstantPicklist(BaseTransformer):
     '''
     Multiply input value by a constant that will be entered via a picklist.
     '''
-    
-    url = PACKAGE_URL
     
     def __init__(self, input_item, constant, output_item = 'output_item'):
                 
@@ -1601,8 +1623,6 @@ class MultiplyTwoItems(BaseTransformer):
     Multiply two input items together to produce output column
     '''
     
-    url = PACKAGE_URL
-    
     def __init__(self, input_item_1, input_item_2, output_item = 'output_item'):
         self.input_item_1 = input_item_1
         self.input_item_2 = input_item_2
@@ -1619,8 +1639,6 @@ class MultiplyNItems(BaseTransformer):
     '''
     Multiply multiple items together to produce output column
     '''
-    
-    url = PACKAGE_URL
     
     def __init__(self, input_items, output_item = 'output_item'):
     
@@ -1698,8 +1716,7 @@ class FillForwardByEntity(BaseTransformer):
     '''
     Fill null values forward from last item for the same entity instance
     '''
-    
-    url = PACKAGE_URL
+
     execute_by = ['id']
     
     def __init__(self, input_item, output_item = 'output_item'):
@@ -1718,8 +1735,6 @@ class InputsAndOutputsOfMultipleTypes(BaseTransformer):
     '''
     This sample function is just a pass through that demonstrates the use of multiple datatypes for inputs and outputs
     '''
-    
-    url = PACKAGE_URL
     
     def __init__(self, input_number,input_date, input_str, 
                  output_number = 'output_number',
@@ -1745,7 +1760,6 @@ class ComputationsOnStringArray(BaseTransformer):
     '''
     Perform computation on a string that contains a comma separated list of values
     '''
-    url = PACKAGE_URL
     # The metadata describes what columns of data are included in the array
     column_metadata = ['x1','x2','x3','x4','x5']
     
@@ -1801,7 +1815,6 @@ class WriteDataFrame(BaseTransformer):
     '''
     Write the current contents of the pipeline to a database table
     '''    
-    url = PACKAGE_URL
     out_table_prefix = ''
     version_db_writes = False
     out_table_if_exists = 'append'
@@ -1824,8 +1837,6 @@ class PivotRowsToColumns(BaseTransformer):
     '''
     Produce a column of data for each instance of a particular categoric value present
     '''
-    
-    url = PACKAGE_URL
     
     def __init__(self, pivot_by_item, pivot_values, input_item=True, null_value=False, output_items = None):
         
@@ -1871,8 +1882,6 @@ class FlowRateMonitor(BaseTransformer):
     '''
     Check for leaks and other flow irregularies by comparing input flows with output flows
     '''
-    
-    url = PACKAGE_URL
 
     def __init__(self, input_flows, output_flows, loss_threshold = 0.005 , output = 'output' ):
         
