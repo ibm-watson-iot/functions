@@ -919,7 +919,7 @@ class BaseLoader(BaseTransformer):
         # define the list of values for the picklist of input items in the UI
         cols = self.get_input_item_values()
         if not cols is None:
-            self.itemValues['lookup_items'] = cols
+            self.itemValues['input_items'] = cols
 
     def _set_dms(self, dms):
         self.db.connection = dms
@@ -1376,6 +1376,9 @@ class TempPressureVolumeGenerator(InputDataGenerator):
         super().__init__(input_items = input_items, output_items = output_items)
         
     def get_input_item_values(self):
+        
+        msg = 'Got predefined values for input_items %s' %self.generate_items
+        logger.debug(msg)
         
         return self.generate_items
     
