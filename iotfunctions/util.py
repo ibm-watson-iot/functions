@@ -17,6 +17,8 @@ import ibm_boto3
 from ibm_boto3.s3.transfer import S3Transfer
 from ibm_botocore.client import Config
 
+logger = logging.getLogger(__name__)
+
 def cosSave(obj,bucket,filename,credentials):
     try:
         fhandle, fname = tempfile.mkstemp("cosfile")

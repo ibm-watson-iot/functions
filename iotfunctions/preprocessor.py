@@ -11,13 +11,14 @@
 import math
 import os
 import urllib3
+import numbers
+import datetime as dt
+import logging
+import warnings
 import json
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-import numbers
-import datetime as dt
-import logging
 import ibm_db
 import ibm_db_dbi
 from sqlalchemy.types import String,SmallInteger
@@ -171,9 +172,6 @@ class BaseFunction(object):
         if name is None:
             name = self.name
             
-        if constants is None:
-            constants = []
-            
         if module is None:
             module = self.__class__.__module__
             
@@ -186,14 +184,6 @@ class BaseFunction(object):
         if incremental_update is None:
             incremental_update = self.incremental_update
             
-        if constants is None:
-            constants = self.constants
-
-        if constants is None:
-            constants = self.constants
-
-        if outputs is None:
-            outputs = self.outputs
             
         (metadata_input,metadata_output) = self._getMetadata(df=df,outputs=outputs,constants = constants, inputs = self.inputs)
 
@@ -208,7 +198,8 @@ class BaseFunction(object):
         exec_str_ver = 'import %s as import_test' %(module.split('.', 1)[0])
         exec(exec_str_ver)
         version = eval('import_test.__version__')
-        print ('Test import succeeded for function version %s using %s' %(version,exec_str))
+        msg = 'Test import succeeded for function version %s using %s' %(version,exec_str)
+        logger.debug(msg)
         
         payload = {
             'name': name,
@@ -238,9 +229,11 @@ class BaseFunction(object):
         if not metadata_only:
             url = 'http://%s/api/catalog/v1/%s/function/%s' %(as_api_host,credentials['tennant_id'],name)
             r = http.request("DELETE", url, body = encoded_payload, headers=headers)
-            print ('Function registration deletion status: ',r.data.decode('utf-8'))
+            msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+            logger.info(msg)
             r = http.request("PUT", url, body = encoded_payload, headers=headers)     
-            print ('Function registration status: ',r.data.decode('utf-8'))
+            msg = 'Function registration status: %s' %(r.data.decode('utf-8'))
+            logger.info(msg)
             return r.data.decode('utf-8')
         else:
             return encoded_payload
@@ -347,13 +340,11 @@ class BaseFunction(object):
         """
           
         if inputs is None:
-            inputs = []
-            
+            inputs = self.inputs
         if outputs is None:
-            outputs = []            
-        
+            outputs = self.outputs        
         if constants is None:
-            constants = []
+            constants = self.constants
         
         #run the function to produce a new dataframe that contains the function outputs
         if not df is None:
@@ -366,8 +357,7 @@ class BaseFunction(object):
                 raise ValueError('Could not locate output columns in the test dataframe. Check the execute method of the function to ensure that it returns a dataframe with output columns that are named differently from the input columns')
         else:
             tf = None
-            #TBD expect all inputs, outputs and constants to be explicitly defined
-            raise NotImplementedError('Must supply a test dataframe for function registration. Explict metadata definited not suported')
+            raise NotImplementedError('Must supply a test dataframe for function registration. Explict metadata definition not suported')
         
         metadata_inputs = {}
         metadata_outputs = {}
@@ -378,7 +368,7 @@ class BaseFunction(object):
         #introspect function to get a list of argumnents
         args = (getargspec(self.__init__))[0][1:]        
         for a in args:
-            #identify which arguments are inputs, which are ouputs and which are constants
+            #identify which arguments are inputs, which are outputs and which are constants
             try:
                 arg_value = eval('self.%s' %a)
             except AttributeError:
@@ -405,6 +395,8 @@ class BaseFunction(object):
 
             is_added = False
             argtype = self._infer_type(arg_value)
+            msg = 'Evaluating argument %s with data type %s. Array: %s' %(a,argtype,is_array)
+            logger.debug(msg)
             #check if parameter has been modeled explictly
             if a in constants:
                 datatype = self._infer_type(arg_value,df=None)
@@ -419,6 +411,8 @@ class BaseFunction(object):
                     column_metadata['required'] = True
                     min_items = 1
                 is_added = True
+                msg = 'Argument %s was explicitlty defined as %s' %(a,column_metadata['type'])
+                logger.debug(msg)
             elif a in outputs:
                 datatype = self._infer_type(arg_value,df=tf)
                 column_metadata['dataType'] = datatype
@@ -426,6 +420,8 @@ class BaseFunction(object):
                     column_metadata['description'] = 'Provide a new data item name for the function output'
                 metadata_outputs[a] = column_metadata
                 is_added = True
+                msg = 'Argument %s was explicitlty defined as output with datatype %s' %(a,column_metadata['dataType'])
+                logger.debug(msg)
             elif a in inputs:
                 column_metadata['type'] = 'DATA_ITEM' 
                 datatype = self._infer_type(arg_value,df=df)
@@ -439,6 +435,9 @@ class BaseFunction(object):
                     column_metadata['required'] = True
                     min_items = 1                
                 is_added = True
+                msg = 'Argument %s was explicitlty defined as %s' %(a,column_metadata['type'])
+                logger.debug(msg)                
+
             #if argument is a number, date or dict it must be a constant
             elif argtype in ['NUMBER','JSON','BOOLEAN','TIMESTAMP']:
                 datatype = argtype
@@ -452,7 +451,9 @@ class BaseFunction(object):
                 else:
                     column_metadata['required'] = True
                     min_items = 1                
-                is_added = True                
+                is_added = True 
+                msg = 'Argument %s is not a string so it must be constant of type %s' %(a,column_metadata['dataType'])
+                logger.debug(msg)                 
             #look for items in the input and output dataframes
             elif not is_array:
                 #look for value in test df and test outputs
@@ -468,7 +469,9 @@ class BaseFunction(object):
                         column_metadata['required'] = False
                     else:
                         column_metadata['required'] = True
-                        min_items = 1                    
+                        min_items = 1
+                    msg = 'Non array argument %s exists in the test input dataframe so it is a data item of type %s' %(a,column_metadata['dataType'])
+                    logger.debug(msg)                                         
                 elif arg_value in test_outputs:
                     datatype = self._infer_type(arg_value,df=tf)
                     column_metadata['dataType'] = datatype
@@ -476,6 +479,8 @@ class BaseFunction(object):
                         column_metadata['description'] = 'Provide a new data item name for the function output'
                     metadata_outputs[a] = column_metadata    
                     is_added = True
+                    msg = 'Non array argument %s exists in the test output dataframe so it is a data item of type %s' %(a,column_metadata['dataType'])
+                    logger.debug(msg)                                                             
             elif is_array:
                 #look for contents of list in test df and test outputs
                 if all(elem in df.columns for elem in arg_value):
@@ -491,6 +496,8 @@ class BaseFunction(object):
                     else:
                         column_metadata['required'] = True
                         min_items = 1
+                    msg = 'Array argument %s exists in the test input dataframe so it is a data item of type %s' %(a,column_metadata['dataType'])
+                    logger.debug(msg)                                                                                                             
                 elif all(elem in test_outputs for elem in arg_value):
                     datatype = self._infer_type(arg_value,df=tf)
                     if column_metadata['description'] is None:
@@ -498,6 +505,8 @@ class BaseFunction(object):
                     metadata_outputs[a] = column_metadata
                     array_outputs.append((a,len(arg_value)))
                     is_added = True
+                    msg = 'Array argument %s exists in the test output dataframe so it is a data item' %(a)
+                    logger.debug(msg)                                                                                                                                 
                 #arrays are specical. They need a json schema.
                 column_metadata['dataType'] = 'ARRAY'
                 if not datatype is None:
@@ -527,6 +536,8 @@ class BaseFunction(object):
                 column_metadata['description'] = 'Supply a constant input parameter of type %s' %datatype 
                 column_metadata['type'] = 'CONSTANT'
                 metadata_inputs[a] = column_metadata
+                msg = 'Argument %s is assumed to be a constant of type %s by ellimination' %(a,datatype)
+                logger.debug(msg)  
             
             #constants may have explict values
             try:
@@ -538,25 +549,35 @@ class BaseFunction(object):
                     try:
                         values = self.itemValues[a]
                     except KeyError:
-                        pass
+                        msg = 'Constant argument %s is has no explicit values defined for it' %a
+                        logger.debug(msg)
+                        if is_array:
+                            msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the set_values() method' %a
+                            warnings.warn(msg)
                     else:
                         column_metadata['values'] = values
+                        msg = 'Constant argument %s is has explicit values defined for it %s' %(a, values)
+                        logger.debug(msg)
                                            
             #json schema may have been explicitly defined                
             try:
                column_metadata['jsonSchema'] = self.itemJsonSchema[a] 
             except KeyError:
-                pass
+                msg = 'Argument %s is has no explicit json schema defined for it' %(a)
+                logger.debug(msg)                
+            else:
+                msg = 'Argument %s is has explicit json schema defined for it %s' %a, self.itemJsonSchema[a]
+                logger.debug(msg)
                 
         #array outputs are special. They inherit their datatype from an input array
         #that could be explicity defined, or use last array_input 
-           
         for (array,length) in array_outputs:
             try:
                 array_source =  self.itemArraySource[array]
             except KeyError:
                 array_source = self._infer_array_source(candidate_inputs= array_inputs,
                                                      output_length = length)
+                
             if array_source is None:
                 raise ValueError('No candidate input array found to drive output array %s with length %s . Make sure input array and output array have the same length or explicity define the item_source_array. ' %(array,length))
             else:
@@ -567,6 +588,8 @@ class BaseFunction(object):
                     metadata_outputs[array]['dataTypeFrom']=None
                 metadata_outputs[array]['cardinalityFrom']=array_source
                 del metadata_outputs[array]['dataType']
+                msg = 'Array argument %s is driven by %s so the cardinality and datatype are set from the source' %(a,array_source)
+                logger.debug(msg)
     
         return (metadata_inputs,metadata_outputs)
     
@@ -884,6 +907,19 @@ class BaseLoader(BaseTransformer):
             output_items = [x for x in self.input_items]
         self.output_items = output_items
         super().__init__()
+        # explicitly define input_items as a constants parameter so that it does not
+        # look like an output parameter
+        self.constants.append('input_items')
+        # explicitly tie the array of outputs from the function to the inputs
+        # the function will deliver an output item for each choosen input item
+        self.itemArraySource['output_items'] = 'input_items'
+        # in case input and output items are defined as a comma separated list, convert to array
+        self.input_items = self.convertStrArgToList(input_items,argument = 'lookup_items')
+        self.output_items = self.convertStrArgToList(output_items,argument = 'output_items')
+        # define the list of values for the picklist of input items in the UI
+        cols = self.get_input_item_values()
+        if not cols is None:
+            self.itemValues['lookup_items'] = cols
 
     def _set_dms(self, dms):
         self.db.connection = dms
@@ -896,6 +932,15 @@ class BaseLoader(BaseTransformer):
         The get_data() method is used to retrieve additional time series data that will be combined with existing pipeline data during pipeline execution.
         '''
         raise NotImplementedError('You must implement a get_data() method for any class that acts as a data source')
+    
+    def get_input_item_values(self):
+        '''
+        This method should be implemented to deliver a list of values for the picklist in the UI.
+        See BaseDatabaseLookup for an example of how to implement.
+        '''
+        warnings.warn('The get_input_item_values method is not implemented. Input items will not have a picklist in the UI.')
+        return None
+        
         
     def execute(self,df,start_ts=None,end_ts=None,entities=None):        
         '''
@@ -957,11 +1002,15 @@ class BaseDatabaseLookup(BaseTransformer):
     """
     Base class for lookup functions.
     """
-    
-    #optionally provide sample data for lookup
-    #this data will be used to create a new lookup function
-    #data should be provided as a dictionary and used to create a DataFrame
+    '''
+    Optionally provide sample data for lookup
+    this data will be used to create a new lookup function
+    data should be provided as a dictionary and used to create a DataFrame
+    '''
     data = None
+    #Even this function returns new data to the pipeline, it is not considered a data source
+    #as it behaves like any other transformer, ie: adds columns not rows to the pipeline
+    is_data_source = False
     
     def __init__(self,
                  lookup_table_name,
@@ -984,22 +1033,24 @@ class BaseDatabaseLookup(BaseTransformer):
         self.lookup_keys = lookup_keys
         self.itemMaxCardinality['lookup_keys'] = len(self.lookup_keys)
         self.parse_dates = parse_dates 
-        cols =  self.get_lookup_columns(connection=self.db.connection)
+        cols =  self.get_input_item_values()
         if lookup_items is None:
             lookup_items = cols
         if output_items is None:
             #concatentate lookup name to output to make it unique
-            output_items = ['%s_%s' %(self.lookup_table_name,x) for x in lookup_items]
-        
+            output_items = ['%s_%s' %(self.lookup_table_name,x) for x in lookup_items]        
         self.lookup_items = self.convertStrArgToList(lookup_items,argument = 'lookup_items')
         self.output_items = self.convertStrArgToList(output_items,argument = 'output_items')
         self.itemValues['lookup_items'] = cols
         
-    def get_lookup_columns(self,connection):
+    def get_input_item_values(self):
+        '''
+        Get a list of columns returned by the lookup
+        '''
         lup_keys = [x.upper() for x in self.lookup_keys]
         date_cols = [x.upper() for x in self.parse_dates]
         try:
-            df = pd.read_sql(self.sql, con = connection, index_col=lup_keys, parse_dates=date_cols)
+            df = pd.read_sql(self.sql, con = self.db.connection, index_col=lup_keys, parse_dates=date_cols)
         except :
             if not self.data is None:
                 df = pd.DataFrame(data=self.data)
@@ -1011,7 +1062,8 @@ class BaseDatabaseLookup(BaseTransformer):
             
         df.columns = [x.lower() for x in list(df.columns)]
             
-        return(list(df.columns))
+        return(list(df.columns))       
+
     
     def execute(self, df):
         '''
@@ -1260,13 +1312,19 @@ class AlertThreshold(BaseEvent):
             
         return df
     
-class CustomSource(BaseLoader):
+class InputDataGenerator(BaseLoader):
     """
-    Replace the automatically retrieved entity source data with new data delivered by function
+    Replace automatically retrieved entity source data with new generated data. 
+    Supply a comma separated list of input item names to be generated.
     """
+    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
     merge_method = 'replace'
-    days = 7
+    # Parameters for data generator
+    # Number of days worth of data to generate on initial execution
+    days = 1
+    # frequency of data load
     freq = '1min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
     ids = [str(7300 + x) for x in list(range(5))]
     
     def __init__ (self, input_items, output_items=None):
@@ -1285,6 +1343,7 @@ class CustomSource(BaseLoader):
         The engine may also pass a set of entity ids to retrieve data for. Since this is a 
         custom source we will ignore the entity list provided by the engine.
         '''
+        # distinguish between initial and incremental execution
         if start_ts is None:
             days = self.days
             seconds = 0
@@ -1295,6 +1354,30 @@ class CustomSource(BaseLoader):
         ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
         df = ts.execute()
         return df
+    
+class TempPressureVolumeGenerator(InputDataGenerator):
+    """
+    Generate new data for Temperature, Pressure and Volume. Replace input data with this new data.
+    """
+    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
+    merge_method = 'replace'
+    # Parameters for data generator
+    # Number of days worth of data to generate on initial execution
+    days = 1
+    # frequency of data load
+    freq = '1min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
+    ids = [str(7300 + x) for x in list(range(5))]
+    generate_items = ['pressure','temperature','volume']
+    
+    def __init__ (self, input_items=None, output_items=None):
+        if input_items is None:
+            input_items = self.generate_items
+        super().__init__(input_items = input_items, output_items = output_items)
+        
+    def get_input_item_values(self):
+        
+        return self.generate_items
     
 
 class ExecuteFunctionSingleOut(BaseTransformer):

@@ -319,7 +319,7 @@ class TimeSeriesTable(BaseTable):
         self.logical_inteface = Column('logicalinterface_id',String(64))
         self.format = Column('format',String(64))
         self.updated_timestamp = Column('updated_utc',DateTime)
-        super().__init__(name,database,self.id_col,self.timestamp,
+        super().__init__(name,database,self.id_col,self.evt_timestamp,
                  self.device_type, self.logical_inteface, self.format , 
                  self.updated_timestamp,
                  *args, **kw)
