@@ -321,6 +321,33 @@ class BaseFunction(object):
          else:
              result = datatype.lower()
          return result
+     
+    def _getJsonSchema(self,column_metadata,datatype,min_items,arg,is_array,is_output):
+        
+        #json schema may have been explicitly defined                
+        try:
+           column_metadata['jsonSchema'] = self.itemJsonSchema[arg] 
+        except KeyError:               
+            if is_array:
+                column_metadata['jsonSchema'] = {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "array",
+                    "minItems": min_items
+                    }
+                try:
+                    column_metadata['jsonSchema']["maxItems"] = self.itemMaxCardinality[arg]
+                except KeyError:
+                    pass
+                if not datatype is None:
+                    column_metadata['jsonSchema']["items"] = {"type":"string"}
+                msg = 'Argument %s is has no explicit json schema defined for it, built one' %(arg)
+            else:
+                msg = 'Non array arg %s - no json schema required' %(arg)
+            logger.debug(msg)                 
+        else:
+            msg = 'Argument %s is has explicit json schema defined for it %s' %a, self.itemJsonSchema[arg]
+            logger.debug(msg)
+        return column_metadata
         
     def _getMetadata(self, df = None, inputs = None, outputs = None, constants = None):
         """
@@ -380,7 +407,11 @@ class BaseFunction(object):
             column_metadata['name'] = a
             column_metadata['description'] = None
             column_metadata['learnMore'] = None                        
-                     
+            if a in self.optionalItems:
+                required = False
+            else:
+                required = True
+                min_items = 1            
             #set metadata from class/instance variables
             if not self.itemDescriptions is None:
                 try:
@@ -394,186 +425,147 @@ class BaseFunction(object):
                     pass                            
 
             is_added = False
+            is_constant = True
+            is_output = False
             argtype = self._infer_type(arg_value)
-            msg = 'Evaluating argument %s with data type %s. Array: %s' %(a,argtype,is_array)
+            msg = 'Evaluating %s argument %s. Array: %s' %(argtype,a,is_array)
             logger.debug(msg)
             #check if parameter has been modeled explictly
             if a in constants:
                 datatype = self._infer_type(arg_value,df=None)
                 column_metadata['dataType'] = datatype 
-                column_metadata['type'] = 'CONSTANT'
-                if column_metadata['description'] is None:
-                    column_metadata['description'] = 'Supply a constant input parameter of type %s' %datatype 
-                metadata_inputs[a] = column_metadata
-                if a in self.optionalItems:
-                    column_metadata['required'] = False
-                else:
-                    column_metadata['required'] = True
-                    min_items = 1
+                auto_desc = 'Supply a constant input parameter of type %s' %datatype 
+                column_metadata['required'] = required
                 is_added = True
-                msg = 'Argument %s was explicitlty defined as %s' %(a,column_metadata['type'])
+                msg = 'Argument %s was explicitlty defined as a constant with datatype %s' %(a,datatype)
                 logger.debug(msg)
             elif a in outputs:
+                is_output = True
+                is_constant = False
                 datatype = self._infer_type(arg_value,df=tf)
                 column_metadata['dataType'] = datatype
-                if column_metadata['description'] is None:
-                    column_metadata['description'] = 'Provide a new data item name for the function output'
-                metadata_outputs[a] = column_metadata
+                auto_desc =  'Provide a new data item name for the function output'
                 is_added = True
-                msg = 'Argument %s was explicitlty defined as output with datatype %s' %(a,column_metadata['dataType'])
+                msg = 'Argument %s was explicitlty defined as output with datatype %s' %(a,datatype)
                 logger.debug(msg)
             elif a in inputs:
+                is_constant = False
                 column_metadata['type'] = 'DATA_ITEM' 
                 datatype = self._infer_type(arg_value,df=df)
                 column_metadata['dataType'] = datatype
-                if column_metadata['description'] is None:
-                    column_metadata['description'] = 'Choose data item/s to be used as function inputs'
-                metadata_inputs[a] = column_metadata
-                if a in self.optionalItems:
-                    column_metadata['required'] = False
-                else:
-                    column_metadata['required'] = True
-                    min_items = 1                
+                auto_desc =  'Choose data item/s to be used as function inputs'
+                column_metadata['required'] = required
                 is_added = True
-                msg = 'Argument %s was explicitlty defined as %s' %(a,column_metadata['type'])
-                logger.debug(msg)                
-
+                msg = 'Argument %s was explicitlty defined as a data item input' %(a)
+                logger.debug(msg)
             #if argument is a number, date or dict it must be a constant
             elif argtype in ['NUMBER','JSON','BOOLEAN','TIMESTAMP']:
                 datatype = argtype
-                column_metadata['type'] = 'CONSTANT'
                 column_metadata['dataType'] = datatype
-                if column_metadata['description'] is None:
-                    column_metadata['description'] = 'Supply a constant input parameter of type %s' %datatype 
-                metadata_inputs[a] = column_metadata
-                if a in self.optionalItems:
-                    column_metadata['required'] = False
-                else:
-                    column_metadata['required'] = True
-                    min_items = 1                
+                auto_desc =  'Supply a constant input parameter of type %s' %datatype 
+                column_metadata['required'] = required
                 is_added = True 
-                msg = 'Argument %s is not a string so it must be constant of type %s' %(a,column_metadata['dataType'])
+                msg = 'Argument %s is not a string so it must be constant of type %s' %(a,datatype)
                 logger.debug(msg)                 
             #look for items in the input and output dataframes
             elif not is_array:
                 #look for value in test df and test outputs
                 if arg_value in df.columns:
+                    is_constant = False
                     column_metadata['type'] = 'DATA_ITEM' 
                     datatype = self._infer_type(arg_value,df=df)
-                    column_metadata['dataType'] = datatype
-                    if column_metadata['description'] is None:
-                        column_metadata['description'] = 'Choose data item/s to be used as function inputs'
-                    metadata_inputs[a] = column_metadata
+                    auto_desc = 'Choose a single data item'
                     is_added = True
-                    if a in self.optionalItems:
-                        column_metadata['required'] = False
-                    else:
-                        column_metadata['required'] = True
-                        min_items = 1
-                    msg = 'Non array argument %s exists in the test input dataframe so it is a data item of type %s' %(a,column_metadata['dataType'])
+                    column_metadata['required'] = required
+                    msg = 'Non array argument %s exists in the test input dataframe so it is a data item of type %s' %(a,datatype)
                     logger.debug(msg)                                         
                 elif arg_value in test_outputs:
+                    is_constant = False
+                    is_output = True
                     datatype = self._infer_type(arg_value,df=tf)
                     column_metadata['dataType'] = datatype
-                    if column_metadata['description'] is None:
-                        column_metadata['description'] = 'Provide a new data item name for the function output'
+                    auto_desc =  'Provide a new data item name for the function output'
                     metadata_outputs[a] = column_metadata    
                     is_added = True
-                    msg = 'Non array argument %s exists in the test output dataframe so it is a data item of type %s' %(a,column_metadata['dataType'])
+                    msg = 'Non array argument %s exists in the test output dataframe so it is a data item of type %s' %(a,datatype)
                     logger.debug(msg)                                                             
             elif is_array:
                 #look for contents of list in test df and test outputs
                 if all(elem in df.columns for elem in arg_value):
+                    is_constant = False
                     column_metadata['type'] = 'DATA_ITEM' 
                     datatype = self._infer_type(arg_value,df=df)
-                    if column_metadata['description'] is None:
-                        column_metadata['description'] = 'Choose data item/s to be used as function inputs'
-                    metadata_inputs[a] = column_metadata
+                    auto_desc =  'Choose data item/s to be used as function inputs'
                     array_inputs.append((a,len(arg_value)))
                     is_added = True
-                    if a in self.optionalItems:
-                        column_metadata['required'] = False
-                    else:
-                        column_metadata['required'] = True
-                        min_items = 1
-                    msg = 'Array argument %s exists in the test input dataframe so it is a data item of type %s' %(a,column_metadata['dataType'])
+                    column_metadata['required'] = required
+                    msg = 'Array argument %s exists in the test input dataframe so it is a data item of type %s' %(a,datatype)
                     logger.debug(msg)                                                                                                             
                 elif all(elem in test_outputs for elem in arg_value):
+                    is_output = True
+                    is_constant = False
                     datatype = self._infer_type(arg_value,df=tf)
-                    if column_metadata['description'] is None:
-                        column_metadata['description'] = 'Provide a new data item name for the function output'
-                    metadata_outputs[a] = column_metadata
+                    auto_desc =  'Provide a new data item name for the function output'
                     array_outputs.append((a,len(arg_value)))
                     is_added = True
                     msg = 'Array argument %s exists in the test output dataframe so it is a data item' %(a)
-                    logger.debug(msg)                                                                                                                                 
-                #arrays are specical. They need a json schema.
+                    logger.debug(msg)                                                                                                                                         
+            #if parameter was not explicitly modelled and does not exist in the input and output dataframes
+            # it must be a constant
+            if not is_added:
+                is_constant = True
+                datatype = self._infer_type(arg_value,df=None)
+                column_metadata['description'] = 'Supply a constant input parameter of type %s' %datatype 
+                metadata_inputs[a] = column_metadata
+                msg = 'Argument %s is assumed to be a constant of type %s by ellimination' %(a,datatype)
+                logger.debug(msg)  
+            # adjust metadata for json schema if required
+            if is_output:
+                metadata_outputs[a] = column_metadata
+            else:
+                metadata_inputs[a] = column_metadata
+            # set datatype
+            if not is_array:
+                column_metadata['dataType'] = datatype
+            else:
                 column_metadata['dataType'] = 'ARRAY'
                 if not datatype is None:
                     column_metadata['dataTypeForArray'] = [datatype]
                 else:
                     column_metadata['dataTypeForArray'] = None
-                column_metadata['jsonSchema'] = {
-                    "$schema": "http://json-schema.org/draft-07/schema#",
-                    "type": "array",
-                    "minItems": min_items
-                    }
-                try:
-                    column_metadata['jsonSchema']["maxItems"] = self.itemMaxCardinality[a]
-                except KeyError:
-                    pass
-                if not datatype is None:
-                    column_metadata['jsonSchema']["items"] = {"type":"string"}
                     
-                if self.jsonSchemaAsStr:
-                    column_metadata['jsonSchema'] = str(column_metadata['jsonSchema'] )
-                    column_metadata['jsonSchema'] = column_metadata['jsonSchema'].replace("'",'"')                    
-                    
-            #if parameter was not explicitly modelled and does not exist in the input and output dataframes
-            # it must be a constant
-            if not is_added:
-                datatype = self._infer_type(arg_value,df=None)
-                column_metadata['description'] = 'Supply a constant input parameter of type %s' %datatype 
-                column_metadata['type'] = 'CONSTANT'
-                metadata_inputs[a] = column_metadata
-                msg = 'Argument %s is assumed to be a constant of type %s by ellimination' %(a,datatype)
-                logger.debug(msg)  
-            
+            # add auto description
+            if column_metadata['description'] is None:
+                column_metadata['description'] = auto_desc
+            column_metadata = self._getJsonSchema(column_metadata=column_metadata,
+                                                  datatype = datatype,
+                                                  min_items = min_items,
+                                                  arg=a,
+                                                  is_array = is_array,
+                                                  is_output = is_output)
             #constants may have explict values
-            try:
-                col_type = column_metadata['type']
-            except KeyError:
-                pass
-            else:
-                if col_type  == 'CONSTANT':
-                    try:
-                        values = self.itemValues[a]
-                    except KeyError:
-                        msg = 'Constant argument %s is has no explicit values defined for it' %a
-                        logger.debug(msg)
-                        if is_array:
-                            msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the set_values() method' %a
-                            warnings.warn(msg)
-                    else:
-                        column_metadata['values'] = values
-                        msg = 'Constant argument %s is has explicit values defined for it %s' %(a, values)
-                        logger.debug(msg)
-                                           
-            #json schema may have been explicitly defined                
-            try:
-               column_metadata['jsonSchema'] = self.itemJsonSchema[a] 
-            except KeyError:
-                msg = 'Argument %s is has no explicit json schema defined for it' %(a)
-                logger.debug(msg)                
-            else:
-                msg = 'Argument %s is has explicit json schema defined for it %s' %a, self.itemJsonSchema[a]
-                logger.debug(msg)
+            if is_constant:
+                column_metadata['type'] = 'CONSTANT'
+                try:
+                    values = self.itemValues[a]
+                except KeyError:
+                    msg = 'Constant argument %s is has no explicit values defined for it' %a
+                    logger.debug(msg)
+                    if is_array:
+                        msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the set_values() method' %a
+                        warnings.warn(msg)
+                else:
+                    column_metadata['values'] = values
+                    msg = 'Constant argument %s is has explicit values defined for it %s' %(a, values)
+                    logger.debug(msg)                                           
                 
         #array outputs are special. They inherit their datatype from an input array
         #that could be explicity defined, or use last array_input 
         for (array,length) in array_outputs:
             try:
                 array_source =  self.itemArraySource[array]
+                msg = 'Cardinality and datatype of array output %s wer explicly set to be driven from %s' %(array,array_source)
+                logger.debug(msg)
             except KeyError:
                 array_source = self._infer_array_source(candidate_inputs= array_inputs,
                                                      output_length = length)
@@ -628,6 +620,8 @@ class BaseFunction(object):
     
         for input_parm,input_length in candidate_inputs:
             if input_length == output_length:
+                msg = 'Found an input array %s with the same length (%s) as the output' %(input_parm,output_length)
+                logger.debug(msg)
                 source = input_parm
         
         return source
@@ -640,6 +634,8 @@ class BaseFunction(object):
         '''
         outputs = list(set(after_df.columns) - set(before_df.columns))
         outputs.sort()
+        msg = 'Columns added to the pipeline by the function are %s' %outputs
+        logger.debug(msg)
         return outputs
     
     
@@ -652,6 +648,8 @@ class BaseFunction(object):
             
         prev_datatype = None
         multi_datatype = False
+        found_types = []
+        append_msg = ''
             
         for value in parm:
              
@@ -669,7 +667,8 @@ class BaseFunction(object):
                     datatype = 'JSON'
                 else: 
                     raise TypeError('Cannot infer type of argument value %s. Supply a string, number, boolean, datetime, dict or list containing any of these types.' %parm)
-            else:                
+            else:      
+                append_msg = 'by looking at items in test dataframe'
                 if is_string_dtype(df[value]):
                     datatype = 'LITERAL'
                 elif is_bool_dtype(df[value]):
@@ -680,7 +679,8 @@ class BaseFunction(object):
                     datatype = 'TIMESTAMP'
                 else:
                     raise TypeError('Cannot infer type of argument value %s. Data items used as inputs must be strings, numbers, booleans, datetimes or list containing any of these types.' %parm)
-                    
+            
+            found_types.append(datatype)
             if not prev_datatype is None:
                 if datatype != prev_datatype:
                     multi_datatype = True
@@ -688,6 +688,11 @@ class BaseFunction(object):
             
         if multi_datatype:
             datatype = None
+            msg = 'Found multiple datatypes for array of items %s' %(found_types,)
+        else:
+            msg = 'Infered datatype of %s from values %s %s' %(datatype,parm, append_msg )
+        logger.debug(msg)
+            
             
         return datatype
     
@@ -922,10 +927,10 @@ class BaseLoader(BaseTransformer):
             self.itemValues['input_items'] = cols
 
     def _set_dms(self, dms):
-        self.db.connection = dms
+        self.dms = dms
 
     def _get_dms(self):
-        return self.db.connection
+        return self.dms
 
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         '''
