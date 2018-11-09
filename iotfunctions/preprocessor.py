@@ -395,6 +395,9 @@ class BaseFunction(object):
         #introspect function to get a list of argumnents
         args = (getargspec(self.__init__))[0][1:]        
         for a in args:
+            if a is None:
+                msg = 'Cannot infer metadata for argument %s as it was initialized with a value of None. Supply an appropriate value when initializing.' %(a)
+                raise ValueError(msg)
             #identify which arguments are inputs, which are outputs and which are constants
             try:
                 arg_value = eval('self.%s' %a)
