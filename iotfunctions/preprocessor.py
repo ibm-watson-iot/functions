@@ -816,8 +816,8 @@ class BaseFunction(object):
         """
         
         data = {
-                'id' : [1,1,1,1,1,2,2,2,2,2],
-                'evt_timestamp' : [
+                self._entity_id : [1,1,1,1,1,2,2,2,2,2],
+                self._timestamp : [
                         dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
@@ -878,7 +878,7 @@ class BaseFunction(object):
                 'company_code' : ['ABC','ACME','JDI','ABC','ABC','ACME','JDI','ACME','JDI','ABC']
                 }
         df = pd.DataFrame(data=data)
-        df = df.set_index(['id','evt_timestamp'])
+        df = self.conform_index(df)
         
         return df
         
@@ -1745,6 +1745,40 @@ class MultiplyNItems(BaseTransformer):
         df = df.copy()
         df[self.output_item] = df[self.input_items].product(axis=1)
         return df
+    
+class TimeToFirstAndLastInDay(BaseTransformer):
+    '''
+    Calculate the time until the first occurance of a valid entry for an input_item in a period and
+    the time until the end of period from the last occurance of a measurement
+    '''
+    execute_by = ['id','_day']
+    
+    def __init__(self, input_item, time_to_first = 'time_to_first' , time_from_last = 'time_from_last'):
+        
+        self.input_item = input_item
+        self.time_to_first = time_to_first
+        self.time_from_last = time_from_last
+        
+    def _calc(self,df):
+        
+        ts = df[self.input_item].dropna()
+        ts = ts.index.get_level_values(self._df_index_timestamp)
+        first = ts.min()
+        last = ts.max() 
+        df[self.time_to_first] = first
+        df[self.time_from_last] = last
+        
+        return df
+    
+    def execute(self,df):
+        
+        df['_day'] = df[self._timestamp].dt.date
+        df = super().execute(df)
+        df[self.time_to_first] = (df[self.time_to_first]-pd.to_datetime(df['_day'])).dt.total_seconds() / 60
+        df[self.time_from_last] = (pd.to_datetime(df['_day']) + dt.timedelta(days=1) - df[self.time_from_last]).dt.total_seconds() / 60
+        cols = [x for x in df.columns if x != '_day']
+        return df[cols]
+    
 
 class TimeSeriesGenerator(BaseLoader):
 
