@@ -16,6 +16,7 @@ import pandas as pd
 from .db import Database, TimeSeriesTable
 
 logger = logging.getLogger(__name__)
+    
 
 class EntityType(object):
     '''

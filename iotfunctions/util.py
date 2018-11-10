@@ -13,11 +13,41 @@ import tempfile
 import dill
 import logging
 import requests
+import json
+import urllib3
 import ibm_boto3
 from ibm_boto3.s3.transfer import S3Transfer
 from ibm_botocore.client import Config
 
 logger = logging.getLogger(__name__)
+
+
+def unregister_functions(function_names, credentials):
+    '''
+    Unregister functions by name. Accepts a list of function names.
+    '''
+    if not isinstance(function_names,list):
+        function_names = [function_names]
+
+    http = urllib3.PoolManager()    
+    headers = {
+        'Content-Type': "application/json",
+        'X-api-key' : credentials['as_api_key'],
+        'X-api-token' : credentials['as_api_token'],
+        'Cache-Control': "no-cache",
+    }    
+    
+
+    for f in function_names:
+        payload = {
+            'name' : f
+            }
+        encoded_payload = json.dumps(payload).encode('utf-8')
+        url = 'http://%s/api/catalog/v1/%s/function/%s' %(credentials['as_api_host'],credentials['tennant_id'],f)
+        r = http.request("DELETE", url, body = encoded_payload, headers=headers)
+        msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+        logger.info(msg) 
+
 
 def cosSave(obj,bucket,filename,credentials):
     try:

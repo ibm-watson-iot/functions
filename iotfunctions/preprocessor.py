@@ -1959,6 +1959,27 @@ class FillForwardByEntity(BaseTransformer):
         df[self.output_item] = df[self.input_item].ffill()
         return df
     
+class FlowRateMonitor(BaseTransformer):  
+    '''
+    Check for leaks and other flow irregularies by comparing input flows with output flows
+    '''
+
+    def __init__(self, input_flows, output_flows, loss_threshold = 0.005 , output = 'output' ):
+        
+        self.input_flows = input_flows
+        self.output_flows = output_flows
+        self.loss_threshold = float(loss_threshold)
+        self.output = output
+        super().__init__()
+        
+    def execute(self,df):
+        df = df.copy()
+        total_input = df[self.input_flows].sum(axis='columns')
+        total_output = df[self.output_flows].sum(axis='columns')
+        df[self.output] = np.where((total_input-total_output)/ total_input > self.loss_threshold, True, False)
+        
+        return df    
+    
 class InputsAndOutputsOfMultipleTypes(BaseTransformer):
     '''
     This sample function is just a pass through that demonstrates the use of multiple datatypes for inputs and outputs
