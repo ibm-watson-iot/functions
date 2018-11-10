@@ -1816,6 +1816,7 @@ class TimeToFirstAndLastInDay(BaseTransformer):
         self.input_item = input_item
         self.time_to_first = time_to_first
         self.time_from_last = time_from_last
+        super().__init__()
         
     def _calc(self,df):
         
@@ -1859,7 +1860,6 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
                  time_from_last = 'time_from_last'
                  ):
         
-        self.input_item = input_item
         self.time_to_first = time_to_first
         self.time_from_last = time_from_last
         self.custom_calendar = ShiftCalendar(
@@ -1870,7 +1870,9 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
                },
             shift_start_date = self.period_start,
             shift_end_date = self.period_end)
-                
+        super().__init__(input_item = input_item,
+                         time_to_first = time_to_first,
+                         time_from_last = time_from_last)        
                 
     def _add_period_start_end(self,df):
         
