@@ -28,7 +28,6 @@ from inspect import getargspec
 from collections import OrderedDict
 from .util import cosLoad, cosSave
 from .db import Database
-from .metadata import ShiftCalendar
 
 logger = logging.getLogger(__name__)
 
@@ -1233,8 +1232,8 @@ class BaseDBActivityMerge(BaseLoader):
         df = c.to_frame().reset_index()
         #add custom calendar data
         if not self.custom_calendar_df is None:
-            cols = [x for x in self.custom_calendar_df.columns if x != self._end_date]
-            df = df.join(self.custom_calendar_df[cols], how ='left', on = self._start_date)
+            cols = [x for x in self.custom_calendar_df.columns if x != 'shift_end_date']
+            df = pd.merge(left=df, right = self.custom_calendar_df[cols], how ='left', left_on = self._start_date, right_on = 'shift_start_date')
             df['shift_id'] = df['shift_id'].fillna(method='ffill')
             df['shift_day'] = df['shift_day'].fillna(method='ffill')
             df[self._activity].fillna(method='ffill')
@@ -1745,6 +1744,63 @@ class MultiplyNItems(BaseTransformer):
         df = df.copy()
         df[self.output_item] = df[self.input_items].product(axis=1)
         return df
+
+class ShiftCalendar(BaseTransformer):
+    '''
+    Generate data for a shift calendar using a shift_definition in the form of a dict keyed on shift_id
+    Dict contains a tuple with the start and end hours of the shift expressed as numbers. Example:
+          {
+               "1": (5.5, 14),
+               "2": (14, 21),
+               "3": (21, 5.5)
+           },    
+    '''
+    def __init__ (self,shift_definition=None,
+                  shift_start_date = 'shift_start_date',
+                  shift_end_date = 'shift_end_date',
+                  shift_day = 'shift_day',
+                  shift_id = 'shift_id'):
+        if shift_definition is None:
+            shift_definition = {
+               "1": (5.5, 14),
+               "2": (14, 21),
+               "3": (21, 5.5)
+           }
+        self.shift_definition = shift_definition
+        self.shift_start_date = shift_start_date
+        self.shift_end_date = shift_end_date
+        self.shift_day = shift_day
+        self.shift_id = shift_id
+        super().__init__()
+    
+    def get_data(self,start_date,end_date):
+        start_date = start_date.date()
+        end_date = end_date.date()
+        dates = pd.DatetimeIndex(start=start_date,end=end_date,freq='1D').tolist()
+        dfs = []
+        for shift_id,start_end in list(self.shift_definition.items()):
+            data = {}
+            data[self.shift_day] = dates
+            data[self.shift_id] = shift_id
+            data[self.shift_start_date] = [x+dt.timedelta(hours=start_end[0]) for x in dates]
+            data[self.shift_end_date] = [x+dt.timedelta(hours=start_end[1]) for x in dates]
+            dfs.append(pd.DataFrame(data))
+        df = pd.concat(dfs)
+        df[self.shift_start_date] = pd.to_datetime(df[self.shift_start_date])
+        df[self.shift_end_date] = pd.to_datetime(df[self.shift_end_date])
+        df.sort_values([self.shift_start_date],inplace=True)
+        return df
+    
+    def execute(self,df):
+        df.sort_values([self._timestamp],inplace = True)
+        calendar_df = self.get_data(start_date= df[self._timestamp].min(), end_date = df[self._timestamp].max())
+        df = pd.merge_asof(left = df,
+                           right = calendar_df,
+                           left_on = self._timestamp,
+                           right_on = self.shift_start_date,
+                           direction = 'backward')
+        df = self.conform_index(df)
+        return df  
     
 class TimeToFirstAndLastInDay(BaseTransformer):
     '''
@@ -1752,6 +1808,8 @@ class TimeToFirstAndLastInDay(BaseTransformer):
     the time until the end of period from the last occurance of a measurement
     '''
     execute_by = ['id','_day']
+    period_start = '_day'
+    period_end = '_day_end'
     
     def __init__(self, input_item, time_to_first = 'time_to_first' , time_from_last = 'time_from_last'):
         
@@ -1772,13 +1830,53 @@ class TimeToFirstAndLastInDay(BaseTransformer):
     
     def execute(self,df):
         
-        df['_day'] = df[self._timestamp].dt.date
+        df = df.copy()
+        df = self._add_period_start_end(df)
         df = super().execute(df)
-        df[self.time_to_first] = (df[self.time_to_first]-pd.to_datetime(df['_day'])).dt.total_seconds() / 60
-        df[self.time_from_last] = (pd.to_datetime(df['_day']) + dt.timedelta(days=1) - df[self.time_from_last]).dt.total_seconds() / 60
-        cols = [x for x in df.columns if x != '_day']
+        df[self.time_to_first] = (df[self.time_to_first]-pd.to_datetime(df[self.period_start])).dt.total_seconds() / 60
+        df[self.time_from_last] = (df[self.period_end] - df[self.time_from_last]).dt.total_seconds() / 60
+        cols = [x for x in df.columns if x not in [self.period_start,self.period_end]]
         return df[cols]
     
+    def _add_period_start_end(self,df):
+        
+        df[self.period_start] = df[self._timestamp].dt.date
+        df[self.period_end] = pd.to_datetime(df['_day']) + dt.timedelta(days=1)
+        return df
+    
+
+class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
+    '''
+    Calculate the time until the first occurance of a valid entry for an input_item in a period and
+    the time until the end of period from the last occurance of a measurement
+    '''
+    execute_by = ['id','shift_day','shift_id']
+    period_start = 'shift_start_date'
+    period_end = 'shift_end_date'
+    
+    def __init__(self, input_item,
+                 time_to_first = 'time_to_first' ,
+                 time_from_last = 'time_from_last'
+                 ):
+        
+        self.input_item = input_item
+        self.time_to_first = time_to_first
+        self.time_from_last = time_from_last
+        self.custom_calendar = ShiftCalendar(
+            {
+               "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
+               "2": (14, 21),
+               "3": (21, 5.5)
+               },
+            shift_start_date = self.period_start,
+            shift_end_date = self.period_end)
+                
+                
+    def _add_period_start_end(self,df):
+        
+        df = self.custom_calendar.execute(df)
+        return df
+
 
 class TimeSeriesGenerator(BaseLoader):
 
