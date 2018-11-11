@@ -99,6 +99,15 @@ class Database(object):
         else:
             return table
         
+    def get_column_names(self,table):
+        """
+        Get a list of columns names for a table object or table name
+        """
+        if isinstance(table,str):
+            table = self.get_table(table)
+        
+        return [column.key for column in table.columns]        
+        
     def if_exists(self,table_name):
         '''
         Return True if table exists in the database

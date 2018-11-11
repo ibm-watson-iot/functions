@@ -1593,7 +1593,8 @@ class MergeSampleTimeSeries(BaseLoader):
     
     def __init__(self, input_items, output_items=None):
         super().__init__(input_items = input_items, output_items = output_items)
-        self.db = Database(credentials = self.db_credentials )
+        if self.db is None:
+            self.db = Database(credentials = self.db_credentials )
 
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
@@ -1607,6 +1608,12 @@ class MergeSampleTimeSeries(BaseLoader):
             query = query.filter(table.c.deviceid.in_(entities))
         df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self.source_timestamp])        
         return df
+    
+    def get_input_item_values(self):
+        
+        if self.db is None:
+            self.db = Database(credentials = self.db_credentials )
+        return self.db.get_column_names(self.source_table_name)
     
     def load_sample_data(self):
         
