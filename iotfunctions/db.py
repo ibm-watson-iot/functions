@@ -174,6 +174,7 @@ class Database(object):
         # the column names id, timestamp and index are reserverd as level names. They are also reserved words
         # in db2 so we don't use them in db2 tables.
         # deviceid and evt_timestamp are used instead
+        self.log_df_info(df,'Dataframe to be written to table table %s' %table_name)
         if 'deviceid' not in df.columns and 'id' in df.columns:
             df['deviceid'] = df['id']
             df = df[[x for x in df.columns if x !='id']]
@@ -205,10 +206,12 @@ class Database(object):
                 cols = [column.key for column in table.columns]
                 extra_cols = set([x for x in df.columns if x !='index'])-set(cols)
                 if len(extra_cols) > 0:
+                    self.log_df_info(df,'Before writing dataframe to table %s' %table_name)
                     logger.warning('Dataframe includes column/s %s that are not present in the table. They will be ignored.' %extra_cols)            
                 try: 
                     df = df[cols]
                 except KeyError:
+                    self.log_df_info(df,'Before writing dataframe to table %s' %table_name)
                     raise KeyError('Dataframe does not have required columns %s' %cols)                
         self.start_session()
         try:        

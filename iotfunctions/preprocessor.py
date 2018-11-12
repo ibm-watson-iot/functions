@@ -71,10 +71,8 @@ class BaseFunction(object):
     url = PACKAGE_URL
     category = None
     incremental_update = True
-    # status
+    # test that object was initialized from BaseFunction
     base_initialized = True
-    # processing options
-    jsonSchemaAsStr = False
     # lookups
     # a resource calendar is use to identify other resources (e.g. people, organizations) associated with the device
     # these associations may change over time.
@@ -289,6 +287,7 @@ class BaseFunction(object):
         '''
         Dataframes that contain timeseries data are expected to be indexed on an id and timestamp
         '''
+        self.log_df_info(df,'incoming dataframe for conform index')
         if not df.index.names == [self._df_index_entity_id,self._df_index_timestamp]:            
             if entity_id_col is None:
                 entity_id_col = self._entity_id
@@ -296,19 +295,26 @@ class BaseFunction(object):
                 timestamp_col = self._timestamp
             try:
                 df[self._df_index_entity_id] = df[entity_id_col]
-                df[self._df_index_timestamp] = df[timestamp_col]
+                df[self._df_index_timestamp] = pd.to_datetime(df[timestamp_col])
             except KeyError:
                 try:
-                    df.rename_axis([self._df_index_entity_id,self._df_index_timestamp])  
+                    df = df.reset_index()
+                    df[self._df_index_entity_id] = df[entity_id_col]
+                    df[self._df_index_timestamp] = pd.to_datetime(df[timestamp_col])
+                    df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
                 except:
                     msg = '''
                     There is an error in the function code.
                     A dataframe used in the function is being converted into standard form,
-                    but does not have a deviceid and timestamp column or a suitable existing multi-index.
+                    but does not have a deviceid and timestamp column 
                     '''
-                    raise (msg)
+                    self.log_df_info(df,'before raising error ')
+                    raise KeyError(msg)
             else:
                 df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
+                self.log_df_info(df,'afters setting index in conform index')
+                
+        df.to_csv('after_reindex_debug.csv')
         
         return df
             
@@ -668,7 +674,7 @@ class BaseFunction(object):
                 elif is_dict_like(value):
                     datatype = 'JSON'
                 else: 
-                    raise TypeError('Cannot infer type of argument value %s. Supply a string, number, boolean, datetime, dict or list containing any of these types.' %parm)
+                    raise TypeError('Cannot infer type of argument value %s for parm %s. Supply a string, number, boolean, datetime, dict or list containing any of these types.' %(value,parm))
             else:      
                 append_msg = 'by looking at items in test dataframe'
                 if is_string_dtype(df[value]):
@@ -725,6 +731,18 @@ class BaseFunction(object):
         itemDescriptions['upper_threshold']= 'Upper threshold value for alert'
         
         return itemDescriptions
+    
+    def _remove_cols_from_df(self,df,cols):
+        '''
+        Remove list of columns from a dataframe. Return dataframe.
+        '''
+        self.log_df_info(df,'Before remove of cols %s' %cols)
+        cols = [x for x in list(df.columns) if x not in cols]
+        df = df[cols]
+        self.log_df_info(df,'After removal of cols %s' %cols)
+        
+        return df
+        
     
     def rename_cols(self, df, input_names, output_names ):
         '''
@@ -808,6 +826,13 @@ class BaseFunction(object):
             
         return df
     
+    def log_df_info(self,df,msg):
+        '''
+        Log a debugging entry showing dataframe structure
+        '''
+        msg = msg + ' columns %s, index %s' % (df.columns, df.index.names)
+        logger.debug(msg)
+        logger.debug(df.head())
     
     def get_test_data(self):
         """
@@ -815,7 +840,7 @@ class BaseFunction(object):
         """
         
         data = {
-                self._entity_id : [1,1,1,1,1,2,2,2,2,2],
+                self._entity_id : ['D1','D1','D1','D1','D1','D2','D2','D2','D2','D2'],
                 self._timestamp : [
                         dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
@@ -954,11 +979,13 @@ class BaseLoader(BaseTransformer):
         Retrieve data and combine with pipeline data
         '''
         new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
-        new_df = self.conform_index(new_df)
-        
+        self.log_df_info(df,'source datafram before merge')
+        self.log_df_info(new_df,'additional data source to be merged')        
         if self.merge_method == 'outer':        
-            df = df.join(new_df,how='outer',sort=True)
-        elif self.merge_method == 'nearest':        
+            new_df = self._remove_cols_from_df(new_df,list(df.columns))
+            df = df.join(new_df,how='outer',sort=True,on=[self._df_index_entity_id,self._df_index_timestamp])
+        elif self.merge_method == 'nearest': 
+            new_df = self._remove_cols_from_df(new_df,list(df.columns))
             try:
                 df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
             except ValueError:
@@ -1120,12 +1147,15 @@ class BaseDBActivityMerge(BaseLoader):
     def __init__(self,input_activities,activity_duration=None):
     
         self.input_activities = input_activities
+        if activity_duration is None:
+            activity_duration = ['duration_%s' %x for x in self.input_activities]
         self.activity_duration = activity_duration
         super().__init__(input_items = input_activities , output_items = None)
         #for any function that requires database access, create a database object
+        self.itemArraySource['activity_duration'] = 'input_activities'
         self.db = Database(credentials = self.db_credentials)
         
-    def get_data(self,df,
+    def get_data(self,
                     start_ts= None,
                     end_ts= None,
                     entities = None):
@@ -1158,12 +1188,14 @@ class BaseDBActivityMerge(BaseLoader):
         self.custom_calendar_df = None
         if not self.custom_calendar is None:
             self.custom_calendar_df = self.custom_calendar.get_data(start_date= adf[self._start_date].min(), end_date = adf[self._end_date].max())
-            add_dates = set(self.custom_calendar_df.index.tolist())
+            add_dates = set(self.custom_calendar_df[self._start_date].tolist())
             add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
             self.add_dates = list(add_dates)
+        adf = self.conform_index(adf, timestamp_col = self._start_date)
         #get resource assignment changes
         self._entity_resource_dict = self._get_resource_assignment(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
-        #
+        #merge takes place separately by entity instance
+        
         group_base = []
         for s in self.execute_by:
             if s in adf.columns:
@@ -1174,8 +1206,7 @@ class BaseDBActivityMerge(BaseLoader):
                 except KeyError:
                     raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
                 else:
-                    group_base.append(pd.Grouper(axis=0, level=df.index.names.index(s)))
-                               
+                    group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(s)))
         if len(group_base)>0:
             adf = adf.groupby(group_base).apply(self._combine_activities)             
         else:
@@ -1190,7 +1221,10 @@ class BaseDBActivityMerge(BaseLoader):
                 null_value=None,
                 output_items = self.activity_duration
                     )        
-        adf = pivot_start.execute(adf)      
+        adf = pivot_start.execute(adf)
+        
+        adf = self.conform_index(adf,timestamp_col = self._start_date)
+        adf.to_csv('after_pivot_debug.csv')
     
         return adf
         
@@ -1203,7 +1237,9 @@ class BaseDBActivityMerge(BaseLoader):
         activities with later start dates take precidence over activies with earlier start dates when resolving.
         '''
         
-        entity = df[self._entity_id].max()
+        msg = 'Combining activities contained in df with cols %s and index %s' %(df.columns,df.index.names)
+        logger.debug(msg)
+        entity = df.index.get_level_values(self._df_index_entity_id).max()
         
         #create a continuous range
         early_date = pd.Timestamp.min
@@ -1232,8 +1268,8 @@ class BaseDBActivityMerge(BaseLoader):
         df = c.to_frame().reset_index()
         #add custom calendar data
         if not self.custom_calendar_df is None:
-            cols = [x for x in self.custom_calendar_df.columns if x != 'shift_end_date']
-            df = pd.merge(left=df, right = self.custom_calendar_df[cols], how ='left', left_on = self._start_date, right_on = 'shift_start_date')
+            cols = [x for x in self.custom_calendar_df.columns if x != 'end_date']            
+            df = pd.merge(left=df, right = self.custom_calendar_df[cols], how ='left', left_on = self._start_date, right_on = 'start_date')
             df['shift_id'] = df['shift_id'].fillna(method='ffill')
             df['shift_day'] = df['shift_day'].fillna(method='ffill')
             df[self._activity].fillna(method='ffill')
@@ -1562,11 +1598,16 @@ class MergeActivityData(BaseDBActivityMerge):
         self.activities_custom_query_metadata = {}
         self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from mike_custom_activity'
         self.custom_calendar = ShiftCalendar(
-                {
-                   "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
-                   "2": (14, 21),
-                   "3": (21, 5.5)
-                   } )
+                shift_definition = 
+                    {
+                       "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
+                       "2": (14, 21),
+                       "3": (21, 5.5)
+                       
+                       },
+                 shift_start_date = 'start_date',
+                 shift_end_date = 'end_date' 
+                )
         self.resource_calendar['operator'] = 'operator_lookup'
         
         
