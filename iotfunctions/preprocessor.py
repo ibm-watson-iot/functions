@@ -327,7 +327,7 @@ class BaseFunction(object):
              result = datatype.lower()
          return result
      
-    def _getJsonSchema(self,column_metadata,datatype,min_items,arg,is_array,is_output):
+    def _getJsonSchema(self,column_metadata,datatype,min_items,arg,is_array,is_output,is_constant):
         
         #json schema may have been explicitly defined                
         try:
@@ -339,13 +339,18 @@ class BaseFunction(object):
                     "type": "array",
                     "minItems": min_items
                     }
+                item_type = "string"
+                if is_constant:
+                    item_type = datatype
                 try:
                     column_metadata['jsonSchema']["maxItems"] = self.itemMaxCardinality[arg]
                 except KeyError:
                     pass
-                if not datatype is None:
-                    column_metadata['jsonSchema']["items"] = {"type":"string"}
-                msg = 'Argument %s is has no explicit json schema defined for it, built one' %(arg)
+                try:
+                    column_metadata['jsonSchema']["items"] = {"type": item_type}
+                except KeyError:
+                    pass                
+                msg = 'Argument %s is has no explicit json schema defined for it, built one for %s items' %(arg, item_type)
             else:
                 msg = 'Non array arg %s - no json schema required' %(arg)
             logger.debug(msg)                 
@@ -550,7 +555,8 @@ class BaseFunction(object):
                                                   min_items = min_items,
                                                   arg=a,
                                                   is_array = is_array,
-                                                  is_output = is_output)
+                                                  is_output = is_output,
+                                                  is_constant = is_constant)
             #constants may have explict values
             if is_constant:
                 column_metadata['type'] = 'CONSTANT'
