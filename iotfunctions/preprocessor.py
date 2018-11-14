@@ -1359,6 +1359,54 @@ class AlertThreshold(BaseEvent):
             
         return df
     
+class GenerateCerealFillerData(BaseLoader):
+    """
+    Replace automatically retrieved entity source data with new generated data. 
+    Supply a comma separated list of input item names to be generated.
+    """
+    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
+    merge_method = 'replace'
+    # Parameters for data generator
+    # Number of days worth of data to generate on initial execution
+    days = 1
+    # frequency of data load
+    freq = '1min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
+    ids = [str(98000 + x) for x in list(range(5))]
+    
+    def __init__ (self,input_items=None, output_items=None):
+        
+        if input_items is None:
+            input_items = ['temperature','humidity']
+        
+        super().__init__(input_items = input_items, output_items = output_items)
+        
+    def get_data(self,
+                 start_ts= None,
+                 end_ts= None,
+                 entities = None):
+        '''
+        This sample builds data with the TimeSeriesGenerator. You can get data from anywhere 
+        using a custom source function. When the engine executes get_data(), after initial load
+        it will pass a start date as it will be looking for data added since the last 
+        checkpoint.
+        
+        The engine may also pass a set of entity ids to retrieve data for. Since this is a 
+        custom source we will ignore the entity list provided by the engine.
+        '''
+        # distinguish between initial and incremental execution
+        if start_ts is None:
+            days = self.days
+            seconds = 0
+        else:
+            days = 0
+            seconds = (dt.datetime.now - start_ts).total_seconds()
+        
+        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
+        df = ts.execute()
+        return df
+    
+    
 class InputDataGenerator(BaseLoader):
     """
     Replace automatically retrieved entity source data with new generated data. 
@@ -1958,6 +2006,9 @@ class TimeSeriesGenerator(BaseLoader):
         self.days = 30
         self.seconds = seconds
         self.freq = freq
+        #optionally scale using dict keyed on metric name
+        self.mean = {}
+        self.sd = {}
         
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
@@ -1978,19 +2029,31 @@ class TimeSeriesGenerator(BaseLoader):
         day_of_week = df[self._timestamp].dt.dayofweek
         
         for m in self.metrics:
+            try:
+                df[m] = df[m] * self.sd['metric']
+            except KeyError:
+                pass            
             df[m] = df[m] + days_from_ref * self.increase_per_day
             df[m] = df[m] + np.sin(day*4*math.pi/364.25) * self.day_harmonic
-            df[m] = df[m] + np.sin(day_of_week*2*math.pi/6) * self.day_harmonic
-            
+            df[m] = df[m] + np.sin(day_of_week*2*math.pi/6) * self.day_of_week_harmonic
+            try:
+                df[m] = df[m] + self.mean['metric']
+            except KeyError:
+                pass
         df.set_index([self._entity_id,self._timestamp])
         
         return df
     
     def execute(self,df=None):
-        
         df = self.get_data()
-        
         return df
+    
+    def set_mean(self,metric,mean):
+        self.mean[metric] = mean
+        
+    def set_sd(self,metric,sd):
+        self.mean[sd] = sd
+        
     
 class FillForwardByEntity(BaseTransformer):    
     '''
