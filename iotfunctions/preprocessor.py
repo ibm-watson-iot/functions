@@ -84,7 +84,10 @@ class BaseFunction(object):
     # when entity id or timestamp are present in a dataframe index they have different names
     _df_index_entity_id = 'id'
     _df_index_timestamp = 'timestamp'
-    
+    # when generating dimension data provide a domain of values keyed on the dimenion name
+    domain = {}
+    # if no domain exists for the dimension, use the default domain
+    _default_dimension_domain = ['AA','BA','ZA','CT','BV']
     
     def __init__(self):
         
@@ -357,6 +360,15 @@ class BaseFunction(object):
             msg = 'Argument %s is has explicit json schema defined for it %s' %a, self.itemJsonSchema[arg]
             logger.debug(msg)
         return column_metadata
+    
+    def get_domain(self,dimension):
+        
+        try:
+            domain = self.domain[dimension]
+        except KeyError:
+            domain = self._default_dimension_domain
+            
+        return domain
         
     def _getMetadata(self, df = None, inputs = None, outputs = None, constants = None):
         """
@@ -910,6 +922,58 @@ class BaseFunction(object):
         df = self.conform_index(df)
         
         return df
+    
+    def generate_entity_data(self,entity_name, entities, days, seconds = 0, freq = '1min', credentials = None, write=True):
+        '''
+        Generate random time series and dimension data for entities
+        
+        Parameters
+        ----------
+        entity_name : str
+            Name of entity to generate data for
+        entities: list
+            List of entity ids to genenerate data for
+        days: number
+            Number of days worth of data to generate (back from system date)
+        seconds: number
+            Number of seconds of wotht of data to generate (back from system date)
+        freq: str
+            Pandas frequency string - interval of time between subsequent rows of data
+        credentials: dict
+            credentials dictionary
+        write: bool
+            write generated data back to table with same name as entity
+        
+        '''
+        if self.db is None:
+            self.db = Database(credentials=credentials)
+        table = self.db.get_table(entity_name)
+        metrics = []
+        dims = []
+        others = []
+        for c in self.db.get_column_names(table):
+            if not c in ['deviceid','devicetype','format','updated_utc']:
+                data_type = str(table.c[c].type)                
+                if data_type == 'FLOAT':
+                    metrics.append(c)
+                elif data_type[:7] == 'VARCHAR':
+                    dims.append(c)
+                else:
+                    others.append(c)
+        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, dims = dims)
+        df = ts.execute()
+        if write:
+            for o in others:
+                if o not in df.columns:
+                    df[o] = None
+            df['logicalinterface_id'] = ''
+            df['devicetype'] = entity_name
+            df['format'] = ''
+            df['updated_utc'] = None
+            self.db.write_frame(table_name = entity_name, df = df)
+        
+        return df
+        
         
     
 class BaseTransformer(BaseFunction):
@@ -1404,6 +1468,7 @@ class GenerateCerealFillerData(BaseLoader):
         
         ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
         df = ts.execute()
+        
         return df
     
     
@@ -1992,18 +2057,22 @@ class TimeSeriesGenerator(BaseLoader):
     day_harmonic = 0.1
     day_of_week_harmonic = 0.2
     
-    def __init__(self,metrics=None,ids=None,days=30,seconds=0,freq='1min'):
+    def __init__(self,metrics=None,ids=None,days=30,seconds=0,freq='1min', dims = None):
     
         if metrics is None:
             metrics = ['x1','x2','x3']
+        
+        if dims is None:
+            dims = []
             
         self.metrics = metrics
+        self.dims = dims
         
         if ids is None:
             ids = ['sample_%s' %x for x in list(range(10))]
         self.ids = ids
         
-        self.days = 30
+        self.days = days
         self.seconds = seconds
         self.freq = freq
         #optionally scale using dict keyed on metric name
@@ -2040,7 +2109,13 @@ class TimeSeriesGenerator(BaseLoader):
                 df[m] = df[m] + self.mean['metric']
             except KeyError:
                 pass
+            
+        for d in self.dims:
+            df[d] = np.random.choice(self.get_domain(d), len(df.index))
+            
         df.set_index([self._entity_id,self._timestamp])
+        msg = 'Generated %s rows of time series data from %s to %s' %(rows,start,end)
+        logger.debug(msg)
         
         return df
     
