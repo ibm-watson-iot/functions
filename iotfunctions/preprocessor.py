@@ -285,7 +285,8 @@ class BaseFunction(object):
     
     def conform_index(self,df,entity_id_col = None, timestamp_col = None):
         '''
-        Dataframes that contain timeseries data are expected to be indexed on an id and timestamp
+        Dataframes that contain timeseries data are expected to be indexed on an id string and timestamp.
+        Use conform_index() to get a dataframe into th expected shape for further processing in a pipeline.
         '''
         self.log_df_info(df,'incoming dataframe for conform index')
         if not df.index.names == [self._df_index_entity_id,self._df_index_timestamp]:            
@@ -313,8 +314,6 @@ class BaseFunction(object):
             else:
                 df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
                 self.log_df_info(df,'afters setting index in conform index')
-                
-        df.to_csv('after_reindex_debug.csv')
         
         return df
             
@@ -341,7 +340,7 @@ class BaseFunction(object):
                     }
                 item_type = "string"
                 if is_constant:
-                    item_type = datatype
+                    item_type = self._getJsonDataType(datatype)
                 try:
                     column_metadata['jsonSchema']["maxItems"] = self.itemMaxCardinality[arg]
                 except KeyError:
@@ -1230,7 +1229,6 @@ class BaseDBActivityMerge(BaseLoader):
         adf = pivot_start.execute(adf)
         
         adf = self.conform_index(adf,timestamp_col = self._start_date)
-        adf.to_csv('after_pivot_debug.csv')
     
         return adf
         
