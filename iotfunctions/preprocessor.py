@@ -950,6 +950,7 @@ class BaseFunction(object):
         table = self.db.get_table(entity_name)
         metrics = []
         dims = []
+        dates = []
         others = []
         for c in self.db.get_column_names(table):
             if not c in ['deviceid','devicetype','format','updated_utc']:
@@ -958,9 +959,11 @@ class BaseFunction(object):
                     metrics.append(c)
                 elif data_type[:7] == 'VARCHAR':
                     dims.append(c)
+                elif data_type == 'DATETIME':
+                    dates.append(c)
                 else:
                     others.append(c)
-        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, dims = dims)
+        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, dims = dims, dates = dates)
         df = ts.execute()
         if write:
             for o in others:
@@ -2057,7 +2060,7 @@ class TimeSeriesGenerator(BaseLoader):
     day_harmonic = 0.1
     day_of_week_harmonic = 0.2
     
-    def __init__(self,metrics=None,ids=None,days=30,seconds=0,freq='1min', dims = None):
+    def __init__(self,metrics=None,ids=None,days=30,seconds=0,freq='1min', dims = None, dates=None):
     
         if metrics is None:
             metrics = ['x1','x2','x3']
@@ -2065,8 +2068,12 @@ class TimeSeriesGenerator(BaseLoader):
         if dims is None:
             dims = []
             
+        if dates is None:
+            dates = []
+            
         self.metrics = metrics
         self.dims = dims
+        self.dates = dates
         
         if ids is None:
             ids = ['sample_%s' %x for x in list(range(10))]
@@ -2086,32 +2093,39 @@ class TimeSeriesGenerator(BaseLoader):
         start = start - dt.timedelta(seconds=self.seconds)
         
         ts = pd.date_range(end=end,start=start,freq=self.freq)
+        y_cols = []
+        y_cols.extend(self.metrics)
+        y_cols.extend(self.dates)
+        y_count = len(y_cols)
         rows = len(ts)
-        metrics_count = len(self.metrics)
-        noise = np.random.normal(0,1,(rows,metrics_count))
+        noise = np.random.normal(0,1,(rows,y_count))
         
-        df = pd.DataFrame(data=noise,columns=self.metrics)
+        df = pd.DataFrame(data=noise,columns=y_cols)
         df[self._entity_id] = np.random.choice(self.ids, rows)
         df[self._timestamp] = ts
         days_from_ref = (df[self._timestamp] - self.ref_date).dt.total_seconds() / (60*60*24)
         day = df[self._timestamp].dt.day
         day_of_week = df[self._timestamp].dt.dayofweek
         
-        for m in self.metrics:
+        for m in y_cols:
             try:
-                df[m] = df[m] * self.sd['metric']
+                df[m] = df[m] * self.sd[m]
             except KeyError:
                 pass            
             df[m] = df[m] + days_from_ref * self.increase_per_day
             df[m] = df[m] + np.sin(day*4*math.pi/364.25) * self.day_harmonic
             df[m] = df[m] + np.sin(day_of_week*2*math.pi/6) * self.day_of_week_harmonic
             try:
-                df[m] = df[m] + self.mean['metric']
+                df[m] = df[m] + self.mean[m]
             except KeyError:
                 pass
             
         for d in self.dims:
             df[d] = np.random.choice(self.get_domain(d), len(df.index))
+            
+        for t in self.dates:
+            df[t] = dt.datetime.now() + pd._to_timesdelta(df[t],unit = 'D')
+            df[t] = pd.to_datetime(df[t])
             
         df.set_index([self._entity_id,self._timestamp])
         msg = 'Generated %s rows of time series data from %s to %s' %(rows,start,end)
