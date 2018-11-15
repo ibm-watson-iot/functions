@@ -1729,8 +1729,12 @@ class LookupOperator(BaseResourceLookup):
     End dates are not currently used. Assignment is assumed to be valid until the next.
     '''
     
-    def __init__(self, output_item = None):
+    def __init__(self, dummy_item , output_item = None):
         
+        #at the moment there is a requirement to include at least one item is input to a function
+        #a dummy will be added
+        # TBD remove this restriction
+        self.dummy_item = dummy_item
         table_name = 'operator_lookup'
         super().__init__(table_name = table_name, output_item = output_item)
         
