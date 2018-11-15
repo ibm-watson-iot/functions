@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
     
 
 class EntityType(object):
+    
+    log_table = 'KPI_LOGGING'
+    checkpoint_table = 'KPI_CHECKPOINT'
+    
     '''
     Analytic service entity type
     '''
@@ -26,9 +30,12 @@ class EntityType(object):
         self.name = name
         self.database = Database(credentials = credentials, start_session = False)
         self.credentials = credentials
-        self.ts = TimeSeriesTable(self.name ,self.database, *args, **kw)
-        self.table = self.ts.table
-        self.database.create_all()
+        try:
+            self.table = self.database.get_table(self.name)
+        except KeyError:
+            ts = TimeSeriesTable(self.name ,self.database, *args, **kw)
+            self.table = ts.table
+            self.database.create_all()
         self.register()
         
     def register(self):
@@ -42,7 +49,7 @@ class EntityType(object):
 
         '''
         columns = []
-        for c in self.ts.get_columns():
+        for c in self.database.get_column_names(self.table):
             if c not in ['logicalinterface_id','format','updated_utc']:
                 data_type = str(self.table.c[c].type)
                 if data_type == 'FLOAT':
@@ -83,6 +90,17 @@ class EntityType(object):
             r = http.request("POST", url, body = encoded_payload, headers=headers)
             print ('Metadata Registered: ',r.data.decode('utf-8'))
             return r.data.decode('utf-8')
+        
+    def get_log(self,rows = 100):
+        
+        query, log = self.database.query(self.log_table)
+        query = query.filter(log.c.entity_type==self.name).\
+                      order_by(log.c.timestamp_utc.desc()).\
+                      limit(rows)
+        df = self.database.get_query_data(query)
+        return df
+        
+        
         
         
         

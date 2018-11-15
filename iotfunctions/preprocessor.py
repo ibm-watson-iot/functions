@@ -151,6 +151,10 @@ class BaseFunction(object):
                     except KeyError:
                         pass
                     
+    def add_resource_calendar(self, resource_name, table_name):
+        
+        self.resource_calendar[resource_name] = table_name
+                    
     
     def register(self,credentials,df,
                  name=None,url=None,constants = None, module=None,
@@ -291,6 +295,7 @@ class BaseFunction(object):
         Dataframes that contain timeseries data are expected to be indexed on an id string and timestamp.
         Use conform_index() to get a dataframe into th expected shape for further processing in a pipeline.
         '''
+        
         self.log_df_info(df,'incoming dataframe for conform index')
         if not df.index.names == [self._df_index_entity_id,self._df_index_timestamp]:            
             if entity_id_col is None:
@@ -328,6 +333,18 @@ class BaseFunction(object):
          else:
              result = datatype.lower()
          return result
+     
+        
+    def _get_data_scope(self,df):
+        '''
+        Return the start, end and set of entity ids contained in a dataframe as a tuple
+        '''
+        
+        start_ts = df[self._timestamp].min()
+        end_ts = df[self._timestamp].max()
+        entities = list(pd.unique(df[self._entity_id]))
+        
+        return (start_ts,end_ts,entities)
      
     def _getJsonSchema(self,column_metadata,datatype,min_items,arg,is_array,is_output,is_constant):
         
@@ -610,6 +627,23 @@ class BaseFunction(object):
     
         return (metadata_inputs,metadata_outputs)
     
+    def get_resource_calendar_data(self,table_name,start_ts, end_ts, entities):
+        '''
+        Retrieve a resource calendar as a dataframe
+        '''
+        
+        (query,table) = self.db.query(table_name)
+        if not start_ts is None:
+            query = query.filter(table.c.end_date >= start_ts)
+        if not end_ts is None:
+            query = query.filter(table.c.start_date < end_ts)  
+        if not entities is None:
+            query = query.filter(table.c.deviceid.in_(entities))
+        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
+        
+        return df
+        
+    
     def _get_resource_assignment(self,start_ts,end_ts,entities):
         '''
         Build a dict keyed on resource type and entity id for each type of resource
@@ -619,20 +653,15 @@ class BaseFunction(object):
             return None
         else:
             for resource, table in list(self.resource_calendar.items()):
-                (query,table) = self.db.query(table)
-                if not start_ts is None:
-                    query = query.filter(table.c.end_date >= start_ts)
-                if not end_ts is None:
-                    query = query.filter(table.c.start_date < end_ts)  
-                if not entities is None:
-                    query = query.filter(table.c.deviceid.in_(entities))
-                df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
+                df = self.get_resource_calendar_data(table_name=table, start_ts=start_ts, end_ts = end_ts, entities = entities)
                 #build the resource assignment dict
                 x[resource] = self._partition_df_by_id(df)
             return x
             
     def _partition_df_by_id(self,df):
-        
+        '''
+        Partition dataframe into a dictionary keyed by _entity_id
+        '''
         d = {x: table for x, table in df.groupby(self._entity_id)}
         return d
             
@@ -1393,6 +1422,51 @@ class BaseDBActivityMerge(BaseLoader):
             query = query.filter(table.c.deviceid.in_(entities))
         df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
         return df
+
+
+class BaseResourceLookup(BaseTransformer):
+    '''
+    Lookup a resource assigment from a resource calendar
+    '''
+    _start_date = 'start_date'
+    _end_date = 'end_date'
+    merge_nearest_tolerance = None #pd.Timedelta('1D')
+    
+    def __init__ (self, table_name, output_item = None):
+        
+        self.table_name = table_name
+        if output_item is None:
+            output_item = self.table_name
+        self.output_item = output_item
+        super().__init__()
+        #establish database connection
+        if self.db is None:
+            self.db = Database(credentials = self.db_credentials )
+        
+    def execute(self,df):
+        
+        (start_ts, end_ts, entities) = self._get_data_scope(df)
+        resource_df = self.get_resource_calendar_data(table_name = self.table_name, start_ts = start_ts, end_ts=end_ts, entities=entities)
+        resource_df = resource_df.rename(columns = {'resource_id':self.output_item,
+                                          'start_date': self._timestamp})
+        cols = [x for x in resource_df.columns if x not in ['end_date']]
+        resource_df = resource_df[cols]
+        self.log_df_info(df,'source dataframe before merge')
+        self.log_df_info(resource_df,'resource data source to be merged')                
+        try:
+            df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+        except ValueError:
+            resource_df = resource_df.sort_values([self._timestamp,self._entity_id])
+            try:
+                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+            except ValueError:
+                df = df.sort_values([self._timestamp,self._entity_id])
+                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+                
+        self.log_df_info(df,'post resource calendar merge') 
+        return df
+        
+        
         
 
 class AlertThreshold(BaseEvent):
@@ -1467,7 +1541,7 @@ class GenerateCerealFillerData(BaseLoader):
             seconds = 0
         else:
             days = 0
-            seconds = (dt.datetime.now - start_ts).total_seconds()
+            seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
         
         ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
         df = ts.execute()
@@ -1512,7 +1586,7 @@ class InputDataGenerator(BaseLoader):
             seconds = 0
         else:
             days = 0
-            seconds = (dt.datetime.now - start_ts).total_seconds()
+            seconds = (dt.datetime.dt.datetime.utcnow() - start_ts).total_seconds()
         
         ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
         df = ts.execute()
@@ -1590,6 +1664,9 @@ class ExecuteFunctionSingleOut(BaseTransformer):
         
         return rf
     
+    
+    
+    
 class LookupCompany(BaseDatabaseLookup):
     """
     Lookup Company information from a database table        
@@ -1643,7 +1720,20 @@ class LookupCompany(BaseDatabaseLookup):
         # The base class takes care of the rest
         # No execute() method required
                 
+        
+class LookupOperator(BaseResourceLookup):
+    '''
+    Lookup Operator information from a resource calendar
+    A resource calendar is a table with a start_date, end_date, device_id and resource_id
+    Resource assignments are defined for each device_id. Each assignment has a start date
+    End dates are not currently used. Assignment is assumed to be valid until the next.
+    '''
     
+    def __init__(self, output_item = None):
+        
+        table_name = 'operator_lookup'
+        super().__init__(table_name = table_name, output_item = output_item)
+        
 
 class NegativeRemover(BaseTransformer):
     '''
@@ -1728,7 +1818,8 @@ class MergeActivityData(BaseDBActivityMerge):
                  shift_start_date = 'start_date',
                  shift_end_date = 'end_date' 
                 )
-        self.resource_calendar['operator'] = 'operator_lookup'
+        
+        self.add_resource_calendar(resource_name = 'operator', table_name = 'operator_lookup')
         
         
 class MergeSampleTimeSeries(BaseLoader):
@@ -2056,7 +2147,7 @@ class TimeSeriesGenerator(BaseLoader):
     
     increase_per_day = 0.0001
     noise = 0.1 
-    ref_date = dt.datetime.strptime('Jan 1 2018', '%b %d %Y')
+    ref_date = dt.datetime(2018, 1, 1, 0, 0, 0, 0)
     day_harmonic = 0.1
     day_of_week_harmonic = 0.2
     
@@ -2088,7 +2179,7 @@ class TimeSeriesGenerator(BaseLoader):
         
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
-        end = dt.datetime.now()
+        end = dt.datetime.utcnow()
         start = end - dt.timedelta(days=self.days)
         start = start - dt.timedelta(seconds=self.seconds)
         
@@ -2103,6 +2194,7 @@ class TimeSeriesGenerator(BaseLoader):
         df = pd.DataFrame(data=noise,columns=y_cols)
         df[self._entity_id] = np.random.choice(self.ids, rows)
         df[self._timestamp] = ts
+        
         days_from_ref = (df[self._timestamp] - self.ref_date).dt.total_seconds() / (60*60*24)
         day = df[self._timestamp].dt.day
         day_of_week = df[self._timestamp].dt.dayofweek
@@ -2124,7 +2216,7 @@ class TimeSeriesGenerator(BaseLoader):
             df[d] = np.random.choice(self.get_domain(d), len(df.index))
             
         for t in self.dates:
-            df[t] = dt.datetime.now() + pd._to_timesdelta(df[t],unit = 'D')
+            df[t] = dt.datetime.utcnow() + pd._to_timesdelta(df[t],unit = 'D')
             df[t] = pd.to_datetime(df[t])
             
         df.set_index([self._entity_id,self._timestamp])

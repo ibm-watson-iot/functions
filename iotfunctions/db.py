@@ -37,6 +37,8 @@ class Database(object):
     
     def __init__(self,credentials = None, start_session = False, echo = False):
         
+        logger.debug('Requesting db connection')
+        
         #If explicit credentials provided these allow connection to a db other than the ICS one.
         if not credentials is None:
             connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(credentials['username'],credentials['password'],credentials['host'],credentials['port'],credentials['database'])
@@ -66,6 +68,8 @@ class Database(object):
         self.metadata = MetaData(self.connection)
         #TBS support alternative schema
         self.schema = None
+        
+        logger.debug('Db connection established')
 
     def commit(self):
         '''
@@ -95,7 +99,7 @@ class Database(object):
         try:
             table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection)        
         except NoSuchTableError:
-            raise ValueError ('Table %s does not exist in the database' %table_name)
+            raise KeyError ('Table %s does not exist in the database' %table_name)
         else:
             return table
         
@@ -118,6 +122,21 @@ class Database(object):
             return False
         
         return True
+    
+    def get_query_data(self, query):
+        '''
+        Execute a query and a return a dataframe containing results
+        
+        Parameters
+        ----------
+        query : sqlalchemy Query object
+            query to execute
+        
+        '''
+        
+        df = pd.read_sql(sql=query.statement, con = self.connection )
+        return df
+        
         
     def start_session(self):
         '''
@@ -139,9 +158,15 @@ class Database(object):
         tuple containing a sqlalchemy query object and a sqlalchemy table object
         '''
         
+        msg = 'Starting build of db query for table %s' %table_name
+        logger.debug(msg)
+        
         self.start_session()
         table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection)
         q = self.session.query(table)
+        
+        msg = 'Query object built %s' %q.statement
+        logger.debug(msg)
         
         return (q,table)
     
@@ -182,7 +207,7 @@ class Database(object):
             df = df[[x for x in df.columns if x !='timestamp']]
         df = df[[x for x in df.columns if x !='index']]
         if version_db_writes:
-            df['version_date'] = dt.datetime.now()
+            df['version_date'] = dt.datetime.utcnow()
         if table_name is None:
             raise ValueError('Function attempted to write data to a table. A name was not supplied. Specify an instance variable for out_table_name. Optionally include an out_table_prefix too')
         dtypes = {}        
