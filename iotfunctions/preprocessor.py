@@ -292,7 +292,7 @@ class BaseFunction(object):
     def conform_index(self,df,entity_id_col = None, timestamp_col = None):
         '''
         Dataframes that contain timeseries data are expected to be indexed on an id string and timestamp.
-        Use conform_index() to get a dataframe into th expected shape for further processing in a pipeline.
+        Use conform_index() to get a dataframe into the expected shape for further processing in a pipeline.
         '''
         
         self.log_df_info(df,'incoming dataframe for conform index')
@@ -302,7 +302,7 @@ class BaseFunction(object):
             if timestamp_col is None:
                 timestamp_col = self._timestamp
             try:
-                df[self._df_index_entity_id] = df[entity_id_col]
+                df[self._df_index_entity_id] = df[entity_id_col].astype(str)
                 df[self._df_index_timestamp] = pd.to_datetime(df[timestamp_col])
             except KeyError:
                 try:
