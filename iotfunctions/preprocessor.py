@@ -188,7 +188,6 @@ class BaseFunction(object):
         if incremental_update is None:
             incremental_update = self.incremental_update
             
-            
         (metadata_input,metadata_output) = self._getMetadata(df=df,outputs=outputs,constants = constants, inputs = self.inputs)
 
         module_and_target = '%s.%s' %(module,self.__class__.__name__)
@@ -417,6 +416,7 @@ class BaseFunction(object):
             tf = self.execute(tf)
             if not isinstance(tf,pd.DataFrame):
                 raise TypeError('The execute method of a custom function must return a pandas DataFrame object not %s' %tf)
+            self.validate_df(input_df = df,output_df = tf)
             test_outputs = self._inferOutputs(before_df=df,after_df=tf)
             if len(test_outputs) ==0:
                 raise ValueError('Could not locate output columns in the test dataframe. Check the execute method of the function to ensure that it returns a dataframe with output columns that are named differently from the input columns')
@@ -704,7 +704,8 @@ class BaseFunction(object):
         multi_datatype = False
         found_types = []
         append_msg = ''
-            
+        
+        datatype = None
         for value in parm:
              
             if df is None:
@@ -1006,16 +1007,59 @@ class BaseFunction(object):
         
         return df
     
-    '''
     
     def validate_df(self,input_df, output_df):
         
         validation_result = {}
-        for df in [input_df,ouput_df]:
+        validation_types = {}
+        for (df,df_name) in [(input_df,'input'),(output_df,'output')]:
+            validation_types[df_name] = {}
+            for c in list(df.columns):
+                try:
+                  validation_types[df_name][df[c].dtype].add(c)
+                except KeyError:
+                  validation_types[df_name][df[c].dtype] = {c}
             
-        validation_result['row_count'] = 
+            validation_result[df_name] = {}
+            validation_result[df_name]['row_count'] = len(df.index)
+            validation_result[df_name]['columns'] = set(df.columns)
+            is_str_0 = False
+            try:
+                if is_string_dtype(df.index.get_level_values(self._df_index_entity_id)):
+                    is_str_0 = True
+            except KeyError:
+                pass
+            is_dt_1 = False                
+            try:
+                if is_datetime64_any_dtype(df.index.get_level_values(self._df_index_timestamp)):
+                    is_dt_1 = True
+            except KeyError:
+                pass
+            validation_result[df_name]['is_index_0_str'] = is_str_0
+            validation_result[df_name]['is_index_1_datetime'] = is_dt_1
             
-    '''    
+        if validation_result['input']['row_count'] == 0:
+            logger.warning('Input dataframe has no rows of data')
+        elif validation_result['output']['row_count'] == 0:
+            logger.warning('Output dataframe has no rows of data')
+        
+        if not validation_result['input']['is_index_0_str']:
+            logger.warning('Input dataframe index does not conform. First part not a string called %s' %self._df_index_entity_id)
+        if not validation_result['output']['is_index_0_str']:
+            raise ValueError('Output dataframe index does not conform. First part not a string called %s' %self._df_index_entity_id)
+
+        if not validation_result['input']['is_index_1_datetime']:
+            logger.warning('Input dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
+        if not validation_result['output']['is_index_1_datetime']:
+            raise ValueError('Output dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
+            
+        for dtype,cols in list(validation_types['input'].items()):
+            missing = cols - validation_types['output'][dtype]
+            if len(missing) == 0 :
+                msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' %(missing,dtype)
+                logger.warning(msg)
+            
+        return(validation_result,validation_types)
         
     
 class BaseTransformer(BaseFunction):
