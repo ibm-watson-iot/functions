@@ -41,8 +41,7 @@ class Database(object):
         
         #If explicit credentials provided these allow connection to a db other than the ICS one.
         if not credentials is None:
-            connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(credentials['username'],credentials['password'],credentials['host'],credentials['port'],credentials['database'])
-            
+            connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(credentials['username'],credentials['password'],credentials['host'],credentials['port'],credentials['database']) 
         else:
             # look for environment vaiable for the ICS DB2
             try:
@@ -52,11 +51,13 @@ class Database(object):
                 raise ValueError(msg)
             else:
                if not connection_string is None:
-                   ev = dict(item.split("=") for item in connection_string[:-1].split(";"))
+                   if connection_string.endswith(';'):
+                       connection_string = connection_string[:-1]
+                   ev = dict(item.split("=") for item in connection_string.split(";"))
                    connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
                else:
                    raise ValueError(msg)
-                   
+        
         self.connection =  create_engine(connection_string, echo = echo)
         self.Session = sessionmaker(bind=self.connection)
         
