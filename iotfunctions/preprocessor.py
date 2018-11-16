@@ -1005,7 +1005,17 @@ class BaseFunction(object):
             self.db.write_frame(table_name = entity_name, df = df)
         
         return df
+    
+    '''
+    
+    def validate_df(self,input_df, output_df):
         
+        validation_result = {}
+        for df in [input_df,ouput_df]:
+            
+        validation_result['row_count'] = 
+            
+    '''    
         
     
 class BaseTransformer(BaseFunction):
@@ -1462,11 +1472,11 @@ class BaseResourceLookup(BaseTransformer):
             except ValueError:
                 df = df.sort_values([self._timestamp,self._entity_id])
                 df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
-                
+        
+        df = df.reset_index()
+        df = self.conform_index(df)        
         self.log_df_info(df,'post resource calendar merge') 
         return df
-        
-        
         
 
 class AlertThreshold(BaseEvent):
