@@ -1201,11 +1201,18 @@ class BaseLoader(BaseTransformer):
         Retrieve data and combine with pipeline data
         '''
         new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
-        self.log_df_info(df,'source datafram before merge')
+        self.log_df_info(df,'source dataframe before merge')
         self.log_df_info(new_df,'additional data source to be merged')        
-        if self.merge_method == 'outer':        
-            new_df = self._remove_cols_from_df(new_df,list(df.columns))
-            df = df.join(new_df,how='outer',sort=True,on=[self._df_index_entity_id,self._df_index_timestamp])
+        if self.merge_method == 'outer':
+            #new_df is expected to be indexed on id and timestamp
+            overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
+            df = df.join(new_df,how='outer',sort=True,on=[self._df_index_entity_id,self._df_index_timestamp],rsuffix='_new_')
+            drop_cols = ["%s_new_" %x for x in overlapping_columns]
+            for i,o in enumerate(overlapping_columns):
+                df[o] = df[o].fillna(df[drop_cols[i]])
+            df = self._remove_cols_from_df(df,drop_cols)
+            msg = 'Callesced columns during merge %s' %overlapping_columns
+            logger.debug(msg)
         elif self.merge_method == 'nearest': 
             new_df = self._remove_cols_from_df(new_df,list(df.columns))
             try:
@@ -1230,6 +1237,7 @@ class BaseLoader(BaseTransformer):
             raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
     
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
+        df = self.conform_index(df)
         
         return df
 
@@ -1391,7 +1399,7 @@ class BaseDBActivityMerge(BaseLoader):
             self.db = Database(credentials = self.db_credentials)
         
         dfs = []
-        #build sql and executive it 
+        #build sql and execute it 
         for table_name,activities in list(self.activities_metadata.items()):
             for a in activities:
                 af = self.read_activity_data(table_name=table_name,
@@ -1413,6 +1421,7 @@ class BaseDBActivityMerge(BaseLoader):
                 dfs.append(af)      
         
         adf = pd.concat(dfs,sort=False)
+        self.log_df_info(adf,'After merging activity data from all sources')
         #get shift changes
         self.add_dates = []
         self.custom_calendar_df = None
@@ -1421,12 +1430,12 @@ class BaseDBActivityMerge(BaseLoader):
             add_dates = set(self.custom_calendar_df[self._start_date].tolist())
             add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
             self.add_dates = list(add_dates)
-        adf = self.conform_index(adf, timestamp_col = self._start_date)
         #get resource assignment changes
         self._entity_resource_dict = self._get_resource_assignment(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
         #merge takes place separately by entity instance
         
         group_base = []
+        levels = []
         for s in self.execute_by:
             if s in adf.columns:
                 group_base.append(s)
@@ -1437,12 +1446,24 @@ class BaseDBActivityMerge(BaseLoader):
                     raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
                 else:
                     group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(s)))
-        if len(group_base)>0:
-            adf = adf.groupby(group_base).apply(self._combine_activities)             
+            levels.append(s)
+        try:
+            group = adf.groupby(group_base)             
+        except KeyError:
+            msg = 'Attempt to execute combine activities by %s. One or more group by column was not found' %levels
+            logger.debug(msg)
+            raise
         else:
-            raise ValueError('This function executes by entity. execute_by should be "id"')
+            try:
+                group.apply(self._combine_activities)
+            except KeyError:
+                msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' %list(adf.columns)
+                logger.debug(msg)
+                raise
             
         adf['duration'] = (adf[self._end_date] - adf[self._start_date]).dt.total_seconds() / 60
+        
+        self.log_df_info(adf,'combined activity data after removing overlap')
             
         pivot_start = PivotRowsToColumns(
                 pivot_by_item = self._activity,
@@ -1452,7 +1473,7 @@ class BaseDBActivityMerge(BaseLoader):
                 output_items = self.activity_duration
                     )        
         adf = pivot_start.execute(adf)
-        
+        self.log_df_info(adf,'pivoted activity data')
         adf = self.conform_index(adf,timestamp_col = self._start_date)
     
         return adf
@@ -1465,11 +1486,8 @@ class BaseDBActivityMerge(BaseLoader):
         output dataframe corrects overlapping activities.
         activities with later start dates take precidence over activies with earlier start dates when resolving.
         '''
-        
-        msg = 'Combining activities contained in df with cols %s and index %s' %(df.columns,df.index.names)
-        logger.debug(msg)
-        entity = df.index.get_level_values(self._df_index_entity_id).max()
-        
+        #dataframe expected to contain start_date,end_date,activity for a single deviceid
+        entity = df[self._entity_id].max()        
         #create a continuous range
         early_date = pd.Timestamp.min
         late_date = pd.Timestamp.max
@@ -1517,6 +1535,9 @@ class BaseDBActivityMerge(BaseLoader):
         #remove gaps
         if self.remove_gaps:
             df = df[df[self._activity]!='_gap_']
+        
+        df[self._entity_id] = entity
+        #combined activities dataframe has start_date,end_date,device_id, activity and may have shift day and id
         
         return df          
             
