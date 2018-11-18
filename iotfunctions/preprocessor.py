@@ -76,8 +76,8 @@ class BaseFunction(object):
     # lookups
     # a resource calendar is use to identify other resources (e.g. people, organizations) associated with the device
     # these associations may change over time.
-    resource_calendar = {}
-    _entity_resource_dict = {}
+    resource_calendar = None
+    _entity_resource_dict = None
     # predefined column names
     _entity_id = 'deviceid'
     _timestamp = 'evt_timestamp'
@@ -85,9 +85,8 @@ class BaseFunction(object):
     _df_index_entity_id = 'id'
     _df_index_timestamp = 'timestamp'
     # when generating dimension data provide a domain of values keyed on the dimenion name
-    domain = {}
-    # if no domain exists for the dimension, use the default domain
-    _default_dimension_domain = ['AA','BA','ZA','CT','BV']
+    domain = None
+    _default_dimension_domain = None
     
     def __init__(self):
         
@@ -139,6 +138,18 @@ class BaseFunction(object):
         if self.tags is None:
             self.tags = []  
 
+        if self.resource_calendar is None:
+            self.resource_calendar= {}
+            
+        if self._entity_resource_dict is None:
+            self._entity_resource_dict= {}            
+
+        if self.domain is None:
+            self.domain = {}   
+
+        if self._default_dimension_domain is None:
+            self._default_dimension_domain= ['AA','BA','ZA','CT','BV'] 
+            
 
         #if cos credentials are not explicitly  provided use environment variable
         if self.bucket is None:
@@ -240,6 +251,32 @@ class BaseFunction(object):
             return r.data.decode('utf-8')
         else:
             return encoded_payload
+        
+    def unregister(self,credentials,name = None):
+        '''
+        Unregister function
+        '''
+        if name is None:
+            name = self.name
+            
+        try:
+            as_api_host = credentials['as_api_host']
+        except KeyError:
+            raise ValueError('No as_api_host provided in credentials')
+         
+        http = urllib3.PoolManager()
+        headers = {
+            'Content-Type': "application/json",
+            'X-api-key' : credentials['as_api_key'],
+            'X-api-token' : credentials['as_api_token'],
+            'Cache-Control': "no-cache",
+        }
+
+        url = 'http://%s/api/catalog/v1/%s/function/%s' %(as_api_host,credentials['tennant_id'],name)
+        r = http.request("DELETE", url, body = {}, headers=headers)
+        msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+        logger.info(msg)        
+        
     
     def acquire_db_connection(self, start_session = False, credentials = None):
         '''
@@ -292,7 +329,8 @@ class BaseFunction(object):
     def conform_index(self,df,entity_id_col = None, timestamp_col = None):
         '''
         Dataframes that contain timeseries data are expected to be indexed on an id string and timestamp.
-        Use conform_index() to get a dataframe into the expected shape for further processing in a pipeline.
+        When you can't avoid changing the index during a transform, use conform_index() to get a dataframe
+        back into the expected shape for further processing in a pipeline.
         '''
         
         self.log_df_info(df,'incoming dataframe for conform index')
@@ -307,7 +345,7 @@ class BaseFunction(object):
             except KeyError:
                 try:
                     df = df.reset_index()
-                    df[self._df_index_entity_id] = df[entity_id_col]
+                    df[self._df_index_entity_id] = df[entity_id_col].astype(str)
                     df[self._df_index_timestamp] = pd.to_datetime(df[timestamp_col])
                     df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
                 except:
@@ -318,9 +356,17 @@ class BaseFunction(object):
                     '''
                     self.log_df_info(df,'before raising error ')
                     raise KeyError(msg)
+                else:
+                    msg = 'Dataframe was not indexed correctly. Recovered id and timestamp from existing index and built a new one.'
+                    logger.debug(msg)
             else:
+                msg = 'Dataframe was not indexed correctly. Built new index on id and timestamp'
                 df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
-                self.log_df_info(df,'afters setting index in conform index')
+                logger.debug(msg)
+                
+        df[self._timestamp] = df.index.get_level_values(self._df_index_timestamp)
+        df[self._entity_id] = df.index.get_level_values(self._df_index_entity_id)
+        self.log_df_info(df,'after  conform index')
         
         return df
             
@@ -385,6 +431,15 @@ class BaseFunction(object):
             domain = self._default_dimension_domain
             
         return domain
+    
+    def get_item_values(self,arg):
+        """
+        
+        """
+        
+        msg = 'No code implemented to gather available values for argument %s' %arg
+        
+        raise NotImplementedError (msg)
         
     def _getMetadata(self, df = None, inputs = None, outputs = None, constants = None):
         """
@@ -590,12 +645,15 @@ class BaseFunction(object):
                 column_metadata['type'] = 'CONSTANT'
                 try:
                     values = self.itemValues[a]
-                except KeyError:
-                    msg = 'Constant argument %s is has no explicit values defined for it' %a
-                    logger.debug(msg)
-                    if is_array:
-                        msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the set_values() method' %a
-                        warnings.warn(msg)
+                except KeyError:            
+                    try:
+                        values = self.get_item_values(a)
+                    except KeyError:
+                        msg = 'Constant argument %s is has no explicit values defined for it and no values available from the get_item_values() method' %a
+                        logger.debug(msg)
+                        if is_array:
+                            msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the set_values() method' %a
+                            warnings.warn(msg)
                 else:
                     column_metadata['values'] = values
                     msg = 'Constant argument %s is has explicit values defined for it %s' %(a, values)
@@ -626,6 +684,16 @@ class BaseFunction(object):
                 logger.debug(msg)
     
         return (metadata_inputs,metadata_outputs)
+    
+    def get_params(self):
+        '''
+        Get metadata parameters
+        '''
+        params = {
+                '_timestamp' : self._timestamp,
+                'db' : self.db
+                }
+        return params
     
     def get_resource_calendar_data(self,table_name,start_ts, end_ts, entities):
         '''
@@ -803,6 +871,15 @@ class BaseFunction(object):
         df = df.rename(columns=column_names)
         return df
     
+    def set_params(self, **params):
+        '''
+        Set parameters based using supplied dictionary
+        '''
+        for key,value in list(params.items()):
+            setattr(self, key, value)
+        return self
+                
+    
     def write_frame(self,df,
                     db_credentials = None,
                     table_name=None, 
@@ -889,11 +966,11 @@ class BaseFunction(object):
         data = {
                 self._entity_id : ['D1','D1','D1','D1','D1','D2','D2','D2','D2','D2'],
                 self._timestamp : [
-                        dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:33AM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 11:37PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 6:00AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 3 2018 3:00AM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
@@ -1046,16 +1123,16 @@ class BaseFunction(object):
         if not validation_result['input']['is_index_0_str']:
             logger.warning('Input dataframe index does not conform. First part not a string called %s' %self._df_index_entity_id)
         if not validation_result['output']['is_index_0_str']:
-            raise ValueError('Output dataframe index does not conform. First part not a string called %s' %self._df_index_entity_id)
+            logger.warning('Output dataframe index does not conform. First part not a string called %s' %self._df_index_entity_id)
 
         if not validation_result['input']['is_index_1_datetime']:
             logger.warning('Input dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
         if not validation_result['output']['is_index_1_datetime']:
-            raise ValueError('Output dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
+            logger.warning('Output dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
             
         for dtype,cols in list(validation_types['input'].items()):
             missing = cols - validation_types['output'][dtype]
-            if len(missing) == 0 :
+            if len(missing) != 0 :
                 msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' %(missing,dtype)
                 logger.warning(msg)
             
@@ -1104,9 +1181,7 @@ class BaseLoader(BaseTransformer):
         self.input_items = self.convertStrArgToList(input_items,argument = 'lookup_items')
         self.output_items = self.convertStrArgToList(output_items,argument = 'output_items')
         # define the list of values for the picklist of input items in the UI
-        cols = self.get_input_item_values()
-        if not cols is None:
-            self.itemValues['input_items'] = cols
+
 
     def _set_dms(self, dms):
         self.dms = dms
@@ -1119,15 +1194,7 @@ class BaseLoader(BaseTransformer):
         The get_data() method is used to retrieve additional time series data that will be combined with existing pipeline data during pipeline execution.
         '''
         raise NotImplementedError('You must implement a get_data() method for any class that acts as a data source')
-    
-    def get_input_item_values(self):
-        '''
-        This method should be implemented to deliver a list of values for the picklist in the UI.
-        See BaseDatabaseLookup for an example of how to implement.
-        '''
-        warnings.warn('The get_input_item_values method is not implemented. Input items will not have a picklist in the UI.')
-        return None
-        
+            
         
     def execute(self,df,start_ts=None,end_ts=None,entities=None):        
         '''
@@ -1203,61 +1270,67 @@ class BaseDatabaseLookup(BaseTransformer):
     
     def __init__(self,
                  lookup_table_name,
+                 lookup_items = None,
                  sql=None,
                  lookup_keys = None,
                  parse_dates=None,
-                 lookup_items = None,
                  output_items=None):
 
         if sql is None or not isinstance(sql, str) or len(sql) == 0:
             raise RuntimeError('argument sql must be given as a non-empty string')
             
         self.lookup_table_name = lookup_table_name
+        if lookup_items is None:
+            msg = 'You must provide a list of columns for the lookup_items argument'
+            raise ValueError(msg)
+        self.lookup_items = self.convertStrArgToList(lookup_items,argument = 'lookup_items')
         self.sql = sql
         super().__init__()
-        # for any function that requires database access, create a database object
-        self.db = Database(credentials = self.db_credentials )
         #drive the output cardinality and data type from the items choosen for the lookup
         self.itemArraySource['output_items'] = 'lookup_items'
         self.lookup_keys = lookup_keys
         self.itemMaxCardinality['lookup_keys'] = len(self.lookup_keys)
         self.parse_dates = parse_dates 
-        cols =  self.get_input_item_values()
-        if lookup_items is None:
-            lookup_items = cols
         if output_items is None:
             #concatentate lookup name to output to make it unique
             output_items = ['%s_%s' %(self.lookup_table_name,x) for x in lookup_items]        
-        self.lookup_items = self.convertStrArgToList(lookup_items,argument = 'lookup_items')
         self.output_items = self.convertStrArgToList(output_items,argument = 'output_items')
-        self.itemValues['lookup_items'] = cols
         
-    def get_input_item_values(self):
-        '''
-        Get a list of columns returned by the lookup
-        '''
-        lup_keys = [x.upper() for x in self.lookup_keys]
-        date_cols = [x.upper() for x in self.parse_dates]
-        try:
-            df = pd.read_sql(self.sql, con = self.db.connection, index_col=lup_keys, parse_dates=date_cols)
-        except :
-            if not self.data is None:
-                df = pd.DataFrame(data=self.data)
-                df = df.set_index(keys=self.lookup_keys)
-                self.create_lookup_table(df=df, table_name = self.lookup_table_name)
-                df = pd.read_sql(self.sql, connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
-            else:
-                raise('Unable to retrieve data from lookup table using %s. Check that database table exists and credentials are correct. Include data in your function definition to automatically create a lookup table.' %sql)
+    def get_item_values(self,arg):
+        """
+        Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
+        """
+        if arg == 'lookup_items':
+            '''
+            Get a list of columns returned by the lookup
+            '''
+            lup_keys = [x.upper() for x in self.lookup_keys]
+            date_cols = [x.upper() for x in self.parse_dates]
+            try:
+                df = pd.read_sql(self.sql, con = self.db.connection, index_col=lup_keys, parse_dates=date_cols)
+            except :
+                if not self.data is None:
+                    df = pd.DataFrame(data=self.data)
+                    df = df.set_index(keys=self.lookup_keys)
+                    self.create_lookup_table(df=df, table_name = self.lookup_table_name)
+                    df = pd.read_sql(self.sql, self.db.connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
+                else:
+                    msg = 'Unable to retrieve data from lookup table using %s. Check that database table exists and credentials are correct. Include data in your function definition to automatically create a lookup table.' %sql
+                    raise(msg)
             
-        df.columns = [x.lower() for x in list(df.columns)]
-            
-        return(list(df.columns))       
-
+            df.columns = [x.lower() for x in list(df.columns)]            
+            return(list(df.columns))
+                        
+        else:
+            msg = 'No code implemented to gather available values for argument %s' %arg
+            raise NotImplementedError(msg)
     
     def execute(self, df):
         '''
         Execute transformation function of DataFrame to return a DataFrame
         '''
+        if self.db is None:
+            self.db = Database(credentials = credentials)
         df_sql = pd.read_sql(self.sql, self.db.connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
         df_sql = df_sql[self.lookup_items]
                 
@@ -1308,12 +1381,14 @@ class BaseDBActivityMerge(BaseLoader):
         super().__init__(input_items = input_activities , output_items = None)
         #for any function that requires database access, create a database object
         self.itemArraySource['activity_duration'] = 'input_activities'
-        self.db = Database(credentials = self.db_credentials)
         
     def get_data(self,
                     start_ts= None,
                     end_ts= None,
                     entities = None):
+        
+        if self.db is None:
+            self.db = Database(credentials = credentials)
         
         dfs = []
         #build sql and executive it 
@@ -1466,6 +1541,10 @@ class BaseDBActivityMerge(BaseLoader):
         -------
         Dataframe
         """
+        
+        if self.db is None:
+            self.db = Database(credentials = credentials)
+        
         (query,table) = self.db.query(table_name)
         query = query.filter(table.c.activity == activity_code)
         if not start_ts is None:
@@ -1493,9 +1572,6 @@ class BaseResourceLookup(BaseTransformer):
             output_item = self.table_name
         self.output_item = output_item
         super().__init__()
-        #establish database connection
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials )
         
     def execute(self,df):
         
@@ -1517,7 +1593,6 @@ class BaseResourceLookup(BaseTransformer):
                 df = df.sort_values([self._timestamp,self._entity_id])
                 df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
         
-        df = df.reset_index()
         df = self.conform_index(df)        
         self.log_df_info(df,'post resource calendar merge') 
         return df
@@ -1538,7 +1613,6 @@ class AlertThreshold(BaseEvent):
         self.upper_threshold = float(upper_threshold)
         self.output_alert_lower = output_alert_lower
         self.output_alert_upper = output_alert_upper
-        
         super().__init__()
         
     def execute(self,df):
@@ -1575,6 +1649,7 @@ class GenerateCerealFillerData(BaseLoader):
             input_items = ['temperature','humidity']
         
         super().__init__(input_items = input_items, output_items = output_items)
+        self.optional_items = ['input_items']
         
     def get_data(self,
                  start_ts= None,
@@ -1659,19 +1734,22 @@ class TempPressureVolumeGenerator(InputDataGenerator):
     freq = '1min' 
     # ids of entities to generate. Change the value of the range() function to change the number of entities
     ids = [str(7300 + x) for x in list(range(5))]
-    generate_items = ['pressure','temperature','volume']
     
     def __init__ (self, input_items=None, output_items=None):
         if input_items is None:
             input_items = self.generate_items
         super().__init__(input_items = input_items, output_items = output_items)
         
-    def get_input_item_values(self):
         
-        msg = 'Got predefined values for input_items %s' %self.generate_items
-        logger.debug(msg)
-        
-        return self.generate_items
+    def get_item_values(self,arg):
+        """
+        Get list of values for a picklist
+        """
+        if arg == 'input_items':
+            return ['pressure','temperature','volume']
+        else:
+            msg = 'No code implemented to gather available values for argument %s' %arg
+            raise NotImplementedError(msg)        
     
 
 class ExecuteFunctionSingleOut(BaseTransformer):
@@ -1870,7 +1948,7 @@ class MergeActivityData(BaseDBActivityMerge):
                     {
                        "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
                        "2": (14, 21),
-                       "3": (21, 5.5)
+                       "3": (21, 29.5)
                        
                        },
                  shift_start_date = 'start_date',
@@ -1919,11 +1997,19 @@ class MergeSampleTimeSeries(BaseLoader):
         df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self.source_timestamp])        
         return df
     
-    def get_input_item_values(self):
+    
+    def get_item_values(self,arg):
+        """
+        Get list of values for a picklist
+        """
+        if arg == 'input_items':
+            if self.db is None:
+                self.db = Database(credentials = self.db_credentials )
+            return self.db.get_column_names(self.source_table_name)
+        else:
+            msg = 'No code implemented to gather available values for argument %s' %arg
+            raise NotImplementedError(msg)      
         
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials )
-        return self.db.get_column_names(self.source_table_name)
     
     def load_sample_data(self):
         
@@ -2069,7 +2155,7 @@ class ShiftCalendar(BaseTransformer):
           {
                "1": (5.5, 14),
                "2": (14, 21),
-               "3": (21, 5.5)
+               "3": (21, 29.5)
            },    
     '''
     def __init__ (self,shift_definition=None,
@@ -2081,7 +2167,7 @@ class ShiftCalendar(BaseTransformer):
             shift_definition = {
                "1": (5.5, 14),
                "2": (14, 21),
-               "3": (21, 5.5)
+               "3": (21, 29.5)
            }
         self.shift_definition = shift_definition
         self.shift_start_date = shift_start_date
@@ -2179,23 +2265,36 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
         
         self.time_to_first = time_to_first
         self.time_from_last = time_from_last
-        self.custom_calendar = ShiftCalendar(
-            {
-               "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
-               "2": (14, 21),
-               "3": (21, 5.5)
-               },
-            shift_start_date = self.period_start,
-            shift_end_date = self.period_end)
         super().__init__(input_item = input_item,
                          time_to_first = time_to_first,
                          time_from_last = time_from_last)        
                 
     def _add_period_start_end(self,df):
-        
-        df = self.custom_calendar.execute(df)
+        '''
+        override parent method - instead of setting start and end dates from the gregorian calendar,
+        set them from a custom calendar using a calendar object
+        '''
+        custom_calendar = self.get_custom_calendar()
+        df = custom_calendar.execute(df)
         return df
-
+    
+    def get_custom_calendar(self):
+        '''
+        create a custom calendar object
+        '''
+        custom_calendar = ShiftCalendar(
+            {
+               "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
+               "2": (14, 21),
+               "3": (21, 29.5)
+               },
+            shift_start_date = self.period_start,
+            shift_end_date = self.period_end)        
+        #inject metdata into this custom calendar
+        custom_calendar.set_params(**self.get_params())
+        
+        return custom_calendar
+    
 
 class TimeSeriesGenerator(BaseLoader):
 

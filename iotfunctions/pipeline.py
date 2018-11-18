@@ -16,17 +16,18 @@ class CalcPipeline:
     '''
     A CalcPipeline executes a series of dataframe transformation stages.
     '''
-    def __init__(self,stages = None):
+    def __init__(self,stages = None,source =None):
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
-        self.setStages(stages)
+        self.set_stages(stages)
+        self.source = source
     
-    def addStage(self,stage):
+    def add_stage(self,stage):
         '''
         Add a new stage to a pipeline. A stage is Transformer or Aggregator.
         '''
         self.stages.append(stage)
         
-    def setStages(self,stages):
+    def set_stages(self,stages):
         '''
         Replace existing stages with a new list of stages
         '''
@@ -36,10 +37,24 @@ class CalcPipeline:
                 stages = [stages]
             self.stages.extend(stages)
                 
-    def execute(self, df, to_csv=False, dropna=True):
+    def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None):
         '''
         Execute the pipeline using an input dataframe as source.
         '''
+        
+        #if no dataframe provided, querying the source entity to get one
+        if df is None:
+            df = self.source.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)
+            if to_csv:
+                filename = 'debugPipelineSource_%s.csv' %self.source.name
+                df.to_csv(filename)
+        
+        #get entity metadata - will be inserted later into each stage
+        if self.source is None:
+            params = {}
+        else:
+            params = self.source.get_params()
+        
         self.logger.debug("pipeline_input_df_columns=%s, pipeline_input_df_indexes=%s, pipeline_input_df=\n%s" % (df.dtypes.to_dict(), df.index.to_frame().dtypes.to_dict(), df.head()))
 
         if dropna:
@@ -54,6 +69,7 @@ class CalcPipeline:
         retrieval_stages = []
         transform_stages = []
         for s in self.stages:
+            s = s.set_params(**params)
             try:
                 is_data_source =  s.is_data_source
             except AttributeError:
@@ -86,8 +102,15 @@ class CalcPipeline:
         Execute a subset of stages
         '''        
         for s in stages:
+            msg = 'Executing pipeline stage %s. Input dataframe.' %s.__class__.__name__
+            s.log_df_info(df,msg)
             original_columns = set(df.columns)
-            df = s.execute(df)
+            newdf = s.execute(df)
+            try:
+                s.validate_df(df,newdf)
+            except AttributeError:
+                pass
+            df = newdf
             if dropna:
                 df = df.replace([np.inf, -np.inf], np.nan)
                 df = df.dropna()            
@@ -97,7 +120,8 @@ class CalcPipeline:
                 self.logger.warning("Pipeline stage %s dropped columns %s from the pipeline." %(s.__class__.__name__,dropped_columns))
             if to_csv:
                 df.to_csv('debugPipelineOut_%s.csv' %s.__class__.__name__)    
-            self.logger.debug("stage=%s, pipeline_intermediate_df=\n%s" % (s.__class__.__name__, df.head()))                
-        self.logger.debug("pipeline_final_df_columns=%s, pipeline_final_df_indexes=%s, pipeline_final_df=\n%s" % (df.dtypes.to_dict(), df.index.to_frame().dtypes.to_dict(), df.head()))
+            msg = 'Completed stage %s. Output dataframe.' %s.__class__.__name__
+            s.log_df_info(df,msg)
+        
         
         return df

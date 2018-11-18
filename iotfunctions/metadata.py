@@ -14,6 +14,9 @@ import json
 import urllib3
 import pandas as pd
 from .db import Database, TimeSeriesTable
+from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
+from ibm_db_sa.base import DOUBLE
+
 
 logger = logging.getLogger(__name__)
     
@@ -23,20 +26,34 @@ class EntityType(object):
     log_table = 'KPI_LOGGING'
     checkpoint_table = 'KPI_CHECKPOINT'
     
+    _timestamp = 'evt_timestamp'
+    
     '''
     Analytic service entity type
     '''
-    def __init__ (self,name,credentials, *args, **kw):
+    def __init__ (self,name,credentials, timestamp_col= None, *args, **kw):
         self.name = name
-        self.database = Database(credentials = credentials, start_session = False)
+        self.db = Database(credentials = credentials, start_session = False)
         self.credentials = credentials
+        if not timestamp_col is None:
+            self._timestamp = timestamp_col
         try:
-            self.table = self.database.get_table(self.name)
+            self.table = self.db.get_table(self.name)
         except KeyError:
             ts = TimeSeriesTable(self.name ,self.database, *args, **kw)
             self.table = ts.table
-            self.database.create_all()
+            self.table.create(self.db.connection)
         self.register()
+        
+    def get_params(self):
+        
+        params = {
+                '_timestamp' : self._timestamp,
+                'db' : self.db,
+                'credentials' : self.credentials,
+                'source_table' : self.table
+                }
+        return params
         
     def register(self):
         '''
@@ -49,15 +66,19 @@ class EntityType(object):
 
         '''
         columns = []
-        for c in self.database.get_column_names(self.table):
+        dates = []
+        for c in self.db.get_column_names(self.table):
             if c not in ['logicalinterface_id','format','updated_utc']:
-                data_type = str(self.table.c[c].type)
-                if data_type == 'FLOAT':
+                data_type = self.table.c[c].type
+                if isinstance(data_type,DOUBLE):
                     data_type = 'NUMBER'
-                elif data_type == 'DATETIME':
+                elif isinstance(data_type,TIMESTAMP):
                     data_type = 'TIMESTAMP'
-                elif data_type[:7] == 'VARCHAR':
-                    data_type = 'LITERAL'                 
+                    dates.append(c)
+                elif isinstance(data_type,VARCHAR):
+                    data_type = 'LITERAL'
+                else:
+                    data_type = str(data_type)
                 columns.append({ 
                         'name' : c,
                         'type' : 'METRIC',
@@ -70,7 +91,7 @@ class EntityType(object):
         table['name'] = self.name
         table['dataItemDto'] = columns
         table['metricTableName'] = self.name
-        table['metricTimestampColumn'] = 'evt_timestamp'
+        table['metricTimestampColumn'] = self._timestamp
         table['schemaName'] = self.credentials['username']
         payload = [table]
         try:
@@ -91,13 +112,29 @@ class EntityType(object):
             print ('Metadata Registered: ',r.data.decode('utf-8'))
             return r.data.decode('utf-8')
         
+    def get_data(self,start_ts =None,end_ts=None,entities=None):
+        '''
+        Retrieve entity data
+        '''
+        (query,table) = self.db.query(self.name)
+        if not start_ts is None:
+            query = query.filter(table.c[self._timestamp] >= start_ts)
+        if not end_ts is None:
+            query = query.filter(table.c[self._timestamp] <= end_ts)  
+        if not entities is None:
+            query = query.filter(table.c.deviceid.in_(entities))
+        df = pd.read_sql(query.statement, con = self.db.connection)
+        
+        return df       
+        
+        
     def get_log(self,rows = 100):
         
-        query, log = self.database.query(self.log_table)
+        query, log = self.db.query(self.log_table)
         query = query.filter(log.c.entity_type==self.name).\
                       order_by(log.c.timestamp_utc.desc()).\
                       limit(rows)
-        df = self.database.get_query_data(query)
+        df = self.db.get_query_data(query)
         return df
         
         

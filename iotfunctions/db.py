@@ -261,6 +261,9 @@ class BaseTable(object):
         self.table = Table(self.name,self.database.metadata, *args,**kw )
         self.id_col = Column(self._entity_id,String(50))
         
+    def create(self):
+        self.table.create(self.database.connection)
+        
     def get_table(self,table_name):
         """
         Get a sql alchmemy logical table from database metadata
