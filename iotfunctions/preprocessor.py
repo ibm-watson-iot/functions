@@ -916,7 +916,7 @@ class BaseFunction(object):
                 table_name = self.out_table_name
     
         if self.db is None:
-            self.db = Database(credentials = db_credentials)
+            self.db = Database(credentials = self.db_credentials)
         status = self.db.write_frame(df, table_name = table_name, 
                                      version_db_writes = version_db_writes,
                                      if_exists  = if_exists,
@@ -1053,7 +1053,7 @@ class BaseFunction(object):
         
         '''
         if self.db is None:
-            self.db = Database(credentials=credentials)
+            self.db = Database(credentials=self.db_credentials)
         table = self.db.get_table(entity_name)
         metrics = []
         dims = []
@@ -1330,7 +1330,7 @@ class BaseDatabaseLookup(BaseTransformer):
         Execute transformation function of DataFrame to return a DataFrame
         '''
         if self.db is None:
-            self.db = Database(credentials = credentials)
+            self.db = Database(credentials = self.db_credentials)
         df_sql = pd.read_sql(self.sql, self.db.connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
         df_sql = df_sql[self.lookup_items]
                 
@@ -1388,7 +1388,7 @@ class BaseDBActivityMerge(BaseLoader):
                     entities = None):
         
         if self.db is None:
-            self.db = Database(credentials = credentials)
+            self.db = Database(credentials = self.db_credentials)
         
         dfs = []
         #build sql and executive it 
@@ -1543,7 +1543,7 @@ class BaseDBActivityMerge(BaseLoader):
         """
         
         if self.db is None:
-            self.db = Database(credentials = credentials)
+            self.db = Database(credentials = self.db_credentials)
         
         (query,table) = self.db.query(table_name)
         query = query.filter(table.c.activity == activity_code)
