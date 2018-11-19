@@ -1291,7 +1291,7 @@ class BaseDatabaseLookup(BaseTransformer):
         if lookup_items is None:
             msg = 'You must provide a list of columns for the lookup_items argument'
             raise ValueError(msg)
-        self.lookup_items = self.convertStrArgToList(lookup_items,argument = 'lookup_items')
+        self.lookup_items = lookup_items
         self.sql = sql
         super().__init__()
         #drive the output cardinality and data type from the items choosen for the lookup
@@ -1302,7 +1302,7 @@ class BaseDatabaseLookup(BaseTransformer):
         if output_items is None:
             #concatentate lookup name to output to make it unique
             output_items = ['%s_%s' %(self.lookup_table_name,x) for x in lookup_items]        
-        self.output_items = self.convertStrArgToList(output_items,argument = 'output_items')
+        self.output_items = output_items
         
     def get_item_values(self,arg):
         """
