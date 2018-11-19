@@ -102,6 +102,7 @@ class CalcPipeline:
         Execute a subset of stages
         '''        
         for s in stages:
+            df = s.conform_index(df)
             msg = 'Executing pipeline stage %s. Input dataframe.' %s.__class__.__name__
             s.log_df_info(df,msg)
             original_columns = set(df.columns)

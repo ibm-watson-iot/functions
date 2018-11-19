@@ -1455,16 +1455,13 @@ class BaseDBActivityMerge(BaseLoader):
             raise
         else:
             try:
-                group.apply(self._combine_activities)
+                adf = group.apply(self._combine_activities)
             except KeyError:
                 msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' %list(adf.columns)
                 logger.debug(msg)
-                raise
-            
-        adf['duration'] = (adf[self._end_date] - adf[self._start_date]).dt.total_seconds() / 60
-        
-        self.log_df_info(adf,'combined activity data after removing overlap')
-            
+                raise            
+        adf['duration'] = (adf[self._end_date] - adf[self._start_date]).dt.total_seconds() / 60        
+        self.log_df_info(adf,'combined activity data after removing overlap')            
         pivot_start = PivotRowsToColumns(
                 pivot_by_item = self._activity,
                 pivot_values = self.input_activities,
@@ -1487,20 +1484,23 @@ class BaseDBActivityMerge(BaseLoader):
         activities with later start dates take precidence over activies with earlier start dates when resolving.
         '''
         #dataframe expected to contain start_date,end_date,activity for a single deviceid
-        entity = df[self._entity_id].max()        
+        entity = df[self._entity_id].max()                
         #create a continuous range
         early_date = pd.Timestamp.min
-        late_date = pd.Timestamp.max
-        
-        df = df.sort_values([self._start_date])
+        late_date = pd.Timestamp.max        
         #create a new start date for each potential interruption of the continuous range
         dates = set([early_date,late_date])
         dates |= set((df[self._start_date].tolist()))
         dates |= set((df[self._end_date].tolist()))
         dates |= set(self.add_dates)
         #resource calendar changes are another potential interruption
+        has_resource_calendar={}
         for resource,entity_data in list(self._entity_resource_dict.items()):
-            dates |= set(entity_data[entity][self._start_date])
+            has_resource_calendar[resource] = True
+            try:
+                dates |= set(entity_data[entity][self._start_date])
+            except KeyError:
+                has_resource_calendar[resource]=False
         dates = list(dates)
         dates.sort()
         #initialize series to track history of activities
@@ -1520,14 +1520,21 @@ class BaseDBActivityMerge(BaseLoader):
             df['shift_id'] = df['shift_id'].fillna(method='ffill')
             df['shift_day'] = df['shift_day'].fillna(method='ffill')
             df[self._activity].fillna(method='ffill')
+            
         #perform resource lookup
         for resource,entity_data in list(self._entity_resource_dict.items()):
-            dfr = entity_data[entity]
-            resource_data = dfr['resource_id']
-            resource_data.index = dfr[self._start_date]
-            resource_data.name = resource
-            df = df.join(resource_data, how ='left', on = self._start_date)
-            df[resource] = df[resource].fillna(method='ffill')
+            if has_resource_calendar[resource]:
+                dfr = entity_data[entity]
+                resource_data = dfr['resource_id']
+                resource_data.index = dfr[self._start_date]
+                resource_data.name = resource
+                df = df.join(resource_data, how ='left', on = self._start_date)
+                df[resource] = df[resource].fillna(method='ffill')
+                msg = 'Found %s resource data for entity %s' %(resource,entity)
+            else:
+                msg = 'Missing %s resource data for entity %s' %(resource,entity)
+                df[resource] = None
+            logger.debug(msg)
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
         df[self._end_date] = df[self._end_date] - dt.timedelta(seconds=1)
@@ -1535,10 +1542,8 @@ class BaseDBActivityMerge(BaseLoader):
         #remove gaps
         if self.remove_gaps:
             df = df[df[self._activity]!='_gap_']
-        
-        df[self._entity_id] = entity
+    
         #combined activities dataframe has start_date,end_date,device_id, activity and may have shift day and id
-        
         return df          
             
                 
