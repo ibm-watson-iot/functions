@@ -648,7 +648,7 @@ class BaseFunction(object):
                 except KeyError:            
                     try:
                         values = self.get_item_values(a)
-                    except KeyError:
+                    except NotImplementedError:
                         msg = 'Constant argument %s is has no explicit values defined for it and no values available from the get_item_values() method' %a
                         logger.debug(msg)
                         if is_array:
