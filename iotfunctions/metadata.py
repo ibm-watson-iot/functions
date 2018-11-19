@@ -31,7 +31,7 @@ class EntityType(object):
     '''
     Analytic service entity type
     '''
-    def __init__ (self,name,credentials, timestamp_col= None, *args, **kw):
+    def __init__ (self,name,credentials, timestamp_col, *args, **kw):
         self.name = name
         self.db = Database(credentials = credentials, start_session = False)
         self.credentials = credentials
@@ -40,7 +40,7 @@ class EntityType(object):
         try:
             self.table = self.db.get_table(self.name)
         except KeyError:
-            ts = TimeSeriesTable(self.name ,self.database, *args, **kw)
+            ts = TimeSeriesTable(self.name ,self.db, *args, **kw)
             self.table = ts.table
             self.table.create(self.db.connection)
         self.register()
@@ -94,6 +94,8 @@ class EntityType(object):
         table['metricTimestampColumn'] = self._timestamp
         table['schemaName'] = self.credentials['username']
         payload = [table]
+        msg = 'registering table with metadata %s' %table
+        logger.debug(msg)
         try:
             as_api_host = self.credentials['as_api_host']
         except KeyError:
@@ -109,7 +111,7 @@ class EntityType(object):
             }    
             url = 'http://%s/api/meta/v1/%s/entityType' %(as_api_host,self.credentials['tennant_id'])
             r = http.request("POST", url, body = encoded_payload, headers=headers)
-            print ('Metadata Registered: ',r.data.decode('utf-8'))
+            logger.debug('Metadata Registered: ',r.data.decode('utf-8'))
             return r.data.decode('utf-8')
         
     def get_data(self,start_ts =None,end_ts=None,entities=None):

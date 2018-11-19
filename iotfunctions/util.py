@@ -92,3 +92,8 @@ def getCosTransferAgent(credentials):
                            endpoint_url=service_endpoint)
     return S3Transfer(cos)
 
+def get_instance(cls):
+    
+    x = json.loads(data, object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+    
+    

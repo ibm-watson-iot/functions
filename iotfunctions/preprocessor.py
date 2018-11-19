@@ -71,6 +71,7 @@ class BaseFunction(object):
     url = PACKAGE_URL
     category = None
     incremental_update = True
+    auto_register_args = None
     # test that object was initialized from BaseFunction
     base_initialized = True
     # lookups
@@ -427,7 +428,7 @@ class BaseFunction(object):
         
         try:
             domain = self.domain[dimension]
-        except KeyError:
+        except (KeyError,TypeError):
             domain = self._default_dimension_domain
             
         return domain
@@ -1030,60 +1031,6 @@ class BaseFunction(object):
         
         return df
     
-    def generate_entity_data(self,entity_name, entities, days, seconds = 0, freq = '1min', credentials = None, write=True):
-        '''
-        Generate random time series and dimension data for entities
-        
-        Parameters
-        ----------
-        entity_name : str
-            Name of entity to generate data for
-        entities: list
-            List of entity ids to genenerate data for
-        days: number
-            Number of days worth of data to generate (back from system date)
-        seconds: number
-            Number of seconds of wotht of data to generate (back from system date)
-        freq: str
-            Pandas frequency string - interval of time between subsequent rows of data
-        credentials: dict
-            credentials dictionary
-        write: bool
-            write generated data back to table with same name as entity
-        
-        '''
-        if self.db is None:
-            self.db = Database(credentials=self.db_credentials)
-        table = self.db.get_table(entity_name)
-        metrics = []
-        dims = []
-        dates = []
-        others = []
-        for c in self.db.get_column_names(table):
-            if not c in ['deviceid','devicetype','format','updated_utc']:
-                data_type = str(table.c[c].type)                
-                if data_type == 'FLOAT':
-                    metrics.append(c)
-                elif data_type[:7] == 'VARCHAR':
-                    dims.append(c)
-                elif data_type == 'DATETIME':
-                    dates.append(c)
-                else:
-                    others.append(c)
-        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, dims = dims, dates = dates)
-        df = ts.execute()
-        if write:
-            for o in others:
-                if o not in df.columns:
-                    df[o] = None
-            df['logicalinterface_id'] = ''
-            df['devicetype'] = entity_name
-            df['format'] = ''
-            df['updated_utc'] = None
-            self.db.write_frame(table_name = entity_name, df = df)
-        
-        return df
-    
     
     def validate_df(self,input_df, output_df):
         
@@ -1629,7 +1576,8 @@ class AlertThreshold(BaseEvent):
     Fire alert when metric exceeds an upper threshold or drops below a lower_theshold. Specify at least on threshold.
     """
     
-    optionalItems = ['lower_threshold','upper_threshold']     
+    optionalItems = ['lower_threshold','upper_threshold']
+    
     
     def __init__ (self,input_item, lower_threshold=None, upper_threshold=None,
                   output_alert_upper = 'output_alert_upper', output_alert_lower = 'output_alert_lower'):
@@ -2090,6 +2038,9 @@ class MultiplyByTwo(BaseTransformer):
     '''
     Multiply input column by 2 to produce output column
     '''
+    auto_register_args = {
+        'input_item' : 'x_1'
+        }
     
     def __init__(self, input_item, output_item = 'output_item'):
         
@@ -2347,6 +2298,9 @@ class TimeSeriesGenerator(BaseLoader):
             
         self.metrics = metrics
         self.dims = dims
+        
+        dates = [x for x in dates if x != self._timestamp]
+        
         self.dates = dates
         
         if ids is None:
@@ -2359,6 +2313,11 @@ class TimeSeriesGenerator(BaseLoader):
         #optionally scale using dict keyed on metric name
         self.mean = {}
         self.sd = {}
+        inputs = []
+        inputs.extend(metrics)
+        inputs.extend(dims)
+        inputs.extend(dates)
+        super().__init__(input_items=inputs)
         
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
@@ -2399,7 +2358,7 @@ class TimeSeriesGenerator(BaseLoader):
             df[d] = np.random.choice(self.get_domain(d), len(df.index))
             
         for t in self.dates:
-            df[t] = dt.datetime.utcnow() + pd._to_timesdelta(df[t],unit = 'D')
+            df[t] = dt.datetime.utcnow() + pd.to_timedelta(df[t],unit = 'D')
             df[t] = pd.to_datetime(df[t])
             
         df.set_index([self._entity_id,self._timestamp])
@@ -2628,5 +2587,6 @@ class FlowRateMonitor(BaseTransformer):
         
         return df
     
+
 
 
