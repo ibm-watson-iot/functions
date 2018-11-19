@@ -224,7 +224,7 @@ class Database(object):
             #check table exists
             try:
                 table = self.get_table(table_name)
-            except ValueError:
+            except KeyError:
                 pass
             else:
                 table_exists = True
