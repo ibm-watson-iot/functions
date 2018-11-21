@@ -119,7 +119,7 @@ class Database(object):
         '''
         try:
             self.get_table(table_name)
-        except ValueError:
+        except KeyError:
             return False
         
         return True

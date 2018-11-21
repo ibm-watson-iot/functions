@@ -1185,10 +1185,10 @@ class BaseLoader(BaseTransformer):
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
         if self.merge_method == 'outer':
             #new_df is expected to be indexed on id and timestamp
-            df = df.join(new_df,how='outer',sort=True,on=[self._df_index_entity_id,self._df_index_timestamp],suffixes=[None,'_new_'])
+            df = df.join(new_df,how='outer',sort=True,on=[self._df_index_entity_id,self._df_index_timestamp],rsuffix ='_new_')
             df = self._coallesce_columns(df=df,cols=overlapping_columns)
         elif self.merge_method == 'nearest': 
-            overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
+            overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_id,self._timestamp]]
             try:
                 df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
             except ValueError:
@@ -1973,7 +1973,6 @@ class MergeSampleTimeSeries(BaseLoader):
     merge_nearest_direction = 'nearest' 
     source_table_name = 'sample_time_series'
     source_entity_id = 'deviceid'
-    source_timestamp = 'evt_timestamp'
     #metadata for generating sample
     sample_metrics = ['temp','pressure','velocity']
     sample_entities = ['entity1','entity2','entity3']
@@ -1983,20 +1982,18 @@ class MergeSampleTimeSeries(BaseLoader):
     
     def __init__(self, input_items, output_items=None):
         super().__init__(input_items = input_items, output_items = output_items)
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials )
 
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
         self.load_sample_data()
         (query,table) = self.db.query(self.source_table_name)
         if not start_ts is None:
-            query = query.filter(table.c.timestamp >= start_ts)
+            query = query.filter(table.c[self._timestamp] >= start_ts)
         if not end_ts is None:
-            query = query.filter(table.c.timestamp < end_ts)  
+            query = query.filter(table.c[self._timestamp] < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self.source_timestamp])        
+        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._timestamp])        
         return df
     
     
@@ -2015,6 +2012,9 @@ class MergeSampleTimeSeries(BaseLoader):
     
     def load_sample_data(self):
         
+        if self.db is None:
+            self.db = Database(credentials = self.db_credentials )
+        
         if not self.db.if_exists(self.source_table_name):
             generator = TimeSeriesGenerator(metrics=self.sample_metrics,
                                             ids = self.sample_entities,
@@ -2025,7 +2025,8 @@ class MergeSampleTimeSeries(BaseLoader):
                                             ids = self.sample_entities,
                                             freq = self.sample_freq,
                                             seconds = self.sample_incremental_min*60)
-            
+        
+        generator.set_params(**self.get_params())
         df = generator.execute()
         self.db.write_frame(df = df, table_name = self.source_table_name,
                        version_db_writes = False,
@@ -2033,11 +2034,15 @@ class MergeSampleTimeSeries(BaseLoader):
                        chunksize = 1000 )
         
     def get_test_data(self):
+        if self.db is None:
+            self.db = Database(credentials = self.db_credentials )
         
         generator = TimeSeriesGenerator(metrics=['acceleration'],
                                         ids = self.sample_entities,
                                         freq = self.sample_freq,
                                         seconds = 300)
+        generator.set_params(**self.get_params())
+        
         df = generator.execute()
         df = self.conform_index(df)
         return df
