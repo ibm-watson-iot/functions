@@ -19,18 +19,18 @@ from ibm_db_sa.base import DOUBLE
 
 
 logger = logging.getLogger(__name__)
-    
 
+  
+    
 class EntityType(object):
+    '''
+    Analytic service entity type    
+    '''    
     
     log_table = 'KPI_LOGGING'
     checkpoint_table = 'KPI_CHECKPOINT'
-    
     _timestamp = 'evt_timestamp'
     
-    '''
-    Analytic service entity type
-    '''
     def __init__ (self,name,credentials, timestamp_col, *args, **kw):
         self.name = name
         self.db = Database(credentials = credentials, start_session = False)
@@ -94,8 +94,6 @@ class EntityType(object):
         table['metricTimestampColumn'] = self._timestamp
         table['schemaName'] = self.credentials['username']
         payload = [table]
-        msg = 'registering table with metadata %s' %table
-        logger.debug(msg)
         try:
             as_api_host = self.credentials['as_api_host']
         except KeyError:
@@ -111,8 +109,10 @@ class EntityType(object):
             }    
             url = 'http://%s/api/meta/v1/%s/entityType' %(as_api_host,self.credentials['tennant_id'])
             r = http.request("POST", url, body = encoded_payload, headers=headers)
-            logger.debug('Metadata Registered: ',r.data.decode('utf-8'))
+            msg = 'Metadata registerd for table %s '%self.name
+            logger.debug(msg)
             return r.data.decode('utf-8')
+        
         
     def get_data(self,start_ts =None,end_ts=None,entities=None):
         '''
@@ -138,6 +138,8 @@ class EntityType(object):
                       limit(rows)
         df = self.db.get_query_data(query)
         return df
+    
+    
         
         
         

@@ -10,6 +10,7 @@
 
 import logging
 import numpy as np
+import json
 logger = logging.getLogger(__name__)
 
 class CalcPipeline:
@@ -42,70 +43,90 @@ class CalcPipeline:
         Execute the pipeline using an input dataframe as source.
         '''
         
-        #if no dataframe provided, querying the source entity to get one
+        try:
+            source = self.source
+        except AttributeError:
+            has_source = False
+        else:
+            has_source = True
+            #if no dataframe provided, querying the source entity to get one
+            if df is None:
+                msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
+                logger.debug(msg)
+                df = source.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)
         if df is None:
-            df = self.source.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)
-            if to_csv:
-                filename = 'debugPipelineSource_%s.csv' %self.source.name
-                df.to_csv(filename)
+            msg = 'Pipeline has no primary source. Provide a dataframe or source entity'
+            raise ValueError (msg)
+            
+        if to_csv:
+            filename = 'debugPipelineSourceData.csv'
+            df.to_csv(filename)
         
         #get entity metadata - will be inserted later into each stage
-        if self.source is None:
-            params = {}
-        else:
+        if has_source:
             params = self.source.get_params()
-        
-        self.logger.debug("pipeline_input_df_columns=%s, pipeline_input_df_indexes=%s, pipeline_input_df=\n%s" % (df.dtypes.to_dict(), df.index.to_frame().dtypes.to_dict(), df.head()))
+        else:
+            params = {}
 
         if dropna:
             df = df.replace([np.inf, -np.inf], np.nan)
             df = df.dropna()
         '''
-        divide the pipeline into data retrieval stages and transformation stages        
-        some retrieval stages behave like alternative data sources. They replace the incoming entity data
-        process these first
+        Divide the pipeline into data retrieval stages and transformation stages. First look for
+        a primary data source. A primary data source will have a merge_method of 'replace'. This
+        implies that it replaces whatever data was fed into the pipeline as default entity data.
         '''
         replace_count = 0
-        retrieval_stages = []
-        transform_stages = []
+        secondary_sources = []
+        stages = []
         for s in self.stages:
-            s = s.set_params(**params)
+            try:
+                s = s.set_params(**params)
+            except AttributeError:
+                pass
             try:
                 is_data_source =  s.is_data_source
+                merge_method = s.merge_method
             except AttributeError:
                 is_data_source = False
-            if is_data_source:
-                if s.merge_method == 'replace':
-                    df = s.execute(df=df)
-                    self.logger.debug("stage=%s is a custom data source. It replaced incoming entity data. " %s.__class__.__name__)
-                    self.logger.debug("stage=%s, pipeline_intermediate_df=\n%s" % (s.__class__.__name__, df.head()))
-                    replace_count += 1
-                    if to_csv:
-                        df.to_csv('debugPipelineOut_%s.csv' %s.__class__.__name__)  
-                else:
-                    retrieval_stages.append(s)
+                merge_method = None
+            if is_data_source and merge_method == 'replace':
+                df = s.execute(df=df)
+                self.logger.debug("stage=%s is a custom data source. It replaced incoming entity data. " %s.__class__.__name__)
+                try:
+                    s.log_df_info(df,'Incoming data replaced with function output from primary data source')
+                except AttributeError:
+                    pass
+                replace_count += 1
+                if to_csv:
+                    df.to_csv('debugPrimaryDataSource_%s.csv' %s.__class__.__name__)  
+            elif is_data_source and merge_method == 'outer':
+                '''
+                A data source with a merge method of outer is considered a secondary source
+                A secondary source can add rows of data to the pipeline.
+                '''
+                secondary_sources.append(s)
+                stages.append(s)
             else:
-                transform_stages.append(s)
+                stages.append(s)
         if replace_count > 1:
             self.logger.warning("The pipeline has more than one custom source with a merge strategy of replace. The pipeline will only contain data from the last replacement")        
-        #process remaining data sources
-        df =  self._execute_stages(stages = retrieval_stages,df=df,dropna = dropna,to_csv=to_csv)                      
-        if df.empty:
-            self.logger.info('The data retrieval stages found no data to transform. Skipping transformation stages')        
-        else:    
-            # process transform stages
-            df =  self._execute_stages(stages = transform_stages,df=df,dropna = dropna, to_csv=to_csv) 
-        return df
-    
-    def _execute_stages(self,stages,df,dropna,to_csv):
-        '''
-        Execute a subset of stages
-        '''        
+        # process remaining stages
         for s in stages:
-            df = s.conform_index(df)
-            msg = 'Executing pipeline stage %s. Input dataframe.' %s.__class__.__name__
-            s.log_df_info(df,msg)
-            original_columns = set(df.columns)
+            if df.empty and len(secondary_sources) == 0:
+                self.logger.info('No data retrieved and no remaining secondary sources to process. Exiting pipeline execution')        
+                break
+            #check to see if incoming data has a conformed index, conform if needed
+            try:
+                df = s.conform_index(df)
+            except AttributeError:
+                pass
+            try:
+                msg = 'Executing pipeline stage %s. Input dataframe.' %s.__class__.__name__
+                s.log_df_info(df,msg)
+            except AttributeError:
+                pass
+            #validate that stage has not violated any pipeline processing rules
             newdf = s.execute(df)
             try:
                 s.validate_df(df,newdf)
@@ -114,15 +135,30 @@ class CalcPipeline:
             df = newdf
             if dropna:
                 df = df.replace([np.inf, -np.inf], np.nan)
-                df = df.dropna()            
-            new_columns = set(df.columns)                
-            dropped_columns = original_columns - new_columns
-            if len(dropped_columns) > 0:
-                self.logger.warning("Pipeline stage %s dropped columns %s from the pipeline." %(s.__class__.__name__,dropped_columns))
+                df = df.dropna()
             if to_csv:
-                df.to_csv('debugPipelineOut_%s.csv' %s.__class__.__name__)    
-            msg = 'Completed stage %s. Output dataframe.' %s.__class__.__name__
-            s.log_df_info(df,msg)
-        
-        
+                df.to_csv('debugPipelineOut_%s.csv' %s.__class__.__name__)
+            try:
+                msg = 'Completed stage %s. Output dataframe.' %s.__class__.__name__
+                s.log_df_info(df,msg)
+            except AttributeError:
+                pass
+            secondary_sources = [x for x in secondary_sources if x != s]  
         return df
+
+    def export(self):
+        
+        export = []
+        for s in self.stages:
+            if self.source is None:
+                source_name = None
+            else:
+                source_name = self.source.name
+            metadata  = { 
+                    'name' : s.__class__.__name__ ,
+                    'entity_type' : source_name,
+                    'args' : s._get_arg_metadata()
+                    }
+            export.append(metadata)
+        
+        return json.dumps(export)

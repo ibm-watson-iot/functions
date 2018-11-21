@@ -37,6 +37,7 @@ class BaseFunction(object):
     """
     Base class for AS functions. Do not inherit directly from this class. Inherit from BaseTransformer or BaseAggregator
     """
+    #function registration metadata 
     name = None # name of function
     description =  None # description of function shows as help text
     tags = None #list of stings to tag function with
@@ -44,17 +45,23 @@ class BaseFunction(object):
     inputs = None #list: list of explicit input parameters
     outputs = None #list: list of explicit output parameters
     constants = None #list: list of explicit constant parameters
-    # item level metadata
+    array_source = None #str: the input parmeter name that contains a list of items that will correspond with array outputs
+    url = PACKAGE_URL #install url for function
+    category = None 
+    incremental_update = True
+    auto_register_args = None    
+    # item level metadata for function registration
     itemDescriptions = None #dict: items descriptions show as help text
     itemLearnMore = None #dict: item learn more test 
     itemValues = None #dict: item values are used in pick lists
     itemJsonSchema = None #dict: schema is used to validate arrays and json type constants
     itemArraySource = None #dict: output arrays are derived from input arrays. 
     itemMaxCardinality = None # dict: Maximum number of members in an array
-    
+    # processing settings
     execute_by = None #if function should be executed separately for each entity or some other key, capture this key here
     test_rows = 100 #rows of data to use when testing function
-    array_source = None #str: the input parmeter name that contains a list of items that will correspond with array outputs
+    base_initialized = True # use to test that object was initialized from BaseFunction
+    merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
@@ -67,13 +74,6 @@ class BaseFunction(object):
     out_table_if_exists = 'append'
     out_table_name = None 
     write_chunk_size = 1000
-    # registration metadata
-    url = PACKAGE_URL
-    category = None
-    incremental_update = True
-    auto_register_args = None
-    # test that object was initialized from BaseFunction
-    base_initialized = True
     # lookups
     # a resource calendar is use to identify other resources (e.g. people, organizations) associated with the device
     # these associations may change over time.
@@ -314,6 +314,19 @@ class BaseFunction(object):
             return (connection,session)
         else:
             return connection
+        
+    def _coallesce_columns(self,df,cols):
+        '''
+        combine two columns into a single 
+        '''
+        drop_cols = ["%s_new_" %x for x in cols]
+        for i,o in enumerate(cols):
+            df[o] = df[o].fillna(df[drop_cols[i]])
+        df = self._remove_cols_from_df(df,drop_cols)
+        if len(cols) > 0:
+            msg = 'Coallesced columns during merge %s' %cols
+            logger.debug(msg)
+        return df
             
     def convertStrArgToList(self,string, argument, check_non_empty=False):
         '''
@@ -334,8 +347,10 @@ class BaseFunction(object):
         back into the expected shape for further processing in a pipeline.
         '''
         
-        self.log_df_info(df,'incoming dataframe for conform index')
-        if not df.index.names == [self._df_index_entity_id,self._df_index_timestamp]:            
+        #self.log_df_info(df,'incoming dataframe for conform index')
+        if not df.index.names == [self._df_index_entity_id,self._df_index_timestamp]: 
+            #msg = 'Incoming index contains %s' %df.index.names
+            #logger.debug(msg)
             if entity_id_col is None:
                 entity_id_col = self._entity_id
             if timestamp_col is None:
@@ -345,7 +360,11 @@ class BaseFunction(object):
                 df[self._df_index_timestamp] = pd.to_datetime(df[timestamp_col])
             except KeyError:
                 try:
+                    before_cols = set(df.columns)
                     df = df.reset_index()
+                    added_cols = set(df.columns) - before_cols
+                    msg = 'reset index added columns %s' %added_cols 
+                    logger.debug(msg)
                     df[self._df_index_entity_id] = df[entity_id_col].astype(str)
                     df[self._df_index_timestamp] = pd.to_datetime(df[timestamp_col])
                     df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
@@ -358,10 +377,13 @@ class BaseFunction(object):
                     self.log_df_info(df,'before raising error ')
                     raise KeyError(msg)
                 else:
-                    msg = 'Dataframe was not indexed correctly. Recovered id and timestamp from existing index and built a new one.'
+                    #remove bogus added columns
+                    cols = [x for x in added_cols if x.startswith('level_')]
+                    df= self._remove_cols_from_df(df,cols)
+                    msg = 'Dataframe had non-conforming index. Recovered id and timestamp from existing index and built a new one. ' + msg + ' . Removed extra columns after reset index cols remaining are' %cols
                     logger.debug(msg)
             else:
-                msg = 'Dataframe was not indexed correctly. Built new index on id and timestamp'
+                msg = 'Dataframe had non-conforming index. Built new index on id and timestamp'
                 df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
                 logger.debug(msg)
                 
@@ -371,6 +393,13 @@ class BaseFunction(object):
         
         return df
             
+    def _get_arg_metadata(self):
+        
+        metadata = {}    
+        args = (getargspec(self.__init__))[0][1:]        
+        for a in args:
+            metadata[a] = self.__dict__[a]
+        return metadata
     
     def _getJsonDataType(self,datatype):
          
@@ -700,6 +729,9 @@ class BaseFunction(object):
         '''
         Retrieve a resource calendar as a dataframe
         '''
+        
+        if self.db is None:
+            self.db = Database(credentials=self.db_credentials)
         
         (query,table) = self.db.query(table_name)
         if not start_ts is None:
@@ -1150,27 +1182,23 @@ class BaseLoader(BaseTransformer):
         new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
         self.log_df_info(df,'source dataframe before merge')
         self.log_df_info(new_df,'additional data source to be merged')        
+        overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
         if self.merge_method == 'outer':
             #new_df is expected to be indexed on id and timestamp
-            overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
-            df = df.join(new_df,how='outer',sort=True,on=[self._df_index_entity_id,self._df_index_timestamp],rsuffix='_new_')
-            drop_cols = ["%s_new_" %x for x in overlapping_columns]
-            for i,o in enumerate(overlapping_columns):
-                df[o] = df[o].fillna(df[drop_cols[i]])
-            df = self._remove_cols_from_df(df,drop_cols)
-            msg = 'Callesced columns during merge %s' %overlapping_columns
-            logger.debug(msg)
+            df = df.join(new_df,how='outer',sort=True,on=[self._df_index_entity_id,self._df_index_timestamp],suffixes=[None,'_new_'])
+            df = self._coallesce_columns(df=df,cols=overlapping_columns)
         elif self.merge_method == 'nearest': 
-            new_df = self._remove_cols_from_df(new_df,list(df.columns))
+            overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
             try:
-                df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+                df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
             except ValueError:
                 new_df = new_df.sort_values([self._timestamp,self._entity_id])
                 try:
-                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
                 except ValueError:
                     df = df.sort_values([self._timestamp,self._entity_id])
-                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
+            df = self._coallesce_columns(df=df,cols=overlapping_columns)
         elif self.merge_method == 'concat':
             df = pd.concat([df,new_df],sort=True)
         elif self.merge_method == 'replace':
@@ -2152,6 +2180,7 @@ class ShiftCalendar(BaseTransformer):
         self.shift_day = shift_day
         self.shift_id = shift_id
         super().__init__()
+        
     
     def get_data(self,start_date,end_date):
         start_date = start_date.date()
