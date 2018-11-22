@@ -1109,11 +1109,19 @@ class BaseFunction(object):
             logger.warning('Input dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
         if not validation_result['output']['is_index_1_datetime']:
             logger.warning('Output dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
-            
+        
+        mismatched_type = False
         for dtype,cols in list(validation_types['input'].items()):
-            missing = cols - validation_types['output'][dtype]
-            if len(missing) != 0 :
-                msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' %(missing,dtype)
+            try:
+                missing = cols - validation_types['output'][dtype]
+            except KeyError:
+                mismatched_type = True
+                msg = 'Output dataframe has no columns of type %s. Type has changed or column was dropped.' %dtype
+            else:
+                if len(missing) != 0:
+                    msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' %(missing,dtype)
+                    mismatched_type = True
+            if mismatched_type:
                 logger.warning(msg)
             
         return(validation_result,validation_types)
