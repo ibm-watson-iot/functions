@@ -54,12 +54,13 @@ class Database(object):
                    if connection_string.endswith(';'):
                        connection_string = connection_string[:-1]
                    ev = dict(item.split("=") for item in connection_string.split(";"))
-                   connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
+                   connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])                           
                else:
                    raise ValueError(msg)
         
         self.connection =  create_engine(connection_string, echo = echo)
         self.Session = sessionmaker(bind=self.connection)
+        self.credentials = credentials
         
         if start_session:
             self.session = self.Session()
@@ -289,17 +290,24 @@ class BaseTable(object):
         extra_cols = set([x for x in df.columns if x !='index'])-set(cols)            
         if len(extra_cols) > 0:
             logger.warning('Dataframe includes column/s %s that are not present in the table. They will be ignored.' %extra_cols)
-        
+            
+        dtypes = {}        
+        #replace default mappings to clobs and booleans
+        for c in list(df.columns):
+            if is_string_dtype(df[c]):
+                dtypes[c] = String(255)
+            elif is_bool_dtype(df[c]):
+                dtypes[c] = SmallInteger()
+                
         try: 
             df = df[cols]
         except KeyError:
-            raise KeyError('Dataframe does not have required columns %s' %cols)
-            
-            
+            msg = 'Dataframe does not have required columns %s. It has columns: %s and index: %s' %(cols,df.columns,df.index.names)
+            raise KeyError(msg)
         self.database.start_session()
         try:        
             df.to_sql(name = self.name, con = self.database.connection, schema = self.database.schema,
-                  if_exists = 'append', index = False, chunksize = chunksize)
+                  if_exists = 'append', index = False, chunksize = chunksize,dtype=dtypes)
         except:
             self.database.session.rollback()
             raise
@@ -313,6 +321,18 @@ class BaseTable(object):
         self.db.start_session()
         q = self.db.session.query(self.table)
         return q            
+
+
+class SystemLogTable(BaseTable):
+    """
+    A log table only has a timestamp as a predefined column
+    """
+    
+    def __init__(self,name,database,*args,**kw):
+ 
+        self.timestamp = Column(self._timestamp,DateTime)
+        super().__init__(name,database,self.timestamp,*args, **kw)
+        
                     
 
 class ActivityTable(BaseTable):

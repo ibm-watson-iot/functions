@@ -21,69 +21,65 @@ class CalcPipeline:
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
         self.set_stages(stages)
         self.source = source
-    
+        
     def add_stage(self,stage):
         '''
         Add a new stage to a pipeline. A stage is Transformer or Aggregator.
         '''
-        self.stages.append(stage)
+        self.stages.append(stage)        
         
-    def set_stages(self,stages):
+    def _extract_preload_stages(self):
         '''
-        Replace existing stages with a new list of stages
+        pre-load stages are special stages that are processed outside of the pipeline
+        they execute before loading data into the pipeline
+        return tuple containing list of preload stages and list of other stages to be processed
         '''
-        self.stages = []
-        if not stages is None:
-            if not isinstance(stages,list):
-                stages = [stages]
-            self.stages.extend(stages)
-                
-    def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None):
-        '''
-        Execute the pipeline using an input dataframe as source.
-        '''
-        
-        try:
-            source = self.source
-        except AttributeError:
-            has_source = False
-        else:
-            has_source = True
-            #if no dataframe provided, querying the source entity to get one
-            if df is None:
-                msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
-                logger.debug(msg)
-                df = source.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)
-        if df is None:
-            msg = 'Pipeline has no primary source. Provide a dataframe or source entity'
-            raise ValueError (msg)
-            
-        if to_csv:
-            filename = 'debugPipelineSourceData.csv'
-            df.to_csv(filename)
-        
-        #get entity metadata - will be inserted later into each stage
-        if has_source:
-            params = self.source.get_params()
-        else:
-            params = {}
-
-        if dropna:
-            df = df.replace([np.inf, -np.inf], np.nan)
-            df = df.dropna()
-        '''
-        Divide the pipeline into data retrieval stages and transformation stages. First look for
-        a primary data source. A primary data source will have a merge_method of 'replace'. This
-        implies that it replaces whatever data was fed into the pipeline as default entity data.
-        '''
-        replace_count = 0
-        secondary_sources = []
         stages = []
+        extracted_stages = []
         for s in self.stages:
             try:
-                s = s.set_params(**params)
+                is_preload = s.is_preload
             except AttributeError:
-                pass
+                is_preload = False
+            if is_preload:
+                msg = 'Extracted preload stage %s from pipeline' %self.__class__.__name__
+                logger.debug(msg)
+                extracted_stages.append(s)
+            else:
+                stages.append(s)
+        return (extracted_stages,stages)
+                        
+    
+    def _execute_preload_stages(self, start_ts = None, end_ts = None, entities = None):
+        '''
+        Extract and run preload stages
+        Return remaining stages to process
+        '''
+        (preload_stages,stages) = self._extract_preload_stages()
+        #if no dataframe provided, querying the source entity to get one
+        for p in preload_stages:
+            status = p.execute(start_ts=start_ts,end_ts=end_ts,entities=entities)
+            if status:
+                msg = 'Successfully executed preload stage %s' %p.__class__.__name__
+                logger.debug(msg)
+            else:
+                msg = 'Preload stage %s returned continue pipeline value of False. Aborting execution.' %p.__class__.__name__
+                logger.debug(msg)
+                stages = []
+                break
+            
+        return(stages)
+    
+    
+    def _execute_primary_source(self,stages,df,start_ts=None,end_ts=None,entities=None,to_csv=False):
+        '''
+        Extract and execute data source stages with a merge_method of replace.
+        Identify other data source stages that add rows of data to the pipeline
+        '''
+        remaining_stages = []
+        secondary_sources = []
+        replace_count = 0
+        for s in stages:
             try:
                 is_data_source =  s.is_data_source
                 merge_method = s.merge_method
@@ -106,11 +102,55 @@ class CalcPipeline:
                 A secondary source can add rows of data to the pipeline.
                 '''
                 secondary_sources.append(s)
-                stages.append(s)
+                remaining_stages.append(s)
             else:
-                stages.append(s)
+                remaining_stages.append(s)
         if replace_count > 1:
             self.logger.warning("The pipeline has more than one custom source with a merge strategy of replace. The pipeline will only contain data from the last replacement")        
+            
+        return(remaining_stages,secondary_sources)    
+    
+                
+    def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None):
+        '''
+        Execute the pipeline using an input dataframe as source.
+        '''    
+        # set parameters for stages based on pipeline parameters
+        if not self.source is None:
+            params = self.source.get_params()
+            for s in self.stages:
+                try:
+                    s = s.set_params(**params)
+                except AttributeError:
+                    pass
+        #process preload stages first if there are any
+        stages = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
+        if df is None:
+            msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
+            logger.debug(msg)
+            df = self.source.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)
+        if df is None:
+            msg = 'Pipeline has no primary source. Provide a dataframe or source entity'
+            raise ValueError (msg)
+        if to_csv:
+            filename = 'debugPipelineSourceData.csv'
+            df.to_csv(filename)
+        #get entity metadata - will be inserted later into each stage
+        if dropna:
+            df = df.replace([np.inf, -np.inf], np.nan)
+            df = df.dropna()
+        '''
+        Divide the pipeline into data retrieval stages and transformation stages. First look for
+        a primary data source. A primary data source will have a merge_method of 'replace'. This
+        implies that it replaces whatever data was fed into the pipeline as default entity data.
+        '''
+        (stages,secondary_sources) = self._execute_primary_source (
+                                            df = df,
+                                            stages = stages,
+                                            start_ts = start_ts,
+                                            end_ts = end_ts,
+                                            entities = entities,
+                                            to_csv = False)
         # process remaining stages
         for s in stages:
             if df.empty and len(secondary_sources) == 0:
@@ -162,3 +202,13 @@ class CalcPipeline:
             export.append(metadata)
         
         return json.dumps(export)
+    
+    def set_stages(self,stages):
+        '''
+        Replace existing stages with a new list of stages
+        '''
+        self.stages = []
+        if not stages is None:
+            if not isinstance(stages,list):
+                stages = [stages]
+            self.stages.extend(stages)

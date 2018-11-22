@@ -18,6 +18,7 @@ import warnings
 import json
 import numpy as np
 import pandas as pd
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 import ibm_db
 import ibm_db_dbi
@@ -27,7 +28,7 @@ from sqlalchemy.orm.session import sessionmaker
 from inspect import getargspec
 from collections import OrderedDict
 from .util import cosLoad, cosSave
-from .db import Database
+from .db import Database, SystemLogTable
 
 logger = logging.getLogger(__name__)
 
@@ -1597,7 +1598,30 @@ class BaseResourceLookup(BaseTransformer):
         df = self.conform_index(df)        
         self.log_df_info(df,'post resource calendar merge') 
         return df
+    
+    
+class BasePreload(BaseFunction):
+    """
+    Preload functions execute before loading entity data into the pipeline
+    Preload functions have no input items or output items
+    Preload functions do not take a dataframe as input
+    Preload functions return a single boolean output on execution. Pipeline will proceed when True.
+    You guessed it, preload methods have no boundaries. You can use them to do anything!
+    They are monitored. Excessive resource consumption will be billed by estimating an equivalent number of function executions. 
+    """
+    is_preload = True
+    
+    def __init__(self):
+        super().__init__()
         
+    def execute(self,start_ts = None,end_ts=None,entities=None):
+        '''
+        Execute function may optionally use a start_ts,end_ts and entities passed to the pipeline for processing
+        '''
+        raise NotImplementedError('This function has no execute method defined. You must implement a custom execute for any preload function')
+        return True
+        
+
 
 class AlertThreshold(BaseEvent):
     """
@@ -2157,6 +2181,25 @@ class MultiplyNItems(BaseTransformer):
         df = df.copy()
         df[self.output_item] = df[self.input_items].product(axis=1)
         return df
+    
+    
+class SamplePreLoad(BasePreload):
+    '''
+    This is a demostration function that logs the start of pipeline execution to a database table
+    '''
+    table_name = 'sample_pre_load'
+
+    def __init__(self):
+        super().__init__()
+        
+    def execute(self,start_ts = None,end_ts=None,entities=None):
+        self.db = Database(credentials=self.db_credentials)
+        data = {'status': True, SystemLogTable._timestamp:dt.datetime.utcnow() }
+        df = pd.DataFrame(data=data, index = [0])
+        table = SystemLogTable(self.table_name,self.db,
+                               Column('status',String(50)))
+        table.insert(df)    
+        return True
 
 class ShiftCalendar(BaseTransformer):
     '''
