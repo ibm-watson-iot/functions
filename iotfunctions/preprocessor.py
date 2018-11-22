@@ -50,7 +50,8 @@ class BaseFunction(object):
     url = PACKAGE_URL #install url for function
     category = None 
     incremental_update = True
-    auto_register_args = None    
+    auto_register_args = None  
+    is_transient = False
     # item level metadata for function registration
     itemDescriptions = None #dict: items descriptions show as help text
     itemLearnMore = None #dict: item learn more test 
@@ -646,7 +647,6 @@ class BaseFunction(object):
                 metadata_inputs[a] = column_metadata
                 msg = 'Argument %s is assumed to be a constant of type %s by ellimination' %(a,datatype)
                 logger.debug(msg)  
-            # adjust metadata for json schema if required
             if is_output:
                 metadata_outputs[a] = column_metadata
             else:
@@ -688,7 +688,7 @@ class BaseFunction(object):
                 else:
                     column_metadata['values'] = values
                     msg = 'Constant argument %s is has explicit values defined for it %s' %(a, values)
-                    logger.debug(msg)                                           
+                    logger.debug(msg) 
                 
         #array outputs are special. They inherit their datatype from an input array
         #that could be explicity defined, or use last array_input 
@@ -878,6 +878,7 @@ class BaseFunction(object):
         itemDescriptions['output_item']= 'Item name for output produced by function'
         itemDescriptions['output_items']= 'Item names for outputs produced by function'
         itemDescriptions['upper_threshold']= 'Upper threshold value for alert'
+        
         
         return itemDescriptions
     
@@ -1138,7 +1139,7 @@ class BaseTransformer(BaseFunction):
         super().__init__()
 
 
-class BaseLoader(BaseTransformer):
+class BaseDataSource(BaseTransformer):
     """
     Base class for functions that involve merging time series data from another data source.
 
@@ -1235,6 +1236,40 @@ class BaseEvent(BaseTransformer):
     def __init__(self):
         super().__init__()
         self.tags.append('EVENT')
+        
+
+class BaseFilter(BaseTransformer):
+    """
+    Base class for filters. Filters act on existing pipeline columns (reducing the number of rows).
+    Filters work differently from other transformers as they have no real output items
+    The ouput item from a filter is a bolean that indicates that the filter was processed.
+    """
+    is_filter = True
+    
+    def __init__(self, dependent_items, output_item = None):
+        super().__init__()
+        self.dependent_items = dependent_items
+        self.output_item = self.name.lower()
+        self.inputs = [self.dependent_items]
+        self.outputs = [self.output_item]
+        self.optional_items = [self.dependent_items]
+        
+    def execute(self,df):
+        '''
+        The execute method for a filter calls a filter method. Define filter logic in the filter method.
+        '''
+        df = self.filter(df)
+        df[self.output_item] = True
+        return df
+
+    def filter(self,df):
+        '''
+        Define your custom filter logic in a filter() method
+        '''
+        raise NotImplementedError('This function has no filter method defined. You must implement a custom filter method for a filter function')
+        return df
+
+
 
 class BaseAggregator(BaseFunction):
     """
@@ -1338,7 +1373,7 @@ class BaseDatabaseLookup(BaseTransformer):
         
         self.write_frame(df=df,table_name = table_name, if_exists = 'replace')
         
-class BaseDBActivityMerge(BaseLoader):
+class BaseDBActivityMerge(BaseDataSource):
     '''
     Merge actitivity data with time series data.
     Activies are events that have a start and end date and generally occur sporadically.
@@ -1567,6 +1602,34 @@ class BaseDBActivityMerge(BaseLoader):
         return df
 
 
+
+class BasePreload(BaseFunction):
+    """
+    Preload functions execute before loading entity data into the pipeline
+    Preload functions have no input items or output items
+    Preload functions do not take a dataframe as input
+    Preload functions return a single boolean output on execution. Pipeline will proceed when True.
+    You guessed it, preload methods have no boundaries. You can use them to do anything!
+    They are monitored. Excessive resource consumption will be billed by estimating an equivalent number of function executions. 
+    """
+    is_preload = True
+    
+    def __init__(self, dummy_items, output_item = None):
+        super().__init__()
+        self.dummy_items = dummy_items
+        self.output_item = self.name.lower()
+        self.inputs = [self.dummy_items]
+        self.outputs = [self.output_item]
+        self.optional_items = [self.dummy_items]
+        
+    def execute(self,start_ts = None,end_ts=None,entities=None):
+        '''
+        Execute function may optionally use a start_ts,end_ts and entities passed to the pipeline for processing
+        '''
+        raise NotImplementedError('This function has no execute method defined. You must implement a custom execute for any preload function')
+        return True
+
+
 class BaseResourceLookup(BaseTransformer):
     '''
     Lookup a resource assigment from a resource calendar
@@ -1619,8 +1682,13 @@ class BasePreload(BaseFunction):
     """
     is_preload = True
     
-    def __init__(self):
+    def __init__(self, dummy_items, output_item = None):
         super().__init__()
+        self.dummy_items = dummy_items
+        self.output_item = self.name.lower()
+        self.inputs = [self.dummy_items]
+        self.outputs = [self.output_item]
+        self.optional_items = [self.dummy_items]
         
     def execute(self,start_ts = None,end_ts=None,entities=None):
         '''
@@ -1662,7 +1730,7 @@ class AlertThreshold(BaseEvent):
             
         return df
     
-class GenerateCerealFillerData(BaseLoader):
+class GenerateCerealFillerData(BaseDataSource):
     """
     Replace automatically retrieved entity source data with new generated data. 
     Supply a comma separated list of input item names to be generated.
@@ -1712,7 +1780,7 @@ class GenerateCerealFillerData(BaseLoader):
         return df
     
     
-class InputDataGenerator(BaseLoader):
+class InputDataGenerator(BaseDataSource):
     """
     Replace automatically retrieved entity source data with new generated data. 
     Supply a comma separated list of input item names to be generated.
@@ -1829,8 +1897,6 @@ class ExecuteFunctionSingleOut(BaseTransformer):
         #value of parameters['output_item'] by the function
         
         return rf
-    
-    
     
     
 class LookupCompany(BaseDatabaseLookup):
@@ -1992,7 +2058,7 @@ class MergeActivityData(BaseDBActivityMerge):
         self.add_resource_calendar(resource_name = 'operator', table_name = 'operator_lookup')
         
         
-class MergeSampleTimeSeries(BaseLoader):
+class MergeSampleTimeSeries(BaseDataSource):
     """
     Merge the contents of a table containing time series data with entity source data
 
@@ -2197,8 +2263,8 @@ class SamplePreLoad(BasePreload):
     '''
     table_name = 'sample_pre_load'
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, dummy_items, output_item = None):
+        super().__init__(dummy_items = dummy_items, output_item = output_item)
         
     def execute(self,start_ts = None,end_ts=None,entities=None):
         self.db = Database(credentials=self.db_credentials)
@@ -2208,6 +2274,29 @@ class SamplePreLoad(BasePreload):
                                Column('status',String(50)))
         table.insert(df)    
         return True
+    
+    
+class CompanyFilter(BaseFilter):
+    '''
+    Demonstration function that filters on particular company codes
+    '''
+    
+    def __init__(self, company_code, company,output_item = None):
+        super().__init__(dependent_items = company_code, output_item = output_item)
+        self.company_code = company_code
+        self.company = company
+        
+    def get_item_values(self,arg):
+        """
+        Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
+        """
+        if arg == 'company':           
+            return(['AMCE','ABC','JDI'])
+        
+    def filter(self,df):
+        df = df[df[self.company_code]==self.company]
+        return df
+        
 
 class ShiftCalendar(BaseTransformer):
     '''
@@ -2358,7 +2447,7 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
         return custom_calendar
     
 
-class TimeSeriesGenerator(BaseLoader):
+class TimeSeriesGenerator(BaseDataSource):
 
     ''' 
     Used to generate sample data. Not a registerable function. Call from within a function. 

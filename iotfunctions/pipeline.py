@@ -56,9 +56,15 @@ class CalcPipeline:
         Return remaining stages to process
         '''
         (preload_stages,stages) = self._extract_preload_stages()
+        preload_item_names = []
         #if no dataframe provided, querying the source entity to get one
         for p in preload_stages:
             status = p.execute(start_ts=start_ts,end_ts=end_ts,entities=entities)
+            try:
+                preload_item_names.append(p.output_item)
+            except AttributeError:
+                msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
+                raise AttributeError (msg)
             if status:
                 msg = 'Successfully executed preload stage %s' %p.__class__.__name__
                 logger.debug(msg)
@@ -68,7 +74,7 @@ class CalcPipeline:
                 stages = []
                 break
             
-        return(stages)
+        return(stages,preload_item_names)
     
     
     def _execute_primary_source(self,stages,df,start_ts=None,end_ts=None,entities=None,to_csv=False):
@@ -111,10 +117,13 @@ class CalcPipeline:
         return(remaining_stages,secondary_sources)    
     
                 
-    def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None):
+    def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None, preloaded_item_names=None):
         '''
         Execute the pipeline using an input dataframe as source.
         '''    
+        #preload may  have already taken place. if so pass the names of the stages that were executed prior to loading.
+        if preloaded_item_names is None:
+            preloaded_item_names = []
         # set parameters for stages based on pipeline parameters
         if not self.source is None:
             params = self.source.get_params()
@@ -124,7 +133,8 @@ class CalcPipeline:
                 except AttributeError:
                     pass
         #process preload stages first if there are any
-        stages = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
+        (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
+        preloaded_item_names.extend(preload_item_names)
         if df is None:
             msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
             logger.debug(msg)
@@ -151,11 +161,21 @@ class CalcPipeline:
                                             end_ts = end_ts,
                                             entities = entities,
                                             to_csv = False)
+        
+        #add a dummy item to the dataframe for each preload stage
+        #added as the ui expects each stage to contribute one or more output items
+        for pl in preloaded_item_names:
+            df[pl] = True
         # process remaining stages
         for s in stages:
-            if df.empty and len(secondary_sources) == 0:
-                self.logger.info('No data retrieved and no remaining secondary sources to process. Exiting pipeline execution')        
-                break
+            if df.empty:
+                #only continue empty stages while there are unprocessed secondary sources
+                if len(secondary_sources) == 0:
+                    self.logger.info('No data retrieved and no remaining secondary sources to process. Exiting pipeline execution')        
+                    break
+                #skip this stage of it is not a secondary source
+                if not s in secondary_sources:
+                    continue
             #check to see if incoming data has a conformed index, conform if needed
             try:
                 df = s.conform_index(df)
@@ -166,8 +186,12 @@ class CalcPipeline:
                 s.log_df_info(df,msg)
             except AttributeError:
                 pass
+            # There are two different signatures for the execute method
+            try:
+                newdf = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
+            except TypeError:
+                    newdf = s.execute(df=df)
             #validate that stage has not violated any pipeline processing rules
-            newdf = s.execute(df)
             try:
                 s.validate_df(df,newdf)
             except AttributeError:
