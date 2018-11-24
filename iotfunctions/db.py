@@ -204,11 +204,17 @@ class Database(object):
         '''
         self.metadata.create_all(tables = tables, checkfirst = checkfirst)
 
-    def drop_all(self,tables = None, checkfirst = True ):
-        '''
-        Drop database tables.
-        '''
-        self.metadata.drop_all(tables = tables, checkfirst = checkfirst)        
+        
+    def drop_table(self,table_name):
+        
+        try:
+            table = self.get_table(table_name)
+        except KeyError:
+            msg = 'Didnt drop table %s becuase it doesnt exist in the the database' %table_name
+        else:
+            self.metadata.drop_all(tables = [table], checkfirst = True) 
+            msg = 'Dropped table name %s' %table_name
+        logger.debug(msg)
         
     def get_table(self,table_name):
         '''
@@ -389,7 +395,7 @@ class BaseTable(object):
         table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection)
         return table
         
-    def get_columns(self):
+    def get_column_names(self):
         """
         Get a list of columns names
         """
@@ -401,7 +407,7 @@ class BaseTable(object):
         """
         
         df = df.reset_index()
-        cols = self.get_columns()
+        cols = self.get_column_names()
         
         extra_cols = set([x for x in df.columns if x !='index'])-set(cols)            
         if len(extra_cols) > 0:

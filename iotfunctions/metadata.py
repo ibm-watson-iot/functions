@@ -14,6 +14,7 @@ import json
 import urllib3
 import pandas as pd
 from .db import Database, TimeSeriesTable
+from .preprocessor import TimeSeriesGenerator
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 
@@ -124,6 +125,57 @@ class EntityType(object):
                       order_by(log.c.timestamp_utc.desc()).\
                       limit(rows)
         df = self.db.get_query_data(query)
+        return df
+    
+    def generate_data(self, entities, days, seconds = 0, freq = '1min', write=True):
+        '''
+        Generate random time series data for entities
+        
+        Parameters
+        ----------
+        entities: list
+            List of entity ids to genenerate data for
+        days: number
+            Number of days worth of data to generate (back from system date)
+        seconds: number
+            Number of seconds of worth of data to generate (back from system date)
+        freq: str
+            Pandas frequency string - interval of time between subsequent rows of data
+        write: bool
+            write generated data back to table with same name as entity
+        
+        '''
+        metrics = []
+        dims = []
+        dates = []
+        others = []
+        for c in self.db.get_column_names(self.table):
+            if not c in ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]:
+                data_type = self.table.c[c].type
+                if isinstance(data_type,DOUBLE):
+                    metrics.append(c)
+                elif isinstance(data_type,VARCHAR):
+                    dims.append(c)
+                elif isinstance(data_type,TIMESTAMP):
+                    dates.append(c)
+                else:
+                    others.append(c)
+                    msg = 'Encountered column %s of unknown data type %s' %(c,data_type.__class__.__name__)
+                    logger.warning(msg)
+        msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,dims,dates)
+        logger.debug(msg)
+        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, dims = dims, dates = dates)
+        df = ts.execute()
+        if write:
+            for o in others:
+                if o not in df.columns:
+                    df[o] = None
+            df['logicalinterface_id'] = ''
+            df['devicetype'] = self.name
+            df['format'] = ''
+            df['updated_utc'] = None
+            self.db.write_frame(table_name = self.name, df = df)
+        
         return df
     
     

@@ -17,59 +17,6 @@ from .preprocessor import TimeSeriesGenerator
 logger = logging.getLogger(__name__)
 
 
-def generate_entity_data(db,entity_name, entities, days, seconds = 0, freq = '1min', credentials = None, write=True):
-    '''
-    Generate random time series and dimension data for entities
-    
-    Parameters
-    ----------
-    entity_name : str
-        Name of entity to generate data for
-    entities: list
-        List of entity ids to genenerate data for
-    days: number
-        Number of days worth of data to generate (back from system date)
-    seconds: number
-        Number of seconds of wotht of data to generate (back from system date)
-    freq: str
-        Pandas frequency string - interval of time between subsequent rows of data
-    credentials: dict
-        credentials dictionary
-    write: bool
-        write generated data back to table with same name as entity
-    
-    '''
-    table = db.get_table(entity_name)
-    metrics = []
-    dims = []
-    dates = []
-    others = []
-    for c in db.get_column_names(table):
-        if not c in ['deviceid','devicetype','format','updated_utc']:
-            data_type = table.c[c].type                
-            if isinstance(data_type,DOUBLE):
-                metrics.append(c)
-            elif isinstance(data_type,VARCHAR):
-                dims.append(c)
-            elif isinstance(data_type,TIMESTAMP):
-                dates.append(c)
-            else:
-                others.append(c)
-    msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(entity_name,metrics,dims,dates)
-    logger.debug(msg)
-    ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, dims = dims, dates = dates)
-    df = ts.execute()
-    if write:
-        for o in others:
-            if o not in df.columns:
-                df[o] = None
-        df['logicalinterface_id'] = ''
-        df['devicetype'] = entity_name
-        df['format'] = ''
-        df['updated_utc'] = None
-        db.write_frame(table_name = entity_name, df = df)
-    
-    return df
 
 def register(module,credentials):
     '''
