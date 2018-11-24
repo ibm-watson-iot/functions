@@ -1709,7 +1709,7 @@ class BasePreload(BaseTransformer):
         self.itemDatatypes['dummy_items'] = None
         self.itemDatatypes['output_items'] = 'BOOLEAN'
         
-    def execute(self,start_ts = None,end_ts=None,entities=None):
+    def execute(self,df,start_ts = None,end_ts=None,entities=None):
         '''
         Execute function may optionally use a start_ts,end_ts and entities passed to the pipeline for processing
         '''
