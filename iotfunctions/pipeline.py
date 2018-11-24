@@ -63,7 +63,7 @@ class CalcPipeline:
         preload_item_names = []
         #if no dataframe provided, querying the source entity to get one
         for p in preload_stages:
-            status = p.execute(start_ts=start_ts,end_ts=end_ts,entities=entities)
+            status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
             try:
                 preload_item_names.append(p.output_item)
             except AttributeError:
