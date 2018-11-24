@@ -21,6 +21,10 @@ class CalcPipeline:
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
         self.set_stages(stages)
         self.source = source
+        try:
+            self.entity_type_name = source.name
+        except:
+            self.entity_type_name = None
         
     def add_stage(self,stage):
         '''

@@ -13,8 +13,9 @@ import datetime as dt
 import json
 import urllib3
 import pandas as pd
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float
 from .db import Database, TimeSeriesTable
-from .preprocessor import TimeSeriesGenerator
+from .automation import TimeSeriesGenerator
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 
@@ -42,11 +43,12 @@ class EntityType(object):
             ts = TimeSeriesTable(self.name ,self.db, *args, **kw)
             self.table = ts.table
             self.table.create(self.db.connection)
-        self.register()
+        
         
     def get_params(self):
         
         params = {
+                'entity_type_name' : self.name,
                 '_timestamp' : self._timestamp,
                 'db' : self.db,
                 'source_table' : self.table
@@ -146,25 +148,25 @@ class EntityType(object):
         
         '''
         metrics = []
-        dims = []
+        categoricals = []
         dates = []
         others = []
         for c in self.db.get_column_names(self.table):
             if not c in ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]:
                 data_type = self.table.c[c].type
-                if isinstance(data_type,DOUBLE):
+                if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
                     metrics.append(c)
-                elif isinstance(data_type,VARCHAR):
-                    dims.append(c)
-                elif isinstance(data_type,TIMESTAMP):
+                elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
+                    categoricals.append(c)
+                elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
                     dates.append(c)
                 else:
                     others.append(c)
                     msg = 'Encountered column %s of unknown data type %s' %(c,data_type.__class__.__name__)
-                    logger.warning(msg)
-        msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,dims,dates)
+                    raise TypeError(msg)
+        msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,categoricals,dates)
         logger.debug(msg)
-        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, dims = dims, dates = dates)
+        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, categoricals = categoricals, dates = dates)
         df = ts.execute()
         if write:
             for o in others:

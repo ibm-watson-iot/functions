@@ -128,7 +128,7 @@ class Database(object):
                 'api_token' : as_api_token                
                 }
 
-        self.tenant_id = tenant_id
+        self.tenant_id = self.credentials['tenant_id']
         
         connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
                                                          self.credentials['db2']['password'],
@@ -165,6 +165,11 @@ class Database(object):
             Dictionary will be encoded as JSON
         
         '''
+        
+        if self.tenant_id is None:
+            msg = 'tennant_id instance variable is not set. database object was not initialized with valid credentials'
+            raise ValueError(msg)
+        
         base_url = 'http://%s/api' %(self.credentials['as']['host'])
         self.url = {}
         self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])

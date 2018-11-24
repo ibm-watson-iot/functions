@@ -29,6 +29,8 @@ from inspect import getargspec
 from collections import OrderedDict
 from .util import cosLoad, cosSave
 from .db import Database, SystemLogTable
+from .metadata import EntityType
+from .automation import TimeSeriesGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,7 @@ class BaseFunction(object):
     itemJsonSchema = None #dict: schema is used to validate arrays and json type constants
     itemArraySource = None #dict: output arrays are derived from input arrays. 
     itemMaxCardinality = None # dict: Maximum number of members in an array
+    itemDatatypes = None #dict: BOOLEAN, NUMBER, LITERAL, DATETIME
     # processing settings
     execute_by = None #if function should be executed separately for each entity or some other key, capture this key here
     test_rows = 100 #rows of data to use when testing function
@@ -87,11 +90,11 @@ class BaseFunction(object):
     # when entity id or timestamp are present in a dataframe index they have different names
     _df_index_entity_id = 'id'
     _df_index_timestamp = 'timestamp'
-    # when generating dimension data provide a domain of values keyed on the dimenion name
-    domain = None
-    _default_dimension_domain = None
+
     
     def __init__(self):
+        
+        self.entity_type_name = None
         
         if self.name is None:
             self.name = self.__class__.__name__
@@ -113,6 +116,9 @@ class BaseFunction(object):
             
         if self.itemDescriptions is None:
             self.itemDescriptions = self._standard_item_descriptions()
+            
+        if self.itemDatatypes is None:
+            self.itemDatatypes = {}
 
         if self.itemLearnMore is None:
             self.itemLearnMore = {}
@@ -146,12 +152,6 @@ class BaseFunction(object):
             
         if self._entity_resource_dict is None:
             self._entity_resource_dict= {}            
-
-        if self.domain is None:
-            self.domain = {}   
-
-        if self._default_dimension_domain is None:
-            self._default_dimension_domain= ['AA','BA','ZA','CT','BV'] 
             
 
         #if cos credentials are not explicitly  provided use environment variable
@@ -181,7 +181,7 @@ class BaseFunction(object):
             raise RuntimeError('Cannot register function. Did not call super().__init__() in constructor so defaults have not be set correctly.')
             
         if self.category is None:
-            raise AttributeError('Class has no categoty. Class should inherit from BaseTransformer or BaseAggregator to obtain an appropriate category')
+            raise AttributeError('Class has no category. Class should inherit from BaseTransformer or BaseAggregator to obtain an appropriate category')
             
         if name is None:
             name = self.name
@@ -488,7 +488,7 @@ class BaseFunction(object):
     
     def get_item_values(self,arg):
         """
-        
+        Implement this method when you want to supply values to a picklist in the UI
         """
         
         msg = 'No code implemented to gather available values for argument %s' %arg
@@ -518,15 +518,22 @@ class BaseFunction(object):
             outputs = self.outputs        
         if constants is None:
             constants = self.constants
-        
+            
+        returns_dataframe = True
         #run the function to produce a new dataframe that contains the function outputs
         if not df is None:
             if new_df is None:
-                tf = df.head(self.test_rows).copy()
+                tf = df.head(self.test_rows)
+                tf = tf.copy()
                 tf = self.execute(tf)
             else:
                 tf = new_df
-            if not isinstance(tf,pd.DataFrame):
+            if isinstance(tf,bool):
+                returns_dataframe = False
+                tf = df.head(self.test_rows)
+                tf = tf.copy()
+                tf = self._add_explicit_outputs(tf)
+            elif not isinstance(tf,pd.DataFrame):
                 raise TypeError('The execute method of a custom function must return a pandas DataFrame object not %s' %tf)
             self.validate_df(input_df = df,output_df = tf)
             test_outputs = self._inferOutputs(before_df=df,after_df=tf)
@@ -580,7 +587,10 @@ class BaseFunction(object):
             is_added = False
             is_constant = True
             is_output = False
-            argtype = self._infer_type(arg_value)
+            try:
+                argtype = self.itemDatatypes[a]
+            except KeyError:
+                argtype = self._infer_type(arg_value)
             msg = 'Evaluating %s argument %s. Array: %s' %(argtype,a,is_array)
             logger.debug(msg)
             #check if parameter has been modeled explictly
@@ -746,6 +756,7 @@ class BaseFunction(object):
         Get metadata parameters
         '''
         params = {
+                'entity_type_name' : self.entity_type_name,
                 '_timestamp' : self._timestamp,
                 'db' : self.db
                 }
@@ -769,7 +780,12 @@ class BaseFunction(object):
         df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
         
         return df
+    
+    def _add_explicit_outputs(self,df):
         
+        for o in self.outputs:
+            df[o] = True
+        return df
     
     def _get_resource_assignment(self,start_ts,end_ts,entities):
         '''
@@ -833,8 +849,7 @@ class BaseFunction(object):
         append_msg = ''
         
         datatype = None
-        for value in parm:
-             
+        for value in parm:   
             if df is None:
                 #value is a constant
                 if isinstance(value,str):
@@ -851,17 +866,18 @@ class BaseFunction(object):
                     raise TypeError('Cannot infer type of argument value %s for parm %s. Supply a string, number, boolean, datetime, dict or list containing any of these types.' %(value,parm))
             else:      
                 append_msg = 'by looking at items in test dataframe'
-                if is_string_dtype(df[value]):
-                    datatype = 'LITERAL'
-                elif is_bool_dtype(df[value]):
-                    datatype = 'BOOLEAN' 
-                elif is_numeric_dtype(df[value]):
-                    datatype = 'NUMBER'
-                elif is_datetime64_any_dtype(df[value]):
-                    datatype = 'TIMESTAMP'
-                else:
-                    raise TypeError('Cannot infer type of argument value %s. Data items used as inputs must be strings, numbers, booleans, datetimes or list containing any of these types.' %parm)
-            
+                try:
+                    if is_string_dtype(df[value]):
+                        datatype = 'LITERAL'
+                    elif is_bool_dtype(df[value]):
+                        datatype = 'BOOLEAN' 
+                    elif is_numeric_dtype(df[value]):
+                        datatype = 'NUMBER'
+                    elif is_datetime64_any_dtype(df[value]):
+                        datatype = 'TIMESTAMP'
+                except KeyError:
+                    pass
+        
             found_types.append(datatype)
             if not prev_datatype is None:
                 if datatype != prev_datatype:
@@ -874,7 +890,10 @@ class BaseFunction(object):
         else:
             msg = 'Infered datatype of %s from values %s %s' %(datatype,parm, append_msg )
         logger.debug(msg)
-            
+        
+        if datatype is None:
+            msg = 'Cannot infer datatype for argument %s. Explicitly set the datatype as LITERAL, BOOLEAN, NUMBER or TIMESTAMP in the itemDataTypes dict' %parm
+            raise ValueError(msg)
             
         return datatype
     
@@ -1628,33 +1647,6 @@ class BaseDBActivityMerge(BaseDataSource):
 
 
 
-class BasePreload(BaseFunction):
-    """
-    Preload functions execute before loading entity data into the pipeline
-    Preload functions have no input items or output items
-    Preload functions do not take a dataframe as input
-    Preload functions return a single boolean output on execution. Pipeline will proceed when True.
-    You guessed it, preload methods have no boundaries. You can use them to do anything!
-    They are monitored. Excessive resource consumption will be billed by estimating an equivalent number of function executions. 
-    """
-    is_preload = True
-    
-    def __init__(self, dummy_items, output_item = None):
-        super().__init__()
-        self.dummy_items = dummy_items
-        self.output_item = self.name.lower()
-        self.inputs = [self.dummy_items]
-        self.outputs = [self.output_item]
-        self.optional_items = [self.dummy_items]
-        
-    def execute(self,start_ts = None,end_ts=None,entities=None):
-        '''
-        Execute function may optionally use a start_ts,end_ts and entities passed to the pipeline for processing
-        '''
-        raise NotImplementedError('This function has no execute method defined. You must implement a custom execute for any preload function')
-        return True
-
-
 class BaseResourceLookup(BaseTransformer):
     '''
     Lookup a resource assigment from a resource calendar
@@ -1696,7 +1688,7 @@ class BaseResourceLookup(BaseTransformer):
         return df
     
     
-class BasePreload(BaseFunction):
+class BasePreload(BaseTransformer):
     """
     Preload functions execute before loading entity data into the pipeline
     Preload functions have no input items or output items
@@ -1714,6 +1706,8 @@ class BasePreload(BaseFunction):
         self.inputs = [self.dummy_items]
         self.outputs = [self.output_item]
         self.optional_items = [self.dummy_items]
+        self.itemDatatypes['dummy_items'] = None
+        self.itemDatatypes['output_items'] = 'BOOLEAN'
         
     def execute(self,start_ts = None,end_ts=None,entities=None):
         '''
@@ -1754,6 +1748,57 @@ class AlertThreshold(BaseEvent):
             df[self.output_alert_upper] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
             
         return df
+    
+class EntityDataGenerator(BasePreload):
+    """
+    Automatically load the entity input data table using new generated data.
+    """
+    # expects an entity_type_name instance variable. This will be set when function is initialized inside a pipeline.
+    freq = '5min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
+    
+    def __init__ (self, dummy_items, output_item = None):
+        super().__init__(dummy_items = dummy_items, output_item = output_item)
+        
+    def execute(self,
+                 df,
+                 start_ts= None,
+                 end_ts= None,
+                 entities = None):
+        
+        #This sample builds data with the TimeSeriesGenerator.
+        
+        if entities is None:
+            entities = self.get_entity_ids()
+            
+        if not start_ts is None:
+            seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
+        else:
+            seconds = pd.to_timedelta(self.freq).total_seconds()
+        
+        if self.db is None:
+            self.db = Database(credentials=self.db_credentials)
+            
+        if self.entity_type_name is None:
+            msg = 'Function coding error. EntityDataGenerator did not get initialized with an entity_type_name as expected. This should happen automatically when the function runs in a pipeline.If this function is to run without an entity_type_name, provide an class or instance variable in the function definition '
+            raise ValueError(msg)
+        
+        entity_type = EntityType(self.entity_type_name,self.db,self._timestamp)
+        
+        df = entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)
+        
+        msg = 'generating data for entity type %s' %(self.entity_type_name)
+        logger.debug(msg)
+        
+        return True  
+    
+    
+    def get_entity_ids(self):
+        '''
+        Generate a list of entity ids
+        '''
+        ids = [str(73000 + x) for x in list(range(5))]
+        return (ids)
     
 class GenerateCerealFillerData(BaseDataSource):
     """
@@ -1822,79 +1867,7 @@ class GenerateException(BaseTransformer):
         msg = 'Calculation was halted deliberately by the inclusion of a function that raised an exception in the configuration of the pipeline'
         raise RuntimeError(msg)
     
-    
-class InputDataGenerator(BaseDataSource):
-    """
-    Replace automatically retrieved entity source data with new generated data. 
-    Supply a comma separated list of input item names to be generated.
-    """
-    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
-    merge_method = 'replace'
-    # Parameters for data generator
-    # Number of days worth of data to generate on initial execution
-    days = 1
-    # frequency of data load
-    freq = '1min' 
-    # ids of entities to generate. Change the value of the range() function to change the number of entities
-    ids = [str(7300 + x) for x in list(range(5))]
-    
-    def __init__ (self, input_items, output_items=None):
-        super().__init__(input_items = input_items, output_items = output_items)
-        
-    def get_data(self,
-                 start_ts= None,
-                 end_ts= None,
-                 entities = None):
-        '''
-        This sample builds data with the TimeSeriesGenerator. You can get data from anywhere 
-        using a custom source function. When the engine executes get_data(), after initial load
-        it will pass a start date as it will be looking for data added since the last 
-        checkpoint.
-        
-        The engine may also pass a set of entity ids to retrieve data for. Since this is a 
-        custom source we will ignore the entity list provided by the engine.
-        '''
-        # distinguish between initial and incremental execution
-        if start_ts is None:
-            days = self.days
-            seconds = 0
-        else:
-            days = 0
-            seconds = (dt.datetime.dt.datetime.utcnow() - start_ts).total_seconds()
-        
-        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
-        df = ts.execute()
-        return df
-    
-class TempPressureVolumeGenerator(InputDataGenerator):
-    """
-    Generate new data for Temperature, Pressure and Volume. Replace input data with this new data.
-    """
-    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
-    merge_method = 'replace'
-    # Parameters for data generator
-    # Number of days worth of data to generate on initial execution
-    days = 1
-    # frequency of data load
-    freq = '1min' 
-    # ids of entities to generate. Change the value of the range() function to change the number of entities
-    ids = [str(7300 + x) for x in list(range(5))]
-    
-    def __init__ (self, input_items=None, output_items=None):
-        if input_items is None:
-            input_items = self.generate_items
-        super().__init__(input_items = input_items, output_items = output_items)
-        
-        
-    def get_item_values(self,arg):
-        """
-        Get list of values for a picklist
-        """
-        if arg == 'input_items':
-            return ['pressure','temperature','volume']
-        else:
-            msg = 'No code implemented to gather available values for argument %s' %arg
-            raise NotImplementedError(msg)        
+ 
     
 
 class ExecuteFunctionSingleOut(BaseTransformer):
@@ -2489,111 +2462,6 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
         custom_calendar.set_params(**self.get_params())
         
         return custom_calendar
-    
-
-class TimeSeriesGenerator(BaseDataSource):
-
-    ''' 
-    Used to generate sample data. Not a registerable function. Call from within a function. 
-    '''
-    
-    increase_per_day = 0.0001
-    noise = 0.1 
-    ref_date = dt.datetime(2018, 1, 1, 0, 0, 0, 0)
-    day_harmonic = 0.1
-    day_of_week_harmonic = 0.2
-    
-    def __init__(self,metrics=None,ids=None,days=30,seconds=0,freq='1min', dims = None, dates=None):
-    
-        if metrics is None:
-            metrics = ['x1','x2','x3']
-        
-        if dims is None:
-            dims = []
-            
-        if dates is None:
-            dates = []
-            
-        self.metrics = metrics
-        self.dims = dims
-        
-        dates = [x for x in dates if x != self._timestamp]
-        
-        self.dates = dates
-        
-        if ids is None:
-            ids = ['sample_%s' %x for x in list(range(10))]
-        self.ids = ids
-        
-        self.days = days
-        self.seconds = seconds
-        self.freq = freq
-        #optionally scale using dict keyed on metric name
-        self.mean = {}
-        self.sd = {}
-        inputs = []
-        inputs.extend(metrics)
-        inputs.extend(dims)
-        inputs.extend(dates)
-        super().__init__(input_items=inputs)
-        
-    def get_data(self,start_ts=None,end_ts=None,entities=None):
-        
-        end = dt.datetime.utcnow()
-        start = end - dt.timedelta(days=self.days)
-        start = start - dt.timedelta(seconds=self.seconds)
-        
-        ts = pd.date_range(end=end,start=start,freq=self.freq)
-        y_cols = []
-        y_cols.extend(self.metrics)
-        y_cols.extend(self.dates)
-        y_count = len(y_cols)
-        rows = len(ts)
-        noise = np.random.normal(0,1,(rows,y_count))
-        
-        df = pd.DataFrame(data=noise,columns=y_cols)
-        df[self._entity_id] = np.random.choice(self.ids, rows)
-        df[self._timestamp] = ts
-        
-        days_from_ref = (df[self._timestamp] - self.ref_date).dt.total_seconds() / (60*60*24)
-        day = df[self._timestamp].dt.day
-        day_of_week = df[self._timestamp].dt.dayofweek
-        
-        for m in y_cols:
-            try:
-                df[m] = df[m] * self.sd[m]
-            except KeyError:
-                pass            
-            df[m] = df[m] + days_from_ref * self.increase_per_day
-            df[m] = df[m] + np.sin(day*4*math.pi/364.25) * self.day_harmonic
-            df[m] = df[m] + np.sin(day_of_week*2*math.pi/6) * self.day_of_week_harmonic
-            try:
-                df[m] = df[m] + self.mean[m]
-            except KeyError:
-                pass
-            
-        for d in self.dims:
-            df[d] = np.random.choice(self.get_domain(d), len(df.index))
-            
-        for t in self.dates:
-            df[t] = dt.datetime.utcnow() + pd.to_timedelta(df[t],unit = 'D')
-            df[t] = pd.to_datetime(df[t])
-            
-        df.set_index([self._entity_id,self._timestamp])
-        msg = 'Generated %s rows of time series data from %s to %s' %(rows,start,end)
-        logger.debug(msg)
-        
-        return df
-    
-    def execute(self,df=None):
-        df = self.get_data()
-        return df
-    
-    def set_mean(self,metric,mean):
-        self.mean[metric] = mean
-        
-    def set_sd(self,metric,sd):
-        self.mean[sd] = sd
         
     
 class FillForwardByEntity(BaseTransformer):    
@@ -2737,6 +2605,78 @@ class WriteDataFrame(BaseTransformer):
         )
         return df
     
+class PipelineDataGenerator(TimeSeriesGenerator):
+    """
+    Replace automatically retrieved entity source data with new generated data. 
+    Supply a comma separated list of input item names to be generated.
+    """
+    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
+    merge_method = 'replace'
+    # Parameters for data generator
+    # Number of days worth of data to generate on initial execution
+    days = 1
+    # frequency of data load
+    freq = '1min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
+    ids = [str(7300 + x) for x in list(range(5))]
+    
+    def __init__ (self, input_items, output_items=None):
+        super().__init__(input_items = input_items, output_items = output_items)
+        
+    def get_data(self,
+                 start_ts= None,
+                 end_ts= None,
+                 entities = None):
+        '''
+        This sample builds data with the TimeSeriesGenerator. You can get data from anywhere 
+        using a custom source function. When the engine executes get_data(), after initial load
+        it will pass a start date as it will be looking for data added since the last 
+        checkpoint.
+        
+        The engine may also pass a set of entity ids to retrieve data for. Since this is a 
+        custom source we will ignore the entity list provided by the engine.
+        '''
+        # distinguish between initial and incremental execution
+        if start_ts is None:
+            days = self.days
+            seconds = 0
+        else:
+            days = 0
+            seconds = (dt.datetime.dt.datetime.utcnow() - start_ts).total_seconds()
+        
+        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
+        df = ts.execute()
+        return df    
+    
+class TempPressureVolumeGenerator(PipelineDataGenerator):
+    """
+    Generate new data for Temperature, Pressure and Volume. Replace input data in pipeline with this new data.
+    """
+    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
+    merge_method = 'replace'
+    # Parameters for data generator
+    # Number of days worth of data to generate on initial execution
+    days = 1
+    # frequency of data load
+    freq = '1min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
+    ids = [str(7300 + x) for x in list(range(5))]
+    
+    def __init__ (self, input_items=None, output_items=None):
+        if input_items is None:
+            input_items = self.generate_items
+        super().__init__(input_items = input_items, output_items = output_items)
+        
+        
+    def get_item_values(self,arg):
+        """
+        Get list of values for a picklist
+        """
+        if arg == 'input_items':
+            return ['pressure','temperature','volume']
+        else:
+            msg = 'No code implemented to gather available values for argument %s' %arg
+            raise NotImplementedError(msg)           
     
 class PivotRowsToColumns(BaseTransformer):
     '''
