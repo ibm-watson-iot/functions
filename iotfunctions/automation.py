@@ -9,9 +9,12 @@
 # *****************************************************************************
 
 import inspect
+import logging
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 from .preprocessor import TimeSeriesGenerator
+
+logger = logging.getLogger(__name__)
 
 
 def generate_entity_data(db,entity_name, entities, days, seconds = 0, freq = '1min', credentials = None, write=True):
@@ -52,6 +55,8 @@ def generate_entity_data(db,entity_name, entities, days, seconds = 0, freq = '1m
                 dates.append(c)
             else:
                 others.append(c)
+    msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(entity_name,metrics,dims,dates)
+    logger.debug(msg)
     ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, dims = dims, dates = dates)
     df = ts.execute()
     if write:

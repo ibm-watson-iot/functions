@@ -17,10 +17,7 @@ from .db import Database, TimeSeriesTable
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 
-
 logger = logging.getLogger(__name__)
-
-  
     
 class EntityType(object):
     '''
@@ -31,10 +28,11 @@ class EntityType(object):
     checkpoint_table = 'KPI_CHECKPOINT'
     _timestamp = 'evt_timestamp'
     
-    def __init__ (self,name,credentials, timestamp_col, *args, **kw):
+    def __init__ (self,name,db, timestamp_col, *args, **kw):
         self.name = name
-        self.db = Database(credentials = credentials, start_session = False)
-        self.credentials = credentials
+        if db is None:
+            db = Database()
+        self.db = db
         if not timestamp_col is None:
             self._timestamp = timestamp_col
         try:
@@ -50,7 +48,6 @@ class EntityType(object):
         params = {
                 '_timestamp' : self._timestamp,
                 'db' : self.db,
-                'credentials' : self.credentials,
                 'source_table' : self.table
                 }
         return params
@@ -92,26 +89,16 @@ class EntityType(object):
         table['dataItemDto'] = columns
         table['metricTableName'] = self.name
         table['metricTimestampColumn'] = self._timestamp
-        table['schemaName'] = self.credentials['username']
+        table['schemaName'] = self.db.credentials['db2']['username']
         payload = [table]
-        try:
-            as_api_host = self.credentials['as_api_host']
-        except KeyError:
-            return 'No as_api_host supplied in credentials - did not register metadata'
-        else:
-            http = urllib3.PoolManager()
-            encoded_payload = json.dumps(payload).encode('utf-8')    
-            headers = {
-                'Content-Type': "application/json",
-                'X-api-key' : self.credentials['as_api_key'],
-                'X-api-token' : self.credentials['as_api_token'],
-                'Cache-Control': "no-cache",
-            }    
-            url = 'http://%s/api/meta/v1/%s/entityType' %(as_api_host,self.credentials['tennant_id'])
-            r = http.request("POST", url, body = encoded_payload, headers=headers)
-            msg = 'Metadata registerd for table %s '%self.name
-            logger.debug(msg)
-            return r.data.decode('utf-8')
+        response = self.db.http_request(request='POST',
+                                     object_type = 'entityType',
+                                     object_name = self.name,
+                                     payload = payload)
+
+        msg = 'Metadata registerd for table %s '%self.name
+        logger.debug(msg)
+        return response
         
         
     def get_data(self,start_ts =None,end_ts=None,entities=None):

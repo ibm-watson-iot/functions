@@ -170,19 +170,15 @@ class BaseFunction(object):
         self.resource_calendar[resource_name] = table_name
                     
     
-    def register(self,credentials,df,
+    def register(self,df,credentials=None,new_df = None,
                  name=None,url=None,constants = None, module=None,
                  description=None,incremental_update=None, 
                  outputs = None, show_metadata = False,
                  metadata_only = False):
         
+        
         if not self.base_initialized:
             raise RuntimeError('Cannot register function. Did not call super().__init__() in constructor so defaults have not be set correctly.')
-        
-        try:
-            as_api_host = credentials['as_api_host']
-        except KeyError:
-            raise ValueError('No as_api_host provided in credentials. Unable to register function')
             
         if self.category is None:
             raise AttributeError('Class has no categoty. Class should inherit from BaseTransformer or BaseAggregator to obtain an appropriate category')
@@ -202,7 +198,7 @@ class BaseFunction(object):
         if incremental_update is None:
             incremental_update = self.incremental_update
             
-        (metadata_input,metadata_output) = self._getMetadata(df=df,outputs=outputs,constants = constants, inputs = self.inputs)
+        (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
 
         module_and_target = '%s.%s' %(module,self.__class__.__name__)
 
@@ -230,30 +226,51 @@ class BaseFunction(object):
             'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None
         }
         
-    
-        http = urllib3.PoolManager()
-        encoded_payload = json.dumps(payload).encode('utf-8')
-        if show_metadata or metadata_only:
-            print(encoded_payload)
-        
-        headers = {
-            'Content-Type': "application/json",
-            'X-api-key' : credentials['as_api_key'],
-            'X-api-token' : credentials['as_api_token'],
-            'Cache-Control': "no-cache",
-        }
-        
-        if not metadata_only:
-            url = 'http://%s/api/catalog/v1/%s/function/%s' %(as_api_host,credentials['tennant_id'],name)
-            r = http.request("DELETE", url, body = encoded_payload, headers=headers)
-            msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+        if not credentials is None:
+            msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, or omit credentials to use credentials associated with the Database object for the function'
             logger.info(msg)
-            r = http.request("PUT", url, body = encoded_payload, headers=headers)     
-            msg = 'Function registration status: %s' %(r.data.decode('utf-8'))
-            logger.info(msg)
-            return r.data.decode('utf-8')
+            http = urllib3.PoolManager()
+            encoded_payload = json.dumps(payload).encode('utf-8')
+            if show_metadata or metadata_only:
+                print(encoded_payload)
+            
+            try:
+                headers = {
+                    'Content-Type': "application/json",
+                    'X-api-key' : credentials['as_api_key'],
+                    'X-api-token' : credentials['as_api_token'],
+                    'Cache-Control': "no-cache",
+                }
+            except KeyError:
+                msg('Old style credentials are a dictionary with tennant_id.as_api_key, as_api_token and as_api_host')
+            
+            if not metadata_only:
+                url = 'http://%s/api/catalog/v1/%s/function/%s' %(credentials['as_api_host'],credentials['tennant_id'],name)
+                r = http.request("DELETE", url, body = encoded_payload, headers=headers)
+                msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+                logger.info(msg)
+                r = http.request("PUT", url, body = encoded_payload, headers=headers)     
+                msg = 'Function registration status: %s' %(r.data.decode('utf-8'))
+                logger.info(msg)
+                return r.data.decode('utf-8')
+            else:
+                return encoded_payload
+            
         else:
-            return encoded_payload
+            if self.db is None:
+                self.db = Database()
+            response = self.db.http_request(object_type = 'function',
+                                 object_name = name,
+                                 request = 'DELETE',
+                                 payload = payload)
+            msg = 'Unregistered function with response %s' %response
+            logger.debug(msg)
+            response = self.db.http_request(object_type = 'function',
+                                 object_name = name,
+                                 request = 'PUT',
+                                 payload = payload)
+            msg = 'Registered function with response %s' %response
+            logger.debug(msg)
         
     def unregister(self,credentials,name = None):
         '''
@@ -376,8 +393,8 @@ class BaseFunction(object):
                     A dataframe used in the function is being converted into standard form,
                     but does not have a deviceid and timestamp column 
                     '''
-                    self.log_df_info(df,'before raising error ')
-                    raise KeyError(msg)
+                    logger.execption(msg)
+                    raise
                 else:
                     #remove bogus added columns
                     cols = [x for x in added_cols if x.startswith('level_')]
@@ -400,7 +417,12 @@ class BaseFunction(object):
         metadata = {}    
         args = (getargspec(self.__init__))[0][1:]        
         for a in args:
-            metadata[a] = self.__dict__[a]
+            try:
+                metadata[a] = self.__dict__[a]
+            except KeyError:
+                msg = 'Programming error. All arguments must have a corresponding instance variable of the same name. This function has no instance variable: %s' %a
+                logger.exception(msg)
+                raise 
         return metadata
     
     def _getJsonDataType(self,datatype):
@@ -473,7 +495,7 @@ class BaseFunction(object):
         
         raise NotImplementedError (msg)
         
-    def _getMetadata(self, df = None, inputs = None, outputs = None, constants = None):
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):
         """
         Assemble a dictionary of ICS Analytics Function metadata. Used to submit
         classes the ICS Analytics Function Catalog.
@@ -499,8 +521,11 @@ class BaseFunction(object):
         
         #run the function to produce a new dataframe that contains the function outputs
         if not df is None:
-            tf = df.head(self.test_rows).copy()
-            tf = self.execute(tf)
+            if new_df is None:
+                tf = df.head(self.test_rows).copy()
+                tf = self.execute(tf)
+            else:
+                tf = new_df
             if not isinstance(tf,pd.DataFrame):
                 raise TypeError('The execute method of a custom function must return a pandas DataFrame object not %s' %tf)
             self.validate_df(input_df = df,output_df = tf)
@@ -1779,6 +1804,24 @@ class GenerateCerealFillerData(BaseDataSource):
         
         return df
     
+class GenerateException(BaseTransformer):
+    """
+    Halt execution of the pipeline raising an error that will be shown. This function is 
+    useful for testing a pipeline that is running to completion but not delivering the expected results.
+    By halting execution of the pipeline you can view useful diagnostic information in an error
+    message displayed in the UI.
+    """
+    def __init__(self,halt_after, output_item = 'pipeline_exception'):
+                 
+        super().__init__()
+        self.halt_after = halt_after
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        msg = 'Calculation was halted deliberately by the inclusion of a function that raised an exception in the configuration of the pipeline'
+        raise RuntimeError(msg)
+    
     
 class InputDataGenerator(BaseDataSource):
     """
@@ -2267,6 +2310,7 @@ class SamplePreLoad(BasePreload):
         super().__init__(dummy_items = dummy_items, output_item = output_item)
         
     def execute(self,start_ts = None,end_ts=None,entities=None):
+        
         self.db = Database(credentials=self.db_credentials)
         data = {'status': True, SystemLogTable._timestamp:dt.datetime.utcnow() }
         df = pd.DataFrame(data=data, index = [0])

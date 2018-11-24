@@ -117,7 +117,8 @@ class CalcPipeline:
         return(remaining_stages,secondary_sources)    
     
                 
-    def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None, preloaded_item_names=None):
+    def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None, preloaded_item_names=None,
+                register = False):
         '''
         Execute the pipeline using an input dataframe as source.
         '''    
@@ -167,6 +168,7 @@ class CalcPipeline:
         for pl in preloaded_item_names:
             df[pl] = True
         # process remaining stages
+        trace_history = ''
         for s in stages:
             if df.empty:
                 #only continue empty stages while there are unprocessed secondary sources
@@ -177,25 +179,44 @@ class CalcPipeline:
                 if not s in secondary_sources:
                     continue
             #check to see if incoming data has a conformed index, conform if needed
+            trace = trace_history + ' pipeline failed during execution of stage %s. ' %s.__class__.__name__
+            trace = trace +' Dataframe had columns: %s.' %(list(df.columns))
+            trace = trace +' Dataframe had index: %s.' %(df.index.names)            
             try:
                 df = s.conform_index(df)
             except AttributeError:
                 pass
+            except KeyError:
+                logger.exception(trace)
+                print(trace)
+                raise               
             try:
                 msg = 'Executing pipeline stage %s. Input dataframe.' %s.__class__.__name__
                 s.log_df_info(df,msg)
             except AttributeError:
-                pass
+                pass             
             # There are two different signatures for the execute method
             try:
-                newdf = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
-            except TypeError:
-                    newdf = s.execute(df=df)
+                try:
+                    newdf = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
+                except TypeError:
+                        newdf = s.execute(df=df)
+            except:
+                logger.exception(trace)
+                raise
             #validate that stage has not violated any pipeline processing rules
-            try:
-                s.validate_df(df,newdf)
-            except AttributeError:
-                pass
+            if register:
+                try:
+                    s.register(df=df,credentials=None, new_df= newdf)
+                except AttributeError:
+                    raise
+                    msg = 'Could not export %s as it has no register() method' %s.__class__.__name__
+                    logger.warning(msg)
+            else:
+                try:
+                    s.validate_df(df,newdf)
+                except AttributeError:
+                    pass
             df = newdf
             if dropna:
                 df = df.replace([np.inf, -np.inf], np.nan)
@@ -207,7 +228,8 @@ class CalcPipeline:
                 s.log_df_info(df,msg)
             except AttributeError:
                 pass
-            secondary_sources = [x for x in secondary_sources if x != s]  
+            secondary_sources = [x for x in secondary_sources if x != s]
+            trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
         return df
 
     def export(self):

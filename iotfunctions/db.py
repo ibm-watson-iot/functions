@@ -11,6 +11,8 @@
 import os
 import datetime as dt
 import logging
+import urllib3
+import json
 import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine
@@ -35,49 +37,163 @@ class Database(object):
         Output sql to log
     '''
     
-    def __init__(self,credentials = None, start_session = False, echo = False):
+    def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
         
         logger.debug('Requesting db connection')
-        
-        #If explicit credentials provided these allow connection to a db other than the ICS one.
-        if not credentials is None:
-            connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(credentials['username'],credentials['password'],credentials['host'],credentials['port'],credentials['database']) 
-        else:
-            # look for environment vaiable for the ICS DB2
+        self.credentials = {}
+        if tenant_id is None:
             try:
-               msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
-               connection_string = os.environ.get('DB_CONNECTION_STRING')
-            except KeyError:
-                raise ValueError(msg)
+                tenant_id = credentials['tenant_id']
+            except (KeyError,TypeError):
+                try:
+                    tenant_id = credentials['tennant_id']
+                except (KeyError,TypeError):
+                    try:
+                        tenant_id = credentials['tennantId']
+                    except (KeyError,TypeError):        
+                        msg = 'No tenant_id supplied. You will not be able to use the db object to communicate with the API'
+                        logger.info(msg)
+                        tenant_id = None
+        self.credentials['tenant_id'] = tenant_id
+        try:
+            self.credentials['iotp']= credentials['iotp']
+        except (KeyError,TypeError):
+            self.credentials['iotp'] = None
+        try:
+            self.credentials['db2']= credentials['db2']
+        except (KeyError,TypeError):
+            try:
+                credentials['host']
+            except (KeyError,TypeError):
+                try:
+                    connection_string = os.environ.get('DB_CONNECTION_STRING')
+                except KeyError:
+                    raise ValueError('Unable to connect to the database. Supply valid credentials or provide a DB_CONNECTION_STRING environment variable')
+                else:
+                    if connection_string.endswith(';'):
+                        connection_string = connection_string[:-1]
+                        ev = dict(item.split("=") for item in connection_string.split(";"))
+                        self.credentials['db2'] =  {
+                                    "username": ev['UID'],
+                                    "password": ev['PWD'],
+                                    "database": ev['DATABASE'] ,
+                                    "port": ev['PORT'],
+                                    "host": ev['HOSTNAME'] 
+                            }
             else:
-               if not connection_string is None:
-                   if connection_string.endswith(';'):
-                       connection_string = connection_string[:-1]
-                   ev = dict(item.split("=") for item in connection_string.split(";"))
-                   connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])                           
-               else:
-                   raise ValueError(msg)
+                self.credentials['db2']= credentials
+                logger.warning('Old style credentials still work just fine, but will be depreciated in the future. Check the usage section of the UI for the updated credentials dictionary')
+                self.credentials['as']= credentials
+                
+        try:
+            self.credentials['message_hub']= credentials['messageHub']
+        except (KeyError,TypeError):
+            self.credentials['message_hub'] = None
+            msg = 'Unable to locate message_hub credentials. Database object created, but it will not be able interact with message hub.'
+            logger.debug(msg)
+        
+        try:
+            self.credentials['cos']= credentials['cos']
+        except (KeyError,TypeError):
+            self.credentials['cos'] = None        
+            msg = 'Unable to locate cos credentials. Database object created, but it will not be able interact with object storage'
+            logger.debug(msg)
+
+        try:
+            self.credentials['config']= credentials['config']
+        except (KeyError,TypeError):
+            self.credentials['config'] = None 
+            msg = 'Unable to locate config credentials. Database object created, but it will not be able interact with object storage'
+            logger.debug(msg)
+        
+        try:
+            as_api_host = credentials['as_api_host']
+            as_api_key = credentials['as_api_key'] 
+            as_api_token = credentials['as_api_token']
+        except (KeyError,TypeError):
+            try:
+               as_api_host = os.environ.get('API_BASEURL')
+               as_api_key = os.environ.get('API_KEY')
+               as_api_token = os.environ.get('API_TOKEN')
+            except KeyError:
+               as_api_host = None
+               as_api_key = None
+               as_api_token = None
+               msg = 'Unable to locate as credentials or environment variable. db will not be able to connect to the AS API'
+               logger.debug(msg)
+
+        self.credentials['as'] = {
+                'host' : as_api_host,
+                'api_key' : as_api_key,
+                'api_token' : as_api_token                
+                }
+
+        self.tenant_id = tenant_id
+        
+        connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
+                                                         self.credentials['db2']['password'],
+                                                         self.credentials['db2']['host'],
+                                                         self.credentials['db2']['port'],
+                                                         self.credentials['db2']['database'])            
         
         self.connection =  create_engine(connection_string, echo = echo)
         self.Session = sessionmaker(bind=self.connection)
-        self.credentials = credentials
-        
         if start_session:
             self.session = self.Session()
         else:
             self.session = None
         
         self.metadata = MetaData(self.connection)
-        #TBS support alternative schema
+        #TDB support alternative schema
         self.schema = None
-        
         logger.debug('Db connection established')
+        self.http = urllib3.PoolManager()
+        
+    def http_request(self, object_type,object_name, request, payload):
+        '''
+        Make an api call to AS
+        
+        Parameters
+        ----------
+        object_type : str 
+            function, entityType
+        object_name : str
+            name of object
+        request : str
+            GET, POST, DELETE, PUT
+        payload : dict
+            Dictionary will be encoded as JSON
+        
+        '''
+        base_url = 'http://%s/api' %(self.credentials['as']['host'])
+        self.url = {}
+        self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])
+        self.url[('entityType','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type,object_name])
+        self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
+        self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
+        self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
+            
+        encoded_payload = json.dumps(payload).encode('utf-8')
+        
+        headers = {
+            'Content-Type': "application/json",
+            'X-api-key' : self.credentials['as']['api_key'],
+            'X-api-token' : self.credentials['as']['api_token'],
+            'Cache-Control': "no-cache",
+        }
+        
+        try:
+            r = self.http.request(request,self.url[(object_type,request)], body = encoded_payload, headers=headers)
+        except KeyError:
+            raise ValueError ('This combination  of request_type and object_type is not supported by the python api')
+                
+        response= r.data.decode('utf-8')
+        return response
 
     def commit(self):
         '''
         Commit the active session
         '''
-        
         self.session.commit()
         self.session.close()
         self.session = None        
