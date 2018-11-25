@@ -707,23 +707,27 @@ class BaseFunction(object):
                                                   is_output = is_output,
                                                   is_constant = is_constant)
             #constants may have explict values
+            values = None
             if is_constant:
+                msg = 'Constant argument %s is has no explicit values defined for it and no values available from the get_item_values() method' %a
                 column_metadata['type'] = 'CONSTANT'
                 try:
                     values = self.itemValues[a]
                 except KeyError:            
                     try:
                         values = self.get_item_values(a)
-                    except NotImplementedError:
-                        msg = 'Constant argument %s is has no explicit values defined for it and no values available from the get_item_values() method' %a
-                        logger.debug(msg)
+                    except (NotImplementedError,AttributeError):
+                        pass
                         if is_array:
                             msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the set_values() method' %a
                             warnings.warn(msg)
+                    else:
+                        msg = 'Explicit values were found in the the get_item_values() method for constant argument %s ' %a
                 else:
+                    msg = 'Explicit values were found in the the itemValues dict for constant argument %s ' %a
+                if not values is None:
                     column_metadata['values'] = values
-                    msg = 'Constant argument %s is has explicit values defined for it %s' %(a, values)
-                    logger.debug(msg) 
+                logger.debug(msg) 
                 
         #array outputs are special. They inherit their datatype from an input array
         #that could be explicity defined, or use last array_input 
@@ -2295,7 +2299,7 @@ class SamplePreLoad(BasePreload):
     
 class CompanyFilter(BaseFilter):
     '''
-    Demonstration function that filters on particular company codes
+    Demonstration function that filters on particular company codes. 
     '''
     
     def __init__(self, company_code, company,output_item = None):
