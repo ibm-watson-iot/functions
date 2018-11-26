@@ -1734,8 +1734,12 @@ class AlertThreshold(BaseEvent):
                   output_alert_upper = 'output_alert_upper', output_alert_lower = 'output_alert_lower'):
         
         self.input_item = input_item
-        self.lower_threshold = float(lower_threshold)
-        self.upper_threshold = float(upper_threshold)
+        if not lower_threshold is None:
+            lower_threshold = float(lower_threshold)
+        self.lower_threshold = lower_threshold
+        if not upper_threshold is None:
+            upper_threshold = float(upper_threshold)
+        self.upper_threshold = upper_threshold
         self.output_alert_lower = output_alert_lower
         self.output_alert_upper = output_alert_upper
         super().__init__()
@@ -1787,7 +1791,10 @@ class EntityDataGenerator(BasePreload):
             msg = 'Function coding error. EntityDataGenerator did not get initialized with an entity_type_name as expected. This should happen automatically when the function runs in a pipeline.If this function is to run without an entity_type_name, provide an class or instance variable in the function definition '
             raise ValueError(msg)
         
-        entity_type = EntityType(self.entity_type_name,self.db,self._timestamp)
+        kwargs = {
+            "_timestamp" : self._timestamp
+                }
+        entity_type = EntityType(self.entity_type_name,self.db, **kwargs)
         
         df = entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)
         

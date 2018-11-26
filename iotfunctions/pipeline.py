@@ -245,13 +245,18 @@ class CalcPipeline:
             else:
                 source_name = self.source.name
             metadata  = { 
-                    'name' : s.__class__.__name__ ,
-                    'entity_type' : source_name,
+                    'name' : s.name ,
                     'args' : s._get_arg_metadata()
                     }
             export.append(metadata)
+            
+        response = self.db.http_request(object_type = 'kpiFunctions',
+                                        object_name = source_name,
+                                        request = 'POST',
+                                        payload = metadata)
         
-        return json.dumps(export)
+        
+        return response
     
     def set_stages(self,stages):
         '''

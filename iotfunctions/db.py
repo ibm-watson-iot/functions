@@ -30,7 +30,7 @@ class Database(object):
     Parameters:
     -----------
     credentials: dict (optional)
-        Database credentials. If none specifiedm use DB_CONNECTION_STRING environment variable
+        Database credentials. If none specified use DB_CONNECTION_STRING environment variable
     start_session: bool
         Start a session when establishing connection
     echo: bool
@@ -65,21 +65,7 @@ class Database(object):
             try:
                 credentials['host']
             except (KeyError,TypeError):
-                try:
-                    connection_string = os.environ.get('DB_CONNECTION_STRING')
-                except KeyError:
-                    raise ValueError('Unable to connect to the database. Supply valid credentials or provide a DB_CONNECTION_STRING environment variable')
-                else:
-                    if connection_string.endswith(';'):
-                        connection_string = connection_string[:-1]
-                        ev = dict(item.split("=") for item in connection_string.split(";"))
-                        self.credentials['db2'] =  {
-                                    "username": ev['UID'],
-                                    "password": ev['PWD'],
-                                    "database": ev['DATABASE'] ,
-                                    "port": ev['PORT'],
-                                    "host": ev['HOSTNAME'] 
-                            }
+                pass
             else:
                 self.credentials['db2']= credentials
                 logger.warning('Old style credentials still work just fine, but will be depreciated in the future. Check the usage section of the UI for the updated credentials dictionary')
@@ -130,13 +116,39 @@ class Database(object):
 
         self.tenant_id = self.credentials['tenant_id']
         
-        connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
-                                                         self.credentials['db2']['password'],
-                                                         self.credentials['db2']['host'],
-                                                         self.credentials['db2']['port'],
-                                                         self.credentials['db2']['database'])            
+        try:        
+            connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
+                                                             self.credentials['db2']['password'],
+                                                             self.credentials['db2']['host'],
+                                                             self.credentials['db2']['port'],
+                                                             self.credentials['db2']['database'])
+        except KeyError:
+            # look for environment vaiable for the ICS DB2
+            try:
+               msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
+               connection_string = os.environ.get('DB_CONNECTION_STRING')
+            except KeyError:
+                raise ValueError(msg)
+            else:
+               if not connection_string is None:
+                   if connection_string.endswith(';'):
+                       connection_string = connection_string[:-1]
+                   ev = dict(item.split("=") for item in connection_string.split(";"))
+                   connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
+                   self.credentials['db2'] =  {
+                                    "username": ev['UID'],
+                                    "password": ev['PWD'],
+                                    "database": ev['DATABASE'] ,
+                                    "port": ev['PORT'],
+                                    "host": ev['HOSTNAME'] 
+                            }
+               else:
+                   raise ValueError(msg)
         
-        self.connection =  create_engine(connection_string, echo = echo)
+        kwargs = {
+                'poolclass' : None
+                }           
+        self.connection =  create_engine(connection_string, echo = echo, **kwargs)
         self.Session = sessionmaker(bind=self.connection)
         if start_session:
             self.session = self.Session()
@@ -177,6 +189,7 @@ class Database(object):
         self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
+        self.url[('kpiFunctions','POST')] = '/'.join([base_url,self.tenant_id,'entityType',object_name,object_type,'import'])
             
         encoded_payload = json.dumps(payload).encode('utf-8')
         
@@ -384,8 +397,14 @@ class BaseTable(object):
     _timestamp = 'evt_timestamp'
     
     def __init__ (self,name,database,*args, **kw):
+        as_keywords = ['_timestamp']
         self.name = name
         self.database= database
+        for k in as_keywords:
+            try:
+                del kw['_timestamp']
+            except KeyError:
+                pass
         self.table = Table(self.name,self.database.metadata, *args,**kw )
         self.id_col = Column(self._entity_id,String(50))
         
@@ -440,6 +459,14 @@ class BaseTable(object):
             raise
         finally:
             self.database.session.close()
+            
+    def set_params(self, **params):
+        '''
+        Set parameters based using supplied dictionary
+        '''
+        for key,value in list(params.items()):
+            setattr(self, key, value)
+        return self               
             
     def query(self):
         """
