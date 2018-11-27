@@ -308,7 +308,10 @@ class BaseFunction(object):
         connection object is start_session is False
         
         '''
-        
+        warnings.warn(
+            "aquire_db_connection is depreciated. instead use the db instance variable",
+            DeprecationWarning
+        )
         if credentials is None:
             credentials = self.db_credentials
         
@@ -393,7 +396,7 @@ class BaseFunction(object):
                     A dataframe used in the function is being converted into standard form,
                     but does not have a deviceid and timestamp column 
                     '''
-                    logger.execption(msg)
+                    logger.exception(msg)
                     raise
                 else:
                     #remove bogus added columns
@@ -1466,6 +1469,7 @@ class BaseDBActivityMerge(BaseDataSource):
             self.db = Database(credentials = self.db_credentials)
         
         dfs = []
+        non_duration_dfs = []
         #build sql and execute it 
         for table_name,activities in list(self.activities_metadata.items()):
             for a in activities:
@@ -1474,8 +1478,14 @@ class BaseDBActivityMerge(BaseDataSource):
                                    start_ts = start_ts,
                                    end_ts = end_ts,
                                    entities = entities)
+                
                 af[self._activity] = a
+                
+                print(af.columns)
+                
                 dfs.append(af)
+                if not naf is None:
+                   non_duration_dfs.append(naf) 
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
                 try:
@@ -1647,6 +1657,7 @@ class BaseDBActivityMerge(BaseDataSource):
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
         df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
+        
         return df
 
 

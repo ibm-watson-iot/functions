@@ -146,7 +146,7 @@ class Database(object):
                    raise ValueError(msg)
         
         kwargs = {
-                'poolclass' : None
+                'pool_size' : 1
                 }           
         self.connection =  create_engine(connection_string, echo = echo, **kwargs)
         self.Session = sessionmaker(bind=self.connection)
@@ -207,14 +207,16 @@ class Database(object):
                 
         response= r.data.decode('utf-8')
         return response
+    
 
     def commit(self):
         '''
         Commit the active session
         '''
-        self.session.commit()
-        self.session.close()
-        self.session = None        
+        if not self.session is None:
+            self.session.commit()
+            self.session.close()
+            self.session = None        
         
     def create_all(self,tables = None, checkfirst = True ):
         '''
