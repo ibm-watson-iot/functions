@@ -13,13 +13,17 @@ import datetime as dt
 import logging
 import urllib3
 import json
+import numpy as np
 import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float
+from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
+from ibm_db_sa.base import DOUBLE
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 import ibm_db
 import ibm_db_dbi
+from .automation import TimeSeriesGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,7 @@ class Database(object):
     '''
     
     def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
+        self.write_chunk_size = 1000
         
         logger.debug('Requesting db connection')
         self.credentials = {}
@@ -116,39 +121,46 @@ class Database(object):
 
         self.tenant_id = self.credentials['tenant_id']
         
-        try:        
-            connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
-                                                             self.credentials['db2']['password'],
-                                                             self.credentials['db2']['host'],
-                                                             self.credentials['db2']['port'],
-                                                             self.credentials['db2']['database'])
+        try:
+            connection_string = 'sqlite:///%s' %(credentials['sqlite'])
+            connection_kwargs = {} 
+            msg = 'using sqlite connection for local testing. Note sqlite can only be used for local testing. It is not a supported AS database'
         except KeyError:
-            # look for environment vaiable for the ICS DB2
-            try:
-               msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
-               connection_string = os.environ.get('DB_CONNECTION_STRING')
+            try:        
+                connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
+                                                                 self.credentials['db2']['password'],
+                                                                 self.credentials['db2']['host'],
+                                                                 self.credentials['db2']['port'],
+                                                                 self.credentials['db2']['database'])
             except KeyError:
-                raise ValueError(msg)
-            else:
-               if not connection_string is None:
-                   if connection_string.endswith(';'):
-                       connection_string = connection_string[:-1]
-                   ev = dict(item.split("=") for item in connection_string.split(";"))
-                   connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
-                   self.credentials['db2'] =  {
-                                    "username": ev['UID'],
-                                    "password": ev['PWD'],
-                                    "database": ev['DATABASE'] ,
-                                    "port": ev['PORT'],
-                                    "host": ev['HOSTNAME'] 
-                            }
-               else:
-                   raise ValueError(msg)
-        
-        kwargs = {
-                'pool_size' : 1
-                }           
-        self.connection =  create_engine(connection_string, echo = echo, **kwargs)
+                # look for environment variable for the ICS DB2
+                try:
+                   msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
+                   connection_string = os.environ.get('DB_CONNECTION_STRING')
+                except KeyError:
+                    raise ValueError(msg)
+                else:
+                   if not connection_string is None:
+                       if connection_string.endswith(';'):
+                           connection_string = connection_string[:-1]
+                       ev = dict(item.split("=") for item in connection_string.split(";"))
+                       connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
+                       self.credentials['db2'] =  {
+                                        "username": ev['UID'],
+                                        "password": ev['PWD'],
+                                        "database": ev['DATABASE'] ,
+                                        "port": ev['PORT'],
+                                        "host": ev['HOSTNAME'] 
+                                }
+                   else:
+                       raise ValueError(msg)
+                connection_kwargs = {
+                        'pool_size' : 1
+                         }
+        else:
+            self.write_chunk_size = 100
+                
+        self.connection =  create_engine(connection_string, echo = echo, **connection_kwargs)
         self.Session = sessionmaker(bind=self.connection)
         if start_session:
             self.session = self.Session()
@@ -235,6 +247,7 @@ class Database(object):
             self.metadata.drop_all(tables = [table], checkfirst = True) 
             msg = 'Dropped table name %s' %table_name
         logger.debug(msg)
+               
         
     def get_table(self,table_name):
         '''
@@ -288,6 +301,20 @@ class Database(object):
         '''
         if self.session is None:
             self.session = self.Session()
+            
+    def truncate(self,table_name):
+        
+        try:
+            table = self.get_table(table_name)
+        except KeyError:
+            msg = 'Table %s doesnt exist in the the database' %table_name
+            raise KeyError(msg)
+        else:
+            self.start_session()
+            table.delete()
+            self.commit()
+            msg = 'Truncated table name %s' %table_name
+        logger.debug(msg)             
         
     def query(self,table_name):
         '''
@@ -295,20 +322,23 @@ class Database(object):
         
         Parameters
         ----------
-        table_name : str
+        table_name : str or Table object
         
         Returns
         -------
         tuple containing a sqlalchemy query object and a sqlalchemy table object
-        '''
-        
-        msg = 'Starting build of db query for table %s' %table_name
-        logger.debug(msg)
-        
+        '''        
         self.start_session()
-        table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection)
-        q = self.session.query(table)
-        
+        if isinstance(table_name, str):
+            try:
+                table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection)
+            except:
+                msg = 'Error retrieving table %s' %table_name
+                logger.exception(msg)
+                raise
+        else:
+            table = table_name
+        q = self.session.query(table)        
         msg = 'Query object built %s' %q.statement
         logger.debug(msg)
         
@@ -318,7 +348,7 @@ class Database(object):
                     table_name, 
                     version_db_writes = False,
                     if_exists = 'append',
-                    chunksize = 1000):
+                    chunksize = None):
         '''
         Write a dataframe to a database table
         
@@ -339,6 +369,10 @@ class Database(object):
         numerical status. 1 for successful write.
             
         '''
+        
+        if chunksize is None:
+            chunksize = self.write_chunk_size
+            
         df = df.reset_index()
         # the column names id, timestamp and index are reserverd as level names. They are also reserved words
         # in db2 so we don't use them in db2 tables.
@@ -399,12 +433,16 @@ class BaseTable(object):
     _timestamp = 'evt_timestamp'
     
     def __init__ (self,name,database,*args, **kw):
-        as_keywords = ['_timestamp']
+        as_keywords = ['_timestamp','_activities','_freq']
         self.name = name
         self.database= database
+        # the keyword arguments may contain properties and sql alchemy dialect specific options
+        # set all of them
+        self.set_params(**kw)
+        # delete the designated AS metadata properties as sql alchemy will not understand them
         for k in as_keywords:
             try:
-                del kw['_timestamp']
+                del kw[k]
             except KeyError:
                 pass
         self.table = Table(self.name,self.database.metadata, *args,**kw )
@@ -426,11 +464,42 @@ class BaseTable(object):
         Get a list of columns names
         """
         return [column.key for column in self.table.columns]
+    
+    def get_column_lists_by_type(self, exclude_cols = None):
+        """
+        Get metrics, dates and categoricals and others
+        """
+        if exclude_cols is None:
+            exclude_cols = []
+        metrics = []
+        dates = []
+        categoricals = []
+        others = []
+        
+        for c in self.database.get_column_names(self.table):
+            if not c in exclude_cols:
+                data_type = self.table.c[c].type
+                if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
+                    metrics.append(c)
+                elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
+                    categoricals.append(c)
+                elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
+                    dates.append(c)
+                else:
+                    others.append(c)
+                    msg = 'Ignored column %s of unknown data type %s' %(c,data_type.__class__.__name__)
+                    logger.warning(msg)
+                    
+        return (metrics,dates,categoricals,others)
+                
 
-    def insert(self,df, chunksize = 1000):
+    def insert(self,df, chunksize = None):
         """
         Insert a dataframe into table. Dataframe column names are expected to match table column names.
         """
+        
+        if chunksize is None:
+            chunksize = self.database.write_chunk_size
         
         df = df.reset_index()
         cols = self.get_column_names()
@@ -474,9 +543,8 @@ class BaseTable(object):
         """
         Return a sql alchemy query object for the table. 
         """        
-        self.db.start_session()
-        q = self.db.session.query(self.table)
-        return q            
+        (q,table) =self.database.query(self.table)
+        return (q,table)           
 
 
 class SystemLogTable(BaseTable):
@@ -496,15 +564,43 @@ class ActivityTable(BaseTable):
     An activity table is a special class of table that iotfunctions understands to contain data containing activities performed using or on an entity.
     The table contains a device id, start date and end date of the activity and an activity code to indicate what type of activity was performed.
     The table can have any number of additional Column objects supplied as arguments.
+    Also supply a keyword argument containing "activities" a list of activity codes contained in this table
     """
         
     def __init__ (self,name,database,*args, **kw):
-
+        self._freq = '1D' #default activity interval
         self.id_col = Column(self._entity_id,String(50))
         self.start_date = Column('start_date',DateTime)
         self.end_date = Column('end_date',DateTime)
         self.activity = Column('activity',String(255))
         super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.activity, *args, **kw)
+        
+    def generate_data(self,entities,days,seconds,write=True):
+        
+        (metrics, dates, categoricals,others) = self.get_column_lists_by_type(exclude_cols=[self._entity_id,'start_date','end_date'])
+        metrics.append('duration')
+        categoricals.append('activity')
+        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
+                                 ids = entities, days = days, seconds = seconds, freq = self._freq)
+        try:
+            ts.set_domain('activity',self._activities)
+        except AttributeError:
+            msg = 'Unable to find domain of activity data for %s. Set "_activities" instance variable using a keyword arg to override defaults' %self.name
+            logger.warning(msg)                 
+        df = ts.execute()
+        df['start_date'] = df[self._timestamp]
+        duration = df['duration'].abs()
+        df['end_date'] = df['start_date'] + pd.to_timedelta(duration, unit='h')
+        # probability that an activity took place in the interval
+        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._freq).total_seconds() 
+        is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
+        df = df[is_activity]
+        cols = [x for x in df.columns if x not in ['duration',self._timestamp]]
+        df = df[cols]
+        if write:
+            msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),self.table.name)
+            self.insert(df)        
+        return df
         
 class ResourceCalendarTable(BaseTable):
     """
@@ -539,5 +635,55 @@ class TimeSeriesTable(BaseTable):
                  self.device_type, self.logical_inteface, self.format , 
                  self.updated_timestamp,
                  *args, **kw)
+        
+class SlowlyChangingDimension(BaseTable):
+    """
+    A slowly changing dimension table tracks changes to a property of an entitity over time
+    The table contains a device id, start date and end date and the property 
+    Create a separate table for each property, e.g. firmware_version, owner
+    """    
+        
+    def __init__ (self,name,database,property_name,datatype):
+        self._freq = '14D'
+        self.start_date = Column('start_date',DateTime)
+        self.end_date = Column('end_date',DateTime)
+        self.property_name = Column(property_name,datatype)
+        self.id_col = Column(self._entity_id,String(50))
+        super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.property_name )
 
-
+    def generate_data(self,entities,days,seconds,write=True):
+        
+        (metrics, dates, categoricals,others) = self.get_column_lists_by_type(exclude_cols=[self._entity_id,'start_date','end_date'])
+        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
+                                 ids = entities, days = days, seconds = seconds, freq = self._freq)
+        df = ts.execute()
+        df['start_date'] = df[self._timestamp]
+        # probability that a change took place in the interval
+        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._freq).total_seconds() 
+        is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
+        df = df[is_activity]
+        cols = [x for x in df.columns if x not in [self._timestamp]]
+        df = df[cols]
+        df['end_date'] = None
+        query,table = self.database.query(self.table)
+        try:
+            edf = self.database.get_query_data(query)
+        except:
+            edf = pd.DataFrame()
+        df = pd.concat([df,edf])
+        df = df.groupby([self._entity_id]).apply(self._set_end_date)
+        try:
+            self.database.truncate(self.table)
+        except KeyError:
+            pass
+        if write:
+            msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),self.table.name)
+            self.insert(df)
+        return df
+    
+    def _set_end_date(self,df):
+        
+        df['end_date'] = df['start_date'].shift(-1)
+        df['end_date'] = df['end_date'] - pd.Timedelta(seconds = 1)
+        df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
+        return df

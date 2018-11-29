@@ -14,7 +14,7 @@ import json
 import urllib3
 import pandas as pd
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float
-from .db import Database, TimeSeriesTable
+from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension
 from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
@@ -55,6 +55,8 @@ class EntityType(object):
     
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name
+        self.activity_tables = {}
+        self.scd = {}
         if db is None:
             db = Database()
         self.db = db        
@@ -66,7 +68,64 @@ class EntityType(object):
             ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
             self.table = ts.table
             self.table.create(self.db.connection)
+            
+    def add_activity_table(self, name, activities, *args, **kwargs):
+        '''
+        add an activity table for this entity type. 
         
+        parameters
+        ----------
+        name: str
+            table name
+        activities: list of strs
+            activity type codes: these identify the nature of the activity, e.g. PM is Preventative Maintenance
+        *args: Column objects
+            other columns describing the activity, e.g. materials_cost
+        '''
+        kwargs['_activities'] = activities
+        
+        table = ActivityTable(name, self.db,*args, **kwargs)
+        try:
+            sqltable = self.db.get_table(name)
+        except KeyError:
+            table.create(self.db.connection)
+        self.activity_tables[name] = table
+        
+        
+        
+    def add_slowly_changing_dimension(self,property_name,datatype):
+        '''
+        add a slowly changing dimension table containing a single property for this entity type
+        
+        parameters
+        ----------
+        property_name : str
+            name of property, e.g. firmware_version (lower case, no database reserved words)
+        datatype: sqlalchemy datatype
+        '''
+        
+        name= '%s_scd_%s' %(self.name,property_name)
+
+        table = SlowlyChangingDimension(name = name,
+                                   database=self.db,
+                                   property_name = property_name,
+                                   datatype = datatype)        
+        try:
+            sqltable = self.db.get_table(name)
+        except KeyError:
+            table.create(self.db.connection)
+        self.scd[property_name] = table
+        
+    def drop_child_tables(self):
+        '''
+        Drop all child tables
+        '''
+        tables = []
+        tables.extend(self.activity_tables.values())
+        tables.extend(self.scd.values())
+        [self.db.drop_table(x) for x in tables]
+        msg = 'dropped tables %s' %tables
+        logger.info(msg)
         
     def get_params(self):
         '''
@@ -76,7 +135,8 @@ class EntityType(object):
                 'entity_type_name' : self.name,
                 '_timestamp' : self._timestamp,
                 'db' : self.db,
-                'source_table' : self.table
+                'source_table' : self.table,
+                'tenant_id' : self.db.tenant_id
                 }
         return params
     
@@ -133,7 +193,7 @@ class EntityType(object):
         
         '''
         if entities is None:
-            ids = [str(self._start_entity_id + x) for x in list(range(self._auto_entity_count))]
+            entities = [str(self._start_entity_id + x) for x in list(range(self._auto_entity_count))]
         metrics = []
         categoricals = []
         dates = []
@@ -164,6 +224,16 @@ class EntityType(object):
             df['format'] = ''
             df['updated_utc'] = None
             self.db.write_frame(table_name = self.name, df = df)
+            
+        for at in list(self.activity_tables.values()):
+            adf = at.generate_data(entities = entities, days = days, seconds = seconds, write = write)
+            msg = 'generated data for activity table %s' %at.name
+            logger.debug(msg)
+            
+        for scd in list(self.scd.values()):
+            sdf = scd.generate_data(entities = entities, days = days, seconds = seconds, write = write)
+            msg = 'generated data for scd table %s' %scd.name
+            logger.debug(msg)
         
         return df
     
