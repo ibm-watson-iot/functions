@@ -78,7 +78,7 @@ class BaseFunction(object):
     out_table_prefix = None
     out_table_if_exists = 'append'
     out_table_name = None 
-    write_chunk_size = None #use db default
+    write_chunk_size = 1000
     # lookups
     # a resource calendar is use to identify other resources (e.g. people, organizations) associated with the device
     # these associations may change over time.
@@ -337,21 +337,16 @@ class BaseFunction(object):
         else:
             return connection
         
-    def _coallesce_columns(self,df,cols,rsuffix='_new_'):
+    def _coallesce_columns(self,df,cols):
         '''
-        combine two columns into a single if there are two
+        combine two columns into a single 
         '''
-        done = []
+        drop_cols = ["%s_new_" %x for x in cols]
         for i,o in enumerate(cols):
-            try:
-                drop = "%s%s" %(o,rsuffix)
-                df[o] = df[o].fillna(df[drop])
-                done.append(drop)
-            except KeyError:
-                pass
-        if len(done) > 0:
-            df = self._remove_cols_from_df(df,done)
-            msg = 'Coallesced columns during merge %s' %done
+            df[o] = df[o].fillna(df[drop_cols[i]])
+        df = self._remove_cols_from_df(df,drop_cols)
+        if len(cols) > 0:
+            msg = 'Coallesced columns during merge %s' %cols
             logger.debug(msg)
         return df
             
@@ -419,17 +414,7 @@ class BaseFunction(object):
         self.log_df_info(df,'after  conform index')
         
         return df
-    
-    def empty_dataframe(self,columns):
-        
-        cols = set(columns)
-        cols.add(self._timestamp)
-        cols.add(self._entity_id)
-        cols= list(cols)
-        df = pd.DataFrame(columns=cols)
-        df = self.conform_index(df)                
-        return df
-        
+            
     def _get_arg_metadata(self):
         
         metadata = {}    
@@ -952,13 +937,10 @@ class BaseFunction(object):
         '''
         Remove list of columns from a dataframe. Return dataframe.
         '''
-        before = set(df.columns)
+        self.log_df_info(df,'Before remove of cols %s' %cols)
         cols = [x for x in list(df.columns) if x not in cols]
         df = df[cols]
-        removed = set(df.columns) - before
-        if len(removed) > 0:
-            msg = 'Removed columns %s' %removed
-            logger.debug(msg)
+        self.log_df_info(df,'After removal of cols %s' %cols)
         
         return df
         
@@ -1023,7 +1005,8 @@ class BaseFunction(object):
             self.db = Database(credentials = self.db_credentials)
         status = self.db.write_frame(df, table_name = table_name, 
                                      version_db_writes = version_db_writes,
-                                     if_exists  = if_exists)
+                                     if_exists  = if_exists,
+                                     chunksize = self.write_chunk_size)
         
         return status
 
@@ -1055,11 +1038,11 @@ class BaseFunction(object):
     
     def log_df_info(self,df,msg):
         '''
-        Log a debugging entry showing first row and index structure
+        Log a debugging entry showing dataframe structure
         '''
-        msg = msg + ' : index %s' % (df.index.names)
+        msg = msg + ' columns %s, index %s' % (df.columns, df.index.names)
         logger.debug(msg)
-        logger.debug(df.head(1).transpose())
+        logger.debug(df.head())
     
     def get_test_data(self):
         """
@@ -1453,15 +1436,13 @@ class BaseDBActivityMerge(BaseDataSource):
     '''
     
     # automatically build queries to merge in data from one or more db.ActivityTable
-    activities_metadata = None
+    activities_metadata = {}
     # merge in data from one or more custom sql statement
-    activities_custom_query_metadata = None
-    # merge in slow cganing dimnensions
-    scd_metadata = None
+    activities_custom_query_metadata = {}
     # optionally align with a custom calendar
     custom_calendar = None
-    # decide on a strategy for removing gaps
-    remove_gaps =  'within_single' # 'across_all'
+    # optionally align with one or more resource calendar
+    remove_gaps = True
     # column name metadata
     # the start and end dates for activities are assumed to be designated by specific columns
     # the type of activity performed on or using an entity is designated by the 'activity' column
@@ -1469,22 +1450,12 @@ class BaseDBActivityMerge(BaseDataSource):
     _end_date = 'end_date'
     _activity = 'activity'
     
-    def __init__(self,input_activities,activity_duration=None, additional_outputs=None):
+    def __init__(self,input_activities,activity_duration=None):
     
-        if self.activities_metadata is None:
-            self.activities_metadata = {}
-        if self.activities_custom_query_metadata is None:
-            self.activities_custom_query_metadata = {}  
-        if self.scd_metadata is None:
-            self.scd_metadata = []
         self.input_activities = input_activities
-        if additional_outputs is None:
-            additional_outputs = []
         if activity_duration is None:
             activity_duration = ['duration_%s' %x for x in self.input_activities]
         self.activity_duration = activity_duration
-        self.additional_outputs = additional_outputs
-        self.available_non_activity_cols = []
         super().__init__(input_items = input_activities , output_items = None)
         #for any function that requires database access, create a database object
         self.itemArraySource['activity_duration'] = 'input_activities'
@@ -1498,6 +1469,7 @@ class BaseDBActivityMerge(BaseDataSource):
             self.db = Database(credentials = self.db_credentials)
         
         dfs = []
+        non_duration_dfs = []
         #build sql and execute it 
         for table_name,activities in list(self.activities_metadata.items()):
             for a in activities:
@@ -1508,106 +1480,77 @@ class BaseDBActivityMerge(BaseDataSource):
                                    entities = entities)
                 
                 af[self._activity] = a
+                
+                print(af.columns)
+                
                 dfs.append(af)
-                self.available_non_activity_cols.append(self._get_non_activity_cols(af))
+                if not naf is None:
+                   non_duration_dfs.append(naf) 
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
-            try:
-                af = pd.read_sql(sql, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
-            except:
-                logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
-                logger.warning(sql)
-                raise 
-            af[self._activity] = activity
-            dfs.append(af)
-            self.available_non_activity_cols.append(self._get_non_activity_cols(af))
-            
-        if len(dfs) == 0:
-            cols = []
-            cols.append(self.activity_duration)
-            cols.append(self.additional_outputs)
-            adf = self.empty_dataframe(columns=cols)            
-        else:
-            adf = pd.concat(dfs,sort=False)
-            self.log_df_info(adf,'After merging activity data from all sources')
-            #get shift changes
-            self.add_dates = []
-            self.custom_calendar_df = None
-            if not self.custom_calendar is None:
-                self.custom_calendar_df = self.custom_calendar.get_data(start_date= adf[self._start_date].min(), end_date = adf[self._end_date].max())
-                add_dates = set(self.custom_calendar_df[self._start_date].tolist())
-                add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
-                self.add_dates = list(add_dates)
-            #get resource assignment changes
-            self._entity_resource_dict = self._get_resource_assignment(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
-            #merge takes place separately by entity instance
-            if self.remove_gaps == 'across_all':    
-                group_base = []
-            elif self.remove_gaps == 'within_single':
-                group_base = ['activity']
-            else:
-                msg = 'Value of %s for remove_gaps is invalid. Use across_all or within_single' % self.remove_gaps
-                raise ValueError(msg)
-            levels = []
-            for s in self.execute_by:
-                if s in adf.columns:
-                    group_base.append(s)
-                else:
-                    try:
-                        adf.index.get_level_values(s)
-                    except KeyError:
-                        raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
-                    else:
-                        group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(s)))
-                levels.append(s)
-            try:
-                group = adf.groupby(group_base)             
-            except KeyError:
-                msg = 'Attempt to execute combine activities by %s. One or more group by column was not found' %levels
-                logger.debug(msg)
-                raise
+                try:
+                    af = pd.read_sql(sql, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
+                except:
+                    logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
+                    logger.warning(sql)
+                    raise 
+                af[self._activity] = activity
+                dfs.append(af)      
+        
+        adf = pd.concat(dfs,sort=False)
+        self.log_df_info(adf,'After merging activity data from all sources')
+        #get shift changes
+        self.add_dates = []
+        self.custom_calendar_df = None
+        if not self.custom_calendar is None:
+            self.custom_calendar_df = self.custom_calendar.get_data(start_date= adf[self._start_date].min(), end_date = adf[self._end_date].max())
+            add_dates = set(self.custom_calendar_df[self._start_date].tolist())
+            add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
+            self.add_dates = list(add_dates)
+        #get resource assignment changes
+        self._entity_resource_dict = self._get_resource_assignment(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
+        #merge takes place separately by entity instance
+        
+        group_base = []
+        levels = []
+        for s in self.execute_by:
+            if s in adf.columns:
+                group_base.append(s)
             else:
                 try:
-                    cdf = group.apply(self._combine_activities)
+                    adf.index.get_level_values(s)
                 except KeyError:
-                    msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' %list(adf.columns)
-                    logger.debug(msg)
-                    raise            
-            cdf['duration'] = (cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds() / 60        
-            self.log_df_info(cdf,'combined activity data after removing overlap')            
-            pivot_start = PivotRowsToColumns(
-                    pivot_by_item = self._activity,
-                    pivot_values = self.input_activities,
-                    input_item='duration',
-                    null_value=None,
-                    output_items = self.activity_duration
-                        )  
-            
-            cdf = pivot_start.execute(cdf)
-            self.log_df_info(cdf,'pivoted activity data')
-            # go back and add non activity data from each dataframe
-            for i,nadf in enumerate(dfs):
-               add_cols = [x for x in self.available_non_activity_cols[i] if x in self.additional_outputs]
-               if len(add_cols) > 0:
-                   include = []
-                   include.extend(add_cols)
-                   include.extend(['start_date', self._entity_id])
-                   nadf = nadf[include]
-                   cdf = cdf.merge(nadf,
-                                   on = ['start_date', self._entity_id],
-                                   how = 'left', suffixes = ('','_new_'))
-                   self.log_df_info(cdf,'post merge')
-                   cdf = self._coallesce_columns(cdf,add_cols)
-                   self.log_df_info(cdf,'post coallesce')
-            cdf = self.conform_index(cdf,timestamp_col = self._start_date) 
-            
-        return cdf
+                    raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
+                else:
+                    group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(s)))
+            levels.append(s)
+        try:
+            group = adf.groupby(group_base)             
+        except KeyError:
+            msg = 'Attempt to execute combine activities by %s. One or more group by column was not found' %levels
+            logger.debug(msg)
+            raise
+        else:
+            try:
+                adf = group.apply(self._combine_activities)
+            except KeyError:
+                msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' %list(adf.columns)
+                logger.debug(msg)
+                raise            
+        adf['duration'] = (adf[self._end_date] - adf[self._start_date]).dt.total_seconds() / 60        
+        self.log_df_info(adf,'combined activity data after removing overlap')            
+        pivot_start = PivotRowsToColumns(
+                pivot_by_item = self._activity,
+                pivot_values = self.input_activities,
+                input_item='duration',
+                null_value=None,
+                output_items = self.activity_duration
+                    )        
+        adf = pivot_start.execute(adf)
+        self.log_df_info(adf,'pivoted activity data')
+        adf = self.conform_index(adf,timestamp_col = self._start_date)
     
-    def _get_non_activity_cols(self,df):
-        
-        activity_cols = [self._timestamp, self._entity_id, 'start_date', 'end_date', 'activity']
-        cols = [x for x in df.columns if x not in activity_cols]
-        return cols
+        return adf
         
                     
     def _combine_activities(self,df):
@@ -2129,18 +2072,15 @@ class MergeActivityData(BaseDBActivityMerge):
     execute_by = ['deviceid']
     
     def __init__(self,input_activities,
-                 activity_duration=None,
-                 additional_outputs = None):
+                 activity_duration=None):
         
         super().__init__(input_activities=input_activities,
-                         activity_duration=activity_duration,
-                         additional_outputs = additional_outputs)
+                         activity_duration=activity_duration)
 
-        self.activities_metadata['widget_maintenance_activity'] = ['PM','UM']
-        self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
-        self.scd_metadata = ['status']
-        #self.activities_custom_query_metadata = {}
-        #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from mike_custom_activity'
+        self.activities_metadata['mike_maintenance'] = ['A','B','C','D','E']
+        self.activities_metadata['mike_breakdown'] = ['BD']
+        self.activities_custom_query_metadata = {}
+        self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from mike_custom_activity'
         self.custom_calendar = ShiftCalendar(
                 shift_definition = 
                     {
@@ -2153,7 +2093,7 @@ class MergeActivityData(BaseDBActivityMerge):
                  shift_end_date = 'end_date' 
                 )
         
-        #self.add_resource_calendar(resource_name = 'operator', table_name = 'operator_lookup')
+        self.add_resource_calendar(resource_name = 'operator', table_name = 'operator_lookup')
         
         
 class MergeSampleTimeSeries(BaseDataSource):
@@ -2226,7 +2166,8 @@ class MergeSampleTimeSeries(BaseDataSource):
         df = generator.execute()
         self.db.write_frame(df = df, table_name = self.source_table_name,
                        version_db_writes = False,
-                       if_exists = 'append')
+                       if_exists = 'append',
+                       chunksize = 1000 )
         
     def get_test_data(self):
         if self.db is None:
@@ -2773,8 +2714,8 @@ class PivotRowsToColumns(BaseTransformer):
             output_items = [ '%s_%s' %(x,input_item) for x in pivot_values]
         
         if len(pivot_values) != len(output_items):
-            logger.exception('Pivot values: %s' %pivot_values)
-            logger.exception('Output items: %s' %output_items)
+            logger.warning('Pivot values: %s' %pivot_values)
+            logger.warning('Output items: %s' %output_items)
             raise ValueError('An output item name is required for each pivot value supplied. Length of the arrays must be equal')
             
         self.input_item = input_item
@@ -2800,8 +2741,6 @@ class PivotRowsToColumns(BaseTransformer):
             else:
                 null_item = self.null_value                
             df[self.output_items[i]] = np.where(df[self.pivot_by_item]==value,input_item,null_item)
-            
-        self.log_df_info(df,'After pivot rows to columns')
             
         return df
         
