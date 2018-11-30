@@ -135,7 +135,7 @@ class Database(object):
             # There is a back door to for using it instead of db2 for local development only. 
             # It will be used only when explicitly added to the credentials as credentials['sqlite'] = filename
             try:
-                connection_string = 'sqlite:///%s' %(credentials['sqlite'])
+                connection_string = 'sqlite:///%s' %(self.credentials['sqlite'])
             except KeyError:
                 try:        
                     connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
@@ -690,7 +690,7 @@ class SlowlyChangingDimension(BaseTable):
             edf = self.database.get_query_data(query)
         except:
             edf = pd.DataFrame()
-        df = pd.concat([df,edf],ignore_index = True)
+        df = pd.concat([df,edf],ignore_index = True,sort=False)
         if len(df.index) > 0:
             df = df.groupby([self._entity_id]).apply(self._set_end_date)
             try:
