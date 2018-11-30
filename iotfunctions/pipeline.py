@@ -30,7 +30,29 @@ class CalcPipeline:
         '''
         Add a new stage to a pipeline. A stage is Transformer or Aggregator.
         '''
-        self.stages.append(stage)        
+        self.stages.append(stage)   
+    
+        
+    def set_stage_params(self):
+        '''
+        Set parameters from pipeline in each stage
+        This will overwrite existing class or instance variables with the same name
+        Check get_params to see which parameters are set in this way
+        '''
+        
+        if self.source is None:
+            source = self
+        else:
+            source = self.source
+        
+        for s in self.stages:
+            try:
+                s.set_params(**source.get_params())
+            except AttributeError:
+                msg = "Counldn't set parameters on stage %s because it doesn't have a set_params method" %s.__class__.__name__
+            finally:
+                msg = "Set parameters on stage %s" %s.__class__.__name__
+            logger.debug(msg)
         
     def _extract_preload_stages(self):
         '''
@@ -125,18 +147,11 @@ class CalcPipeline:
                 register = False):
         '''
         Execute the pipeline using an input dataframe as source.
-        '''    
+        '''
         #preload may  have already taken place. if so pass the names of the stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
-        # set parameters for stages based on pipeline parameters
-        if not self.source is None:
-            params = self.source.get_params()
-            for s in self.stages:
-                try:
-                    s = s.set_params(**params)
-                except AttributeError:
-                    pass
+        self.set_stage_params()
         #process preload stages first if there are any
         (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
         preloaded_item_names.extend(preload_item_names)
@@ -254,9 +269,7 @@ class CalcPipeline:
         response = self.db.http_request(object_type = 'kpiFunctions',
                                         object_name = source_name,
                                         request = 'POST',
-                                        payload = metadata)
-        
-        
+                                        payload = metadata)    
         return response
     
     def get_input_items(self):
@@ -271,6 +284,23 @@ class CalcPipeline:
                 pass
             
         return inputs
+    
+    def get_params(self):
+        '''
+        Get metadata parameters
+        '''
+        params = {
+                '_entity_type_logical_name' : self.entity_type,
+                'entity_type_name' : self.eventTable,
+                '_timestamp' : self.eventTimestampColumn,
+                'db' : self.db,
+                '_dimension_table_name' : self.dimensionTable,
+                '_db_connection_dbi' : self.db_connection_dbi,
+                '_db_schema' : self.schema,
+                '_data_items' : self.data_items
+                }
+        return params
+    
     
     def set_stages(self,stages):
         '''

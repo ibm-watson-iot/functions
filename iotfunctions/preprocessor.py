@@ -789,6 +789,7 @@ class BaseFunction(object):
                 '_timestamp' : self._timestamp,
                 'db' : self.db
                 }
+        
         return params
     
     def get_scd_data(self,table_name,start_ts, end_ts, entities):

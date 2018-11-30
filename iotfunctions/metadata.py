@@ -61,6 +61,8 @@ class EntityType(object):
             db = Database()
         self.db = db        
         self._timestamp = 'evt_timestamp'
+        self._dimension_table_name = None
+        self._db_schema = None
         self.set_params(**kwargs)
         try:
             self.table = self.db.get_table(self.name)
@@ -68,6 +70,7 @@ class EntityType(object):
             ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
             self.table = ts.table
             self.table.create(self.db.connection)
+            
             
     def add_activity_table(self, name, activities, *args, **kwargs):
         '''
@@ -126,19 +129,23 @@ class EntityType(object):
         [self.db.drop_table(x) for x in tables]
         msg = 'dropped tables %s' %tables
         logger.info(msg)
-        
+            
     def get_params(self):
         '''
-        Get entity type parameters to pass into a child object like a pipeline.
+        Get metadata parameters
         '''
         params = {
-                'entity_type_name' : self.name,
+                '_entity_type_logical_name' : self.name,
+                'entity_type_name' :self.name,
                 '_timestamp' : self._timestamp,
                 'db' : self.db,
-                'source_table' : self.table,
-                'tenant_id' : self.db.tenant_id
+                '_dimension_table_name' : self._dimension_table_name,
+                '_db_connection_dbi' : None,
+                '_db_schema' : self._db_schema,
+                '_data_items' : None
                 }
-        return params
+        return params  
+    
     
     def get_calc_pipeline(self,stages=None):
         '''
