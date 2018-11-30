@@ -311,3 +311,11 @@ class CalcPipeline:
             if not isinstance(stages,list):
                 stages = [stages]
             self.stages.extend(stages)
+            
+    def set_params(self, **params):
+        '''
+        Set parameters based using supplied dictionary
+        '''
+        for key,value in list(params.items()):
+            setattr(self, key, value)
+        return self            
