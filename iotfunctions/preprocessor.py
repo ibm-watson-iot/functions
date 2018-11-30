@@ -78,12 +78,11 @@ class BaseFunction(object):
     out_table_prefix = None
     out_table_if_exists = 'append'
     out_table_name = None 
-    write_chunk_size = 1000
+    write_chunk_size = None #use db default
     # lookups
-    # a resource calendar is use to identify other resources (e.g. people, organizations) associated with the device
-    # these associations may change over time.
-    resource_calendar = None
-    _entity_resource_dict = None
+    # a slowly changing dimensions is use to record property changes to master data over time
+    scd_metadata = None
+    _entity_scd_dict = None
     # predefined column names
     _entity_id = 'deviceid'
     _timestamp = 'evt_timestamp'
@@ -147,11 +146,11 @@ class BaseFunction(object):
         if self.tags is None:
             self.tags = []  
 
-        if self.resource_calendar is None:
-            self.resource_calendar= {}
+        if self.scd_metadata is None:
+            self.scd_metadata= {}
             
-        if self._entity_resource_dict is None:
-            self._entity_resource_dict= {}            
+        if self._entity_scd_dict is None:
+            self._entity_scd_dict= {}            
             
 
         #if cos credentials are not explicitly  provided use environment variable
@@ -165,9 +164,9 @@ class BaseFunction(object):
                     except KeyError:
                         pass
                     
-    def add_resource_calendar(self, resource_name, table_name):
+    def add_scd(self, scd_property, table_name):
         
-        self.resource_calendar[resource_name] = table_name
+        self.scd_metadata[scd_property] = table_name
                     
     
     def register(self,df,credentials=None,new_df = None,
@@ -337,16 +336,21 @@ class BaseFunction(object):
         else:
             return connection
         
-    def _coallesce_columns(self,df,cols):
+    def _coallesce_columns(self,df,cols,rsuffix='_new_'):
         '''
-        combine two columns into a single 
+        combine two columns into a single if there are two
         '''
-        drop_cols = ["%s_new_" %x for x in cols]
+        done = []
         for i,o in enumerate(cols):
-            df[o] = df[o].fillna(df[drop_cols[i]])
-        df = self._remove_cols_from_df(df,drop_cols)
-        if len(cols) > 0:
-            msg = 'Coallesced columns during merge %s' %cols
+            try:
+                drop = "%s%s" %(o,rsuffix)
+                df[o] = df[o].fillna(df[drop])
+                done.append(drop)
+            except KeyError:
+                pass
+        if len(done) > 0:
+            df = self._remove_cols_from_df(df,done)
+            msg = 'Coallesced columns during merge %s' %done
             logger.debug(msg)
         return df
             
@@ -414,7 +418,17 @@ class BaseFunction(object):
         self.log_df_info(df,'after  conform index')
         
         return df
-            
+    
+    def empty_dataframe(self,columns):
+        
+        cols = set(columns)
+        cols.add(self._timestamp)
+        cols.add(self._entity_id)
+        cols= list(cols)
+        df = pd.DataFrame(columns=cols)
+        df = self.conform_index(df)                
+        return df
+        
     def _get_arg_metadata(self):
         
         metadata = {}    
@@ -769,9 +783,9 @@ class BaseFunction(object):
                 }
         return params
     
-    def get_resource_calendar_data(self,table_name,start_ts, end_ts, entities):
+    def get_scd_data(self,table_name,start_ts, end_ts, entities):
         '''
-        Retrieve a resource calendar as a dataframe
+        Retrieve an slowly changing dimension property as a dataframe
         '''
         
         if self.db is None:
@@ -794,18 +808,17 @@ class BaseFunction(object):
             df[o] = True
         return df
     
-    def _get_resource_assignment(self,start_ts,end_ts,entities):
+    def _get_scd_history(self,start_ts,end_ts,entities):
         '''
-        Build a dict keyed on resource type and entity id for each type of resource
+        Build a dict keyed on scd property and entity id
         '''
         x = {}
-        if self.resource_calendar is None:
+        if self.scd_metadata is None:
             return None
         else:
-            for resource, table in list(self.resource_calendar.items()):
-                df = self.get_resource_calendar_data(table_name=table, start_ts=start_ts, end_ts = end_ts, entities = entities)
-                #build the resource assignment dict
-                x[resource] = self._partition_df_by_id(df)
+            for scd_property, table in list(self.scd_metadata.items()):
+                df = self.get_scd_data(table_name=table, start_ts=start_ts, end_ts = end_ts, entities = entities)
+                x[scd_property] = self._partition_df_by_id(df)
             return x
             
     def _partition_df_by_id(self,df):
@@ -937,10 +950,13 @@ class BaseFunction(object):
         '''
         Remove list of columns from a dataframe. Return dataframe.
         '''
-        self.log_df_info(df,'Before remove of cols %s' %cols)
+        before = set(df.columns)
         cols = [x for x in list(df.columns) if x not in cols]
         df = df[cols]
-        self.log_df_info(df,'After removal of cols %s' %cols)
+        removed = set(df.columns) - before
+        if len(removed) > 0:
+            msg = 'Removed columns %s' %removed
+            logger.debug(msg)
         
         return df
         
@@ -1005,8 +1021,7 @@ class BaseFunction(object):
             self.db = Database(credentials = self.db_credentials)
         status = self.db.write_frame(df, table_name = table_name, 
                                      version_db_writes = version_db_writes,
-                                     if_exists  = if_exists,
-                                     chunksize = self.write_chunk_size)
+                                     if_exists  = if_exists)
         
         return status
 
@@ -1038,11 +1053,11 @@ class BaseFunction(object):
     
     def log_df_info(self,df,msg):
         '''
-        Log a debugging entry showing dataframe structure
+        Log a debugging entry showing first row and index structure
         '''
-        msg = msg + ' columns %s, index %s' % (df.columns, df.index.names)
+        msg = msg + ' | count: %s | index %s' % (len(df.index), df.index.names)
         logger.debug(msg)
-        logger.debug(df.head())
+        logger.debug(df.head(1).transpose())
     
     def get_test_data(self):
         """
@@ -1436,13 +1451,15 @@ class BaseDBActivityMerge(BaseDataSource):
     '''
     
     # automatically build queries to merge in data from one or more db.ActivityTable
-    activities_metadata = {}
+    activities_metadata = None
     # merge in data from one or more custom sql statement
-    activities_custom_query_metadata = {}
+    activities_custom_query_metadata = None
+    # merge in slow chaning dimnensions
+    scd_metadata = None
     # optionally align with a custom calendar
     custom_calendar = None
-    # optionally align with one or more resource calendar
-    remove_gaps = True
+    # decide on a strategy for removing gaps
+    remove_gaps =  'within_single' # 'across_all'
     # column name metadata
     # the start and end dates for activities are assumed to be designated by specific columns
     # the type of activity performed on or using an entity is designated by the 'activity' column
@@ -1450,15 +1467,35 @@ class BaseDBActivityMerge(BaseDataSource):
     _end_date = 'end_date'
     _activity = 'activity'
     
-    def __init__(self,input_activities,activity_duration=None):
+    def __init__(self,
+                 input_activities,
+                 activity_duration= None, 
+                 additional_items= None,
+                 additional_output_names = None):
     
+        if self.activities_metadata is None:
+            self.activities_metadata = {}
+        if self.activities_custom_query_metadata is None:
+            self.activities_custom_query_metadata = {}  
+        if self.scd_metadata is None:
+            self.scd_metadata = {}
         self.input_activities = input_activities
+        if additional_items is None:
+            additional_items = []
         if activity_duration is None:
             activity_duration = ['duration_%s' %x for x in self.input_activities]
         self.activity_duration = activity_duration
+        self.additional_items = additional_items
+        if additional_output_names is None:
+            additional_output_names = ['output_%s' %x for x in self.additional_items]
+        self.additional_output_names = additional_output_names
+        self.available_non_activity_cols = []
+        
+            
         super().__init__(input_items = input_activities , output_items = None)
         #for any function that requires database access, create a database object
         self.itemArraySource['activity_duration'] = 'input_activities'
+        self.itemArraySource['additional_output_names'] = 'additional_items'
         
     def get_data(self,
                     start_ts= None,
@@ -1469,7 +1506,6 @@ class BaseDBActivityMerge(BaseDataSource):
             self.db = Database(credentials = self.db_credentials)
         
         dfs = []
-        non_duration_dfs = []
         #build sql and execute it 
         for table_name,activities in list(self.activities_metadata.items()):
             for a in activities:
@@ -1480,77 +1516,110 @@ class BaseDBActivityMerge(BaseDataSource):
                                    entities = entities)
                 
                 af[self._activity] = a
-                
-                print(af.columns)
-                
+                msg = 'Read activity table %s' %table_name
+                self.log_df_info(af,msg)
                 dfs.append(af)
-                if not naf is None:
-                   non_duration_dfs.append(naf) 
+                self.available_non_activity_cols.append(self._get_non_activity_cols(af))
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
-                try:
-                    af = pd.read_sql(sql, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
-                except:
-                    logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
-                    logger.warning(sql)
-                    raise 
-                af[self._activity] = activity
-                dfs.append(af)      
-        
-        adf = pd.concat(dfs,sort=False)
-        self.log_df_info(adf,'After merging activity data from all sources')
-        #get shift changes
-        self.add_dates = []
-        self.custom_calendar_df = None
-        if not self.custom_calendar is None:
-            self.custom_calendar_df = self.custom_calendar.get_data(start_date= adf[self._start_date].min(), end_date = adf[self._end_date].max())
-            add_dates = set(self.custom_calendar_df[self._start_date].tolist())
-            add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
-            self.add_dates = list(add_dates)
-        #get resource assignment changes
-        self._entity_resource_dict = self._get_resource_assignment(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
-        #merge takes place separately by entity instance
-        
-        group_base = []
-        levels = []
-        for s in self.execute_by:
-            if s in adf.columns:
-                group_base.append(s)
+            try:
+                af = pd.read_sql(sql, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
+            except:
+                logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
+                logger.warning(sql)
+                raise 
+            af[self._activity] = activity
+            dfs.append(af)
+            self.available_non_activity_cols.append(self._get_non_activity_cols(af))
+            
+        if len(dfs) == 0:
+            cols = []
+            cols.append(self.activity_duration)
+            cols.append(self.additional_items)
+            adf = self.empty_dataframe(columns=cols)            
+        else:
+            adf = pd.concat(dfs,sort=False)
+            self.log_df_info(adf,'After merging activity data from all sources')
+            #get shift changes
+            self.add_dates = []
+            self.custom_calendar_df = None
+            if not self.custom_calendar is None:
+                self.custom_calendar_df = self.custom_calendar.get_data(start_date= adf[self._start_date].min(), end_date = adf[self._end_date].max())
+                add_dates = set(self.custom_calendar_df[self._start_date].tolist())
+                add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
+                self.add_dates = list(add_dates)
+            #get scd changes
+            self._entity_scd_dict = self._get_scd_history(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
+            #merge takes place separately by entity instance
+            if self.remove_gaps == 'across_all':    
+                group_base = []
+            elif self.remove_gaps == 'within_single':
+                group_base = ['activity']
+            else:
+                msg = 'Value of %s for remove_gaps is invalid. Use across_all or within_single' % self.remove_gaps
+                raise ValueError(msg)
+            levels = []
+            for s in self.execute_by:
+                if s in adf.columns:
+                    group_base.append(s)
+                else:
+                    try:
+                        adf.index.get_level_values(s)
+                    except KeyError:
+                        raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
+                    else:
+                        group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(s)))
+                levels.append(s)
+            try:
+                group = adf.groupby(group_base)             
+            except KeyError:
+                msg = 'Attempt to execute combine activities by %s. One or more group by column was not found' %levels
+                logger.debug(msg)
+                raise
             else:
                 try:
-                    adf.index.get_level_values(s)
+                    cdf = group.apply(self._combine_activities)
                 except KeyError:
-                    raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
-                else:
-                    group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(s)))
-            levels.append(s)
-        try:
-            group = adf.groupby(group_base)             
-        except KeyError:
-            msg = 'Attempt to execute combine activities by %s. One or more group by column was not found' %levels
-            logger.debug(msg)
-            raise
-        else:
-            try:
-                adf = group.apply(self._combine_activities)
-            except KeyError:
-                msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' %list(adf.columns)
-                logger.debug(msg)
-                raise            
-        adf['duration'] = (adf[self._end_date] - adf[self._start_date]).dt.total_seconds() / 60        
-        self.log_df_info(adf,'combined activity data after removing overlap')            
-        pivot_start = PivotRowsToColumns(
-                pivot_by_item = self._activity,
-                pivot_values = self.input_activities,
-                input_item='duration',
-                null_value=None,
-                output_items = self.activity_duration
-                    )        
-        adf = pivot_start.execute(adf)
-        self.log_df_info(adf,'pivoted activity data')
-        adf = self.conform_index(adf,timestamp_col = self._start_date)
+                    msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' %list(adf.columns)
+                    logger.debug(msg)
+                    raise            
+            cdf['duration'] = (cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds() / 60        
+            self.log_df_info(cdf,'combined activity data after removing overlap')            
+            pivot_start = PivotRowsToColumns(
+                    pivot_by_item = self._activity,
+                    pivot_values = self.input_activities,
+                    input_item='duration',
+                    null_value=None,
+                    output_items = self.activity_duration
+                        )  
+            
+            cdf = pivot_start.execute(cdf)
+            self.log_df_info(cdf,'pivoted activity data')
+            # go back and add non activity data from each dataframe
+            for i,nadf in enumerate(dfs):
+               add_cols = [x for x in self.available_non_activity_cols[i] if x in self.additional_items]
+               if len(add_cols) > 0:
+                   include = []
+                   include.extend(add_cols)
+                   include.extend(['start_date', self._entity_id])
+                   nadf = nadf[include]
+                   cdf = cdf.merge(nadf,
+                                   on = ['start_date', self._entity_id],
+                                   how = 'left', suffixes = ('','_new_'))
+                   self.log_df_info(cdf,'post merge')
+                   cdf = self._coallesce_columns(cdf,add_cols)
+                   self.log_df_info(cdf,'post coallesce')
+            #rename initial outputs
+            cdf = self.rename_cols(cdf,self.additional_items,self.additional_output_names)
+            cdf = self.conform_index(cdf,timestamp_col = self._start_date) 
+            
+        return cdf
     
-        return adf
+    def _get_non_activity_cols(self,df):
+        
+        activity_cols = [self._timestamp, self._entity_id, 'start_date', 'end_date', 'activity']
+        cols = [x for x in df.columns if x not in activity_cols]
+        return cols
         
                     
     def _combine_activities(self,df):
@@ -1561,6 +1630,7 @@ class BaseDBActivityMerge(BaseDataSource):
         activities with later start dates take precidence over activies with earlier start dates when resolving.
         '''
         #dataframe expected to contain start_date,end_date,activity for a single deviceid
+        
         entity = df[self._entity_id].max()                
         #create a continuous range
         early_date = pd.Timestamp.min
@@ -1570,14 +1640,14 @@ class BaseDBActivityMerge(BaseDataSource):
         dates |= set((df[self._start_date].tolist()))
         dates |= set((df[self._end_date].tolist()))
         dates |= set(self.add_dates)
-        #resource calendar changes are another potential interruption
-        has_resource_calendar={}
-        for resource,entity_data in list(self._entity_resource_dict.items()):
-            has_resource_calendar[resource] = True
+        #scd changes are another potential interruption
+        has_scd={}
+        for scd_property,entity_data in list(self._entity_scd_dict.items()):
+            has_scd[scd_property] = True
             try:
                 dates |= set(entity_data[entity][self._start_date])
             except KeyError:
-                has_resource_calendar[resource]=False
+                has_scd[scd_property]=False
         dates = list(dates)
         dates.sort()
         #initialize series to track history of activities
@@ -1590,6 +1660,7 @@ class BaseDBActivityMerge(BaseDataSource):
             end_date = row[self._end_date] - dt.timedelta(seconds=1)
             c[row[self._start_date]:end_date] = row[self._activity]    
         df = c.to_frame().reset_index()
+        
         #add custom calendar data
         if not self.custom_calendar_df is None:
             cols = [x for x in self.custom_calendar_df.columns if x != 'end_date']            
@@ -1598,20 +1669,21 @@ class BaseDBActivityMerge(BaseDataSource):
             df['shift_day'] = df['shift_day'].fillna(method='ffill')
             df[self._activity].fillna(method='ffill')
             
-        #perform resource lookup
-        for resource,entity_data in list(self._entity_resource_dict.items()):
-            if has_resource_calendar[resource]:
+        #perform scd lookup
+        for scd_property,entity_data in list(self._entity_scd_dict.items()):
+            if has_scd[scd_property]:
                 dfr = entity_data[entity]
-                resource_data = dfr['resource_id']
-                resource_data.index = dfr[self._start_date]
-                resource_data.name = resource
-                df = df.join(resource_data, how ='left', on = self._start_date)
-                df[resource] = df[resource].fillna(method='ffill')
-                msg = 'Found %s resource data for entity %s' %(resource,entity)
+                scd_data = dfr[scd_property]
+                scd_data.index = dfr[self._start_date]
+                scd_data.name = scd_property
+                df = df.join(scd_data, how ='left', on = self._start_date)
+                df[scd_property] = df[scd_property].fillna(method='ffill')
+                msg = 'Found %s scd data for entity %s' %(scd_property,entity)
             else:
-                msg = 'Missing %s resource data for entity %s' %(resource,entity)
-                df[resource] = None
+                msg = 'Missing %s scd data for entity %s' %(scd_property,entity)
+                df[scd_property] = None
             logger.debug(msg)
+        
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
         df[self._end_date] = df[self._end_date] - dt.timedelta(seconds=1)
@@ -1662,13 +1734,13 @@ class BaseDBActivityMerge(BaseDataSource):
 
 
 
-class BaseResourceLookup(BaseTransformer):
+class BaseSCDLookup(BaseTransformer):
     '''
-    Lookup a resource assigment from a resource calendar
+    Lookup a slowly changing property
     '''
     _start_date = 'start_date'
     _end_date = 'end_date'
-    merge_nearest_tolerance = None #pd.Timedelta('1D')
+    merge_nearest_tolerance = None # or something like pd.Timedelta('1D')
     
     def __init__ (self, table_name, output_item = None):
         
@@ -1681,13 +1753,19 @@ class BaseResourceLookup(BaseTransformer):
     def execute(self,df):
         
         (start_ts, end_ts, entities) = self._get_data_scope(df)
-        resource_df = self.get_resource_calendar_data(table_name = self.table_name, start_ts = start_ts, end_ts=end_ts, entities=entities)
-        resource_df = resource_df.rename(columns = {'resource_id':self.output_item,
+        resource_df = self.get_scd_data(table_name = self.table_name, start_ts = start_ts, end_ts=end_ts, entities=entities)
+        system_cols = [self._start_date,self._end_date,self._entity_id]
+        try:
+            scd_property = [x for x in resource_df.columns if x not in system_cols][0]
+        except:
+            msg = 'Error looking up scd_property from table %s. Make sure that table name is an scd with start_data, end_date, deviceid and a property name' %self.table_name
+            logger.exception(msg)
+            raise
+        
+        resource_df = resource_df.rename(columns = {scd_property:self.output_item,
                                           'start_date': self._timestamp})
         cols = [x for x in resource_df.columns if x not in ['end_date']]
         resource_df = resource_df[cols]
-        self.log_df_info(df,'source dataframe before merge')
-        self.log_df_info(resource_df,'resource data source to be merged')                
         try:
             df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
         except ValueError:
@@ -1699,7 +1777,8 @@ class BaseResourceLookup(BaseTransformer):
                 df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
         
         df = self.conform_index(df)        
-        self.log_df_info(df,'post resource calendar merge') 
+        msg = 'after scd lookup of %s from table %s' %(scd_property,self.table_name)
+        self.log_df_info(df,msg) 
         return df
     
     
@@ -1768,6 +1847,84 @@ class AlertThreshold(BaseEvent):
             
         return df
     
+class CompanyFilter(BaseFilter):
+    '''
+    Demonstration function that filters on particular company codes. 
+    '''
+    
+    def __init__(self, company_code, company,output_item = None):
+        super().__init__(dependent_items = company_code, output_item = output_item)
+        self.company_code = company_code
+        self.company = company
+        
+    def get_item_values(self,arg):
+        """
+        Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
+        """
+        if arg == 'company':           
+            return(['AMCE','ABC','JDI'])
+        
+    def filter(self,df):
+        df = df[df[self.company_code]==self.company]
+        return df    
+    
+    
+class ComputationsOnStringArray(BaseTransformer):
+    '''
+    Perform computation on a string that contains a comma separated list of values
+    '''
+    # The metadata describes what columns of data are included in the array
+    column_metadata = ['x1','x2','x3','x4','x5']
+    
+    def __init__(self, input_str, output_item = 'output_item'):
+    
+        self.input_str = input_str
+        self.output_item = output_item
+        
+        super().__init__()
+        self.itemDescriptions['input_str'] = 'Array of input items modeled as single comma delimited string'
+        
+    def execute(self, df):
+        x_array = df['x_str'].str.split(',').to_dict()
+        adf = pd.DataFrame(data=x_array).transpose()
+        adf.columns = self.column_metadata
+        adf[adf.columns] = adf[adf.columns].astype(float)        
+        df[self.output_item] = 0.5 + 0.25 * adf['x1'] + -.1 * adf['x2'] + 0.05 * adf['x3']
+        
+        return df
+    
+    def get_test_data(self):
+        
+        data = {
+                'id' : [1,1,1,1,1,2,2,2,2,2],
+                'evt_timestamp' : [
+                        dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:29PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),                
+                ],                
+                'x_str' : [self._get_str_array() for x in list(range(10))]
+                }
+        df = pd.DataFrame(data=data)
+        
+        return df
+    
+    def _get_str_array(self):
+        
+        out = ''
+        for col in self.column_metadata:
+            out = out + str(np.random.normal(1,0.1)) + ','
+        out = out[:-1]
+        
+        return out    
+    
+    
 class EntityDataGenerator(BasePreload):
     """
     Automatically load the entity input data table using new generated data.
@@ -1821,6 +1978,94 @@ class EntityDataGenerator(BasePreload):
         '''
         ids = [str(73000 + x) for x in list(range(5))]
         return (ids)
+    
+class ExecuteFunctionSingleOut(BaseTransformer):
+    """
+    Execute a serialized function retrieved from cloud object storage. Function returns a single output.
+    """ 
+
+    optionalItems = ['parameters','bucket']       
+    
+    def __init__(self,function_name,cos_credentials,input_items,output_item,parameters=None,bucket=None):
+        
+        # the function name may be passed as a function object of function name (string)
+        # if astring is provided, it is assumed that the function object has already been serialized to COS
+        # if a function onbject is supplied, it will be serialized to cos 
+        
+        self.bucket = bucket
+        self.cos_credentials = cos_credentials
+        self.input_items = input_items
+        self.output_item = output_item
+        super().__init__()
+
+        if callable(function_name):
+            cosSave(function_name,bucket=bucket,credentials=cos_credentials,filename=function_name.__name__)
+            function_name = function_name.__name__
+        self.function_name = function_name
+        
+        # The function called during execution accepts a single dictionary as input
+        # add all instance variables to the parameters dict in case the function needs them
+        if parameters is None:
+            parameters = {}
+        parameters = {**parameters, **self.__dict__}
+        self.parameters = parameters
+        
+    def execute(self,df):
+        
+        # retrieve
+        function = cosLoad(bucket=self.parameters['bucket'],
+                           credentials=self.parameters['cos_credentials'],
+                           filename=self.parameters['function_name'])
+        #execute
+        rf = function(df,self.parameters)
+        #rf will contain a single new output column. The name of this output column will be set to the 
+        #value of parameters['output_item'] by the function
+        
+        return rf    
+    
+    
+class FillForwardByEntity(BaseTransformer):    
+    '''
+    Fill null values forward from last item for the same entity instance
+    '''
+
+    execute_by = ['id']
+    
+    def __init__(self, input_item, output_item = 'output_item'):
+    
+        self.input_item = input_item
+        self.output_item = output_item
+        
+        super().__init__()
+        
+    def _calc(self, df):
+        df = df.copy()
+        df[self.output_item] = df[self.input_item].ffill()
+        return df 
+    
+            
+class FlowRateMonitor(BaseTransformer):  
+    '''
+    Check for leaks and other flow irregularies by comparing input flows with output flows
+    '''
+
+    def __init__(self, input_flows, output_flows, loss_threshold = 0.005 , output = 'output' ):
+        
+        self.input_flows = input_flows
+        self.output_flows = output_flows
+        self.loss_threshold = float(loss_threshold)
+        self.output = output
+        
+        super().__init__()
+        
+    def execute(self,df):
+        df = df.copy()
+        total_input = df[self.input_flows].sum(axis='columns')
+        total_output = df[self.output_flows].sum(axis='columns')
+        df[self.output] = np.where((total_input-total_output)/ total_input > self.loss_threshold, True, False)
+        
+        return df   
+      
     
 class GenerateCerealFillerData(BaseDataSource):
     """
@@ -1889,52 +2134,32 @@ class GenerateException(BaseTransformer):
         msg = 'Calculation was halted deliberately by the inclusion of a function that raised an exception in the configuration of the pipeline'
         raise RuntimeError(msg)
     
- 
-    
 
-class ExecuteFunctionSingleOut(BaseTransformer):
-    """
-    Execute a serialized function retrieved from cloud object storage. Function returns a single output.
-    """ 
-
-    optionalItems = ['parameters','bucket']       
     
-    def __init__(self,function_name,cos_credentials,input_items,output_item,parameters=None,bucket=None):
+class InputsAndOutputsOfMultipleTypes(BaseTransformer):
+    '''
+    This sample function is just a pass through that demonstrates the use of multiple datatypes for inputs and outputs
+    '''
+    
+    def __init__(self, input_number,input_date, input_str, 
+                 output_number = 'output_number',
+                 output_date =  'output_date',
+                 output_str = 'output_str' ):   
+        self.input_number = input_number
+        self.output_number = output_number
+        self.input_date = input_date
+        self.output_date = output_date
+        self.input_str = input_str
+        self.output_str = output_str
         
-        # the function name may be passed as a function object of function name (string)
-        # if astring is provided, it is assumed that the function object has already been serialized to COS
-        # if a function onbject is supplied, it will be serialized to cos 
-        
-        self.bucket = bucket
-        self.cos_credentials = cos_credentials
-        self.input_items = input_items
-        self.output_item = output_item
         super().__init__()
-
-        if callable(function_name):
-            cosSave(function_name,bucket=bucket,credentials=cos_credentials,filename=function_name.__name__)
-            function_name = function_name.__name__
-        self.function_name = function_name
         
-        # The function called during execution accepts a single dictionary as input
-        # add all instance variables to the parameters dict in case the function needs them
-        if parameters is None:
-            parameters = {}
-        parameters = {**parameters, **self.__dict__}
-        self.parameters = parameters
-        
-    def execute(self,df):
-        
-        # retrieve
-        function = cosLoad(bucket=self.parameters['bucket'],
-                           credentials=self.parameters['cos_credentials'],
-                           filename=self.parameters['function_name'])
-        #execute
-        rf = function(df,self.parameters)
-        #rf will contain a single new output column. The name of this output column will be set to the 
-        #value of parameters['output_item'] by the function
-        
-        return rf
+    def execute(self, df):
+        df = df.copy()
+        df[self.output_number] = df[self.input_number]
+        df[self.output_date] = df[self.input_date]
+        df[self.output_str] = df[self.input_str]
+        return df
     
     
 class LookupCompany(BaseDatabaseLookup):
@@ -1991,7 +2216,7 @@ class LookupCompany(BaseDatabaseLookup):
         # No execute() method required
                 
         
-class LookupOperator(BaseResourceLookup):
+class LookupOperator(BaseSCDLookup):
     '''
     Lookup Operator information from a resource calendar
     A resource calendar is a table with a start_date, end_date, device_id and resource_id
@@ -2005,63 +2230,26 @@ class LookupOperator(BaseResourceLookup):
         #a dummy will be added
         # TBD remove this restriction
         self.dummy_item = dummy_item
-        table_name = 'operator_lookup'
+        table_name = 'widgets_scd_operator'
         super().__init__(table_name = table_name, output_item = output_item)
         
 
-class NegativeRemover(BaseTransformer):
+class LookupStatus(BaseSCDLookup):
     '''
-    Replace negative values with NaN
+    Lookup Operator information from a resource calendar
+    A resource calendar is a table with a start_date, end_date, device_id and resource_id
+    Resource assignments are defined for each device_id. Each assignment has a start date
+    End dates are not currently used. Assignment is assumed to be valid until the next.
     '''
-
-    def __init__(self, names, sources=None):
-        if names is None:
-            raise RuntimeError("argument names must be provided")
-        if sources is None:
-            raise RuntimeError("argument sources must be provided")
-
-        self.names = [names] if not isinstance(names, list) else names
-        self.sources = [sources] if not isinstance(sources, list) else sources
-
-        if len(self.names) != len(self.sources):
-            raise RuntimeError("argument sources must be of the same length of names")
+    
+    def __init__(self, dummy_item , output_item = None):
         
-    def execute(self, df):
-        for src, name in list(zip(self.sources, self.names)):
-            df[name] = np.where(df[src] >= 0.0, df[src], np.nan)
-
-        return df
-
-
-class OutlierRemover(BaseTransformer):
-    '''
-    Replace values outside of a threshold with NaN
-    '''
-
-    def __init__(self, name, source, min, max):
-        if name is None:
-            raise RuntimeError("argument name must be provided")
-        if source is None:
-            raise RuntimeError("argument source must be provided")
-        if min is None and max is None:
-            raise RuntimeError("one of argument min and max must be provided")
-
-        self.name = name
-        self.source = source
-        self.min = min
-        self.max = max
-        
-        super().__init__()
-        
-    def execute(self, df):
-        if self.min is None:
-            df[self.name] = np.where(df[self.source] <= self.max, df[self.source], np.nan)
-        elif self.max is None:
-            df[self.name] = np.where(self.min <= df[self.source], df[self.source], np.nan)
-        else:
-            df[self.name] = np.where(self.min <= df[self.source], 
-                                     np.where(df[self.source] <= self.max, df[self.source], np.nan), np.nan)
-        return df
+        #at the moment there is a requirement to include at least one item is input to a function
+        #a dummy will be added
+        # TBD remove this restriction
+        self.dummy_item = dummy_item
+        table_name = 'widgets_scd_status'
+        super().__init__(table_name = table_name, output_item = output_item)
     
 
     
@@ -2072,15 +2260,19 @@ class MergeActivityData(BaseDBActivityMerge):
     execute_by = ['deviceid']
     
     def __init__(self,input_activities,
-                 activity_duration=None):
+                 activity_duration=None,
+                 additional_items = None,
+                 additional_output_names = None):
         
         super().__init__(input_activities=input_activities,
-                         activity_duration=activity_duration)
+                         activity_duration=activity_duration,
+                         additional_items = additional_items,
+                         additional_output_names = additional_output_names)
 
-        self.activities_metadata['mike_maintenance'] = ['A','B','C','D','E']
-        self.activities_metadata['mike_breakdown'] = ['BD']
+        self.activities_metadata['widget_maintenance_activity'] = ['PM','UM']
+        self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
         self.activities_custom_query_metadata = {}
-        self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from mike_custom_activity'
+        #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from mike_custom_activity'
         self.custom_calendar = ShiftCalendar(
                 shift_definition = 
                     {
@@ -2092,10 +2284,10 @@ class MergeActivityData(BaseDBActivityMerge):
                  shift_start_date = 'start_date',
                  shift_end_date = 'end_date' 
                 )
-        
-        self.add_resource_calendar(resource_name = 'operator', table_name = 'operator_lookup')
-        
-        
+        self.add_scd(scd_property = 'status', table_name = 'widgets_scd_status')
+        self.add_scd(scd_property = 'operator', table_name = 'widgets_scd_operator')
+
+     
 class MergeSampleTimeSeries(BaseDataSource):
     """
     Merge the contents of a table containing time series data with entity source data
@@ -2166,8 +2358,7 @@ class MergeSampleTimeSeries(BaseDataSource):
         df = generator.execute()
         self.db.write_frame(df = df, table_name = self.source_table_name,
                        version_db_writes = False,
-                       if_exists = 'append',
-                       chunksize = 1000 )
+                       if_exists = 'append')
         
     def get_test_data(self):
         if self.db is None:
@@ -2293,7 +2484,149 @@ class MultiplyNItems(BaseTransformer):
         df = df.copy()
         df[self.output_item] = df[self.input_items].product(axis=1)
         return df
+
+class NegativeRemover(BaseTransformer):
+    '''
+    Replace negative values with NaN
+    '''
+
+    def __init__(self, names, sources=None):
+        if names is None:
+            raise RuntimeError("argument names must be provided")
+        if sources is None:
+            raise RuntimeError("argument sources must be provided")
+
+        self.names = [names] if not isinstance(names, list) else names
+        self.sources = [sources] if not isinstance(sources, list) else sources
+
+        if len(self.names) != len(self.sources):
+            raise RuntimeError("argument sources must be of the same length of names")
+        
+    def execute(self, df):
+        for src, name in list(zip(self.sources, self.names)):
+            df[name] = np.where(df[src] >= 0.0, df[src], np.nan)
+
+        return df
+
+class PipelineDataGenerator(TimeSeriesGenerator):
+    """
+    Replace automatically retrieved entity source data with new generated data. 
+    Supply a comma separated list of input item names to be generated.
+    """
+    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
+    merge_method = 'replace'
+    # Parameters for data generator
+    # Number of days worth of data to generate on initial execution
+    days = 1
+    # frequency of data load
+    freq = '1min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
+    ids = [str(7300 + x) for x in list(range(5))]
     
+    def __init__ (self, input_items, output_items=None):
+        super().__init__(input_items = input_items, output_items = output_items)
+        
+    def get_data(self,
+                 start_ts= None,
+                 end_ts= None,
+                 entities = None):
+        '''
+        This sample builds data with the TimeSeriesGenerator. You can get data from anywhere 
+        using a custom source function. When the engine executes get_data(), after initial load
+        it will pass a start date as it will be looking for data added since the last 
+        checkpoint.
+        
+        The engine may also pass a set of entity ids to retrieve data for. Since this is a 
+        custom source we will ignore the entity list provided by the engine.
+        '''
+        # distinguish between initial and incremental execution
+        if start_ts is None:
+            days = self.days
+            seconds = 0
+        else:
+            days = 0
+            seconds = (dt.datetime.dt.datetime.utcnow() - start_ts).total_seconds()
+        
+        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
+        df = ts.execute()
+        return df 
+    
+class PivotRowsToColumns(BaseTransformer):
+    '''
+    Produce a column of data for each instance of a particular categoric value present
+    '''
+    
+    def __init__(self, pivot_by_item, pivot_values, input_item=True, null_value=False, output_items = None):
+        
+        if not isinstance(pivot_values,list):
+            raise TypeError('Expecting a list of pivot values. Got a %s.' %(type(pivot_values)))
+        
+        if output_items is None:
+            output_items = [ '%s_%s' %(x,input_item) for x in pivot_values]
+        
+        if len(pivot_values) != len(output_items):
+            logger.exception('Pivot values: %s' %pivot_values)
+            logger.exception('Output items: %s' %output_items)
+            raise ValueError('An output item name is required for each pivot value supplied. Length of the arrays must be equal')
+            
+        self.input_item = input_item
+        self.null_value = null_value
+        self.pivot_by_item = pivot_by_item
+        self.pivot_values = pivot_values
+        self.output_items = output_items
+        
+        super().__init__()
+        
+    def execute (self,df):
+        
+        df = df.copy()
+        for i,value in enumerate(self.pivot_values):
+            if not isinstance(self.input_item, bool):
+                input_item = df[self.input_item]
+            else:
+                input_item = self.input_item
+            if self.null_value is None:
+                null_item = None,
+            elif not isinstance(self.null_value, bool):
+                null_item = df[self.null_value]
+            else:
+                null_item = self.null_value                
+            df[self.output_items[i]] = np.where(df[self.pivot_by_item]==value,input_item,null_item)
+            
+        self.log_df_info(df,'After pivot rows to columns')
+            
+        return df    
+
+
+class OutlierRemover(BaseTransformer):
+    '''
+    Replace values outside of a threshold with NaN
+    '''
+
+    def __init__(self, name, source, min, max):
+        if name is None:
+            raise RuntimeError("argument name must be provided")
+        if source is None:
+            raise RuntimeError("argument source must be provided")
+        if min is None and max is None:
+            raise RuntimeError("one of argument min and max must be provided")
+
+        self.name = name
+        self.source = source
+        self.min = min
+        self.max = max
+        
+        super().__init__()
+        
+    def execute(self, df):
+        if self.min is None:
+            df[self.name] = np.where(df[self.source] <= self.max, df[self.source], np.nan)
+        elif self.max is None:
+            df[self.name] = np.where(self.min <= df[self.source], df[self.source], np.nan)
+        else:
+            df[self.name] = np.where(self.min <= df[self.source], 
+                                     np.where(df[self.source] <= self.max, df[self.source], np.nan), np.nan)
+        return df    
     
 class SamplePreLoad(BasePreload):
     '''
@@ -2312,29 +2645,7 @@ class SamplePreLoad(BasePreload):
         table = SystemLogTable(self.table_name,self.db,
                                Column('status',String(50)))
         table.insert(df)    
-        return True
-    
-    
-class CompanyFilter(BaseFilter):
-    '''
-    Demonstration function that filters on particular company codes. 
-    '''
-    
-    def __init__(self, company_code, company,output_item = None):
-        super().__init__(dependent_items = company_code, output_item = output_item)
-        self.company_code = company_code
-        self.company = company
-        
-    def get_item_values(self,arg):
-        """
-        Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
-        """
-        if arg == 'company':           
-            return(['AMCE','ABC','JDI'])
-        
-    def filter(self,df):
-        df = df[df[self.company_code]==self.company]
-        return df
+        return True    
         
 
 class ShiftCalendar(BaseTransformer):
@@ -2394,6 +2705,58 @@ class ShiftCalendar(BaseTransformer):
                            direction = 'backward')
         df = self.conform_index(df)
         return df  
+    
+class StatusFilter(BaseFilter):
+    '''
+    Demonstration function that filters on particular company codes. 
+    '''
+    
+    def __init__(self, status_input_item, include_only,output_item = None):
+        super().__init__(dependent_items = 'status_input_item', output_item = output_item)
+        self.status_input_item = status_input_item
+        self.include_only = include_only
+        
+    def get_item_values(self,arg):
+        """
+        Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
+        """
+        if arg == 'company':           
+            return(['AMCE','ABC','JDI'])
+        
+    def filter(self,df):
+        df = df[df['status']==self.include_only]
+        return df       
+    
+    
+class TempPressureVolumeGenerator(PipelineDataGenerator):
+    """
+    Generate new data for Temperature, Pressure and Volume. Replace input data in pipeline with this new data.
+    """
+    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
+    merge_method = 'replace'
+    # Parameters for data generator
+    # Number of days worth of data to generate on initial execution
+    days = 1
+    # frequency of data load
+    freq = '1min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
+    ids = [str(7300 + x) for x in list(range(5))]
+    
+    def __init__ (self, input_items=None, output_items=None):
+        if input_items is None:
+            input_items = self.generate_items
+        super().__init__(input_items = input_items, output_items = output_items)
+        
+        
+    def get_item_values(self,arg):
+        """
+        Get list of values for a picklist
+        """
+        if arg == 'input_items':
+            return ['pressure','temperature','volume']
+        else:
+            msg = 'No code implemented to gather available values for argument %s' %arg
+            raise NotImplementedError(msg)           
     
 class TimeToFirstAndLastInDay(BaseTransformer):
     '''
@@ -2484,127 +2847,7 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
         custom_calendar.set_params(**self.get_params())
         
         return custom_calendar
-        
-    
-class FillForwardByEntity(BaseTransformer):    
-    '''
-    Fill null values forward from last item for the same entity instance
-    '''
 
-    execute_by = ['id']
-    
-    def __init__(self, input_item, output_item = 'output_item'):
-    
-        self.input_item = input_item
-        self.output_item = output_item
-        
-        super().__init__()
-        
-    def _calc(self, df):
-        df = df.copy()
-        df[self.output_item] = df[self.input_item].ffill()
-        return df
-    
-class FlowRateMonitor(BaseTransformer):  
-    '''
-    Check for leaks and other flow irregularies by comparing input flows with output flows
-    '''
-
-    def __init__(self, input_flows, output_flows, loss_threshold = 0.005 , output = 'output' ):
-        
-        self.input_flows = input_flows
-        self.output_flows = output_flows
-        self.loss_threshold = float(loss_threshold)
-        self.output = output
-        super().__init__()
-        
-    def execute(self,df):
-        df = df.copy()
-        total_input = df[self.input_flows].sum(axis='columns')
-        total_output = df[self.output_flows].sum(axis='columns')
-        df[self.output] = np.where((total_input-total_output)/ total_input > self.loss_threshold, True, False)
-        
-        return df    
-    
-class InputsAndOutputsOfMultipleTypes(BaseTransformer):
-    '''
-    This sample function is just a pass through that demonstrates the use of multiple datatypes for inputs and outputs
-    '''
-    
-    def __init__(self, input_number,input_date, input_str, 
-                 output_number = 'output_number',
-                 output_date =  'output_date',
-                 output_str = 'output_str' ):   
-        self.input_number = input_number
-        self.output_number = output_number
-        self.input_date = input_date
-        self.output_date = output_date
-        self.input_str = input_str
-        self.output_str = output_str
-        
-        super().__init__()
-        
-    def execute(self, df):
-        df = df.copy()
-        df[self.output_number] = df[self.input_number]
-        df[self.output_date] = df[self.input_date]
-        df[self.output_str] = df[self.input_str]
-        return df
-    
-class ComputationsOnStringArray(BaseTransformer):
-    '''
-    Perform computation on a string that contains a comma separated list of values
-    '''
-    # The metadata describes what columns of data are included in the array
-    column_metadata = ['x1','x2','x3','x4','x5']
-    
-    def __init__(self, input_str, output_item = 'output_item'):
-    
-        self.input_str = input_str
-        self.output_item = output_item
-        
-        super().__init__()
-        self.itemDescriptions['input_str'] = 'Array of input items modeled as single comma delimited string'
-        
-    def execute(self, df):
-        x_array = df['x_str'].str.split(',').to_dict()
-        adf = pd.DataFrame(data=x_array).transpose()
-        adf.columns = self.column_metadata
-        adf[adf.columns] = adf[adf.columns].astype(float)        
-        df[self.output_item] = 0.5 + 0.25 * adf['x1'] + -.1 * adf['x2'] + 0.05 * adf['x3']
-        
-        return df
-    
-    def get_test_data(self):
-        
-        data = {
-                'id' : [1,1,1,1,1,2,2,2,2,2],
-                'evt_timestamp' : [
-                        dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:29PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),                
-                ],                
-                'x_str' : [self._get_str_array() for x in list(range(10))]
-                }
-        df = pd.DataFrame(data=data)
-        
-        return df
-    
-    def _get_str_array(self):
-        
-        out = ''
-        for col in self.column_metadata:
-            out = out + str(np.random.normal(1,0.1)) + ','
-        out = out[:-1]
-        
-        return out    
 
 class WriteDataFrame(BaseTransformer):
     '''
@@ -2627,145 +2870,12 @@ class WriteDataFrame(BaseTransformer):
         )
         return df
     
-class PipelineDataGenerator(TimeSeriesGenerator):
-    """
-    Replace automatically retrieved entity source data with new generated data. 
-    Supply a comma separated list of input item names to be generated.
-    """
-    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
-    merge_method = 'replace'
-    # Parameters for data generator
-    # Number of days worth of data to generate on initial execution
-    days = 1
-    # frequency of data load
-    freq = '1min' 
-    # ids of entities to generate. Change the value of the range() function to change the number of entities
-    ids = [str(7300 + x) for x in list(range(5))]
+   
     
-    def __init__ (self, input_items, output_items=None):
-        super().__init__(input_items = input_items, output_items = output_items)
-        
-    def get_data(self,
-                 start_ts= None,
-                 end_ts= None,
-                 entities = None):
-        '''
-        This sample builds data with the TimeSeriesGenerator. You can get data from anywhere 
-        using a custom source function. When the engine executes get_data(), after initial load
-        it will pass a start date as it will be looking for data added since the last 
-        checkpoint.
-        
-        The engine may also pass a set of entity ids to retrieve data for. Since this is a 
-        custom source we will ignore the entity list provided by the engine.
-        '''
-        # distinguish between initial and incremental execution
-        if start_ts is None:
-            days = self.days
-            seconds = 0
-        else:
-            days = 0
-            seconds = (dt.datetime.dt.datetime.utcnow() - start_ts).total_seconds()
-        
-        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
-        df = ts.execute()
-        return df    
     
-class TempPressureVolumeGenerator(PipelineDataGenerator):
-    """
-    Generate new data for Temperature, Pressure and Volume. Replace input data in pipeline with this new data.
-    """
-    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
-    merge_method = 'replace'
-    # Parameters for data generator
-    # Number of days worth of data to generate on initial execution
-    days = 1
-    # frequency of data load
-    freq = '1min' 
-    # ids of entities to generate. Change the value of the range() function to change the number of entities
-    ids = [str(7300 + x) for x in list(range(5))]
-    
-    def __init__ (self, input_items=None, output_items=None):
-        if input_items is None:
-            input_items = self.generate_items
-        super().__init__(input_items = input_items, output_items = output_items)
-        
-        
-    def get_item_values(self,arg):
-        """
-        Get list of values for a picklist
-        """
-        if arg == 'input_items':
-            return ['pressure','temperature','volume']
-        else:
-            msg = 'No code implemented to gather available values for argument %s' %arg
-            raise NotImplementedError(msg)           
-    
-class PivotRowsToColumns(BaseTransformer):
-    '''
-    Produce a column of data for each instance of a particular categoric value present
-    '''
-    
-    def __init__(self, pivot_by_item, pivot_values, input_item=True, null_value=False, output_items = None):
-        
-        if not isinstance(pivot_values,list):
-            raise TypeError('Expecting a list of pivot values. Got a %s.' %(type(pivot_values)))
-        
-        if output_items is None:
-            output_items = [ '%s_%s' %(x,input_item) for x in pivot_values]
-        
-        if len(pivot_values) != len(output_items):
-            logger.warning('Pivot values: %s' %pivot_values)
-            logger.warning('Output items: %s' %output_items)
-            raise ValueError('An output item name is required for each pivot value supplied. Length of the arrays must be equal')
-            
-        self.input_item = input_item
-        self.null_value = null_value
-        self.pivot_by_item = pivot_by_item
-        self.pivot_values = pivot_values
-        self.output_items = output_items
-        
-        super().__init__()
-        
-    def execute (self,df):
-        
-        df = df.copy()
-        for i,value in enumerate(self.pivot_values):
-            if not isinstance(self.input_item, bool):
-                input_item = df[self.input_item]
-            else:
-                input_item = self.input_item
-            if self.null_value is None:
-                null_item = None,
-            elif not isinstance(self.null_value, bool):
-                null_item = df[self.null_value]
-            else:
-                null_item = self.null_value                
-            df[self.output_items[i]] = np.where(df[self.pivot_by_item]==value,input_item,null_item)
-            
-        return df
-        
-            
-class FlowRateMonitor(BaseTransformer):  
-    '''
-    Check for leaks and other flow irregularies by comparing input flows with output flows
-    '''
 
-    def __init__(self, input_flows, output_flows, loss_threshold = 0.005 , output = 'output' ):
         
-        self.input_flows = input_flows
-        self.output_flows = output_flows
-        self.loss_threshold = float(loss_threshold)
-        self.output = output
-        
-        super().__init__()
-        
-    def execute(self,df):
-        df = df.copy()
-        total_input = df[self.input_flows].sum(axis='columns')
-        total_output = df[self.output_flows].sum(axis='columns')
-        df[self.output] = np.where((total_input-total_output)/ total_input > self.loss_threshold, True, False)
-        
-        return df
+
     
 
 

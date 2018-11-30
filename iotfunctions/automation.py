@@ -196,6 +196,10 @@ class TimeSeriesGenerator(object):
             return ['ABC','ACME','JDI']
         elif item_name in ['country','country_id','country_code']:
             return ['US','CA','UK','DE']
+        elif item_name in ['status','status_code']:
+            return ['active','inactive']
+        elif item_name in ['operator','operator_id']:
+            return ['Fred','Joe','Mary','Steve','Henry','Jane','Hillary','Justin','Rod']                
         else:
             #build a domain from the characters contained in the name
             #this way the domain will be consistent between executions
