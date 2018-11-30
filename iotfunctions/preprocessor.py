@@ -503,6 +503,14 @@ class BaseFunction(object):
             
         return domain
     
+    def get_input_items(self):
+        '''
+        Implement this method to return a set of data items that should be
+        retrieved when executing a KPI pipeline. By default only items that
+        are explicly referenced in function inputs are included.
+        '''
+        return(set())
+    
     def get_item_values(self,arg):
         """
         Implement this method when you want to supply values to a picklist in the UI
@@ -2128,11 +2136,15 @@ class GenerateException(BaseTransformer):
         super().__init__()
         self.halt_after = halt_after
         self.output_item = output_item
+        self.outputs = ['output_item']
         
     def execute(self,df):
         
         msg = 'Calculation was halted deliberately by the inclusion of a function that raised an exception in the configuration of the pipeline'
         raise RuntimeError(msg)
+        
+        df[self.output_item] = True
+        return df
     
 
     

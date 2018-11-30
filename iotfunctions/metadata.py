@@ -283,8 +283,13 @@ class EntityType(object):
 
         msg = 'Metadata registerd for table %s '%self.name
         logger.debug(msg)
-        return response    
+        return response
     
+    def set_dimension_columns(self,columns):
+        '''
+        TBD Add dimension table by specifying additional columns
+        '''
+        pass
     
     def set_params(self, **params):
         '''

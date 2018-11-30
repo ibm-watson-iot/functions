@@ -205,9 +205,10 @@ class CalcPipeline:
                     newdf = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
                 except TypeError:
                         newdf = s.execute(df=df)
-            except:
-                logger.exception(trace)
-                raise
+            except Exception as e:
+                trace = '%s | %s' %(str(e),trace)
+                #logger.exception(trace)
+                raise e.__class__(trace)
             #validate that stage has not violated any pipeline processing rules
             if register:
                 try:
@@ -257,6 +258,19 @@ class CalcPipeline:
         
         
         return response
+    
+    def get_input_items(self):
+        '''
+        Get the set of input items explicitly requested by each function
+        '''
+        inputs = set()
+        for s in self.stages:
+            try:
+                inputs = inputs | s.get_input_items()
+            except AttributeError:
+                pass
+            
+        return inputs
     
     def set_stages(self,stages):
         '''
