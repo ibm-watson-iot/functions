@@ -151,7 +151,6 @@ class CalcPipeline:
         #preload may  have already taken place. if so pass the names of the stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
-        self.set_stage_params()
         #process preload stages first if there are any
         (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
         preloaded_item_names.extend(preload_item_names)
