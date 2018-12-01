@@ -1951,6 +1951,8 @@ class EntityDataGenerator(BasePreload):
                  end_ts= None,
                  entities = None):
         
+        logger.debug(self.__dict__)
+        
         #This sample builds data with the TimeSeriesGenerator.
         
         if entities is None:
