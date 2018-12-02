@@ -483,7 +483,7 @@ class BaseFunction(object):
                 msg = 'Non array arg %s - no json schema required' %(arg)
             logger.debug(msg)                 
         else:
-            msg = 'Argument %s is has explicit json schema defined for it %s' %a, self.itemJsonSchema[arg]
+            msg = 'Argument %s is has explicit json schema defined for it %s' %(arg, self.itemJsonSchema[arg])
             logger.debug(msg)
         return column_metadata
     
