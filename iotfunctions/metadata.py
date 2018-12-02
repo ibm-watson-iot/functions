@@ -177,6 +177,14 @@ class EntityType(object):
         df = self.db.get_query_data(query)
         return df
     
+    def get_latest_log_entry(self):
+        '''
+        Get the most recent log entry. Returns dict.
+        '''
+        last = self.get_log(rows = 1)
+        last = last.to_dict('records')[0]
+        return last
+    
     def generate_data(self, entities = None, days=0, seconds = 300, freq = '1min', write=True):
         '''
         Generate random time series data for entities

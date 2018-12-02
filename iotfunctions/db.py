@@ -358,8 +358,8 @@ class Database(object):
         else:
             table = table_name
         q = self.session.query(table)        
-        msg = 'Query object built %s' %q.statement
-        logger.debug(msg)
+        #msg = 'Query object built %s' %q.statement
+        #logger.debug(msg)
         
         return (q,table)
     

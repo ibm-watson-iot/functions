@@ -27,7 +27,7 @@ class CalcPipeline:
         '''
         Add a new stage to a pipeline. A stage is Transformer or Aggregator.
         '''
-        stage.set_entity_type(self.entity_type)
+        stage._entity_type = self.entity_type
         self.stages.append(stage)   
         
     def _extract_preload_stages(self):
