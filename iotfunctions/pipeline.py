@@ -13,46 +13,22 @@ import numpy as np
 import json
 logger = logging.getLogger(__name__)
 
+
 class CalcPipeline:
     '''
     A CalcPipeline executes a series of dataframe transformation stages.
     '''
-    def __init__(self,stages = None,source =None):
+    def __init__(self,stages = None,entity_type =None):
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+        self.entity_type = entity_type
         self.set_stages(stages)
-        self.source = source
-        try:
-            self.entity_type_name = source.name
-        except:
-            self.entity_type_name = None
         
     def add_stage(self,stage):
         '''
         Add a new stage to a pipeline. A stage is Transformer or Aggregator.
         '''
+        stage.set_entity_type(self.entity_type)
         self.stages.append(stage)   
-    
-        
-    def set_stage_params(self):
-        '''
-        Set parameters from pipeline in each stage
-        This will overwrite existing class or instance variables with the same name
-        Check get_params to see which parameters are set in this way
-        '''
-        
-        if self.source is None:
-            source = self
-        else:
-            source = self.source
-        
-        for s in self.stages:
-            try:
-                s.set_params(**source.get_params())
-            except AttributeError:
-                msg = "Counldn't set parameters on stage %s because it doesn't have a set_params method" %s.__class__.__name__
-            finally:
-                msg = "Set parameters on stage %s" %s.__class__.__name__
-            logger.debug(msg)
         
     def _extract_preload_stages(self):
         '''
@@ -157,7 +133,7 @@ class CalcPipeline:
         if df is None:
             msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
             logger.debug(msg)
-            df = self.source.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)
+            df = self.entity_type.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)
         if df is None:
             msg = 'Pipeline has no primary source. Provide a dataframe or source entity'
             raise ValueError (msg)
@@ -219,23 +195,28 @@ class CalcPipeline:
                     newdf = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
                 except TypeError:
                         newdf = s.execute(df=df)
+            except AttributeError as e:
+                trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__
+                trace = '%s | %s' %(str(e),trace)
+                raise e
+                #raise e.__class__(trace)
             except Exception as e:
                 trace = '%s | %s' %(str(e),trace)
-                #logger.exception(trace)
-                raise e.__class__(trace)
+                raise e
+                #raise e.__class__(trace)
             #validate that stage has not violated any pipeline processing rules
+            try:
+                s.validate_df(df,newdf)
+            except AttributeError:
+                pass                
             if register:
                 try:
-                    s.register(df=df,credentials=None, new_df= newdf)
+                    s.register(df=df,new_df= newdf)
                 except AttributeError:
                     raise
                     msg = 'Could not export %s as it has no register() method' %s.__class__.__name__
                     logger.warning(msg)
-            else:
-                try:
-                    s.validate_df(df,newdf)
-                except AttributeError:
-                    pass
+
             df = newdf
             if dropna:
                 df = df.replace([np.inf, -np.inf], np.nan)
@@ -283,24 +264,7 @@ class CalcPipeline:
                 pass
             
         return inputs
-    
-    def get_params(self):
-        '''
-        Get metadata parameters
-        '''
-        params = {
-                '_entity_type_logical_name' : self.entity_type,
-                'entity_type_name' : self.eventTable,
-                '_timestamp' : self.eventTimestampColumn,
-                'db' : self.db,
-                '_dimension_table_name' : self.dimensionTable,
-                '_db_connection_dbi' : self.db_connection_dbi,
-                '_db_schema' : self.schema,
-                '_data_items' : self.data_items
-                }
-        return params
-    
-    
+            
     def set_stages(self,stages):
         '''
         Replace existing stages with a new list of stages
@@ -310,11 +274,7 @@ class CalcPipeline:
             if not isinstance(stages,list):
                 stages = [stages]
             self.stages.extend(stages)
+        for s in self.stages:
+            s.set_entity_type(self.entity_type)
             
-    def set_params(self, **params):
-        '''
-        Set parameters based using supplied dictionary
-        '''
-        for key,value in list(params.items()):
-            setattr(self, key, value)
-        return self            
+          

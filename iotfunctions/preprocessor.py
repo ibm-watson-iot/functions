@@ -40,6 +40,9 @@ class BaseFunction(object):
     """
     Base class for AS functions. Do not inherit directly from this class. Inherit from BaseTransformer or BaseAggregator
     """
+    # _entity_type, An EntityType object will be added to the pipeline 
+    # this will give the function access to all of the properties and methods of the entity type
+    _entity_type = None 
     #function registration metadata 
     name = None # name of function
     description =  None # description of function shows as help text
@@ -83,17 +86,8 @@ class BaseFunction(object):
     # a slowly changing dimensions is use to record property changes to master data over time
     scd_metadata = None
     _entity_scd_dict = None
-    # predefined column names
-    _entity_id = 'deviceid'
-    _timestamp = 'evt_timestamp'
-    # when entity id or timestamp are present in a dataframe index they have different names
-    _df_index_entity_id = 'id'
-    _df_index_timestamp = 'timestamp'
-
     
     def __init__(self):
-        
-        self.entity_type_name = None
         
         if self.name is None:
             self.name = self.__class__.__name__
@@ -150,8 +144,7 @@ class BaseFunction(object):
             self.scd_metadata= {}
             
         if self._entity_scd_dict is None:
-            self._entity_scd_dict= {}            
-            
+            self._entity_scd_dict= {}                     
 
         #if cos credentials are not explicitly  provided use environment variable
         if self.bucket is None:
@@ -165,6 +158,9 @@ class BaseFunction(object):
                         pass
                     
     def add_scd(self, scd_property, table_name):
+        '''
+        Add a new slowly changing dimension property to the entity type
+        '''
         
         self.scd_metadata[scd_property] = table_name
                     
@@ -174,7 +170,9 @@ class BaseFunction(object):
                  description=None,incremental_update=None, 
                  outputs = None, show_metadata = False,
                  metadata_only = False):
-        
+        '''
+        Register the entity type with AS
+        '''
         
         if not self.base_initialized:
             raise RuntimeError('Cannot register function. Did not call super().__init__() in constructor so defaults have not be set correctly.')
@@ -256,15 +254,17 @@ class BaseFunction(object):
                 return encoded_payload
             
         else:
-            if self.db is None:
-                self.db = Database()
-            response = self.db.http_request(object_type = 'function',
+            if self._entity_type is None:
+                msg ('Unable to register function as there is no _entity_type. Use set_entity_type to assign an EntityType')
+                logger.warning(msg)
+                
+            response = self._entity_type.db.http_request(object_type = 'function',
                                  object_name = name,
                                  request = 'DELETE',
                                  payload = payload)
             msg = 'Unregistered function with response %s' %response
             logger.debug(msg)
-            response = self.db.http_request(object_type = 'function',
+            response = self._entity_type.db.http_request(object_type = 'function',
                                  object_name = name,
                                  request = 'PUT',
                                  payload = payload)
@@ -336,6 +336,15 @@ class BaseFunction(object):
         else:
             return connection
         
+    def check_entity_type(self):
+        '''
+        Create a default unknown entity type if none is defined
+        '''
+        if self._entity_type is None or self._entity_type.name == '_unknown_':
+            self._entity_type = EntityType(name= '_unknown_',db = self.db)
+            msg = 'Function is operating on an unknown entity type. To point it to a real entity type set the _entity_type instance variable'
+            logger.warning(msg)
+        
     def _coallesce_columns(self,df,cols,rsuffix='_new_'):
         '''
         combine two columns into a single if there are two
@@ -368,53 +377,37 @@ class BaseFunction(object):
     
     def conform_index(self,df,entity_id_col = None, timestamp_col = None):
         '''
-        Dataframes that contain timeseries data are expected to be indexed on an id string and timestamp.
-        When you can't avoid changing the index during a transform, use conform_index() to get a dataframe
-        back into the expected shape for further processing in a pipeline.
+        Dataframes that contain timeseries data are expected to be indexed on an id and timestamp.
+        The name on the id column will be id. The name of the timestamp col is the timestamp of the entity_type.
+        Another deviceid and another column called timestamp will be added to the dataframe as a convenience.
         '''
         
         #self.log_df_info(df,'incoming dataframe for conform index')
-        if not df.index.names == [self._df_index_entity_id,self._df_index_timestamp]: 
-            #msg = 'Incoming index contains %s' %df.index.names
-            #logger.debug(msg)
+        if not df.index.names == [self._entity_type._df_index_entity_id,self._entity_type._timestamp]: 
+            # index does not conform
+            #look for explicitly provided timestamp and entity id cols
+            # or designated column names for the entity type
             if entity_id_col is None:
-                entity_id_col = self._entity_id
-            if timestamp_col is None:
-                timestamp_col = self._timestamp
+                entity_id_col = self._entity_type._entity_id
             try:
-                df[self._df_index_entity_id] = df[entity_id_col].astype(str)
-                df[self._df_index_timestamp] = pd.to_datetime(df[timestamp_col])
-            except KeyError:
-                try:
-                    before_cols = set(df.columns)
-                    df = df.reset_index()
-                    added_cols = set(df.columns) - before_cols
-                    msg = 'reset index added columns %s' %added_cols 
-                    logger.debug(msg)
-                    df[self._df_index_entity_id] = df[entity_id_col].astype(str)
-                    df[self._df_index_timestamp] = pd.to_datetime(df[timestamp_col])
-                    df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
-                except:
-                    msg = '''
-                    There is an error in the function code.
-                    A dataframe used in the function is being converted into standard form,
-                    but does not have a deviceid and timestamp column 
-                    '''
-                    logger.exception(msg)
-                    raise
-                else:
-                    #remove bogus added columns
-                    cols = [x for x in added_cols if x.startswith('level_')]
-                    df= self._remove_cols_from_df(df,cols)
-                    msg = 'Dataframe had non-conforming index. Recovered id and timestamp from existing index and built a new one. ' + msg + ' . Removed extra columns after reset index cols remaining are' %cols
-                    logger.debug(msg)
-            else:
-                msg = 'Dataframe had non-conforming index. Built new index on id and timestamp'
-                df = df.set_index([self._df_index_entity_id,self._df_index_timestamp])
-                logger.debug(msg)
-                
-        df[self._timestamp] = df.index.get_level_values(self._df_index_timestamp)
-        df[self._entity_id] = df.index.get_level_values(self._df_index_entity_id)
+                id_series = self._get_series(df,col_names=[entity_id_col, self._entity_type._df_index_entity_id])
+            except KeyError as e:
+                msg = 'Attempting to conform index. Cannot find an entity identifier column.'
+                raise KeyError(msg)    
+            if timestamp_col is None:
+                timestamp_col = self._entity_type._timestamp
+            try:
+                timestamp_series = self._get_series(df,col_names=[timestamp_col, self._entity_type._timestamp_col])
+            except KeyError as e:
+                msg = 'Attempting to conform index. Cannot find an entity identifier column.'
+                raise KeyError(msg)
+            df[self._entity_type._df_index_entity_id] = id_series.astype(str)
+            df[self._entity_type._timestamp] = pd.to_datetime(timestamp_series)
+            df = df.set_index([self._entity_type._df_index_entity_id,self._entity_type._timestamp])
+            msg = 'Dataframe had non-conforming index. Built new index on id and timestamp'
+            logger.debug(msg)
+        df[self._entity_type._timestamp_col] = df.index.get_level_values(self._entity_type._timestamp)
+        df[self._entity_type._entity_id] = df.index.get_level_values(self._entity_type._df_index_entity_id)
         self.log_df_info(df,'after  conform index')
         
         return df
@@ -422,8 +415,8 @@ class BaseFunction(object):
     def empty_dataframe(self,columns):
         
         cols = set(columns)
-        cols.add(self._timestamp)
-        cols.add(self._entity_id)
+        cols.add(self._entity_type._timestamp_col)
+        cols.add(self._entity_type._entity_id)
         cols= list(cols)
         df = pd.DataFrame(columns=cols)
         df = self.conform_index(df)                
@@ -456,9 +449,9 @@ class BaseFunction(object):
         Return the start, end and set of entity ids contained in a dataframe as a tuple
         '''
         
-        start_ts = df[self._timestamp].min()
-        end_ts = df[self._timestamp].max()
-        entities = list(pd.unique(df[self._entity_id]))
+        start_ts = df[self._entity_type._timestamp_col].min()
+        end_ts = df[self._entity_type._timestamp_col].max()
+        entities = list(pd.unique(df[self._entity_type._entity_id]))
         
         return (start_ts,end_ts,entities)
      
@@ -493,6 +486,26 @@ class BaseFunction(object):
             msg = 'Argument %s is has explicit json schema defined for it %s' %a, self.itemJsonSchema[arg]
             logger.debug(msg)
         return column_metadata
+    
+    def _get_series(self,df,col_names):
+        
+        if isinstance(col_names,str):
+            col_names = [col_names]
+        for col in col_names:
+            try:
+                series = df[col]
+            except KeyError:
+                try:
+                    series = df.index.get_level_values(col)
+                except KeyError:
+                    pass
+                else:
+                    return series
+            else:
+                return series
+        msg = 'Unable to locate series with names %s in either columns or index' %col_names
+        raise KeyError(msg)
+                
     
     def get_domain(self,dimension):
         
@@ -780,17 +793,6 @@ class BaseFunction(object):
     
         return (metadata_inputs,metadata_outputs)
     
-    def get_params(self):
-        '''
-        Get metadata parameters
-        '''
-        params = {
-                'entity_type_name' : self.entity_type_name,
-                '_timestamp' : self._timestamp,
-                'db' : self.db
-                }
-        
-        return params
     
     def get_scd_data(self,table_name,start_ts, end_ts, entities):
         '''
@@ -834,7 +836,7 @@ class BaseFunction(object):
         '''
         Partition dataframe into a dictionary keyed by _entity_id
         '''
-        d = {x: table for x, table in df.groupby(self._entity_id)}
+        d = {x: table for x, table in df.groupby(self._entity_type._entity_id)}
         return d
             
     
@@ -982,6 +984,12 @@ class BaseFunction(object):
         df = df.rename(columns=column_names)
         return df
     
+    def set_entity_type(self,entity_type):
+        """
+        Set the _entity_type property of the function
+        """
+        self._entity_type = entity_type
+    
     def set_params(self, **params):
         '''
         Set parameters based using supplied dictionary
@@ -1041,6 +1049,7 @@ class BaseFunction(object):
         If the function should be executed on all entities combined you can replace the execute method wih a custom one
         If the function should be executed by entity instance, use the base execute method. Provide a custom _calc method instead.
         """
+        self.check_entity_type()
         group_base = []
         for s in self.execute_by:
             if s in df.columns:
@@ -1074,8 +1083,8 @@ class BaseFunction(object):
         """
         
         data = {
-                self._entity_id : ['D1','D1','D1','D1','D1','D2','D2','D2','D2','D2'],
-                self._timestamp : [
+                self._entity_type._entity_id : ['D1','D1','D1','D1','D1','D2','D2','D2','D2','D2'],
+                self._entity_type._timestamp_col : [
                         dt.datetime.strptime('Oct 1 2018 1:33AM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 11:37PM', '%b %d %Y %I:%M%p'),
@@ -1158,13 +1167,13 @@ class BaseFunction(object):
             validation_result[df_name]['columns'] = set(df.columns)
             is_str_0 = False
             try:
-                if is_string_dtype(df.index.get_level_values(self._df_index_entity_id)):
+                if is_string_dtype(df.index.get_level_values(self._entity_type._df_index_entity_id)):
                     is_str_0 = True
             except KeyError:
                 pass
             is_dt_1 = False                
             try:
-                if is_datetime64_any_dtype(df.index.get_level_values(self._df_index_timestamp)):
+                if is_datetime64_any_dtype(df.index.get_level_values(self._entity_type._timestamp)):
                     is_dt_1 = True
             except KeyError:
                 pass
@@ -1177,14 +1186,14 @@ class BaseFunction(object):
             logger.warning('Output dataframe has no rows of data')
         
         if not validation_result['input']['is_index_0_str']:
-            logger.warning('Input dataframe index does not conform. First part not a string called %s' %self._df_index_entity_id)
+            logger.warning('Input dataframe index does not conform. First part not a string called %s' %self._entity_type._df_index_entity_id)
         if not validation_result['output']['is_index_0_str']:
-            logger.warning('Output dataframe index does not conform. First part not a string called %s' %self._df_index_entity_id)
+            logger.warning('Output dataframe index does not conform. First part not a string called %s' %self._entity_type._df_index_entity_id)
 
         if not validation_result['input']['is_index_1_datetime']:
-            logger.warning('Input dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
+            logger.warning('Input dataframe index does not conform. Second part not a string called %s' %self._entity_type._timestamp)
         if not validation_result['output']['is_index_1_datetime']:
-            logger.warning('Output dataframe index does not conform. Second part not a string called %s' %self._df_index_timestamp)
+            logger.warning('Output dataframe index does not conform. Second part not a string called %s' %self._entity_type._timestamp)
         
         mismatched_type = False
         for dtype,cols in list(validation_types['input'].items()):
@@ -1270,19 +1279,19 @@ class BaseDataSource(BaseTransformer):
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
         if self.merge_method == 'outer':
             #new_df is expected to be indexed on id and timestamp
-            df = df.join(new_df,how='outer',sort=True,on=[self._df_index_entity_id,self._df_index_timestamp],rsuffix ='_new_')
+            df = df.join(new_df,how='outer',sort=True,on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp],rsuffix ='_new_')
             df = self._coallesce_columns(df=df,cols=overlapping_columns)
         elif self.merge_method == 'nearest': 
-            overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_id,self._timestamp]]
+            overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_type._entity_id,self._entity_type._timestamp]]
             try:
-                df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
+                df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
             except ValueError:
-                new_df = new_df.sort_values([self._timestamp,self._entity_id])
+                new_df = new_df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
                 try:
-                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
+                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
                 except ValueError:
-                    df = df.sort_values([self._timestamp,self._entity_id])
-                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
+                    df = df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
+                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp_col,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
             df = self._coallesce_columns(df=df,cols=overlapping_columns)
         elif self.merge_method == 'concat':
             df = pd.concat([df,new_df],sort=True)
@@ -1610,10 +1619,10 @@ class BaseDBActivityMerge(BaseDataSource):
                if len(add_cols) > 0:
                    include = []
                    include.extend(add_cols)
-                   include.extend(['start_date', self._entity_id])
+                   include.extend(['start_date', self._entity_type._entity_id])
                    nadf = nadf[include]
                    cdf = cdf.merge(nadf,
-                                   on = ['start_date', self._entity_id],
+                                   on = ['start_date', self._entity_type._entity_id],
                                    how = 'left', suffixes = ('','_new_'))
                    self.log_df_info(cdf,'post merge')
                    cdf = self._coallesce_columns(cdf,add_cols)
@@ -1626,7 +1635,7 @@ class BaseDBActivityMerge(BaseDataSource):
     
     def _get_non_activity_cols(self,df):
         
-        activity_cols = [self._timestamp, self._entity_id, 'start_date', 'end_date', 'activity']
+        activity_cols = [self._entity_type._timestamp_col, self._entity_type._entity_id, 'start_date', 'end_date', 'activity']
         cols = [x for x in df.columns if x not in activity_cols]
         return cols
         
@@ -1640,7 +1649,7 @@ class BaseDBActivityMerge(BaseDataSource):
         '''
         #dataframe expected to contain start_date,end_date,activity for a single deviceid
         
-        entity = df[self._entity_id].max()                
+        entity = df[self._entity_type._entity_id].max()                
         #create a continuous range
         early_date = pd.Timestamp.min
         late_date = pd.Timestamp.max        
@@ -1763,7 +1772,7 @@ class BaseSCDLookup(BaseTransformer):
         
         (start_ts, end_ts, entities) = self._get_data_scope(df)
         resource_df = self.get_scd_data(table_name = self.table_name, start_ts = start_ts, end_ts=end_ts, entities=entities)
-        system_cols = [self._start_date,self._end_date,self._entity_id]
+        system_cols = [self._start_date,self._end_date,self._entity_type._entity_id]
         try:
             scd_property = [x for x in resource_df.columns if x not in system_cols][0]
         except:
@@ -1772,18 +1781,18 @@ class BaseSCDLookup(BaseTransformer):
             raise
         
         resource_df = resource_df.rename(columns = {scd_property:self.output_item,
-                                          'start_date': self._timestamp})
+                                          'start_date': self._entity_type._timestamp_col})
         cols = [x for x in resource_df.columns if x not in ['end_date']]
         resource_df = resource_df[cols]
         try:
-            df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+            df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
         except ValueError:
-            resource_df = resource_df.sort_values([self._timestamp,self._entity_id])
+            resource_df = resource_df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
             try:
-                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
             except ValueError:
-                df = df.sort_values([self._timestamp,self._entity_id])
-                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_id,on=self._timestamp,tolerance=self.merge_nearest_tolerance)
+                df = df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
+                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
         
         df = self.conform_index(df)        
         msg = 'after scd lookup of %s from table %s' %(scd_property,self.table_name)
@@ -1905,8 +1914,8 @@ class ComputationsOnStringArray(BaseTransformer):
     def get_test_data(self):
         
         data = {
-                'id' : [1,1,1,1,1,2,2,2,2,2],
-                'evt_timestamp' : [
+                self._entity_type._entity_id : [1,1,1,1,1,2,2,2,2,2],
+                self._entity_type._timestamp_col : [
                         dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
                         dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
@@ -1921,6 +1930,7 @@ class ComputationsOnStringArray(BaseTransformer):
                 'x_str' : [self._get_str_array() for x in list(range(10))]
                 }
         df = pd.DataFrame(data=data)
+        df = self.conform_index(df)
         
         return df
     
@@ -1938,7 +1948,7 @@ class EntityDataGenerator(BasePreload):
     """
     Automatically load the entity input data table using new generated data.
     """
-    # expects an entity_type_name instance variable. This will be set when function is initialized inside a pipeline.
+    
     freq = '5min' 
     # ids of entities to generate. Change the value of the range() function to change the number of entities
     
@@ -1963,19 +1973,10 @@ class EntityDataGenerator(BasePreload):
         
         if self.db is None:
             self.db = Database(credentials=self.db_credentials)
-            
-        if self.entity_type_name is None:
-            msg = 'Function coding error. EntityDataGenerator did not get initialized with an entity_type_name as expected. This should happen automatically when the function runs in a pipeline.If this function is to run without an entity_type_name, provide an class or instance variable in the function definition '
-            raise ValueError(msg)
         
-        kwargs = {
-            "_timestamp" : self._timestamp
-                }
-        entity_type = EntityType(self.entity_type_name,self.db, **kwargs)
+        df = self._entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)
         
-        df = entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)
-        
-        msg = 'generating data for entity type %s' %(self.entity_type_name)
+        msg = 'generating data for entity type %s' %(self._entity_type.name)
         logger.debug(msg)
         
         return True  
@@ -2329,12 +2330,12 @@ class MergeSampleTimeSeries(BaseDataSource):
         self.load_sample_data()
         (query,table) = self.db.query(self.source_table_name)
         if not start_ts is None:
-            query = query.filter(table.c[self._timestamp] >= start_ts)
+            query = query.filter(table.c[self._entity_type._timestamp] >= start_ts)
         if not end_ts is None:
-            query = query.filter(table.c[self._timestamp] < end_ts)  
+            query = query.filter(table.c[self._entity_type._timestamp] < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._timestamp])        
+        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._entity_type._timestamp])        
         return df
     
     
@@ -2367,7 +2368,7 @@ class MergeSampleTimeSeries(BaseDataSource):
                                             freq = self.sample_freq,
                                             seconds = self.sample_incremental_min*60)
         
-        generator.set_params(**self.get_params())
+        generator.set_entity_type(self._entity_type)
         df = generator.execute()
         self.db.write_frame(df = df, table_name = self.source_table_name,
                        version_db_writes = False,
@@ -2381,7 +2382,7 @@ class MergeSampleTimeSeries(BaseDataSource):
                                         ids = self.sample_entities,
                                         freq = self.sample_freq,
                                         seconds = 300)
-        generator.set_params(**self.get_params())
+        generator.set_entity_type(self._entity_type)
         
         df = generator.execute()
         df = self.conform_index(df)
@@ -2709,11 +2710,11 @@ class ShiftCalendar(BaseTransformer):
         return df
     
     def execute(self,df):
-        df.sort_values([self._timestamp],inplace = True)
-        calendar_df = self.get_data(start_date= df[self._timestamp].min(), end_date = df[self._timestamp].max())
+        df.sort_values([self._entity_type._timestamp_col],inplace = True)
+        calendar_df = self.get_data(start_date= df[self._entity_type._timestamp_col].min(), end_date = df[self._entity_type._timestamp_col].max())
         df = pd.merge_asof(left = df,
                            right = calendar_df,
-                           left_on = self._timestamp,
+                           left_on = self._entity_type._timestamp,
                            right_on = self.shift_start_date,
                            direction = 'backward')
         df = self.conform_index(df)
@@ -2790,7 +2791,7 @@ class TimeToFirstAndLastInDay(BaseTransformer):
     def _calc(self,df):
         
         ts = df[self.input_item].dropna()
-        ts = ts.index.get_level_values(self._df_index_timestamp)
+        ts = ts.index.get_level_values(self._entity_type._timestamp)
         first = ts.min()
         last = ts.max() 
         df[self.time_to_first] = first
@@ -2810,7 +2811,7 @@ class TimeToFirstAndLastInDay(BaseTransformer):
     
     def _add_period_start_end(self,df):
         
-        df[self.period_start] = df[self._timestamp].dt.date
+        df[self.period_start] = df[self._entity_type._timestamp_col].dt.date
         df[self.period_end] = pd.to_datetime(df['_day']) + dt.timedelta(days=1)
         return df
     
@@ -2856,8 +2857,7 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
                },
             shift_start_date = self.period_start,
             shift_end_date = self.period_end)        
-        #inject metdata into this custom calendar
-        custom_calendar.set_params(**self.get_params())
+        custom_calendar.set_entity_type(self._entity_type)
         
         return custom_calendar
 

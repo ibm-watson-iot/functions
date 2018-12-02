@@ -29,7 +29,7 @@ try:
     import ibm_db_dbi
 except ImportError:
     DB2_INSTALLED = False
-    msg = 'IBM_DB is not installed. Reverting to sqlite for local development'
+    msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
     logger.warning(msg)
 
 class Database(object):
@@ -117,6 +117,9 @@ class Database(object):
                as_api_token = None
                msg = 'Unable to locate as credentials or environment variable. db will not be able to connect to the AS API'
                logger.debug(msg)
+               
+        if as_api_host.startswith('https://'):
+            as_api_host = as_api_host[8:]
 
         self.credentials['as'] = {
                 'host' : as_api_host,
@@ -206,9 +209,8 @@ class Database(object):
             Dictionary will be encoded as JSON
         
         '''
-        
         if self.tenant_id is None:
-            msg = 'tennant_id instance variable is not set. database object was not initialized with valid credentials'
+            msg = 'tenant_id instance variable is not set. database object was not initialized with valid credentials'
             raise ValueError(msg)
         
         base_url = 'http://%s/api' %(self.credentials['as']['host'])
@@ -361,6 +363,22 @@ class Database(object):
         
         return (q,table)
     
+    
+    def unregister_functions(self,function_names):
+        '''
+        Unregister functions by name. Accepts a list of function names.
+        '''
+        if not isinstance(function_names,list):
+            function_names = [function_names]
+    
+        for f in function_names:
+            payload = {
+                'name' : f
+                }
+            self.http_request(object_type='function',object_name=f, request = 'DELETE', payload=payload)
+            msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+            logger.info(msg) 
+    
     def write_frame(self,df,
                     table_name, 
                     version_db_writes = False,
@@ -397,9 +415,9 @@ class Database(object):
         if 'deviceid' not in df.columns and 'id' in df.columns:
             df['deviceid'] = df['id']
             df = df[[x for x in df.columns if x !='id']]
-        if 'evt_timestamp' not in df.columns and 'timestamp' in df.columns:
-            df['evt_timestamp'] = df['timestamp']
-            df = df[[x for x in df.columns if x !='timestamp']]
+        if 'evt_timestamp' not in df.columns and '_timestamp' in df.columns:
+            df['evt_timestamp'] = df['_timestamp']
+            df = df[[x for x in df.columns if x !='_timestamp']]
         df = df[[x for x in df.columns if x !='index']]
         if version_db_writes:
             df['version_date'] = dt.datetime.utcnow()
@@ -450,7 +468,7 @@ class BaseTable(object):
     _timestamp = 'evt_timestamp'
     
     def __init__ (self,name,database,*args, **kw):
-        as_keywords = ['_timestamp','_activities','_freq']
+        as_keywords = ['_timestamp','_timestamp_col','_activities','_freq','_entity_id','_df_index_entity_id','_tenant_id']
         self.name = name
         self.database= database
         # the keyword arguments may contain properties and sql alchemy dialect specific options

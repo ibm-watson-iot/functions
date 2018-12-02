@@ -21,7 +21,7 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 
 logger = logging.getLogger(__name__)
-    
+
 class EntityType(object):
     '''
     Data is organised around Entity Types. Entity Types have one or more 
@@ -52,6 +52,13 @@ class EntityType(object):
     checkpoint_table = 'KPI_CHECKPOINT'
     _start_entity_id = 73000 #used to build entity ids
     _auto_entity_count = 5 #default number of entities to generate data for
+    # These two columns will be available in the dataframe of a pipeline
+    _entity_id = 'deviceid' #identify the instance
+    _timestamp_col = '_timestamp' #copy of the event timestamp from the index
+    # These two column names will be used to name the index of a pipeline dataframe
+    _timestamp = 'evt_timestamp'
+    _df_index_entity_id = 'id'
+       
     
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name
@@ -59,11 +66,16 @@ class EntityType(object):
         self.scd = {}
         if db is None:
             db = Database()
-        self.db = db        
-        self._timestamp = 'evt_timestamp'
+        self.db = db
+        self.tenant_id = self.db.tenant_id
+        self.logical_name = None
+        self._db_connection_dbi = None
         self._dimension_table_name = None
         self._db_schema = None
+        self._data_items = None
         self.set_params(**kwargs)
+        if self.logical_name is None:
+            self.logical_name = self.name
         try:
             self.table = self.db.get_table(self.name)
         except KeyError:
@@ -129,29 +141,13 @@ class EntityType(object):
         [self.db.drop_table(x) for x in tables]
         msg = 'dropped tables %s' %tables
         logger.info(msg)
-            
-    def get_params(self):
-        '''
-        Get metadata parameters
-        '''
-        params = {
-                '_entity_type_logical_name' : self.name,
-                'entity_type_name' :self.name,
-                '_timestamp' : self._timestamp,
-                'db' : self.db,
-                '_dimension_table_name' : self._dimension_table_name,
-                '_db_connection_dbi' : None,
-                '_db_schema' : self._db_schema,
-                '_data_items' : None
-                }
-        return params  
-    
+                
     
     def get_calc_pipeline(self,stages=None):
         '''
         Get a CalcPipeline object
         '''
-        return CalcPipeline(source=self,stages=stages)
+        return CalcPipeline(stages=stages, entity_type = self)
         
         
     def get_data(self,start_ts =None,end_ts=None,entities=None):
