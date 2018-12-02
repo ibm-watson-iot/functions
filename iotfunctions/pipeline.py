@@ -255,6 +255,8 @@ class CalcPipeline:
     def get_input_items(self):
         '''
         Get the set of input items explicitly requested by each function
+        Not all input items have to be specified as arguments to the function
+        Some can be requested through this method
         '''
         inputs = set()
         for s in self.stages:
@@ -275,7 +277,6 @@ class CalcPipeline:
                 stages = [stages]
             self.stages.extend(stages)
         for s in self.stages:
-            s.set_entity_type(self.entity_type)
-        
+            s._entity_type = self.entity_type        
             
           
