@@ -276,5 +276,9 @@ class CalcPipeline:
             self.stages.extend(stages)
         for s in self.stages:
             s.set_entity_type(self.entity_type)
+        
+        msg = 'entity type added to stages %s' % self.entity_type.name
+        msg = msg + [x.__class__.__name__ for x in stages]
+        raise RuntimeError(msg)
             
           
