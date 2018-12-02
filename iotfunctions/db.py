@@ -375,7 +375,7 @@ class Database(object):
             payload = {
                 'name' : f
                 }
-            self.http_request(object_type='function',object_name=f, request = 'DELETE', payload=payload)
+            r = self.http_request(object_type='function',object_name=f, request = 'DELETE', payload=payload)
             msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
             logger.info(msg) 
     
