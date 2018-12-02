@@ -10,7 +10,7 @@
 
 import logging
 import numpy as np
-import json
+import sys
 logger = logging.getLogger(__name__)
 
 
@@ -198,11 +198,11 @@ class CalcPipeline:
             except AttributeError as e:
                 trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__
                 trace = '%s | %s' %(str(e),trace)
-                raise e
+                raise type(e)(trace).with_traceback(sys.exc_info()[2])
                 #raise e.__class__(trace)
             except Exception as e:
                 trace = '%s | %s' %(str(e),trace)
-                raise e
+                raise type(e)(trace).with_traceback(sys.exc_info()[2])
                 #raise e.__class__(trace)
             #validate that stage has not violated any pipeline processing rules
             try:
