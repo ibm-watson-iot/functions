@@ -159,6 +159,7 @@ class CalcPipeline:
                                             end_ts = end_ts,
                                             entities = entities,
                                             to_csv = False)
+        print('stages=%s, secondary_sources=%s' % (str(stages), str(secondary_sources)))
         
         #add a dummy item to the dataframe for each preload stage
         #added as the ui expects each stage to contribute one or more output items
