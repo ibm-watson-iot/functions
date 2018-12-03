@@ -73,9 +73,6 @@ class BaseFunction(object):
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
-    # database connection
-    db_credentials = None #dict
-    db = None
     # custom output tables
     version_db_writes = False #write a new version timestamp to custom output table with each execution
     out_table_prefix = None
@@ -171,7 +168,7 @@ class BaseFunction(object):
                  outputs = None, show_metadata = False,
                  metadata_only = False):
         '''
-        Register the entity type with AS
+        Register the function type with AS
         '''
         
         if not self.base_initialized:
@@ -271,80 +268,6 @@ class BaseFunction(object):
             msg = 'Registered function with response %s' %response
             logger.debug(msg)
         
-    def unregister(self,credentials,name = None):
-        '''
-        Unregister function
-        '''
-        if name is None:
-            name = self.name
-            
-        try:
-            as_api_host = credentials['as_api_host']
-        except KeyError:
-            raise ValueError('No as_api_host provided in credentials')
-         
-        http = urllib3.PoolManager()
-        headers = {
-            'Content-Type': "application/json",
-            'X-api-key' : credentials['as_api_key'],
-            'X-api-token' : credentials['as_api_token'],
-            'Cache-Control': "no-cache",
-        }
-
-        url = 'http://%s/api/catalog/v1/%s/function/%s' %(as_api_host,credentials['tennant_id'],name)
-        r = http.request("DELETE", url, body = {}, headers=headers)
-        msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
-        logger.info(msg)        
-        
-    
-    def acquire_db_connection(self, start_session = False, credentials = None):
-        '''
-        Use environment variable or explicit connection metadata to connection to create a connection and session maker
-        
-        Returns
-        -------
-        tuple containing connection and session objects if start_session is True
-        connection object is start_session is False
-        
-        '''
-        warnings.warn(
-            "aquire_db_connection is depreciated. instead use the db instance variable",
-            DeprecationWarning
-        )
-        if credentials is None:
-            credentials = self.db_credentials
-        
-        #If explicit credentials provided these allow connection to a db other than the ICS one.
-        if not credentials is None:
-            connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(credentials['username'],credentials['password'],credentials['host'],credentials['port'],credentials['database'])
-            connection =  create_engine(connection_string)
-        else:
-            # look for environment vaiable for the ICS DB2
-            try:
-               connection_string = os.environ.get('DB_CONNECTION_STRING')
-            except KeyError:
-                raise ValueError('Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set')
-            else:
-               ibm_connection = ibm_db.connect(connection_string, '', '')
-               connection = ibm_db_dbi.Connection(ibm_connection)
-            
-        Session = sessionmaker(bind=connection)
-        
-        if start_session:
-            session = Session()
-            return (connection,session)
-        else:
-            return connection
-        
-    def check_entity_type(self):
-        '''
-        Create a default unknown entity type if none is defined
-        '''
-        if self._entity_type is None or self._entity_type.name == '_unknown_':
-            self._entity_type = EntityType(name= '_unknown_',db = self.db)
-            msg = 'Function is operating on an unknown entity type. To point it to a real entity type set the _entity_type instance variable'
-            logger.warning(msg)
-        
     def _coallesce_columns(self,df,cols,rsuffix='_new_'):
         '''
         combine two columns into a single if there are two
@@ -434,6 +357,16 @@ class BaseFunction(object):
                 logger.exception(msg)
                 raise 
         return metadata
+    
+    def get_db(self,credentials = None, tenant_id = None):
+        
+        try:
+            db = self._entity_type.db
+        except AttributeError:
+            db = None
+            
+        if db is None:
+            db = Database(credentials = credentials, tenant_id = tenant_id)
     
     def _getJsonDataType(self,datatype):
          
@@ -797,19 +730,15 @@ class BaseFunction(object):
     def get_scd_data(self,table_name,start_ts, end_ts, entities):
         '''
         Retrieve an slowly changing dimension property as a dataframe
-        '''
-        
-        if self.db is None:
-            self.db = Database(credentials=self.db_credentials)
-        
-        (query,table) = self.db.query(table_name)
+        '''       
+        (query,table) = self._entity_type.db.query(table_name)
         if not start_ts is None:
             query = query.filter(table.c.end_date >= start_ts)
         if not end_ts is None:
             query = query.filter(table.c.start_date < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
+        df = pd.read_sql(query.statement, con = self._entity_type.db.connection,  parse_dates=[self._start_date,self._end_date])
         
         return df
     
@@ -954,7 +883,6 @@ class BaseFunction(object):
         itemDescriptions['output_items']= 'Item names for outputs produced by function'
         itemDescriptions['upper_threshold']= 'Upper threshold value for alert'
         
-        
         return itemDescriptions
     
     def _remove_cols_from_df(self,df,cols):
@@ -1000,7 +928,6 @@ class BaseFunction(object):
                 
     
     def write_frame(self,df,
-                    db_credentials = None,
                     table_name=None, 
                     version_db_writes = None,
                     if_exists = None):
@@ -1009,8 +936,6 @@ class BaseFunction(object):
         
         Parameters
         ---------------------
-        db_credentials: dict (optional)
-            db2 database credentials. If not provided, will look for environment variable
         table_name: str (optional)
             table name to write to. If not provided, will use default for instance / class
         version_db_writes : boolean (optional)
@@ -1034,11 +959,10 @@ class BaseFunction(object):
             else:
                 table_name = self.out_table_name
     
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials)
-        status = self.db.write_frame(df, table_name = table_name, 
+        status = self._entity_type.db.write_frame(df, table_name = table_name, 
                                      version_db_writes = version_db_writes,
-                                     if_exists  = if_exists)
+                                     if_exists  = if_exists, 
+                                     schema = self._entity_type._db_schema)
         
         return status
 
@@ -1049,7 +973,6 @@ class BaseFunction(object):
         If the function should be executed on all entities combined you can replace the execute method wih a custom one
         If the function should be executed by entity instance, use the base execute method. Provide a custom _calc method instead.
         """
-        self.check_entity_type()
         group_base = []
         for s in self.execute_by:
             if s in df.columns:
@@ -1378,12 +1301,14 @@ class BaseDatabaseLookup(BaseTransformer):
     #Even this function returns new data to the pipeline, it is not considered a data source
     #as it behaves like any other transformer, ie: adds columns not rows to the pipeline
     is_data_source = False
+    # database
+    db = None
     
     def __init__(self,
                  lookup_table_name,
-                 lookup_items = None,
-                 sql=None,
-                 lookup_keys = None,
+                 lookup_items,
+                 sql,
+                 lookup_keys,
                  parse_dates=None,
                  output_items=None):
 
@@ -1401,6 +1326,8 @@ class BaseDatabaseLookup(BaseTransformer):
         self.itemArraySource['output_items'] = 'lookup_items'
         self.lookup_keys = lookup_keys
         self.itemMaxCardinality['lookup_keys'] = len(self.lookup_keys)
+        if parse_dates is None:
+            parse_dates = []
         self.parse_dates = parse_dates 
         if output_items is None:
             #concatentate lookup name to output to make it unique
@@ -1418,13 +1345,13 @@ class BaseDatabaseLookup(BaseTransformer):
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
             try:
-                df = pd.read_sql(self.sql, con = self.db.connection, index_col=lup_keys, parse_dates=date_cols)
+                df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
             except :
                 if not self.data is None:
                     df = pd.DataFrame(data=self.data)
                     df = df.set_index(keys=self.lookup_keys)
                     self.create_lookup_table(df=df, table_name = self.lookup_table_name)
-                    df = pd.read_sql(self.sql, self.db.connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
+                    df = pd.read_sql(self.sql, self.db, index_col=self.lookup_keys, parse_dates=self.parse_dates)
                 else:
                     msg = 'Unable to retrieve data from lookup table using %s. Check that database table exists and credentials are correct. Include data in your function definition to automatically create a lookup table.' %sql
                     raise(msg)
@@ -1440,8 +1367,9 @@ class BaseDatabaseLookup(BaseTransformer):
         '''
         Execute transformation function of DataFrame to return a DataFrame
         '''
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials)
+        
+        self.db = self.get_db()
+
         df_sql = pd.read_sql(self.sql, self.db.connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
         df_sql = df_sql[self.lookup_items]
                 
@@ -1520,9 +1448,6 @@ class BaseDBActivityMerge(BaseDataSource):
                     end_ts= None,
                     entities = None):
         
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials)
-        
         dfs = []
         #build sql and execute it 
         for table_name,activities in list(self.activities_metadata.items()):
@@ -1541,7 +1466,7 @@ class BaseDBActivityMerge(BaseDataSource):
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
-                af = pd.read_sql(sql, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
+                af = pd.read_sql(sql, con = self._entity_type.db.connection,  parse_dates=[self._start_date,self._end_date])
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
@@ -1735,10 +1660,7 @@ class BaseDBActivityMerge(BaseDataSource):
         Dataframe
         """
         
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials)
-        
-        (query,table) = self.db.query(table_name)
+        (query,table) = self._entity_type.db.query(table_name)
         query = query.filter(table.c.activity == activity_code)
         if not start_ts is None:
             query = query.filter(table.c.end_date >= start_ts)
@@ -1746,7 +1668,7 @@ class BaseDBActivityMerge(BaseDataSource):
             query = query.filter(table.c.start_date < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._start_date,self._end_date])
+        df = pd.read_sql(query.statement, con = self._entity_type.db.connection,  parse_dates=[self._start_date,self._end_date])
         
         return df
 
@@ -1970,9 +1892,6 @@ class EntityDataGenerator(BasePreload):
             seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
         else:
             seconds = pd.to_timedelta(self.freq).total_seconds()
-        
-        if self.db is None:
-            self.db = Database(credentials=self.db_credentials)
         
         df = self._entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)
         
@@ -2212,11 +2131,6 @@ class LookupCompany(BaseDatabaseLookup):
         # Indicate which of the column returned should be converted into dates
         parse_dates = ['inception_date']
         
-        #db credentials are optional. Only required to connect to a non AS DB2.
-        #Make use that you have your DB_CONNECTION_STRING environment variable set to test locally
-        #Or supply credentials in an instance variable
-        #self.db_credentials = <blah>
-        
         super().__init__(
              lookup_table_name = lookup_table_name,
              sql= sql,
@@ -2328,14 +2242,14 @@ class MergeSampleTimeSeries(BaseDataSource):
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
         self.load_sample_data()
-        (query,table) = self.db.query(self.source_table_name)
+        (query,table) = self._entity_type.db.query(self.source_table_name)
         if not start_ts is None:
             query = query.filter(table.c[self._entity_type._timestamp] >= start_ts)
         if not end_ts is None:
             query = query.filter(table.c[self._entity_type._timestamp] < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self.db.connection,  parse_dates=[self._entity_type._timestamp])        
+        df = pd.read_sql(query.statement, con = self._entity_type.db.connection,  parse_dates=[self._entity_type._timestamp])        
         return df
     
     
@@ -2344,20 +2258,16 @@ class MergeSampleTimeSeries(BaseDataSource):
         Get list of values for a picklist
         """
         if arg == 'input_items':
-            if self.db is None:
-                self.db = Database(credentials = self.db_credentials )
-            return self.db.get_column_names(self.source_table_name)
+
+            return self._entity_type.db.get_column_names(self.source_table_name)
         else:
             msg = 'No code implemented to gather available values for argument %s' %arg
             raise NotImplementedError(msg)      
         
     
     def load_sample_data(self):
-        
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials )
-        
-        if not self.db.if_exists(self.source_table_name):
+                
+        if not self._entity_type.db.if_exists(self.source_table_name):
             generator = TimeSeriesGenerator(metrics=self.sample_metrics,
                                             ids = self.sample_entities,
                                             freq = self.sample_freq,
@@ -2370,14 +2280,13 @@ class MergeSampleTimeSeries(BaseDataSource):
         
         generator.set_entity_type(self._entity_type)
         df = generator.execute()
-        self.db.write_frame(df = df, table_name = self.source_table_name,
+        self._entity_type.db.write_frame(df = df, table_name = self.source_table_name,
                        version_db_writes = False,
-                       if_exists = 'append')
+                       if_exists = 'append',
+                       schema = self._entity_type._db_schema)
         
     def get_test_data(self):
-        if self.db is None:
-            self.db = Database(credentials = self.db_credentials )
-        
+
         generator = TimeSeriesGenerator(metrics=['acceleration'],
                                         ids = self.sample_entities,
                                         freq = self.sample_freq,
@@ -2653,10 +2562,9 @@ class SamplePreLoad(BasePreload):
         
     def execute(self,start_ts = None,end_ts=None,entities=None):
         
-        self.db = Database(credentials=self.db_credentials)
         data = {'status': True, SystemLogTable._timestamp:dt.datetime.utcnow() }
         df = pd.DataFrame(data=data, index = [0])
-        table = SystemLogTable(self.table_name,self.db,
+        table = SystemLogTable(self.table_name,self._entity_type.db,
                                Column('status',String(50)))
         table.insert(df)    
         return True    
@@ -2870,17 +2778,15 @@ class WriteDataFrame(BaseTransformer):
     version_db_writes = False
     out_table_if_exists = 'append'
 
-    def __init__(self, input_items, out_table_name, output_status= 'output_status', db_credentials=None):
+    def __init__(self, input_items, out_table_name, output_status= 'output_status'):
         self.input_items = input_items
         self.output_status = output_status
-        self.db_credentials = db_credentials
         self.out_table_name = out_table_name
         super().__init__()
         
     def execute (self, df):
         df = df.copy()
-        df[self.output_status] = self.write_frame(df=df[self.input_items]        
-        )
+        df[self.output_status] = self.write_frame(df=df[self.input_items])
         return df
     
    

@@ -13,6 +13,13 @@ import datetime as dt
 import logging
 import urllib3
 import json
+import hashlib
+import hmac
+import dill
+from lxml import etree
+import requests
+from base64 import b64encode
+from urllib.parse import quote, urlparse
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
@@ -45,12 +52,23 @@ class Database(object):
     echo: bool
         Output sql to log
     '''
-    
     def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
         self.write_chunk_size = 1000
-        
-        logger.debug('Requesting db connection')
         self.credentials = {}
+        try:
+            self.credentials['objectStorage'] = credentials['objectStorage']
+        except (TypeError,KeyError):
+            self.credentials['objectStorage'] = {}
+            try:
+                self.credentials['objectStorage']['region'] = os.environ.get('COS_REGION')
+                self.credentials['objectStorage']['username'] = os.environ.get('COS_HMAC_ACCESS_KEY_ID')
+                self.credentials['objectStorage']['password'] = os.environ.get('COS_HMAC_SECRET_ACCESS_KEY')
+                self.credentials['config']['objectStorageEndpoint'] = os.environ.get('COS_ENDPOINT')
+                self.credentials['config']['bos_runtime_bucket'] = os.environ.get('COS_BUCKET_KPI')
+            except KeyError:
+                msg = 'No objectStorage credentials supplied and COS_REGION, COS_HMAC_ACCESS_KEY_ID, COS_HMAC_SECRET_ACCESS_KEY, COS_ENDPOINT not set. COS not available. Will write to filesystem instead'
+                logger.warning(msg)
+                self.credentials['objectStorage']['path'] = ''
         if tenant_id is None:
             try:
                 tenant_id = credentials['tenant_id']
@@ -87,13 +105,6 @@ class Database(object):
             self.credentials['message_hub'] = None
             msg = 'Unable to locate message_hub credentials. Database object created, but it will not be able interact with message hub.'
             logger.debug(msg)
-        
-        try:
-            self.credentials['cos']= credentials['cos']
-        except (KeyError,TypeError):
-            self.credentials['cos'] = None        
-            msg = 'Unable to locate cos credentials. Database object created, but it will not be able interact with object storage'
-            logger.debug(msg)
 
         try:
             self.credentials['config']= credentials['config']
@@ -118,7 +129,7 @@ class Database(object):
                msg = 'Unable to locate as credentials or environment variable. db will not be able to connect to the AS API'
                logger.debug(msg)
                
-        if as_api_host.startswith('https://'):
+        if as_api_host is not None and as_api_host.startswith('https://'):
             as_api_host = as_api_host[8:]
 
         self.credentials['as'] = {
@@ -138,7 +149,7 @@ class Database(object):
             # There is a back door to for using it instead of db2 for local development only. 
             # It will be used only when explicitly added to the credentials as credentials['sqlite'] = filename
             try:
-                connection_string = 'sqlite:///%s' %(self.credentials['sqlite'])
+                connection_string = 'sqlite:///%s' %(credentials['sqlite'])
             except KeyError:
                 try:        
                     connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
@@ -158,7 +169,7 @@ class Database(object):
                            if connection_string.endswith(';'):
                                connection_string = connection_string[:-1]
                            ev = dict(item.split("=") for item in connection_string.split(";"))
-                           connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
+                           connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
                            self.credentials['db2'] =  {
                                             "username": ev['UID'],
                                             "password": ev['PWD'],
@@ -169,6 +180,7 @@ class Database(object):
                        else:
                            raise ValueError(msg)
             else:
+                self.credentials['sqlite'] = connection_string
                 connection_kwargs = {} 
                 msg = 'Using sqlite connection for local testing. Note sqlite can only be used for local testing. It is not a supported AS database.'
                 logger.warning(msg)                
@@ -188,8 +200,6 @@ class Database(object):
             self.session = None
         
         self.metadata = MetaData(self.connection)
-        #TDB support alternative schema
-        self.schema = None
         logger.debug('Db connection established')
         self.http = urllib3.PoolManager()
         
@@ -238,7 +248,164 @@ class Database(object):
                 
         response= r.data.decode('utf-8')
         return response
+
+    def cos_load(self, filename, bucket = None):
+        
+        response = self._cos_api_request('GET',key = filename, payload = '', bucket=bucket)
+        
+        return response
+
     
+    def cos_save(self, obj, filename, bucket = None):
+        
+        payload = dill.dumps(obj)
+        response = self._cos_api_request('PUT',key = filename, payload = payload, bucket=bucket)
+        
+        return response
+            
+    
+    def _cos_api_request(self,http_method, key, payload='',bucket=None, extra_headers= None, is_binary=False,  request_parameters=None):
+        '''
+        Make an api request to cloud object storage
+        
+        Parameters
+        -----------
+        http_method : str
+            GET, PUT, DELETE
+        key : str
+            Name of object
+        bucket: str
+            Name of bucket to place object in
+        payload: str
+            Payload
+        is_binary: bool
+            Default False
+        extra_headers: dict
+            Extra keys to include in hearder
+        request_parameters : dict
+            Extra request parameters
+        
+        '''
+        if bucket is None:
+            bucket = self.db.credentials['objectStorage']['bos_runtime_bucket']
+        try:
+            region = self.credentials['objectStorage']['region']
+            hmac_access_key = self.credentials['objectStorage']['username']
+            hmac_secret = self.credentials['objectStorage']['password']
+            endpoint = self.credentials['config']['objectStorageEndpoint']
+        except (TypeError,KeyError):
+            try: 
+                path = self.credentials['objectStorage']['path']
+            except KeyError:
+                msg = 'Credentials do not include region,username, passwork and config objectStorage Endpoint or a path filesystem storage. Will write to working directory on file system'
+                logger.warning(msg)
+                path = ''
+            filename = '%s%s' %(path,key)
+            if http_method == 'PUT':
+                with open(filename, "wb") as f:
+                    f.write(payload)
+                response = filename
+            elif http_method == 'GET':
+                with open(filename, 'rb') as f:
+                    response = dill.load(f)
+            else:
+                msg = 'http method not supported. Only GET and PUt currently available when using filesystem'
+                raise ValueError(msg)
+        else:
+            url = urlparse(endpoint)
+            scheme = url.scheme
+            host = url.netloc       
+            if bucket is None:
+                bucket = self.credentials['config']['bos_logs_bucket']
+            if extra_headers is None:
+                extra_headers = {}
+            # assemble the standardized request
+            time = datetime.datetime.utcnow()
+            timestamp = time.strftime('%Y%m%dT%H%M%SZ')
+            datestamp = time.strftime('%Y%m%d')
+            payload_hash = hashlib.sha256(str.encode(payload) if isinstance(payload, str) else payload).hexdigest()
+            standardized_resource = '/'
+            if bucket is not None:
+                standardized_resource += bucket
+            if key is not None:
+                standardized_resource += '/' + key
+            if request_parameters is None:
+                standardized_querystring = ''
+            else:
+                standardized_querystring = '&'.join(['%s=%s' % (quote(k, safe=''), quote(v, safe='')) for k,v in request_parameters.items()])
+            all_headers = {'host': host, 'x-amz-content-sha256': payload_hash, 'x-amz-date': timestamp}
+            all_headers.update({k.lower(): v for k, v in extra_headers.items()})
+            standardized_headers = ''
+            for header in sorted(all_headers.keys()):
+                standardized_headers += '%s:%s\n' % (header, all_headers[header])
+            signed_headers = ';'.join(sorted(all_headers.keys()))    
+            standardized_request = (http_method + '\n' +
+                                    standardized_resource + '\n' +
+                                    standardized_querystring + '\n' +
+                                    standardized_headers + '\n' +
+                                    signed_headers + '\n' +
+                                    payload_hash)
+            logging.debug('standardized_request=\n%s' % standardized_request)
+            # assemble string-to-sign
+            hashing_algorithm = 'AWS4-HMAC-SHA256'
+            credential_scope = datestamp + '/' + region + '/' + 's3' + '/' + 'aws4_request'
+            sts = (hashing_algorithm + '\n' +
+                   timestamp + '\n' +
+                   credential_scope + '\n' +
+                   hashlib.sha256(str.encode(standardized_request)).hexdigest())
+            logging.debug('string-to-sign=\n%s' % sts)
+            # generate the signature
+            signature_key = self._create_signature_key(hmac_secret, datestamp, region, 's3')
+            signature = hmac.new(signature_key,
+                                 (sts).encode('utf-8'),
+                                 hashlib.sha256).hexdigest()
+            logging.debug('signature=\n%s' % signature)
+        
+            # assemble all elements into the 'authorization' header
+            v4auth_header = (hashing_algorithm + ' ' +
+                             'Credential=' + hmac_access_key + '/' + credential_scope + ', ' +
+                             'SignedHeaders=' + signed_headers + ', ' +
+                             'Signature=' + signature)
+        
+            logging.debug('v4auth_header=\n%s' % v4auth_header)
+        
+            # the 'requests' package autmatically adds the required 'host' header
+            headers = all_headers.copy()
+            headers.pop('host')
+            headers['Authorization'] = v4auth_header
+            # headers = {'x-amz-content-sha256': payload_hash, 'x-amz-date': timestamp, 'Authorization': v4auth_header}
+            request_url = endpoint + standardized_resource + '?' + standardized_querystring
+        
+            logging.debug('request_url=%s' % request_url)
+        
+            if http_method == 'GET':
+                resp = requests.get(request_url, headers=headers, timeout=30)
+            elif http_method == 'DELETE':
+                resp = requests.delete(request_url, headers=headers, timeout=30)
+            elif http_method == 'POST':
+                resp = requests.post(request_url, headers=headers, data=payload, timeout=30)
+            elif http_method == 'PUT':
+                resp = requests.put(request_url, headers=headers, data=payload, timeout=30)
+            else:
+                raise RuntimeError('unsupported_http_method=%s' % http_method)
+        
+            if resp.status_code != requests.codes.ok and not (resp.status_code == requests.codes.no_content and http_method == 'DELETE'):
+                logger.warn('error cos_api_request: request_url=%s, http_method=%s, status_code=%s, response_text=%s' % (request_url, http_method, str(resp.status_code), str(resp.text)))
+                return None
+            
+            response = resp.content if is_binary else resp.text
+    
+        return response
+    
+    def _create_hash(key, msg):
+        return hmac.new(key, msg.encode('utf-8'), hashlib.sha256).digest()
+    
+    def _create_signature_key(self,key, datestamp, region, service):
+        keyDate = _create_hash(('AWS4' + key).encode('utf-8'), datestamp)
+        keyString = _create_hash(keyDate, region)
+        keyService = _create_hash(keyString, service)
+        keySigning = _create_hash(keyService, 'aws4_request')
+        return keySigning
 
     def commit(self):
         '''
@@ -256,10 +423,10 @@ class Database(object):
         self.metadata.create_all(tables = tables, checkfirst = checkfirst)
 
         
-    def drop_table(self,table_name):
+    def drop_table(self,table_name,schema=None):
         
         try:
-            table = self.get_table(table_name)
+            table = self.get_table(table_name,schema)
         except KeyError:
             msg = 'Didnt drop table %s becuase it doesnt exist in the the database' %table_name
         else:
@@ -268,32 +435,35 @@ class Database(object):
         logger.debug(msg)
                
         
-    def get_table(self,table_name):
+    def get_table(self,table_name, schema = None):
         '''
         Get sql alchemchy table object for table name
         '''
+        kwargs = {
+                'schema': schema
+                }
         try:
-            table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection)        
+            table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)        
         except NoSuchTableError:
             raise KeyError ('Table %s does not exist in the database' %table_name)
         else:
             return table
         
-    def get_column_names(self,table):
+    def get_column_names(self,table, schema=None):
         """
         Get a list of columns names for a table object or table name
         """
         if isinstance(table,str):
-            table = self.get_table(table)
+            table = self.get_table(table, schema)
         
         return [column.key for column in table.columns]        
         
-    def if_exists(self,table_name):
+    def if_exists(self,table_name, schema=None):
         '''
         Return True if table exists in the database
         '''
         try:
-            self.get_table(table_name)
+            self.get_table(table_name,schema)
         except KeyError:
             return False
         
@@ -321,10 +491,10 @@ class Database(object):
         if self.session is None:
             self.session = self.Session()
             
-    def truncate(self,table_name):
+    def truncate(self,table_name,schema=None):
         
         try:
-            table = self.get_table(table_name)
+            table = self.get_table(table_name,schema)
         except KeyError:
             msg = 'Table %s doesnt exist in the the database' %table_name
             raise KeyError(msg)
@@ -383,6 +553,7 @@ class Database(object):
                     table_name, 
                     version_db_writes = False,
                     if_exists = 'append',
+                    schema = None,
                     chunksize = None):
         '''
         Write a dataframe to a database table
@@ -435,7 +606,7 @@ class Database(object):
         if if_exists == 'append':
             #check table exists
             try:
-                table = self.get_table(table_name)
+                table = self.get_table(table_name,schema)
             except KeyError:
                 pass
             else:
@@ -450,7 +621,7 @@ class Database(object):
                     raise KeyError('Dataframe does not have required columns %s' %cols)                
         self.start_session()
         try:        
-            df.to_sql(name = table_name, con = self.connection, schema = self.schema,
+            df.to_sql(name = table_name, con = self.connection, schema = schema,
                   if_exists = if_exists, index = False, chunksize = chunksize, dtype = dtypes)
         except:
             self.session.rollback()
@@ -486,14 +657,6 @@ class BaseTable(object):
         
     def create(self):
         self.table.create(self.database.connection)
-        
-    def get_table(self,table_name):
-        """
-        Get a sql alchmemy logical table from database metadata
-        """
-        self.database.start_session()
-        table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection)
-        return table
         
     def get_column_names(self):
         """

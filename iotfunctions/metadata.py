@@ -64,8 +64,6 @@ class EntityType(object):
         self.name = name
         self.activity_tables = {}
         self.scd = {}
-        if db is None:
-            db = Database()
         self.db = db
         self.tenant_id = self.db.tenant_id
         self.logical_name = None
@@ -77,7 +75,7 @@ class EntityType(object):
         if self.logical_name is None:
             self.logical_name = self.name
         try:
-            self.table = self.db.get_table(self.name)
+            self.table = self.db.get_table(self.name,self._db_schema)
         except KeyError:
             ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
             self.table = ts.table
@@ -101,7 +99,7 @@ class EntityType(object):
         
         table = ActivityTable(name, self.db,*args, **kwargs)
         try:
-            sqltable = self.db.get_table(name)
+            sqltable = self.db.get_table(name, self._db_schema)
         except KeyError:
             table.create(self.db.connection)
         self.activity_tables[name] = table
@@ -126,7 +124,7 @@ class EntityType(object):
                                    property_name = property_name,
                                    datatype = datatype)        
         try:
-            sqltable = self.db.get_table(name)
+            sqltable = self.db.get_table(name,self._db_schema)
         except KeyError:
             table.create(self.db.connection)
         self.scd[property_name] = table
@@ -234,7 +232,7 @@ class EntityType(object):
             df['devicetype'] = self.name
             df['format'] = ''
             df['updated_utc'] = None
-            self.db.write_frame(table_name = self.name, df = df)
+            self.db.write_frame(table_name = self.name, df = df, schema = self._db_schema)
             
         for at in list(self.activity_tables.values()):
             adf = at.generate_data(entities = entities, days = days, seconds = seconds, write = write)
@@ -285,7 +283,10 @@ class EntityType(object):
         table['dataItemDto'] = columns
         table['metricTableName'] = self.name
         table['metricTimestampColumn'] = self._timestamp
-        table['schemaName'] = self.db.credentials['db2']['username']
+        try:
+            table['schemaName'] = self.db.credentials['db2']['username']
+        except KeyError:
+            raise KeyError('No db2 credentials found. Unable to register table.')
         payload = [table]
         response = self.db.http_request(request='POST',
                                      object_type = 'entityType',
