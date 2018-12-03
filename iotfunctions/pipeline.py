@@ -116,7 +116,7 @@ class CalcPipeline:
         if replace_count > 1:
             self.logger.warning("The pipeline has more than one custom source with a merge strategy of replace. The pipeline will only contain data from the last replacement")        
             
-        return(remaining_stages,secondary_sources)    
+        return(df,remaining_stages,secondary_sources)    
     
                 
     def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None, preloaded_item_names=None,
@@ -149,7 +149,7 @@ class CalcPipeline:
         a primary data source. A primary data source will have a merge_method of 'replace'. This
         implies that it replaces whatever data was fed into the pipeline as default entity data.
         '''
-        (stages,secondary_sources) = self._execute_primary_source (
+        (df,stages,secondary_sources) = self._execute_primary_source (
                                             df = df,
                                             stages = stages,
                                             start_ts = start_ts,
