@@ -80,6 +80,8 @@ class EntityType(object):
             ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
             self.table = ts.table
             self.table.create(self.db.connection)
+            msg = 'Create table %s' %self.name
+            logger.debug(msg)
             
             
     def add_activity_table(self, name, activities, *args, **kwargs):

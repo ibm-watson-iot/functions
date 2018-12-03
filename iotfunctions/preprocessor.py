@@ -1370,6 +1370,7 @@ class BaseDatabaseLookup(BaseTransformer):
             raise RuntimeError('length of names (%d) is larger than the length of query result (%d)' % (len(self.names), len(df_sql)))
 
         df = df.join(df_sql,on= self.lookup_keys, how='left')
+        
         df = self.rename_cols(df,input_names = self.lookup_items,output_names=self.output_items)
 
         return df

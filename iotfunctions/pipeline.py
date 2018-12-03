@@ -144,6 +144,16 @@ class CalcPipeline:
         if dropna:
             df = df.replace([np.inf, -np.inf], np.nan)
             df = df.dropna()
+        # remove rows that contain all nulls ignore deviceid and timestamp
+        
+        self.log_df_info(df,'before drop')
+        
+        subset = [x for x in df.columns if x not in [self.entity_type._entity_id,self.entity_type._timestamp_col]]
+        
+        self.log_df_info(df,'after drop')
+        
+        df = df.dropna(how='all', subset = subset )
+            
         '''
         Divide the pipeline into data retrieval stages and transformation stages. First look for
         a primary data source. A primary data source will have a merge_method of 'replace'. This
@@ -211,10 +221,8 @@ class CalcPipeline:
                 try:
                     s.register(df=df,new_df= newdf)
                 except AttributeError:
-                    raise
                     msg = 'Could not export %s as it has no register() method' %s.__class__.__name__
                     logger.warning(msg)
-
             df = newdf
             if dropna:
                 df = df.replace([np.inf, -np.inf], np.nan)
@@ -264,6 +272,15 @@ class CalcPipeline:
                 pass
             
         return inputs
+    
+    def log_df_info(self,df,msg):
+        '''
+        Log a debugging entry showing first row and index structure
+        '''
+        msg = msg + ' | count: %s | index %s' % (len(df.index), df.index.names)
+        logger.debug(msg)
+        logger.debug(df.head(1).transpose())
+        
     
     def _raise_error(self,exception,msg):
         '''
