@@ -95,7 +95,10 @@ class CalcPipeline:
                 is_data_source = False
                 merge_method = None
             if is_data_source and merge_method == 'replace':
-                df = s.execute(df=df)
+                try:
+                    df = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
+                except TypeError:
+                    df = s.execute(df=df)
                 self.logger.debug("stage=%s is a custom data source. It replaced incoming entity data. " %s.__class__.__name__)
                 try:
                     s.log_df_info(df,'Incoming data replaced with function output from primary data source')
