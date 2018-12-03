@@ -197,12 +197,10 @@ class CalcPipeline:
                         newdf = s.execute(df=df)
             except AttributeError as e:
                 trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__
-                trace = '%s | %s' %(str(e),trace)
-                raise type(e)(trace).with_traceback(sys.exc_info()[2])
+                self._raise_error(exception = e,msg = trace)
                 #raise e.__class__(trace)
             except Exception as e:
-                trace = '%s | %s' %(str(e),trace)
-                raise type(e)(trace).with_traceback(sys.exc_info()[2])
+                self._raise_error(exception = e,msg = trace)
                 #raise e.__class__(trace)
             #validate that stage has not violated any pipeline processing rules
             try:
@@ -266,6 +264,16 @@ class CalcPipeline:
                 pass
             
         return inputs
+    
+    def _raise_error(self,exception,msg):
+        '''
+        Raise an exception. Append a message to the stacktrace.
+        '''
+        msg = '%s | %s' %(str(exception),msg)
+        try:
+            raise type(exception)(msg).with_traceback(sys.exc_info()[2])
+        except TypeError:
+            raise exception
             
     def set_stages(self,stages):
         '''

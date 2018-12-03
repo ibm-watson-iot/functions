@@ -1305,6 +1305,7 @@ class BaseDatabaseLookup(BaseTransformer):
     is_data_source = False
     # database
     db = None
+    _auto_create_lookup_table = False
     
     def __init__(self,
                  lookup_table_name,
@@ -1346,18 +1347,7 @@ class BaseDatabaseLookup(BaseTransformer):
             '''
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
-            try:
-                df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
-            except :
-                if not self.data is None:
-                    df = pd.DataFrame(data=self.data)
-                    df = df.set_index(keys=self.lookup_keys)
-                    self.create_lookup_table(df=df, table_name = self.lookup_table_name)
-                    df = pd.read_sql(self.sql, self.db, index_col=self.lookup_keys, parse_dates=self.parse_dates)
-                else:
-                    msg = 'Unable to retrieve data from lookup table using %s. Check that database table exists and credentials are correct. Include data in your function definition to automatically create a lookup table.' %sql
-                    raise(msg)
-            
+            df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
             df.columns = [x.lower() for x in list(df.columns)]            
             return(list(df.columns))
                         
@@ -1368,9 +1358,10 @@ class BaseDatabaseLookup(BaseTransformer):
     def execute(self, df):
         '''
         Execute transformation function of DataFrame to return a DataFrame
-        '''
-        
+        '''                
         self.db = self.get_db()
+        if self._auto_create_lookup_table:
+            self.create_lookup_table(df=None,table_name=self.lookup_table_name)
 
         df_sql = pd.read_sql(self.sql, self.db.connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
         df_sql = df_sql[self.lookup_items]
@@ -1383,9 +1374,24 @@ class BaseDatabaseLookup(BaseTransformer):
 
         return df
     
-    def create_lookup_table(self,df, table_name):
-        
+    def create_lookup_table(self,df=None, table_name=None):
+        '''
+        Create and populate lookup table
+        '''
+        if self.db is None:
+            self.get_db()
+        if df is None:        
+            if self.data is not None:
+                df = pd.DataFrame(data=self.data)
+                df = df.set_index(keys=self.lookup_keys)            
+            else:
+                msg = 'Cannot create lookup table as data instance or class variable is not set and no dataframe provided'
+                raise ValueError(msg)
+        if table_name is None:
+            table_name = self.lookup_table_name
         self.write_frame(df=df,table_name = table_name, if_exists = 'replace')
+        msg = 'Created or replaced lookup table %s' %table_name
+        logger.warning(msg)
         
 class BaseDBActivityMerge(BaseDataSource):
     '''
@@ -2101,6 +2107,9 @@ class LookupCompany(BaseDatabaseLookup):
     """
     Lookup Company information from a database table        
     """
+    
+    #create the table and populate it using the data dict
+    _auto_create_lookup_table = True
 
     def __init__ (self, company_key , lookup_items= None, output_items=None):
         
