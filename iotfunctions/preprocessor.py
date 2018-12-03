@@ -367,6 +367,8 @@ class BaseFunction(object):
             
         if db is None:
             db = Database(credentials = credentials, tenant_id = tenant_id)
+            
+        return db
     
     def _getJsonDataType(self,datatype):
          
