@@ -86,8 +86,12 @@ class TimeSeriesGenerator(object):
                       increase_per_day = 0.0001,
                       noise = 0.1 ,
                       day_harmonic = 0.2,
-                      day_of_week_harmonic = 0.2
+                      day_of_week_harmonic = 0.2,
+                      timestamp = None
                       ):
+        
+        if timestamp is not None:
+            self._timestamp = timestamp
     
         if metrics is None:
             metrics = ['x1','x2','x3']

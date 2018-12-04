@@ -316,17 +316,19 @@ class BaseFunction(object):
             # or designated column names for the entity type
             if entity_id_col is None:
                 entity_id_col = self._entity_type._entity_id
+            ids = [entity_id_col, self._entity_type._df_index_entity_id]
             try:
-                id_series = self._get_series(df,col_names=[entity_id_col, self._entity_type._df_index_entity_id])
+                id_series = self._get_series(df,col_names=ids)
             except KeyError as e:
-                msg = 'Attempting to conform index. Cannot find an entity identifier column.'
+                msg = 'Attempting to conform index. Cannot find an entity identifier column. Looking for %s' %ids
                 raise KeyError(msg)    
             if timestamp_col is None:
                 timestamp_col = self._entity_type._timestamp
+            tss = [timestamp_col, self._entity_type._timestamp_col]
             try:
-                timestamp_series = self._get_series(df,col_names=[timestamp_col, self._entity_type._timestamp_col])
+                timestamp_series = self._get_series(df,col_names=tss)
             except KeyError as e:
-                msg = 'Attempting to conform index. Cannot find an entity identifier column.'
+                msg = 'Attempting to conform index. Cannot find a timestamp column. Looking for %s ' %tss
                 raise KeyError(msg)
             df[self._entity_type._df_index_entity_id] = id_series.astype(str)
             df[self._entity_type._timestamp] = pd.to_datetime(timestamp_series)
@@ -972,7 +974,8 @@ class BaseFunction(object):
         status = self._entity_type.db.write_frame(df, table_name = table_name, 
                                      version_db_writes = version_db_writes,
                                      if_exists  = if_exists, 
-                                     schema = self._entity_type._db_schema)
+                                     schema = self._entity_type._db_schema,
+                                     timestamp_col = self._entity_type._timestamp_col)
         
         return status
 
@@ -2058,7 +2061,8 @@ class GenerateCerealFillerData(BaseDataSource):
             days = 0
             seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
         
-        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
+        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds,
+                                 timestamp = self._entity_type._timestamp)
         df = ts.execute()
         
         return df
@@ -2294,27 +2298,29 @@ class MergeSampleTimeSeries(BaseDataSource):
             generator = TimeSeriesGenerator(metrics=self.sample_metrics,
                                             ids = self.sample_entities,
                                             freq = self.sample_freq,
-                                            days = self.sample_initial_days)
+                                            days = self.sample_initial_days,
+                                            timestamp = self._entity_type._timestamp)
         else:
             generator = TimeSeriesGenerator(metrics=self.sample_metrics,
                                             ids = self.sample_entities,
                                             freq = self.sample_freq,
-                                            seconds = self.sample_incremental_min*60)
+                                            seconds = self.sample_incremental_min*60,
+                                            timestamp = self._entity_type._timestamp)
         
-        generator.set_entity_type(self._entity_type)
         df = generator.execute()
         self._entity_type.db.write_frame(df = df, table_name = self.source_table_name,
                        version_db_writes = False,
                        if_exists = 'append',
-                       schema = self._entity_type._db_schema)
+                       schema = self._entity_type._db_schema,
+                       timestamp_col = self._entity_type.timestamp_col)
         
     def get_test_data(self):
 
         generator = TimeSeriesGenerator(metrics=['acceleration'],
                                         ids = self.sample_entities,
                                         freq = self.sample_freq,
-                                        seconds = 300)
-        generator.set_entity_type(self._entity_type)
+                                        seconds = 300,
+                                        timestamp = self._entity_type._timestamp)
         
         df = generator.execute()
         df = self.conform_index(df)
@@ -2493,7 +2499,9 @@ class PipelineDataGenerator(TimeSeriesGenerator):
             days = 0
             seconds = (dt.datetime.dt.datetime.utcnow() - start_ts).total_seconds()
         
-        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds)
+        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,
+                                 days=days,seconds = seconds,
+                                 timestamp = self._entity_type._timestamp)
         df = ts.execute()
         return df 
     

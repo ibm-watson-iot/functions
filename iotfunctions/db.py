@@ -553,6 +553,7 @@ class Database(object):
                     table_name, 
                     version_db_writes = False,
                     if_exists = 'append',
+                    timestamp_col = None,
                     schema = None,
                     chunksize = None):
         '''
@@ -586,8 +587,8 @@ class Database(object):
         if 'deviceid' not in df.columns and 'id' in df.columns:
             df['deviceid'] = df['id']
             df = df[[x for x in df.columns if x !='id']]
-        if 'evt_timestamp' not in df.columns and '_timestamp' in df.columns:
-            df['evt_timestamp'] = df['_timestamp']
+        if timestamp_col is not None and timestamp_col not in df.columns and '_timestamp' in df.columns:
+            df[timestamp_col] = df['_timestamp']
             df = df[[x for x in df.columns if x !='_timestamp']]
         df = df[[x for x in df.columns if x !='index']]
         if version_db_writes:
@@ -643,8 +644,8 @@ class BaseTable(object):
         self.name = name
         self.database= database
         # the keyword arguments may contain properties and sql alchemy dialect specific options
-        # set all of them
-        self.set_params(**kw)
+        # set them in child classes before calling super._init__()
+        # self.set_params(**kw)
         try:
             self.schema
         except AttributeError:
@@ -771,6 +772,7 @@ class ActivityTable(BaseTable):
     """
         
     def __init__ (self,name,database,*args, **kw):
+        self.set_params(**kw)
         self._freq = '1D' #default activity interval
         self.id_col = Column(self._entity_id,String(50))
         self.start_date = Column('start_date',DateTime)
@@ -814,7 +816,7 @@ class ResourceCalendarTable(BaseTable):
     """    
         
     def __init__ (self,name,database,*args, **kw):
-
+        self.set_params(**kw)
         self.start_date = Column('start_date',DateTime)
         self.end_date = Column('end_date',DateTime)
         self.resource_id = Column('resource_id',String(255))
@@ -827,7 +829,8 @@ class TimeSeriesTable(BaseTable):
     """
 
     def __init__ (self,name,database,*args, **kw):
-
+        
+        self.set_params(**kw)
         self.id_col = Column(self._entity_id,String(50))
         self.evt_timestamp = Column(self._timestamp,DateTime)
         self.device_type = Column('devicetype',String(50))
@@ -846,7 +849,8 @@ class SlowlyChangingDimension(BaseTable):
     Create a separate table for each property, e.g. firmware_version, owner
     """    
         
-    def __init__ (self,name,database,property_name,datatype):
+    def __init__ (self,name,database,property_name,datatype,*args,**kw):
+        self.set_params(**kw)
         self._freq = '3D'
         self.start_date = Column('start_date',DateTime)
         self.end_date = Column('end_date',DateTime)

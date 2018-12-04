@@ -234,7 +234,7 @@ class EntityType(object):
         ts = TimeSeriesGenerator(metrics=metrics,ids=entities,
                                  days=days,seconds=seconds,
                                  freq=freq, categoricals = categoricals,
-                                 dates = dates)
+                                 dates = dates, timestamp = self._timestamp)
         df = ts.execute()
         if write:
             for o in others:
@@ -244,7 +244,9 @@ class EntityType(object):
             df['devicetype'] = self.name
             df['format'] = ''
             df['updated_utc'] = None
-            self.db.write_frame(table_name = self.name, df = df, schema = self._db_schema)
+            self.db.write_frame(table_name = self.name, df = df, 
+                                schema = self._db_schema ,
+                                timestamp_col = self._timestamp)
             
         for at in list(self.activity_tables.values()):
             adf = at.generate_data(entities = entities, days = days, seconds = seconds, write = write)
