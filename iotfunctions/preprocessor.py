@@ -1727,11 +1727,11 @@ class BaseSCDLookup(BaseTransformer):
         try:
             df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
         except ValueError:
-            resource_df = resource_df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
+            resource_df = resource_df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
             try:
                 df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
             except ValueError:
-                df = df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
+                df = df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
                 df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
         
         df = self.conform_index(df)        

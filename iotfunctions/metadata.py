@@ -185,7 +185,8 @@ class EntityType(object):
         last = last.to_dict('records')[0]
         return last
     
-    def generate_data(self, entities = None, days=0, seconds = 300, freq = '1min', write=True):
+    def generate_data(self, entities = None, days=0, seconds = 300, 
+                      freq = '1min', write=True, drop_existing = False):
         '''
         Generate random time series data for entities
         
@@ -209,6 +210,12 @@ class EntityType(object):
         categoricals = []
         dates = []
         others = []
+
+        if drop_existing:
+            self.db.drop_table(self.name)
+            self.drop_child_tables()
+        
+        
         for c in self.db.get_column_names(self.table):
             if not c in ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]:
                 data_type = self.table.c[c].type

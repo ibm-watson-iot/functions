@@ -150,7 +150,7 @@ class Database(object):
             # It will be used only when explicitly added to the credentials as credentials['sqlite'] = filename
             try:
                 connection_string = 'sqlite:///%s' %(credentials['sqlite'])
-            except (KeyError,NameError):
+            except (KeyError,TypeError):
                 try:        
                     connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
                                                                      self.credentials['db2']['password'],
@@ -645,6 +645,10 @@ class BaseTable(object):
         # the keyword arguments may contain properties and sql alchemy dialect specific options
         # set all of them
         self.set_params(**kw)
+        try:
+            self.schema
+        except AttributeError:
+            self.schema = None
         # delete the designated AS metadata properties as sql alchemy will not understand them
         for k in as_keywords:
             try:
@@ -722,7 +726,7 @@ class BaseTable(object):
             raise KeyError(msg)
         self.database.start_session()
         try:        
-            df.to_sql(name = self.name, con = self.database.connection, schema = self.database.schema,
+            df.to_sql(name = self.name, con = self.database.connection, schema = self.schema,
                   if_exists = 'append', index = False, chunksize = chunksize,dtype=dtypes)
         except:
             self.database.session.rollback()
@@ -798,7 +802,7 @@ class ActivityTable(BaseTable):
         df = df[cols]
         if write:
             msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),self.table.name)
-            self.insert(df)        
+            self.insert(df, )        
         return df
         
 class ResourceCalendarTable(BaseTable):
