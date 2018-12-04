@@ -65,6 +65,7 @@ class BaseFunction(object):
     itemArraySource = None #dict: output arrays are derived from input arrays. 
     itemMaxCardinality = None # dict: Maximum number of members in an array
     itemDatatypes = None #dict: BOOLEAN, NUMBER, LITERAL, DATETIME
+    itemTags = None #dict: Tags to be added to data items
     # processing settings
     execute_by = None #if function should be executed separately for each entity or some other key, capture this key here
     test_rows = 100 #rows of data to use when testing function
@@ -124,6 +125,9 @@ class BaseFunction(object):
 
         if self.itemArraySource is None:
             self.itemArraySource = {}
+            
+        if self.itemTags is None:
+            self.itemTags = {}
             
         if self.optionalItems is None:
             self.optionalItems = []
@@ -579,7 +583,6 @@ class BaseFunction(object):
                 is_output = True
                 is_constant = False
                 datatype = self._infer_type(arg_value,df=tf)
-                column_metadata['dataType'] = datatype
                 auto_desc =  'Provide a new data item name for the function output'
                 is_added = True
                 msg = 'Argument %s was explicitlty defined as output with datatype %s' %(a,datatype)
@@ -656,6 +659,11 @@ class BaseFunction(object):
                 msg = 'Argument %s is assumed to be a constant of type %s by ellimination' %(a,datatype)
                 logger.debug(msg)  
             if is_output:
+                column_metadata['dataType'] = datatype                
+                try:
+                    column_metadata['tags'] = self.itemTags[a]
+                except KeyError:
+                    pass
                 metadata_outputs[a] = column_metadata
             else:
                 metadata_inputs[a] = column_metadata
@@ -1698,6 +1706,7 @@ class BaseSCDLookup(BaseTransformer):
             output_item = self.table_name
         self.output_item = output_item
         super().__init__()
+        self.itemTags['output_item'] = ['DIMENSION']
         
     def execute(self,df):
         
@@ -1712,7 +1721,7 @@ class BaseSCDLookup(BaseTransformer):
             raise
         
         resource_df = resource_df.rename(columns = {scd_property:self.output_item,
-                                          'start_date': self._entity_type._timestamp_col})
+                                          'start_date': self._entity_type._timestamp})
         cols = [x for x in resource_df.columns if x not in ['end_date']]
         resource_df = resource_df[cols]
         try:
@@ -2151,6 +2160,8 @@ class LookupCompany(BaseDatabaseLookup):
              parse_dates= parse_dates, 
              output_items = output_items
              )
+        
+        self.itemTags['output_items'] = ['DIMENSION']
     
         # The base class takes care of the rest
         # No execute() method required

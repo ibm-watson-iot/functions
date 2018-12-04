@@ -145,15 +145,8 @@ class CalcPipeline:
             df = df.replace([np.inf, -np.inf], np.nan)
             df = df.dropna()
         # remove rows that contain all nulls ignore deviceid and timestamp
-        
-        self.log_df_info(df,'before drop')
-        
         subset = [x for x in df.columns if x not in [self.entity_type._entity_id,self.entity_type._timestamp_col]]
-        
-        self.log_df_info(df,'after drop')
-        
         df = df.dropna(how='all', subset = subset )
-            
         '''
         Divide the pipeline into data retrieval stages and transformation stages. First look for
         a primary data source. A primary data source will have a merge_method of 'replace'. This
