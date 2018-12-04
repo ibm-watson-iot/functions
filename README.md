@@ -36,7 +36,7 @@ print(fn.__version__)
 
 ### Changelog
 
-Keep up to date with the latest (changes)[https://github.com/ibm-watson-iot/functions/wiki/Change-Log].
+Keep up to date with the latest [changes](https://github.com/ibm-watson-iot/functions/wiki/Change-Log).
 
 ### Further information
 
