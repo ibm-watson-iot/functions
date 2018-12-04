@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='iotfunctions',
-    version='1.0.9',
+    version='1.0.85',
     packages=find_packages(),
     install_requires=['dill'
     ],
