@@ -150,7 +150,7 @@ class Database(object):
             # It will be used only when explicitly added to the credentials as credentials['sqlite'] = filename
             try:
                 connection_string = 'sqlite:///%s' %(credentials['sqlite'])
-            except KeyError:
+            except (KeyError,NameError):
                 try:        
                     connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(self.credentials['db2']['username'],
                                                                      self.credentials['db2']['password'],

@@ -224,7 +224,10 @@ class EntityType(object):
                     raise TypeError(msg)
         msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,categoricals,dates)
         logger.debug(msg)
-        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, categoricals = categoricals, dates = dates)
+        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,
+                                 days=days,seconds=seconds,
+                                 freq=freq, categoricals = categoricals,
+                                 dates = dates)
         df = ts.execute()
         if write:
             for o in others:
