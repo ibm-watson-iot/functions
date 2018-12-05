@@ -127,6 +127,8 @@ class CalcPipeline:
         #preload may  have already taken place. if so pass the names of the stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
+        msg = 'Running pipeline with start timestamp %s' %start_ts
+        logger.debug(msg)
         #process preload stages first if there are any
         (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
         preloaded_item_names.extend(preload_item_names)
@@ -235,20 +237,20 @@ class CalcPipeline:
         
         export = []
         for s in self.stages:
-            if self.source is None:
+            if self.entity_type is None:
                 source_name = None
             else:
-                source_name = self.source.name
+                source_name = self.entity_type.name
             metadata  = { 
                     'name' : s.name ,
                     'args' : s._get_arg_metadata()
                     }
             export.append(metadata)
             
-        response = self.db.http_request(object_type = 'kpiFunctions',
+        response = self.entity_type.db.http_request(object_type = 'kpiFunctions',
                                         object_name = source_name,
                                         request = 'POST',
-                                        payload = metadata)    
+                                        payload = export)    
         return response
     
     def get_input_items(self):

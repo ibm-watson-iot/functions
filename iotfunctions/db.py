@@ -230,7 +230,7 @@ class Database(object):
         self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
-        self.url[('kpiFunctions','POST')] = '/'.join([base_url,self.tenant_id,'entityType',object_name,object_type,'import'])            
+        self.url[('kpiFunctions','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,'import'])            
         encoded_payload = json.dumps(payload).encode('utf-8')        
         headers = {
             'Content-Type': "application/json",
@@ -242,6 +242,10 @@ class Database(object):
             url =self.url[(object_type,request)]
         except KeyError:
             raise ValueError ('This combination  of request_type and object_type is not supported by the python api')            
+            
+        logger.debug(url)
+        logger.debug(encoded_payload)
+            
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
                 
         response= r.data.decode('utf-8')
