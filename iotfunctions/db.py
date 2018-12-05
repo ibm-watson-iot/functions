@@ -230,21 +230,19 @@ class Database(object):
         self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
-        self.url[('kpiFunctions','POST')] = '/'.join([base_url,self.tenant_id,'entityType',object_name,object_type,'import'])
-            
-        encoded_payload = json.dumps(payload).encode('utf-8')
-        
+        self.url[('kpiFunctions','POST')] = '/'.join([base_url,self.tenant_id,'entityType',object_name,object_type,'import'])            
+        encoded_payload = json.dumps(payload).encode('utf-8')        
         headers = {
             'Content-Type': "application/json",
             'X-api-key' : self.credentials['as']['api_key'],
             'X-api-token' : self.credentials['as']['api_token'],
             'Cache-Control': "no-cache",
-        }
-        
+        }        
         try:
-            r = self.http.request(request,self.url[(object_type,request)], body = encoded_payload, headers=headers)
+            url =self.url[(object_type,request)]
         except KeyError:
-            raise ValueError ('This combination  of request_type and object_type is not supported by the python api')
+            raise ValueError ('This combination  of request_type and object_type is not supported by the python api')            
+        r = self.http.request(request,url, body = encoded_payload, headers=headers)
                 
         response= r.data.decode('utf-8')
         return response
@@ -806,6 +804,20 @@ class ActivityTable(BaseTable):
             msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),self.table.name)
             self.insert(df, )        
         return df
+    
+
+class Dimension(BaseTable):
+    """
+    A dimension contains non-time variant entity attributes. 
+    """
+    def __init__ (self,name,database,*args, **kw):
+        self.set_params(**kw)
+        self.id_col = Column(self._entity_id,String(50))
+        self.device_type = Column('devicetype',String(50))
+        super().__init__(name,database,self.id_col,
+                 self.device_type,
+                 *args, **kw)    
+    
         
 class ResourceCalendarTable(BaseTable):
     """
@@ -813,8 +825,7 @@ class ResourceCalendarTable(BaseTable):
     The table contains a device id, start date and end date and the resource_id. 
     Create a separte table for each different type of resource, e.g. operator, owner , company
     The table can have any number of additional Column objects supplied as arguments.
-    """    
-        
+    """            
     def __init__ (self,name,database,*args, **kw):
         self.set_params(**kw)
         self.start_date = Column('start_date',DateTime)
@@ -827,18 +838,16 @@ class TimeSeriesTable(BaseTable):
     """
     A time series table contains a timestamp and one or more metrics.
     """
-
-    def __init__ (self,name,database,*args, **kw):
-        
+    def __init__ (self,name,database,*args, **kw):        
         self.set_params(**kw)
         self.id_col = Column(self._entity_id,String(50))
         self.evt_timestamp = Column(self._timestamp,DateTime)
         self.device_type = Column('devicetype',String(50))
-        self.logical_inteface = Column('logicalinterface_id',String(64))
+        self.logical_interface = Column('logicalinterface_id',String(64))
         self.format = Column('format',String(64))
         self.updated_timestamp = Column('updated_utc',DateTime)
         super().__init__(name,database,self.id_col,self.evt_timestamp,
-                 self.device_type, self.logical_inteface, self.format , 
+                 self.device_type, self.logical_interface, self.format , 
                  self.updated_timestamp,
                  *args, **kw)
         

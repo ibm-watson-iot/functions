@@ -14,7 +14,7 @@ import json
 import urllib3
 import pandas as pd
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float
-from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension
+from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
 from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
@@ -68,6 +68,7 @@ class EntityType(object):
         self.tenant_id = self.db.tenant_id
         self.logical_name = None
         self._db_connection_dbi = None
+        self._dimension_table = None
         self._dimension_table_name = None
         self._db_schema = None
         self._data_items = None
@@ -82,7 +83,6 @@ class EntityType(object):
             self.table.create(self.db.connection)
             msg = 'Create table %s' %self.name
             logger.debug(msg)
-            
             
     def add_activity_table(self, name, activities, *args, **kwargs):
         '''
@@ -275,15 +275,15 @@ class EntityType(object):
         for c in self.db.get_column_names(self.table):
             if c not in ['logicalinterface_id','format','updated_utc']:
                 data_type = self.table.c[c].type
-                if isinstance(data_type,DOUBLE):
+                if isinstance(data_type,DOUBLE) or isinstance(data_type,Float) or isinstance(data_type,Integer):
                     data_type = 'NUMBER'
-                elif isinstance(data_type,TIMESTAMP):
-                    data_type = 'TIMESTAMP'
-                    dates.append(c)
-                elif isinstance(data_type,VARCHAR):
+                elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
                     data_type = 'LITERAL'
+                elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
+                    data_type = 'TIMESTAMP'
                 else:
                     data_type = str(data_type)
+                    logger.warning('Unknown datatype %s for column %s' %(data_type,c))
                 columns.append({ 
                         'name' : c,
                         'type' : 'METRIC',
@@ -311,11 +311,38 @@ class EntityType(object):
         logger.debug(msg)
         return response
     
-    def set_dimension_columns(self,columns):
+    def make_dimension(self,name = None, *args, **kw):
         '''
-        TBD Add dimension table by specifying additional columns
+        Add dimension table by specifying additional columns
+        
+        Parameters
+        ----------
+        name: str
+            dimension table name
+        *args: sql alchemchy Column objects
+        * kw: : schema
         '''
-        pass
+        kw = {
+                'schema' : self._db_schema
+                }
+        if name is None:
+            name = '%s_dimension' %self.name
+            
+        self._dimension_table_name = name
+    
+        try:
+            self._dimension_table = self.db.get_table(name,self._db_schema)
+        except KeyError:
+            dim = Dimension(
+                self._dimension_table_name, self.db,
+                *args,
+                **kw
+                )
+            self._dimension_table = dim.table
+            self._dimension_table.create(self.db.connection)
+            msg = 'Creates dimension table %s' %self._dimension_table_name
+            logger.debug(msg)
+        
     
     def set_params(self, **params):
         '''
