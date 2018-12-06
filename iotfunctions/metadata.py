@@ -235,7 +235,14 @@ class EntityType(object):
                                  days=days,seconds=seconds,
                                  freq=freq, categoricals = categoricals,
                                  dates = dates, timestamp = self._timestamp)
+        
         df = ts.execute()
+        
+        '''
+        if self.dimension_table is not None:
+            self.dimension_table.generate_data(entities, write = write)
+        '''
+        
         if write:
             for o in others:
                 if o not in df.columns:

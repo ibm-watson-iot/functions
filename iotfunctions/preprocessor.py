@@ -71,6 +71,7 @@ class BaseFunction(object):
     test_rows = 100 #rows of data to use when testing function
     base_initialized = True # use to test that object was initialized from BaseFunction
     merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
+    _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
@@ -208,10 +209,15 @@ class BaseFunction(object):
         
         exec_str_ver = 'import %s as import_test' %(module.split('.', 1)[0])
         exec(exec_str_ver)
-        version = eval('import_test.__version__')
-        msg = 'Test import succeeded for function version %s using %s' %(version,exec_str)
-        logger.debug(msg)
-        
+        try:
+            module_url = eval('import_test.PACKAGE_URL')
+        except Exception as e:
+            logger.exception('Error importing package. It has no PACKAGE_URL module variable')
+            raise e
+        if module_url == BaseFunction.url:
+            logger.warning('The PACKAGE_URL for your module is the same as BaseFunction url. Make sure that your PACKAGE_URL points to your own package and not iotfunctions')            
+        msg = 'Test import succeeded for function using %s with module url %s' %(exec_str, module_url)
+        logger.debug(msg)            
         payload = {
             'name': name,
             'description': description,
@@ -865,7 +871,7 @@ class BaseFunction(object):
         
         if datatype is None:
             msg = 'Cannot infer datatype for argument %s. Explicitly set the datatype as LITERAL, BOOLEAN, NUMBER or TIMESTAMP in the itemDataTypes dict' %parm
-            raise ValueError(msg)
+            logger.warning(msg)
             
         return datatype
     

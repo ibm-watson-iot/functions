@@ -39,6 +39,67 @@ def register(module,db):
             instance.db = db
             df = instance.get_test_data()
             instance.register(df=df)
+  
+class CategoricalGenerator(object):
+    '''
+    Generate categorical values.
+    
+    Parameters
+    ----------
+    name: str
+        name of categorical item
+    categories: list of strings (optional)
+        domain of values. if none give, will use defaults or generate random
+    '''
+    
+    #most commonly occuring value
+    _mode = 5
+    
+    def __init__(self , name, categories=None, weights = None):
+        
+        self.name = name
+        if categories is None:
+            categories = self.get_default_categories(categories)
+        self.categories = categories
+        if weights is None:
+            weights = np.random.normal(1,0.1,len(self.categories))
+            mode = min(self._mode,len(self.categories))
+            for i in list(range(mode)):
+                weights[i] = weights[i] + i
+            weights = weights / np.sum(weights)
+        self.weights = weights
+        
+    def get_default_categories(self,item):
+        '''
+        Return sample categoricals for a few predefined item names or generate
+        '''
+        
+        if self.name in ['company','company_id','company_code']:
+            return ['ABC','ACME','JDI']
+        elif self.name in ['country','country_id','country_code']:
+            return ['US','CA','UK','DE']
+        elif self.name in ['firmware','firmware_version']:
+            return ['1.0','1.12','1.13','2.1']
+        elif self.name in ['manufacturer']:
+            return ['Rentech','GHI Industries']                
+        elif self.name in ['status','status_code']:
+            return ['inactive','active']
+        elif self.name in ['operator','operator_id','person','employee']:
+            return ['Fred','Joe','Mary','Steve','Henry','Jane','Hillary','Justin','Rod']                
+        else:
+            #build a domain from the characters contained in the name
+            #this way the domain will be consistent between executions
+            domain = []
+            for d in list(self.name):
+                domain.extend(['%s%s'%(d,x) for x in self.name])
+            return  domain
+                
+    def get_data(self, rows):    
+        '''
+        generate array of random categorical values
+        '''        
+        return np.random.choice(self.categories,rows,p=self.weights)
+    
         
                 
 class TimeSeriesGenerator(object):
@@ -132,18 +193,6 @@ class TimeSeriesGenerator(object):
         
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
-        skewed_domain = {}
-        for d in self.categoricals:
-            try:
-                self.domain[d]
-            except KeyError:
-                self.domain[d] = self._generate_domain_values(d)
-            skewed_domain[d] = self.domain[d]
-            max_items = min([5,len(skewed_domain[d])])
-            for item_number, item in enumerate(skewed_domain[d][:max_items]):
-                skewed_domain[d].extend([item for x in list(range(item_number))])
-            
-        
         end = dt.datetime.utcnow()
         start = end - dt.timedelta(days=self.days)
         start = start - dt.timedelta(seconds=self.seconds)
@@ -178,7 +227,9 @@ class TimeSeriesGenerator(object):
                 pass
             
         for d in self.categoricals:
-            df[d] = np.random.choice(skewed_domain[d], len(df.index))
+            
+            gen = CategoricalGenerator(d)
+            df[d] = gen.get_data(len(df.index))
             
         for t in self.dates:
             df[t] = dt.datetime.utcnow() + pd.to_timedelta(df[t],unit = 'D')
@@ -193,24 +244,6 @@ class TimeSeriesGenerator(object):
     def execute(self,df=None):
         df = self.get_data()
         return df
-    
-    def _generate_domain_values(self,item_name):
-        
-        if item_name in ['company','company_id','company_code']:
-            return ['ABC','ACME','JDI']
-        elif item_name in ['country','country_id','country_code']:
-            return ['US','CA','UK','DE']
-        elif item_name in ['status','status_code']:
-            return ['active','inactive']
-        elif item_name in ['operator','operator_id']:
-            return ['Fred','Joe','Mary','Steve','Henry','Jane','Hillary','Justin','Rod']                
-        else:
-            #build a domain from the characters contained in the name
-            #this way the domain will be consistent between executions
-            domain = []
-            for d in list(item_name):
-                domain.extend(['%s%s'%(d,x) for x in item_name])
-            return  domain
         
     
     def set_mean(self,metric,mean):

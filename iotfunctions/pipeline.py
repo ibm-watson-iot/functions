@@ -193,7 +193,11 @@ class CalcPipeline:
                 msg = 'Executing pipeline stage %s. Input dataframe.' %s.__class__.__name__
                 s.log_df_info(df,msg)
             except AttributeError:
-                pass             
+                pass
+            try:
+                abort_on_fail = self._abort_on_fail
+            except AttributeError:
+                abort_on_fail = True
             # There are two different signatures for the execute method
             try:
                 try:
@@ -202,11 +206,17 @@ class CalcPipeline:
                         newdf = s.execute(df=df)
             except AttributeError as e:
                 trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__
-                self._raise_error(exception = e,msg = trace)
-                #raise e.__class__(trace)
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
+            except SyntaxError as e:
+                trace = trace + ' The function contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct' 
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
+            except (ValueError,TypeError) as e:
+                logger.debug(str(df.head(1).transpose()))
+                logger.debug(str(df.describe()))
+                trace = trace + ' The function is operating on data that has an unexpected value or type. '
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)                
             except Exception as e:
-                self._raise_error(exception = e,msg = trace)
-                #raise e.__class__(trace)
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             #validate that stage has not violated any pipeline processing rules
             try:
                 s.validate_df(df,newdf)
@@ -233,7 +243,7 @@ class CalcPipeline:
             trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
         return df
 
-    def export(self):
+    def publish(self):
         
         export = []
         for s in self.stages:
@@ -277,15 +287,20 @@ class CalcPipeline:
         logger.debug(df.head(1).transpose())
         
     
-    def _raise_error(self,exception,msg):
+    def _raise_error(self,exception,msg, abort_on_fail = False):
         '''
         Raise an exception. Append a message to the stacktrace.
         '''
         msg = '%s | %s' %(str(exception),msg)
-        try:
-            raise type(exception)(msg).with_traceback(sys.exc_info()[2])
-        except TypeError:
-            raise exception
+        if abort_on_fail:
+            try:
+                raise type(exception)(msg).with_traceback(sys.exc_info()[2])
+            except TypeError:
+                raise exception
+        else:
+            logger.warn(msg)
+            msg = 'An exception occured during execution of a pipeline stage. The stage is configured to continue after execition failure'
+            logger.warn(msg)
             
     def set_stages(self,stages):
         '''

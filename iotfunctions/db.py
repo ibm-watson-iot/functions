@@ -547,7 +547,7 @@ class Database(object):
             payload = {
                 'name' : f
                 }
-            self.http_request(object_type='function',object_name=f, request = 'DELETE', payload=payload)
+            r = self.http_request(object_type='function',object_name=f, request = 'DELETE', payload=payload)
             msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
             logger.info(msg) 
     
@@ -812,7 +812,7 @@ class ActivityTable(BaseTable):
 
 class Dimension(BaseTable):
     """
-    A dimension contains non-time variant entity attributes. 
+    A dimension contains non time variant entity attributes. 
     """
     def __init__ (self,name,database,*args, **kw):
         self.set_params(**kw)
@@ -820,7 +820,11 @@ class Dimension(BaseTable):
         self.device_type = Column('devicetype',String(50))
         super().__init__(name,database,self.id_col,
                  self.device_type,
-                 *args, **kw)    
+                 *args, **kw)
+        
+    def generate_data(self,entities,write=True):
+        
+        raise NotImplemented('get to it')
     
         
 class ResourceCalendarTable(BaseTable):
