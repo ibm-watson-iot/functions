@@ -65,7 +65,8 @@ class EntityType(object):
         self.activity_tables = {}
         self.scd = {}
         self.db = db
-        self.tenant_id = self.db.tenant_id
+        if self.db is not None:
+            self.tenant_id = self.db.tenant_id
         self.logical_name = None
         self._db_connection_dbi = None
         self._dimension_table = None
@@ -75,13 +76,18 @@ class EntityType(object):
         self.set_params(**kwargs)
         if self.logical_name is None:
             self.logical_name = self.name
-        try:
-            self.table = self.db.get_table(self.name,self._db_schema)
-        except KeyError:
-            ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
-            self.table = ts.table
-            self.db.create()
-            msg = 'Create table %s' %self.name
+            
+        if name is not None and db is not None:            
+            try:
+                self.table = self.db.get_table(self.name,self._db_schema)
+            except KeyError:
+                ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
+                self.table = ts.table
+                self.db.create()
+                msg = 'Create table %s' %self.name
+                logger.debug(msg)
+        else:
+            msg = 'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'
             logger.debug(msg)
             
     def add_activity_table(self, name, activities, *args, **kwargs):
@@ -215,8 +221,17 @@ class EntityType(object):
             self.db.drop_table(self.name)
             self.drop_child_tables()
                 
-        exclude_cols =  ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]        
-        (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(self.table,self._db_schema,exclude_cols = exclude_cols)
+        exclude_cols =  ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]  
+        if self.db is None:
+            write = False
+            msg = 'This is a null entity with no database connection, test data will not be written'
+            logger.debug(msg)
+            metrics = ['x_1','x_2','x_3']
+            dates = ['d_1','d_2','d_3']
+            categoricals = ['c_1','c_2','c_3']
+            others = []
+        else:
+            (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(self.table,self._db_schema,exclude_cols = exclude_cols)
         msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,categoricals,dates)
         logger.debug(msg)
         ts = TimeSeriesGenerator(metrics=metrics,ids=entities,

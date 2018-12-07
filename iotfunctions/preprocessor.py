@@ -176,6 +176,9 @@ class BaseFunction(object):
         Register the function type with AS
         '''
         
+        if self._entity_type is None:
+            self._entity_type = EntityType(name='<Null Entity Type>',db=None)
+        
         if not self.base_initialized:
             raise RuntimeError('Cannot register function. Did not call super().__init__() in constructor so defaults have not be set correctly.')
             
@@ -1023,6 +1026,9 @@ class BaseFunction(object):
         """
         Output a dataframe for testing function
         """
+        
+        if self._entity_type is None:
+            self._entity_type = EntityType(name='<Null Entity Type>',db=None)
         
         data = {
                 self._entity_type._entity_id : ['D1','D1','D1','D1','D1','D2','D2','D2','D2','D2'],
