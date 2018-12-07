@@ -210,7 +210,7 @@ class BaseFunction(object):
         exec_str_ver = 'import %s as import_test' %(module.split('.', 1)[0])
         exec(exec_str_ver)
         try:
-            module_url = eval('import_test.PACKAGE_URL')
+            module_url = eval('import_test.%s.PACKAGE_URL' %(module.split('.', 1)[1]))
         except Exception as e:
             logger.exception('Error importing package. It has no PACKAGE_URL module variable')
             raise e

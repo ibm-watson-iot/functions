@@ -100,7 +100,49 @@ class CategoricalGenerator(object):
         '''        
         return np.random.choice(self.categories,rows,p=self.weights)
     
+class DateGenerator(object):
+    '''
+    Generate a array of random dates
+    
+    '''
+    _default_future_days = 0
+    _default_past_days = 30
+    
+    def __init__(self,name =None, start_date = None, end_date = None):
         
+        self.name = name
+        self.start_date = start_date
+        self.end_date = end_date
+        
+    def get_data(self,rows):
+        
+        days = list(np.random.uniform(-self._default_past_days,self._default_future_days,rows))
+        dates = [dt.datetime.utcnow() + dt.timedelta(days = x) for x in days]
+        return dates
+
+
+class MetricGenerator(object):
+    '''
+    Generate a array of random dates
+    
+    Will support predefined names in the future with named ranges in case
+    you are wondering why this is needed
+    
+    '''
+    _default_future_days = 0
+    _default_past_days = 30
+    
+    def init(self,name = None , mean = None , sd = None):
+        
+        self.name = name
+        self.mean = mean
+        self.sd = sd
+        
+    def get_data(self,rows):
+        
+        metrics = np.random.normal(self.mean,self.sd,rows)
+        
+        return metrics
                 
 class TimeSeriesGenerator(object):
 

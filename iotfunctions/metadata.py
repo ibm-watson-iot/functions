@@ -15,7 +15,7 @@ import urllib3
 import pandas as pd
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float
 from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
-from .automation import TimeSeriesGenerator
+from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
@@ -80,7 +80,7 @@ class EntityType(object):
         except KeyError:
             ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
             self.table = ts.table
-            self.table.create(self.db.connection)
+            self.db.create()
             msg = 'Create table %s' %self.name
             logger.debug(msg)
             
@@ -103,7 +103,7 @@ class EntityType(object):
         try:
             sqltable = self.db.get_table(name, self._db_schema)
         except KeyError:
-            table.create(self.db.connection)
+            self.create()
         self.activity_tables[name] = table
         
         
@@ -128,7 +128,7 @@ class EntityType(object):
         try:
             sqltable = self.db.get_table(name,self._db_schema)
         except KeyError:
-            table.create(self.db.connection)
+            table.create()
         self.scd[property_name] = table
         
     def drop_child_tables(self):
@@ -214,21 +214,9 @@ class EntityType(object):
         if drop_existing:
             self.db.drop_table(self.name)
             self.drop_child_tables()
-        
-        
-        for c in self.db.get_column_names(self.table):
-            if not c in ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]:
-                data_type = self.table.c[c].type
-                if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
-                    metrics.append(c)
-                elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
-                    categoricals.append(c)
-                elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
-                    dates.append(c)
-                else:
-                    others.append(c)
-                    msg = 'Encountered column %s of unknown data type %s' %(c,data_type.__class__.__name__)
-                    raise TypeError(msg)
+                
+        exclude_cols =  ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]        
+        (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(self.table,self._db_schema,exclude_cols = exclude_cols)
         msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,categoricals,dates)
         logger.debug(msg)
         ts = TimeSeriesGenerator(metrics=metrics,ids=entities,
@@ -238,10 +226,8 @@ class EntityType(object):
         
         df = ts.execute()
         
-        '''
-        if self.dimension_table is not None:
-            self.dimension_table.generate_data(entities, write = write)
-        '''
+        if self._dimension_table_name is not None:
+            self.generate_dimension_data(entities, write = write)
         
         if write:
             for o in others:
@@ -346,9 +332,34 @@ class EntityType(object):
                 **kw
                 )
             self._dimension_table = dim.table
-            self._dimension_table.create(self.db.connection)
+            dim.create()
             msg = 'Creates dimension table %s' %self._dimension_table_name
             logger.debug(msg)
+            
+    def generate_dimension_data(self,entities,write=True):
+        
+        (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
+                                                self._dimension_table_name,
+                                                self._db_schema,exclude_cols = [self._entity_id])
+        
+        rows = len(entities)
+        data = {}
+        
+        for m in metrics:
+            data[m] = MetricGenerator(m).get_data(rows=rows)
+
+        for c in categoricals:
+            data[c] = CategoricalGenerator(c).get_data(rows=rows)            
+            
+        data[self._entity_id] = entities
+            
+        df = pd.DataFrame(data = data)
+        
+        for d in dates:
+            df[d] = DateGenerator(d).get_data(rows=rows)
+            df[d] = pd.to_datetime(df[d])
+        
+        self.db.write_frame(df,table_name = self._dimension_table_name, if_exists = 'replace')
         
     
     def set_params(self, **params):

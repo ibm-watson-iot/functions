@@ -28,7 +28,7 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError    
-from .automation import TimeSeriesGenerator
+from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 logger = logging.getLogger(__name__)
 DB2_INSTALLED = True
 try:
@@ -416,14 +416,15 @@ class Database(object):
         if not self.session is None:
             self.session.commit()
             self.session.close()
-            self.session = None        
+            self.session = None
+     
         
-    def create_all(self,tables = None, checkfirst = True ):
+    def create(self,tables = None, checkfirst = True ):
         '''
         Create database tables for logical tables defined in the database metadata
         '''
+        
         self.metadata.create_all(tables = tables, checkfirst = checkfirst)
-
         
     def drop_table(self,table_name,schema=None):
         
@@ -432,8 +433,10 @@ class Database(object):
         except KeyError:
             msg = 'Didnt drop table %s becuase it doesnt exist in the the database' %table_name
         else:
+            self.start_session()
             self.metadata.drop_all(tables = [table], checkfirst = True) 
-            msg = 'Dropped table name %s' %table_name
+            msg = 'Dropped table name %s' %table.name
+            self.session.commit()
         logger.debug(msg)
                
         
@@ -441,15 +444,54 @@ class Database(object):
         '''
         Get sql alchemchy table object for table name
         '''
-        kwargs = {
-                'schema': schema
-                }
-        try:
-            table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)        
-        except NoSuchTableError:
-            raise KeyError ('Table %s does not exist in the database' %table_name)
+        
+        if isinstance(table_name,str):
+            kwargs = {
+                    'schema': schema
+                    }
+            try:
+                table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)        
+            except NoSuchTableError:
+                raise KeyError ('Table %s does not exist in the database' %table_name)
+        elif issubclass(table_name.__class__,BaseTable):
+            table = table_name.table
+        elif isinstance(table_name,Table):
+            table = table_name
         else:
-            return table
+            msg = 'Cannot get sql alchemcy table object for %s' %table_name
+            raise ValueError(msg)
+            
+        return table
+        
+    def get_column_lists_by_type(self, table, schema = None, exclude_cols = None):
+        """
+        Get metrics, dates and categoricals and others
+        """
+        
+        table = self.get_table(table, schema = schema)
+        
+        if exclude_cols is None:
+            exclude_cols = []
+        metrics = []
+        dates = []
+        categoricals = []
+        others = []
+        
+        for c in self.get_column_names(table):
+            if not c in exclude_cols:
+                data_type = table.c[c].type
+                if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
+                    metrics.append(c)
+                elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
+                    categoricals.append(c)
+                elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
+                    dates.append(c)
+                else:
+                    others.append(c)
+                    msg = 'Found column %s of unknown data type %s' %(c,data_type.__class__.__name__)
+                    logger.warning(msg)
+                    
+        return (metrics,dates,categoricals,others)        
         
     def get_column_names(self,table, schema=None):
         """
@@ -530,8 +572,6 @@ class Database(object):
         else:
             table = table_name
         q = self.session.query(table)        
-        #msg = 'Query object built %s' %q.statement
-        #logger.debug(msg)
         
         return (q,table)
     
@@ -663,41 +703,13 @@ class BaseTable(object):
         self.id_col = Column(self._entity_id,String(50))
         
     def create(self):
-        self.table.create(self.database.connection)
+        self.table.create()
         
     def get_column_names(self):
         """
         Get a list of columns names
         """
-        return [column.key for column in self.table.columns]
-    
-    def get_column_lists_by_type(self, exclude_cols = None):
-        """
-        Get metrics, dates and categoricals and others
-        """
-        if exclude_cols is None:
-            exclude_cols = []
-        metrics = []
-        dates = []
-        categoricals = []
-        others = []
-        
-        for c in self.database.get_column_names(self.table):
-            if not c in exclude_cols:
-                data_type = self.table.c[c].type
-                if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
-                    metrics.append(c)
-                elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
-                    categoricals.append(c)
-                elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
-                    dates.append(c)
-                else:
-                    others.append(c)
-                    msg = 'Ignored column %s of unknown data type %s' %(c,data_type.__class__.__name__)
-                    logger.warning(msg)
-                    
-        return (metrics,dates,categoricals,others)
-                
+        return [column.key for column in self.table.columns]                
 
     def insert(self,df, chunksize = None):
         """
@@ -784,7 +796,7 @@ class ActivityTable(BaseTable):
         
     def generate_data(self,entities,days,seconds,write=True):
         
-        (metrics, dates, categoricals,others) = self.get_column_lists_by_type(exclude_cols=[self._entity_id,'start_date','end_date'])
+        (metrics, dates, categoricals,others) = self.database.get_column_lists_by_type(self.name,self.schema,exclude_cols=[self._entity_id,'start_date','end_date'])
         metrics.append('duration')
         categoricals.append('activity')
         ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
@@ -817,14 +829,8 @@ class Dimension(BaseTable):
     def __init__ (self,name,database,*args, **kw):
         self.set_params(**kw)
         self.id_col = Column(self._entity_id,String(50))
-        self.device_type = Column('devicetype',String(50))
         super().__init__(name,database,self.id_col,
-                 self.device_type,
                  *args, **kw)
-        
-    def generate_data(self,entities,write=True):
-        
-        raise NotImplemented('get to it')
     
         
 class ResourceCalendarTable(BaseTable):
@@ -878,7 +884,7 @@ class SlowlyChangingDimension(BaseTable):
     def generate_data(self,entities,days,seconds,write=True):
         
         msg = 'generating data for %s for %s days and %s seconds' %(self.table.name,days,seconds)
-        (metrics, dates, categoricals,others) = self.get_column_lists_by_type(exclude_cols=[self._entity_id,'start_date','end_date'])
+        (metrics, dates, categoricals,others) = self.database.get_column_lists_by_type(self.name,self.schema,exclude_cols=[self._entity_id,'start_date','end_date'])
         msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
         ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
                                  ids = entities, days = days, seconds = seconds, freq = self._freq)
