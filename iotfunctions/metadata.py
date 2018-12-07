@@ -278,11 +278,23 @@ class EntityType(object):
             credentials for the ICS metadata service
 
         '''
+        cols = []
         columns = []
-        dates = []
+        table = {}
+        table['name'] = self.logical_name
+        table['metricTableName'] = self.name
+        table['metricTimestampColumn'] = self._timestamp
+        if self._dimension_table is not None:
+            table['dimensionTableName'] = self._dimension_table_name
+            for c in self.db.get_column_names(self._dimension_table):
+                cols.append((self._dimension_table,c,'DIMENSION'))
         for c in self.db.get_column_names(self.table):
-            if c not in ['logicalinterface_id','format','updated_utc']:
-                data_type = self.table.c[c].type
+            cols.append((self.table,c,'METRIC'))
+        for (table_obj,column_name,col_type) in cols:
+            msg = 'found %s column %s' %(col_type,column_name)
+            logger.debug(msg)
+            if column_name not in ['logicalinterface_id','format','updated_utc']:
+                data_type = table_obj.c[column_name].type
                 if isinstance(data_type,DOUBLE) or isinstance(data_type,Float) or isinstance(data_type,Integer):
                     data_type = 'NUMBER'
                 elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
@@ -293,18 +305,14 @@ class EntityType(object):
                     data_type = str(data_type)
                     logger.warning('Unknown datatype %s for column %s' %(data_type,c))
                 columns.append({ 
-                        'name' : c,
-                        'type' : 'METRIC',
-                        'columnName' : c,
+                        'name' : column_name,
+                        'type' : col_type,
+                        'columnName' : column_name,
                         'columnType'  : data_type,
                         'tags' : None,
                         'transient' : False
-                        })
-        table = {}
-        table['name'] = self.name
+                        })                
         table['dataItemDto'] = columns
-        table['metricTableName'] = self.name
-        table['metricTimestampColumn'] = self._timestamp
         try:
             table['schemaName'] = self.db.credentials['db2']['username']
         except KeyError:
@@ -315,7 +323,7 @@ class EntityType(object):
                                      object_name = self.name,
                                      payload = payload)
 
-        msg = 'Metadata registerd for table %s '%self.name
+        msg = 'Metadata registered for table %s '%self.name
         logger.debug(msg)
         return response
     
