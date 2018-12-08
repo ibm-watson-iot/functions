@@ -290,6 +290,10 @@ class CalcPipeline:
         try:
             msg = stage.trace_get()
         except AttributeError:
+            try: 
+                msg = stage._trace
+            except AttributeError:
+                msg = ''
             msg = ''
         msg = msg + str(last_msg)
         return msg
