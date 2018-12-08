@@ -180,9 +180,7 @@ class CalcPipeline:
                 if not s in secondary_sources:
                     continue
             #check to see if incoming data has a conformed index, conform if needed
-            trace = trace_history + ' pipeline failed during execution of stage %s. ' %s.__class__.__name__
-            trace = trace +' Dataframe had columns: %s.' %(list(df.columns))
-            trace = trace +' Dataframe had index: %s.' %(df.index.names)            
+            trace = trace_history + ' pipeline failed during execution of stage %s. ' %s.__class__.__name__          
             try:
                 df = s.conform_index(df)
             except AttributeError:
@@ -207,23 +205,23 @@ class CalcPipeline:
                 except TypeError:
                         newdf = s.execute(df=df)
             except AttributeError as e:
-                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             except SyntaxError as e:
-                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct' 
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             except (ValueError,TypeError) as e:
-                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function is operating on data that has an unexpected value or data type. '
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)                
             except (NameError) as e:
-                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function refered to an object that does not exist. You may be refering to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. '
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             except Exception as e:
-                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function failed to execute '
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             #validate that stage has not violated any pipeline processing rules
