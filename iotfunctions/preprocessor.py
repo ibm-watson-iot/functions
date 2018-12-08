@@ -892,6 +892,7 @@ class BaseFunction(object):
         itemDescriptions['bucket']= 'Name of the COS bucket used for storage of data or serialized objects'
         itemDescriptions['cos_credentials']= 'External COS credentials'
         itemDescriptions['db_credentials']= 'Db2 credentials'
+        itemDescriptions['expression'] = 'Expression involving data items. Refer to data items using ${item_name} or using pandas syntax df["item_name"]'
         itemDescriptions['function_name']= 'Name of python function to be called.'
         itemDescriptions['input_items']= 'List of input items required by the function.'
         itemDescriptions['input_item']= 'Single input required by the function.'
@@ -1782,43 +1783,7 @@ class BasePreload(BaseTransformer):
         '''
         raise NotImplementedError('This function has no execute method defined. You must implement a custom execute for any preload function')
         return True
-        
-
-
-class AlertThreshold(BaseEvent):
-    """
-    Fire alert when metric exceeds an upper threshold or drops below a lower_theshold. Specify at least on threshold.
-    """
     
-    optionalItems = ['lower_threshold','upper_threshold']
-    
-    
-    def __init__ (self,input_item, lower_threshold=None, upper_threshold=None,
-                  output_alert_upper = 'output_alert_upper', output_alert_lower = 'output_alert_lower'):
-        
-        self.input_item = input_item
-        if not lower_threshold is None:
-            lower_threshold = float(lower_threshold)
-        self.lower_threshold = lower_threshold
-        if not upper_threshold is None:
-            upper_threshold = float(upper_threshold)
-        self.upper_threshold = upper_threshold
-        self.output_alert_lower = output_alert_lower
-        self.output_alert_upper = output_alert_upper
-        super().__init__()
-        
-    def execute(self,df):
-        
-        df = df.copy()
-        df[self.output_alert_upper] = False
-        df[self.output_alert_lower] = False
-        
-        if not self.lower_threshold is None:
-            df[self.output_alert_lower] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
-        if not self.upper_threshold is None:
-            df[self.output_alert_upper] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
-            
-        return df
     
 class CompanyFilter(BaseFilter):
     '''
@@ -1909,6 +1874,8 @@ class EntityDataGenerator(BasePreload):
     
     def __init__ (self, dummy_items, output_item = None):
         super().__init__(dummy_items = dummy_items, output_item = output_item)
+        self.inputs = ['dummy_items']
+        self.outputs = ['output_item']
         
     def execute(self,
                  df,
