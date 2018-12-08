@@ -23,7 +23,6 @@ class IoTAlertExpression(BaseEvent):
     Create alerts that are triggered when data values reach a particular range.
     '''
     def __init__(self, input_items, expression , alert_name):
-        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
         self.input_items = input_items
         self.expression = expression
         self.alert_name = alert_name
