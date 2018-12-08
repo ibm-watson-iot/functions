@@ -216,8 +216,12 @@ class CalcPipeline:
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             except (ValueError,TypeError) as e:
                 trace = self.get_stage_trace(stage=s,last_msg=last_msg)
-                trace = trace + ' The function is operating on data that has an unexpected value or type. '
+                trace = trace + ' The function is operating on data that has an unexpected value or data type. '
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)                
+            except (NameError) as e:
+                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + ' The function refered to an object that does not exist. You may be refering to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. '
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             except Exception as e:
                 trace = self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function failed to execute '
@@ -317,13 +321,10 @@ class CalcPipeline:
         '''
         msg = '%s | %s' %(str(exception),msg)
         if abort_on_fail:
-            try:
-                raise type(exception)(msg).with_traceback(sys.exc_info()[2])
-            except TypeError:
-                raise exception
+            raise type(exception)(msg).with_traceback(sys.exc_info()[2])
         else:
             logger.warn(msg)
-            msg = 'An exception occured during execution of a pipeline stage. The stage is configured to continue after execition failure'
+            msg = 'An exception occured during execution of a pipeline stage. The stage is configured to continue after an execution failure'
             logger.warn(msg)
             
     def set_stages(self,stages):
