@@ -146,7 +146,9 @@ class BaseFunction(object):
             self.scd_metadata= {}
             
         if self._entity_scd_dict is None:
-            self._entity_scd_dict= {}                     
+            self._entity_scd_dict= {}
+
+        self._trace_msg = ''                
 
         #if cos credentials are not explicitly  provided use environment variable
         if self.bucket is None:
@@ -165,7 +167,7 @@ class BaseFunction(object):
         '''
         
         self.scd_metadata[scd_property] = table_name
-                    
+                            
     
     def register(self,df,credentials=None,new_df = None,
                  name=None,url=None,constants = None, module=None,
@@ -947,7 +949,32 @@ class BaseFunction(object):
         for key,value in list(params.items()):
             setattr(self, key, value)
         return self
-                
+ 
+
+    def trace_append(self,msg):
+        '''
+        Add a string to the trace. This trace will be displayed if the function fails during execution.
+        '''
+        try:
+            self._trace = self._trace + ' ' + msg
+        except AttributeError:
+            self._trace = msg
+            
+    def trace_get(self):
+        '''
+        Get trace information that was provided by the function author
+        '''
+        try:
+            return(self._trace)    
+        except AttributeError:
+            return None
+
+    def trace_replace(self,msg):
+        '''
+        Replace the trace string. This trace will be displayed if the function fails during execution.
+        '''
+        self._trace = msg
+        
     
     def write_frame(self,df,
                     table_name=None, 
@@ -1019,9 +1046,13 @@ class BaseFunction(object):
         '''
         Log a debugging entry showing first row and index structure
         '''
-        msg = msg + ' | count: %s | index %s' % (len(df.index), df.index.names)
+        msg = msg + ' | df count: %s ' %(len(df.index))
+        msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
+        cols = df.head(1).transpose().squeeze().to_dict()
+        for key,value in list(cols.items()):
+            msg = msg + '%s : %s \n' %(key, value)
         logger.debug(msg)
-        logger.debug(df.head(1).transpose())
+        return msg
     
     def get_test_data(self):
         """

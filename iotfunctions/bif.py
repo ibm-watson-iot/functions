@@ -37,13 +37,12 @@ class IoTAlertExpression(BaseEvent):
         df = df.copy()
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
+            msg = 'expression converted to %s' %expr
         else:
             expr = self.expression
-        msg = 'before evaluation of expression %s' %expr
-        self.log_df_info(df,msg)
+            msg = 'expression was not in the form "${item}" so it will evaluated asis (%s)' %expr
+        self.trace_append(msg)
         df[self.alert_name] = np.where(eval(expr), True, np.nan)
-        msg = 'after evaluation of expression %s' %expr
-        self.log_df_info(df,msg)
         return df
     
     

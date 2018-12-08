@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+import json
 import numpy as np
 import sys
 logger = logging.getLogger(__name__)
@@ -124,6 +125,7 @@ class CalcPipeline:
         '''
         Execute the pipeline using an input dataframe as source.
         '''
+        last_msg = ''
         #preload may  have already taken place. if so pass the names of the stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
@@ -190,10 +192,10 @@ class CalcPipeline:
                 print(trace)
                 raise               
             try:
-                msg = 'Executing pipeline stage %s. Input dataframe.' %s.__class__.__name__
-                s.log_df_info(df,msg)
+                msg = ' Dataframe at start of %s: ' %s.__class__.__name__
+                last_msg = s.log_df_info(df,msg)
             except AttributeError:
-                pass
+                last_msg = self.log_df_info(df,msg)
             try:
                 abort_on_fail = self._abort_on_fail
             except AttributeError:
@@ -205,17 +207,20 @@ class CalcPipeline:
                 except TypeError:
                         newdf = s.execute(df=df)
             except AttributeError as e:
+                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             except SyntaxError as e:
+                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct' 
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             except (ValueError,TypeError) as e:
-                logger.debug(str(df.head(1).transpose()))
-                logger.debug(str(df.describe()))
+                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function is operating on data that has an unexpected value or type. '
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)                
             except Exception as e:
+                trace = self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + ' The function failed to execute '
                 self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             #validate that stage has not violated any pipeline processing rules
             try:
@@ -236,9 +241,9 @@ class CalcPipeline:
                 df.to_csv('debugPipelineOut_%s.csv' %s.__class__.__name__)
             try:
                 msg = 'Completed stage %s. Output dataframe.' %s.__class__.__name__
-                s.log_df_info(df,msg)
+                last_msg = s.log_df_info(df,msg)
             except AttributeError:
-                pass
+                last_msg = self.log_df_info(df,msg)
             secondary_sources = [x for x in secondary_sources if x != s]
             trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
         return df
@@ -278,13 +283,28 @@ class CalcPipeline:
             
         return inputs
     
+    def get_stage_trace(self, stage, last_msg = ''):
+        '''
+        Get a trace message from the stage
+        '''
+        try:
+            msg = stage.trace_get()
+        except AttributeError:
+            msg = ''
+        msg = msg + str(last_msg)
+        return msg
+    
     def log_df_info(self,df,msg):
         '''
         Log a debugging entry showing first row and index structure
         '''
-        msg = msg + ' | count: %s | index %s' % (len(df.index), df.index.names)
+        msg = msg + ' | df count: %s ' %(len(df.index))
+        msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
+        cols = df.head(1).transpose().squeeze().to_dict()
+        for key,value in list(cols.items()):
+            msg = msg + '%s : %s \n' %(key, value)
         logger.debug(msg)
-        logger.debug(df.head(1).transpose())
+        return msg
         
     
     def _raise_error(self,exception,msg, abort_on_fail = False):
