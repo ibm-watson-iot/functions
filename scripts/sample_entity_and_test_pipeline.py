@@ -16,7 +16,8 @@ os.environ['API_TOKEN'] = credentials['as_api_token']
 
 from iotfunctions.db import Database
 from iotfunctions.metadata import EntityType
-from iotfunctions.preprocessor import TimeToFirstAndLastInShift, LookupOperator, MergeActivityData,SamplePreLoad,CompanyFilter,GenerateException, MultiplyByTwo, MergeSampleTimeSeries, EntityDataGenerator, AlertThreshold
+from iotfunctions.preprocessor import TimeToFirstAndLastInShift, LookupOperator, MergeActivityData,SamplePreLoad,CompanyFilter,GenerateException, MultiplyByTwo, MergeSampleTimeSeries, EntityDataGenerator
+from iotfunctions.bif import IoTAlertOutOfRange
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean
 
 '''
@@ -80,7 +81,7 @@ You can use the outputs of one calculation in another. To demonstrate this
 we will add an alert on "double_temp" and while we are at, filter the
 data down to a single company.
 '''
-pl.add_stage(AlertThreshold(input_item = 'double_temp', lower_threshold = -5, upper_threshold = 5))
+pl.add_stage(IoTAlertOutOfRange(input_item = 'double_temp', lower_threshold = -5, upper_threshold = 5))
 pl.add_stage(CompanyFilter(company_code = 'company_code', company = 'ACME'))
 df = pl.execute(to_csv= True,start_ts=None, register=True)
 '''
@@ -92,7 +93,7 @@ the pipeline runs, we can keep our widgets well fed with new data.
 pl = entity.get_calc_pipeline()
 pl.add_stage(EntityDataGenerator(dummy_items=['temp']))
 pl.add_stage(MultiplyByTwo(input_item = 'temp', output_item='double_temp'))
-pl.add_stage(AlertThreshold(input_item = 'double_temp', lower_threshold = -5, upper_threshold = 5))
+pl.add_stage(IoTAlertOutOfRange(input_item = 'double_temp', lower_threshold = -5, upper_threshold = 5))
 pl.add_stage(CompanyFilter(company_code = 'company_code', company = 'ACME'))    
 df = pl.execute(to_csv= True,start_ts=None, register=True)
 '''
