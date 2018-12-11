@@ -61,7 +61,7 @@ class EntityType(object):
        
     
     def __init__ (self,name,db, *args, **kwargs):
-        self.name = name
+        self.name = name.lower()
         self.activity_tables = {}
         self.scd = {}
         self.db = db
@@ -104,6 +104,7 @@ class EntityType(object):
             other columns describing the activity, e.g. materials_cost
         '''
         kwargs['_activities'] = activities
+        name = name.lower()
         
         table = ActivityTable(name, self.db,*args, **kwargs)
         try:
@@ -124,6 +125,8 @@ class EntityType(object):
             name of property, e.g. firmware_version (lower case, no database reserved words)
         datatype: sqlalchemy datatype
         '''
+        
+        property_name = property_name.lower()
         
         name= '%s_scd_%s' %(self.name,property_name)
 
@@ -160,14 +163,17 @@ class EntityType(object):
         '''
         Retrieve entity data
         '''
-        (query,table) = self.db.query(self.name)
+        (query,table) = self.db.query(self.name, schema = self._db_schema)
         if not start_ts is None:
             query = query.filter(table.c[self._timestamp] >= start_ts)
         if not end_ts is None:
             query = query.filter(table.c[self._timestamp] <= end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self.db.connection)
+        params = {
+                    'schema': self._db_schema
+                    }            
+        df = pd.read_sql(query.statement, con = self.db.connection, params = params)
         
         return df       
         
@@ -176,7 +182,7 @@ class EntityType(object):
         '''
         Get KPI execution log info. Returns a dataframe.
         '''
-        query, log = self.db.query(self.log_table)
+        query, log = self.db.query(self.log_table, self._db_schema)
         query = query.filter(log.c.entity_type==self.name).\
                       order_by(log.c.timestamp_utc.desc()).\
                       limit(rows)
@@ -343,6 +349,8 @@ class EntityType(object):
                 }
         if name is None:
             name = '%s_dimension' %self.name
+            
+        name = name.lower()
             
         self._dimension_table_name = name
     

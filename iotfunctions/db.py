@@ -549,7 +549,7 @@ class Database(object):
             msg = 'Truncated table name %s' %table_name
         logger.debug(msg)             
         
-    def query(self,table_name):
+    def query(self,table_name, schema):
         '''
         Build a sqlalchemy query object for a table. You can further manipulate the query object using standard sqlalchemcy operations to do things like filter and join.
         
@@ -562,15 +562,7 @@ class Database(object):
         tuple containing a sqlalchemy query object and a sqlalchemy table object
         '''        
         self.start_session()
-        if isinstance(table_name, str):
-            try:
-                table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection)
-            except:
-                msg = 'Error retrieving table %s' %table_name
-                logger.exception(msg)
-                raise
-        else:
-            table = table_name
+        table = self.get_table(table_name,schema)
         q = self.session.query(table)        
         
         return (q,table)

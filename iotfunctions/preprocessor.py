@@ -754,15 +754,20 @@ class BaseFunction(object):
         '''
         Retrieve an slowly changing dimension property as a dataframe
         '''       
-        (query,table) = self._entity_type.db.query(table_name)
+        (query,table) = self._entity_type.db.query(table_name,schema = self._entity_type._db_schema)
         if not start_ts is None:
             query = query.filter(table.c.end_date >= start_ts)
         if not end_ts is None:
             query = query.filter(table.c.start_date < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self._entity_type.db.connection,  parse_dates=[self._start_date,self._end_date])
-        
+        params = {
+                    'schema': self._entity_type._db_schema
+                    }
+        df = pd.read_sql(query.statement,
+                         con = self._entity_type.db.connection,
+                         parse_dates=[self._start_date,self._end_date],
+                         params = params)
         return df
     
     def _add_explicit_outputs(self,df):
@@ -1402,7 +1407,10 @@ class BaseDatabaseLookup(BaseTransformer):
             '''
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
-            df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
+            params = {
+                    'schema': self._entity_type._db_schema
+                    }
+            df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols, params = params)
             df.columns = [x.lower() for x in list(df.columns)]            
             return(list(df.columns))
                         
@@ -1418,7 +1426,14 @@ class BaseDatabaseLookup(BaseTransformer):
         if self._auto_create_lookup_table:
             self.create_lookup_table(df=None,table_name=self.lookup_table_name)
 
-        df_sql = pd.read_sql(self.sql, self.db.connection, index_col=self.lookup_keys, parse_dates=self.parse_dates)
+        params = {
+                    'schema': self._entity_type._db_schema
+                    }
+        df_sql = pd.read_sql(self.sql, 
+                             self.db.connection,
+                             index_col=self.lookup_keys,
+                             parse_dates=self.parse_dates,
+                             params = params)
         df_sql = df_sql[self.lookup_items]
                 
         if len(self.output_items) > len(df_sql.columns):
@@ -1530,7 +1545,13 @@ class BaseDBActivityMerge(BaseDataSource):
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
-                af = pd.read_sql(sql, con = self._entity_type.db.connection,  parse_dates=[self._start_date,self._end_date])
+                params = {
+                    'schema': self._entity_type._db_schema
+                    }
+                af = pd.read_sql(sql,
+                                 con = self._entity_type.db.connection,
+                                 parse_dates=[self._start_date,self._end_date],
+                                 params = params)
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
@@ -1724,7 +1745,7 @@ class BaseDBActivityMerge(BaseDataSource):
         Dataframe
         """
         
-        (query,table) = self._entity_type.db.query(table_name)
+        (query,table) = self._entity_type.db.query(table_name,schema = self._entity_type._db_schema)
         query = query.filter(table.c.activity == activity_code)
         if not start_ts is None:
             query = query.filter(table.c.end_date >= start_ts)
@@ -1732,7 +1753,13 @@ class BaseDBActivityMerge(BaseDataSource):
             query = query.filter(table.c.start_date < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self._entity_type.db.connection,  parse_dates=[self._start_date,self._end_date])
+        params = {
+                    'schema': self._entity_type._db_schema
+                    }            
+        df = pd.read_sql(query.statement,
+                         con = self._entity_type.db.connection,
+                         parse_dates=[self._start_date,self._end_date],
+                         params = params)
         
         return df
 
@@ -2279,14 +2306,20 @@ class MergeSampleTimeSeries(BaseDataSource):
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
         self.load_sample_data()
-        (query,table) = self._entity_type.db.query(self.source_table_name)
+        (query,table) = self._entity_type.db.query(self.source_table_name,schema = self._entity_type._db_schema)
         if not start_ts is None:
             query = query.filter(table.c[self._entity_type._timestamp] >= start_ts)
         if not end_ts is None:
             query = query.filter(table.c[self._entity_type._timestamp] < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self._entity_type.db.connection,  parse_dates=[self._entity_type._timestamp])        
+        params = {
+                    'schema': self._entity_type._db_schema
+                    }
+        df = pd.read_sql(query.statement,
+                         con = self._entity_type.db.connection,
+                         parse_dates=[self._entity_type._timestamp],
+                         params = params)        
         return df
     
     
