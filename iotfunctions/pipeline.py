@@ -297,6 +297,8 @@ class CalcPipeline:
             except AttributeError:
                 msg = ''
             msg = ''
+        if msg is None:
+            msg = ''            
         msg = msg + str(last_msg)
         return msg
     

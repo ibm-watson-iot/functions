@@ -117,4 +117,28 @@ class IoTAlertLowValue(BaseEvent):
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
             
-        return df       
+        return df
+    
+class IoTPackageInfo(BaseTransformer):
+    """
+    Show the version number 
+    """
+    
+    def __init__ (self, dummy_item, package_url = 'package_url', module = 'module', version = 'version'):
+        
+        self.dummy_item = dummy_item
+        self.package_url = package_url
+        self.module = module
+        self.version = version
+        super().__init__()
+        
+    def execute(self,df):
+        
+        df = df.copy()
+        df[self.package_url] = self.url
+        df[self.module] = self.__module__
+        df[self.version] = iotf.__version__
+        
+        return df
+
+   
