@@ -315,6 +315,7 @@ class CalcPipeline:
         msg = msg + ' | df count: %s ' %(len(df.index))
         msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
 
+        '''
         try:
             cols = df.head(1).squeeze().to_dict()
         except AttributeError:
@@ -322,6 +323,9 @@ class CalcPipeline:
 
         for key,value in list(cols.items()):
             msg = msg + '%s : %s \n' %(key, value)
+            
+        '''
+
         logger.debug(msg)
         return msg
         
