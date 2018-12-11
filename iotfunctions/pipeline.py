@@ -192,7 +192,7 @@ class CalcPipeline:
             try:
                 msg = ' Dataframe at start of %s: ' %s.__class__.__name__
                 last_msg = s.log_df_info(df,msg)
-            except AttributeError:
+            except Exception:
                 last_msg = self.log_df_info(df,msg)
             try:
                 abort_on_fail = self._abort_on_fail
@@ -244,7 +244,7 @@ class CalcPipeline:
             try:
                 msg = 'Completed stage %s. Output dataframe.' %s.__class__.__name__
                 last_msg = s.log_df_info(df,msg)
-            except AttributeError:
+            except Exception:
                 last_msg = self.log_df_info(df,msg)
             secondary_sources = [x for x in secondary_sources if x != s]
             trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
@@ -306,7 +306,12 @@ class CalcPipeline:
         '''
         msg = msg + ' | df count: %s ' %(len(df.index))
         msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
-        cols = df.head(1).transpose().squeeze().to_dict()
+
+        try:
+            cols = df.head(1).squeeze().to_dict()
+        except AttributeError:
+            cols = df.head(1).to_dict()
+
         for key,value in list(cols.items()):
             msg = msg + '%s : %s \n' %(key, value)
         logger.debug(msg)
