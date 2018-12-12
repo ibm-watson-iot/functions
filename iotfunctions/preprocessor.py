@@ -1045,12 +1045,21 @@ class BaseFunction(object):
         Log a debugging entry showing first row and index structure
         '''
         msg = msg + ' | df count: %s ' %(len(df.index))
-        msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
-        cols = df.head(1).transpose().squeeze().to_dict()
-        if df.index.names is None:
+        if df.index.names is not None:
             msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
         else:
             msg = msg + ' | df index is un-named'
+
+        '''
+        try:
+            cols = df.head(1).squeeze().to_dict()
+        except AttributeError:
+            cols = df.head(1).to_dict()
+
+        for key,value in list(cols.items()):
+            msg = msg + '%s : %s \n' %(key, value)
+            
+        '''
         logger.debug(msg)
         return msg
     
