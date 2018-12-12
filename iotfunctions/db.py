@@ -289,7 +289,7 @@ class Database(object):
         
         '''
         if bucket is None:
-            bucket = self.db.credentials['objectStorage']['bos_runtime_bucket']
+            bucket = self.credentials['objectStorage']['bos_runtime_bucket']
         try:
             region = self.credentials['objectStorage']['region']
             hmac_access_key = self.credentials['objectStorage']['username']
@@ -322,7 +322,7 @@ class Database(object):
             if extra_headers is None:
                 extra_headers = {}
             # assemble the standardized request
-            time = datetime.datetime.utcnow()
+            time = dt.datetime.utcnow()
             timestamp = time.strftime('%Y%m%dT%H%M%SZ')
             datestamp = time.strftime('%Y%m%d')
             payload_hash = hashlib.sha256(str.encode(payload) if isinstance(payload, str) else payload).hexdigest()
@@ -399,14 +399,14 @@ class Database(object):
     
         return response
     
-    def _create_hash(key, msg):
+    def _create_hash(self,key, msg):
         return hmac.new(key, msg.encode('utf-8'), hashlib.sha256).digest()
     
     def _create_signature_key(self,key, datestamp, region, service):
-        keyDate = _create_hash(('AWS4' + key).encode('utf-8'), datestamp)
-        keyString = _create_hash(keyDate, region)
-        keyService = _create_hash(keyString, service)
-        keySigning = _create_hash(keyService, 'aws4_request')
+        keyDate = self._create_hash(('AWS4' + key).encode('utf-8'), datestamp)
+        keyString = self._create_hash(keyDate, region)
+        keyService = self._create_hash(keyString, service)
+        keySigning = self._create_hash(keyService, 'aws4_request')
         return keySigning
 
     def commit(self):

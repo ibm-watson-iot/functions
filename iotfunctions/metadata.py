@@ -110,7 +110,7 @@ class EntityType(object):
         try:
             sqltable = self.db.get_table(name, self._db_schema)
         except KeyError:
-            self.create()
+            table.create()
         self.activity_tables[name] = table
         
         
@@ -389,8 +389,9 @@ class EntityType(object):
         for d in dates:
             df[d] = DateGenerator(d).get_data(rows=rows)
             df[d] = pd.to_datetime(df[d])
-        
-        self.db.write_frame(df,table_name = self._dimension_table_name, if_exists = 'replace')
+            
+        if write:
+            self.db.write_frame(df,table_name = self._dimension_table_name, if_exists = 'replace')
         
     
     def set_params(self, **params):

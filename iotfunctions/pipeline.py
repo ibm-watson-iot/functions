@@ -209,7 +209,7 @@ class CalcPipeline:
                 try:
                     newdf = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
                 except TypeError:
-                        newdf = s.execute(df=df)
+                    newdf = s.execute(df=df)
             except AttributeError as e:
                 trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__

@@ -12,7 +12,9 @@ import numpy as np
 import re
 import pandas as pd
 import logging
+import iotfunctions as iotf
 from .preprocessor import BaseTransformer, BaseEvent
+
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,12 @@ class IoTAlertExpression(BaseEvent):
         self.constants = ['expression']
         self.outputs = ['alert_name']
         self.tags = ['EVENT']
+        
+    def _calc(self,df):
+        '''
+        unused
+        '''
+        return df
         
     def execute(self, df):
         df = df.copy()
@@ -67,6 +75,11 @@ class IoTAlertOutOfRange(BaseEvent):
         self.output_alert_upper = output_alert_upper
         super().__init__()
         
+    def _calc(self,df):
+        '''
+        unused
+        '''        
+        
     def execute(self,df):
         
         df = df.copy()
@@ -93,6 +106,11 @@ class IoTAlertHighValue(BaseEvent):
         self.alert_name = alert_name
         super().__init__()
         
+    def _calc(self,df):
+        '''
+        unused
+        '''        
+        
     def execute(self,df):
         
         df = df.copy()
@@ -111,6 +129,11 @@ class IoTAlertLowValue(BaseEvent):
         self.lower_threshold = float(lower_threshold)
         self.alert_name = alert_name
         super().__init__()
+        
+    def _calc(self,df):
+        '''
+        unused
+        '''        
         
     def execute(self,df):
         

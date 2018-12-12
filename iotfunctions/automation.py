@@ -59,7 +59,7 @@ class CategoricalGenerator(object):
         
         self.name = name
         if categories is None:
-            categories = self.get_default_categories(categories)
+            categories = self.get_default_categories()
         self.categories = categories
         if weights is None:
             weights = np.random.normal(1,0.1,len(self.categories))
@@ -69,7 +69,7 @@ class CategoricalGenerator(object):
             weights = weights / np.sum(weights)
         self.weights = weights
         
-    def get_default_categories(self,item):
+    def get_default_categories(self):
         '''
         Return sample categoricals for a few predefined item names or generate
         '''
@@ -123,7 +123,7 @@ class DateGenerator(object):
 
 class MetricGenerator(object):
     '''
-    Generate a array of random dates
+    Generate a array of radom numbers
     
     Will support predefined names in the future with named ranges in case
     you are wondering why this is needed
@@ -132,7 +132,7 @@ class MetricGenerator(object):
     _default_future_days = 0
     _default_past_days = 30
     
-    def init(self,name = None , mean = None , sd = None):
+    def __init__(self,name = None , mean = None , sd = None):
         
         self.name = name
         self.mean = mean

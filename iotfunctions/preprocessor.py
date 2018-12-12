@@ -85,6 +85,8 @@ class BaseFunction(object):
     # a slowly changing dimensions is use to record property changes to master data over time
     scd_metadata = None
     _entity_scd_dict = None
+    _start_date = 'start_date'
+    _end_date = 'end_date'    
     
     def __init__(self):
         
@@ -435,7 +437,7 @@ class BaseFunction(object):
                 msg = 'Non array arg %s - no json schema required' %(arg)
             logger.debug(msg)                 
         else:
-            msg = 'Argument %s is has explicit json schema defined for it %s' %a, self.itemJsonSchema[arg]
+            msg = 'Argument %s is has explicit json schema defined for it %s' %(arg, self.itemJsonSchema[arg])
             logger.debug(msg)
         return column_metadata
     
@@ -458,15 +460,6 @@ class BaseFunction(object):
         msg = 'Unable to locate series with names %s in either columns or index' %col_names
         raise KeyError(msg)
                 
-    
-    def get_domain(self,dimension):
-        
-        try:
-            domain = self.domain[dimension]
-        except (KeyError,TypeError):
-            domain = self._default_dimension_domain
-            
-        return domain
     
     def get_input_items(self):
         '''
@@ -1437,7 +1430,7 @@ class BaseDatabaseLookup(BaseTransformer):
         df_sql = df_sql[self.lookup_items]
                 
         if len(self.output_items) > len(df_sql.columns):
-            raise RuntimeError('length of names (%d) is larger than the length of query result (%d)' % (len(self.names), len(df_sql)))
+            raise RuntimeError('length of names (%d) is larger than the length of query result (%d)' % (len(self.output_items), len(df_sql)))
 
         df = df.join(df_sql,on= self.lookup_keys, how='left')
         
@@ -1488,8 +1481,6 @@ class BaseDBActivityMerge(BaseDataSource):
     # column name metadata
     # the start and end dates for activities are assumed to be designated by specific columns
     # the type of activity performed on or using an entity is designated by the 'activity' column
-    _start_date = 'start_date'
-    _end_date = 'end_date'
     _activity = 'activity'
     
     def __init__(self,
@@ -2503,50 +2494,6 @@ class NegativeRemover(BaseTransformer):
 
         return df
 
-class PipelineDataGenerator(TimeSeriesGenerator):
-    """
-    Replace automatically retrieved entity source data with new generated data. 
-    Supply a comma separated list of input item names to be generated.
-    """
-    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
-    merge_method = 'replace'
-    # Parameters for data generator
-    # Number of days worth of data to generate on initial execution
-    days = 1
-    # frequency of data load
-    freq = '1min' 
-    # ids of entities to generate. Change the value of the range() function to change the number of entities
-    ids = [str(7300 + x) for x in list(range(5))]
-    
-    def __init__ (self, input_items, output_items=None):
-        super().__init__(input_items = input_items, output_items = output_items)
-        
-    def get_data(self,
-                 start_ts= None,
-                 end_ts= None,
-                 entities = None):
-        '''
-        This sample builds data with the TimeSeriesGenerator. You can get data from anywhere 
-        using a custom source function. When the engine executes get_data(), after initial load
-        it will pass a start date as it will be looking for data added since the last 
-        checkpoint.
-        
-        The engine may also pass a set of entity ids to retrieve data for. Since this is a 
-        custom source we will ignore the entity list provided by the engine.
-        '''
-        # distinguish between initial and incremental execution
-        if start_ts is None:
-            days = self.days
-            seconds = 0
-        else:
-            days = 0
-            seconds = (dt.datetime.dt.datetime.utcnow() - start_ts).total_seconds()
-        
-        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,
-                                 days=days,seconds = seconds,
-                                 timestamp = self._entity_type._timestamp)
-        df = ts.execute()
-        return df 
     
 class PivotRowsToColumns(BaseTransformer):
     '''
@@ -2723,36 +2670,7 @@ class StatusFilter(BaseFilter):
         df = df[df['status']==self.include_only]
         return df       
     
-    
-class TempPressureVolumeGenerator(PipelineDataGenerator):
-    """
-    Generate new data for Temperature, Pressure and Volume. Replace input data in pipeline with this new data.
-    """
-    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
-    merge_method = 'replace'
-    # Parameters for data generator
-    # Number of days worth of data to generate on initial execution
-    days = 1
-    # frequency of data load
-    freq = '1min' 
-    # ids of entities to generate. Change the value of the range() function to change the number of entities
-    ids = [str(7300 + x) for x in list(range(5))]
-    
-    def __init__ (self, input_items=None, output_items=None):
-        if input_items is None:
-            input_items = self.generate_items
-        super().__init__(input_items = input_items, output_items = output_items)
-        
-        
-    def get_item_values(self,arg):
-        """
-        Get list of values for a picklist
-        """
-        if arg == 'input_items':
-            return ['pressure','temperature','volume']
-        else:
-            msg = 'No code implemented to gather available values for argument %s' %arg
-            raise NotImplementedError(msg)           
+            
     
 class TimeToFirstAndLastInDay(BaseTransformer):
     '''
