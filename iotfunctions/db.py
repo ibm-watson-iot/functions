@@ -691,6 +691,7 @@ class BaseTable(object):
             except KeyError:
                 pass
         kw['extend_existing'] = True
+        kw['schema'] = self.schema
         self.table = Table(self.name,self.database.metadata, *args,**kw )
         self.id_col = Column(self._entity_id,String(50))
         
