@@ -72,6 +72,7 @@ class BaseFunction(object):
     base_initialized = True # use to test that object was initialized from BaseFunction
     merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
     _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
+    _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
@@ -1040,28 +1041,29 @@ class BaseFunction(object):
             
         return df
     
-    def log_df_info(self,df,msg):
+    def log_df_info(self,df,msg,include_data=True):
         '''
         Log a debugging entry showing first row and index structure
         '''
-        msg = msg + ' | df count: %s ' %(len(df.index))
-        if df.index.names != [None]:
-            msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
-        else:
-            msg = msg + ' | df index is un-named'
-
-        '''
         try:
-            cols = df.head(1).squeeze().to_dict()
-        except AttributeError:
-            cols = df.head(1).to_dict()
-
-        for key,value in list(cols.items()):
-            msg = msg + '%s : %s \n' %(key, value)
-            
-        '''
-        logger.debug(msg)
-        return msg
+            msg = msg + ' | df count: %s ' %(len(df.index))
+            if df.index.names != [None]:
+                msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
+            else:
+                msg = msg + ' | df index is unnamed'
+            if include_data:
+                msg = msg + ' | 1st row: '
+                try:
+                    cols = df.head(1).squeeze().to_dict()    
+                    for key,value in list(cols.items()):
+                        msg = msg + '%s : %s \n' %(key, value)
+                except AttributeError:
+                    msg = msg + str(df.head(1))
+            logger.debug(msg)
+            return msg
+        except Exception:
+            logger.warn('dataframe contents not logged due to an unknown logging error')
+            return ''
     
     def get_test_data(self):
         """
@@ -1574,10 +1576,16 @@ class BaseDBActivityMerge(BaseDataSource):
             self.add_dates = []
             self.custom_calendar_df = None
             if not self.custom_calendar is None:
-                self.custom_calendar_df = self.custom_calendar.get_data(start_date= adf[self._start_date].min(), end_date = adf[self._end_date].max())
-                add_dates = set(self.custom_calendar_df[self._start_date].tolist())
-                add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
-                self.add_dates = list(add_dates)
+                if len(adf.index) > 0:
+                    start_date =  adf[self._start_date].min()
+                    end_date = adf[self._end_date].max()
+                    self.custom_calendar_df = self.custom_calendar.get_data(start_date= start_date, end_date = end_date)
+                    add_dates = set(self.custom_calendar_df[self._start_date].tolist())
+                    add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
+                    self.add_dates = list(add_dates)
+                else:
+                    self.add_dates = []
+                    self.custom_calendar_df = self.custom_calendar.get_empty_data()
             #get scd changes
             self._entity_scd_dict = self._get_scd_history(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
             #merge takes place separately by entity instance
@@ -1612,9 +1620,15 @@ class BaseDBActivityMerge(BaseDataSource):
                 except KeyError:
                     msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' %list(adf.columns)
                     logger.debug(msg)
-                    raise            
-            cdf['duration'] = (cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds() / 60        
-            self.log_df_info(cdf,'combined activity data after removing overlap')            
+                    raise
+                #if the original dataframe was empty, the apply() will not run
+                # any columns added by the applied method will be missing. Need to add them
+                if cdf.empty:
+                    cdf = self._get_empty_combine_data()
+                    self.log_df_info(cdf,'No data in merge source, processing empty dataframe')
+                else:
+                    self.log_df_info(cdf,'combined activity data after removing overlap')
+                    cdf['duration'] = (cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds() / 60        
             pivot_start = PivotRowsToColumns(
                     pivot_by_item = self._activity,
                     pivot_values = self.input_activities,
@@ -1660,6 +1674,8 @@ class BaseDBActivityMerge(BaseDataSource):
         activities with later start dates take precidence over activies with earlier start dates when resolving.
         '''
         #dataframe expected to contain start_date,end_date,activity for a single deviceid
+                
+        is_logged = self._is_instance_level_logged
         
         entity = df[self._entity_type._entity_id].max()                
         #create a continuous range
@@ -1690,6 +1706,8 @@ class BaseDBActivityMerge(BaseDataSource):
             end_date = row[self._end_date] - dt.timedelta(seconds=1)
             c[row[self._start_date]:end_date] = row[self._activity]    
         df = c.to_frame().reset_index()
+        if is_logged:
+            self.log_df_info(df,'Merging activity details. Initial dataframe with dates')
         
         #add custom calendar data
         if not self.custom_calendar_df is None:
@@ -1698,6 +1716,8 @@ class BaseDBActivityMerge(BaseDataSource):
             df['shift_id'] = df['shift_id'].fillna(method='ffill')
             df['shift_day'] = df['shift_day'].fillna(method='ffill')
             df[self._activity].fillna(method='ffill')
+            if is_logged:
+                self.log_df_info(df,'After custom calendar added')
             
         #perform scd lookup
         for scd_property,entity_data in list(self._entity_scd_dict.items()):
@@ -1712,7 +1732,10 @@ class BaseDBActivityMerge(BaseDataSource):
             else:
                 msg = 'Missing %s scd data for entity %s' %(scd_property,entity)
                 df[scd_property] = None
-            logger.debug(msg)
+            if is_logged:
+                logger.debug(msg)
+                msg = 'After scd %s merged' %scd_property
+                self.log_df_info(df,msg)
         
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
@@ -1721,10 +1744,24 @@ class BaseDBActivityMerge(BaseDataSource):
         #remove gaps
         if self.remove_gaps:
             df = df[df[self._activity]!='_gap_']
+            if is_logged:
+                self.log_df_info(df,'after removing gaps') 
     
         #combined activities dataframe has start_date,end_date,device_id, activity and may have shift day and id
-        return df          
-            
+        return df
+
+    def _get_empty_combine_data(self):
+        '''
+        In the case where the merged resultset is empty, need a empty dateframe with all of the columns that would have
+        been inlcuded.
+        '''
+        cols = [self._start_date, self._end_date, self._activity, 'duration']
+        cols.extend(self.execute_by)
+        if self.custom_calendar_df is not None:
+            cols.extend(['shift_id','shift_day'])
+        scd_properties = list(self._entity_scd_dict.keys())
+        cols.extend(scd_properties)
+        return pd.DataFrame(columns = cols)
                 
     def read_activity_data(self,table_name,activity_code,start_ts=None,end_ts=None,entities=None):
         """
@@ -2253,6 +2290,8 @@ class MergeActivityData(BaseDBActivityMerge):
     '''
     execute_by = ['deviceid']
     
+    _is_instance_level_logged = True
+    
     def __init__(self,input_activities,
                  activity_duration=None,
                  additional_items = None,
@@ -2585,7 +2624,7 @@ class OutlierRemover(BaseTransformer):
     
 class SamplePreLoad(BasePreload):
     '''
-    This is a demostration function that logs the start of pipeline execution to a database table
+    This is a demonstration function that logs the start of pipeline execution to a database table
     '''
     table_name = 'sample_pre_load'
 
@@ -2647,6 +2686,11 @@ class ShiftCalendar(BaseTransformer):
         df[self.shift_start_date] = pd.to_datetime(df[self.shift_start_date])
         df[self.shift_end_date] = pd.to_datetime(df[self.shift_end_date])
         df.sort_values([self.shift_start_date],inplace=True)
+        return df
+    
+    def get_empty_data(self):
+        cols = [self.shift_day, self.shift_id, self.shift_start_date, self.shift_end_date]
+        df = pd.DataFrame(columns = cols)
         return df
     
     def execute(self,df):
