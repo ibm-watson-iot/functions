@@ -313,7 +313,7 @@ class CalcPipeline:
         Log a debugging entry showing first row and index structure
         '''
         msg = msg + ' | df count: %s ' %(len(df.index))
-        if df.index.names is None:
+        if df.index.names is not None:
             msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
         else:
             msg = msg + ' | df index is un-named'
