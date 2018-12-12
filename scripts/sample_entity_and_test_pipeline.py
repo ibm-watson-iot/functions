@@ -41,13 +41,15 @@ You can create entity types through the IoT Platform or using the python API.
 Here is a basic entity type that has three data items: company_code, temperature and pressure
 '''
 entity_name = 'widgets' 
+db_schema = None # replace if you are not using the default schema
 db.drop_table(entity_name)
 entity = EntityType(entity_name,db,
                           Column('company_code',String(50)),
                           Column('temp',Float()),
                           Column('pressure', Float()),
                           **{
-                            '_timestamp' : 'obs_timestamp'
+                            '_timestamp' : 'evt_timestamp',
+                            '_db_schema' : db_schema
                              })
 '''
 When creating an EntityType object you will need to specify the name of the entity, the database
