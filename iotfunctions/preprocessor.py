@@ -1047,8 +1047,10 @@ class BaseFunction(object):
         msg = msg + ' | df count: %s ' %(len(df.index))
         msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
         cols = df.head(1).transpose().squeeze().to_dict()
-        for key,value in list(cols.items()):
-            msg = msg + '%s : %s \n' %(key, value)
+        if df.index.names is None:
+            msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
+        else:
+            msg = msg + ' | df index is un-named'
         logger.debug(msg)
         return msg
     
