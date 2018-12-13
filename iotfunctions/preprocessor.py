@@ -2301,7 +2301,6 @@ class MergeActivityData(BaseDBActivityMerge):
         self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
         self.activities_custom_query_metadata = {}
         #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from mike_custom_activity'
-        ''''
         self.custom_calendar = ShiftCalendar(
                 shift_definition = 
                     {
@@ -2313,7 +2312,6 @@ class MergeActivityData(BaseDBActivityMerge):
                  shift_start_date = 'start_date',
                  shift_end_date = 'end_date' 
                 )
-        '''
         self.add_scd(scd_property = 'status', table_name = 'widgets_dec12b_scd_status')
         self.add_scd(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')
 
