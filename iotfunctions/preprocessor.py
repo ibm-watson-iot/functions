@@ -1623,7 +1623,6 @@ class BaseDBActivityMerge(BaseDataSource):
                     null_value=None,
                     output_items = self.activity_duration
                         )  
-            
             cdf = pivot_start.execute(cdf)
             self.log_df_info(cdf,'pivoted activity data')
             # go back and add non activity data from each dataframe
@@ -1670,9 +1669,10 @@ class BaseDBActivityMerge(BaseDataSource):
         '''
         #dataframe expected to contain start_date,end_date,activity for a single deviceid
         is_logged = self._is_instance_level_logged
-        if is_logged:
-            self.log_df_info(df,'Incoming data for combine activities')
         entity = df[self._entity_type._entity_id].max()                
+        if is_logged:
+            self.log_df_info(df,'Incoming data for combine activities. Entity Id: %s' %entity)
+
         #create a continuous range
         early_date = pd.Timestamp.min
         late_date = pd.Timestamp.max        
@@ -1691,6 +1691,7 @@ class BaseDBActivityMerge(BaseDataSource):
                 has_scd[scd_property]=False
         dates = list(dates)
         dates.sort()
+        
         #initialize series to track history of activities
         c = pd.Series(data='_gap_',index = dates)
         c.index = pd.to_datetime(c.index)
@@ -1716,9 +1717,17 @@ class BaseDBActivityMerge(BaseDataSource):
             
         #perform scd lookup
         for scd_property,entity_data in list(self._entity_scd_dict.items()):
+            if is_logged:
+                msg = 'Merging scd property %s' %scd_property
+                logger.debug(msg)
             if has_scd[scd_property]:
                 dfr = entity_data[entity]
-                scd_data = dfr[scd_property]
+                try:
+                    scd_data = dfr[scd_property]
+                except KeyError as e:
+                    msg = 'The scd property %s does not exist in the database table. Change the table or property name' %scd_property
+                    self.trace_append(msg)    
+                    raise e
                 scd_data.index = dfr[self._start_date]
                 scd_data.name = scd_property
                 df = df.join(scd_data, how ='left', on = self._start_date)
