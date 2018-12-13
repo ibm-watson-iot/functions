@@ -14,7 +14,7 @@ os.environ['API_TOKEN'] = credentials['as_api_token']
 
 from iotfunctions.db import Database
 from iotfunctions.metadata import EntityType
-from iotfunctions.estimator import SGDRegressor
+from iotfunctions.estimator import SampleAnomalySGDRegressor
 
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean
@@ -80,7 +80,7 @@ pl = entity.get_calc_pipeline()
 features = ['temp', 'humidity']
 targets = ['fill_time']
 
-pl.add_stage(SGDRegressor(credentials=credentials, features=features, targets=targets))
+pl.add_stage(SampleAnomalySGDRegressor(credentials=credentials, features=features, targets=targets))
 df = pl.execute(to_csv= True,start_ts=None, register=True)
 '''
 Add more info here

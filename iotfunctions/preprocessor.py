@@ -737,7 +737,7 @@ class BaseFunction(object):
                 else:
                     metadata_outputs[array]['dataTypeFrom']=None
                 metadata_outputs[array]['cardinalityFrom']=array_source
-                #del metadata_outputs[array]['dataType']
+                del metadata_outputs[array]['dataType']
                 msg = 'Array argument %s is driven by %s so the cardinality and datatype are set from the source' %(a,array_source)
                 logger.debug(msg)
     
