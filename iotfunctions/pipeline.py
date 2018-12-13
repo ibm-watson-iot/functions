@@ -308,29 +308,30 @@ class CalcPipeline:
         msg = msg + str(last_msg)
         return msg
     
-    def log_df_info(self,df,msg):
+    def log_df_info(self,df,msg,include_data=True):
         '''
         Log a debugging entry showing first row and index structure
         '''
-        msg = msg + ' | df count: %s ' %(len(df.index))
-        if df.index.names != [None]:
-            msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
-        else:
-            msg = msg + ' | df index is un-named'
-
-        '''
         try:
-            cols = df.head(1).squeeze().to_dict()
-        except AttributeError:
-            cols = df.head(1).to_dict()
-
-        for key,value in list(cols.items()):
-            msg = msg + '%s : %s \n' %(key, value)
-            
-        '''
-
-        logger.debug(msg)
-        return msg
+            msg = msg + ' | df count: %s ' %(len(df.index))
+            if df.index.names != [None]:
+                msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
+            else:
+                msg = msg + ' | df index is unnamed'
+            if include_data:
+                msg = msg + ' | 1st row: '
+                try:
+                    cols = df.head(1).squeeze().to_dict()    
+                    for key,value in list(cols.items()):
+                        msg = msg + '%s : %s \n' %(key, value)
+                except AttributeError:
+                    msg = msg + str(df.head(1))
+            logger.debug(msg)
+            return msg
+        except Exception:
+            logger.warn('dataframe contents not logged due to an unknown logging error')
+            return ''
+        
         
     
     def _raise_error(self,exception,msg, abort_on_fail = False):
