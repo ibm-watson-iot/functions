@@ -1,3 +1,11 @@
+#credentials for testing #
+##########################
+scripts/credentials.json
+
+#debug file #
+#############
+scripts/debugPipelineSourceData.csv
+
 # Editor temporary/working/backup files #
 #########################################
 .#*
