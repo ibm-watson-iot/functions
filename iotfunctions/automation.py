@@ -269,8 +269,11 @@ class TimeSeriesGenerator(object):
                 pass
             
         for d in self.categoricals:
-            
-            gen = CategoricalGenerator(d)
+            try:
+                categories = self.domain[d]
+            except KeyError:
+                categories = None
+            gen = CategoricalGenerator(d, categories= categories)
             df[d] = gen.get_data(len(df.index))
             
         for t in self.dates:

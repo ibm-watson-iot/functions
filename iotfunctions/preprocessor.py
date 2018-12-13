@@ -755,13 +755,11 @@ class BaseFunction(object):
             query = query.filter(table.c.start_date < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        params = {
-                    'schema': self._entity_type._db_schema
-                    }
+        msg = 'reading scd %s from %s to %s using %s' %(table_name, start_ts, end_ts, query.statement)
+        logger.debug(msg)
         df = pd.read_sql(query.statement,
                          con = self._entity_type.db.connection,
-                         parse_dates=[self._start_date,self._end_date],
-                         params = params)
+                         parse_dates=[self._start_date,self._end_date])
         return df
     
     def _add_explicit_outputs(self,df):
@@ -1413,10 +1411,7 @@ class BaseDatabaseLookup(BaseTransformer):
             '''
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
-            params = {
-                    'schema': self._entity_type._db_schema
-                    }
-            df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols, params = params)
+            df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
             df.columns = [x.lower() for x in list(df.columns)]            
             return(list(df.columns))
                         
@@ -1432,14 +1427,10 @@ class BaseDatabaseLookup(BaseTransformer):
         if self._auto_create_lookup_table:
             self.create_lookup_table(df=None,table_name=self.lookup_table_name)
 
-        params = {
-                    'schema': self._entity_type._db_schema
-                    }
         df_sql = pd.read_sql(self.sql, 
                              self.db.connection,
                              index_col=self.lookup_keys,
-                             parse_dates=self.parse_dates,
-                             params = params)
+                             parse_dates=self.parse_dates)
         df_sql = df_sql[self.lookup_items]
                 
         if len(self.output_items) > len(df_sql.columns):
@@ -1549,13 +1540,9 @@ class BaseDBActivityMerge(BaseDataSource):
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
-                params = {
-                    'schema': self._entity_type._db_schema
-                    }
                 af = pd.read_sql(sql,
                                  con = self._entity_type.db.connection,
-                                 parse_dates=[self._start_date,self._end_date],
-                                 params = params)
+                                 parse_dates=[self._start_date,self._end_date])
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
@@ -1665,6 +1652,14 @@ class BaseDBActivityMerge(BaseDataSource):
         cols = [x for x in df.columns if x not in activity_cols]
         return cols
         
+    def _fake_combine(self, df):
+        
+        data = { 'a' : [1,2,3],
+         'b' : [1,2,3] }
+
+        df = pd.DataFrame(data)
+        
+        return df
                     
     def _combine_activities(self,df):
         '''
@@ -1674,9 +1669,9 @@ class BaseDBActivityMerge(BaseDataSource):
         activities with later start dates take precidence over activies with earlier start dates when resolving.
         '''
         #dataframe expected to contain start_date,end_date,activity for a single deviceid
-                
         is_logged = self._is_instance_level_logged
-        
+        if is_logged:
+            self.log_df_info(df,'Incoming data for combine activities')
         entity = df[self._entity_type._entity_id].max()                
         #create a continuous range
         early_date = pd.Timestamp.min
@@ -1755,6 +1750,7 @@ class BaseDBActivityMerge(BaseDataSource):
         In the case where the merged resultset is empty, need a empty dateframe with all of the columns that would have
         been inlcuded.
         '''
+        
         cols = [self._start_date, self._end_date, self._activity, 'duration']
         cols.extend(self.execute_by)
         if self.custom_calendar_df is not None:
@@ -1784,6 +1780,7 @@ class BaseDBActivityMerge(BaseDataSource):
         Dataframe
         """
         
+        
         (query,table) = self._entity_type.db.query(table_name,schema = self._entity_type._db_schema)
         query = query.filter(table.c.activity == activity_code)
         if not start_ts is None:
@@ -1792,13 +1789,11 @@ class BaseDBActivityMerge(BaseDataSource):
             query = query.filter(table.c.start_date < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        params = {
-                    'schema': self._entity_type._db_schema
-                    }            
+        msg = 'reading activity %s from %s to %s using %s' %(activity_code,start_ts,end_ts,query.statement )
+        logger.debug(msg)
         df = pd.read_sql(query.statement,
                          con = self._entity_type.db.connection,
-                         parse_dates=[self._start_date,self._end_date],
-                         params = params)
+                         parse_dates=[self._start_date,self._end_date])
         
         return df
 
@@ -2306,6 +2301,7 @@ class MergeActivityData(BaseDBActivityMerge):
         self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
         self.activities_custom_query_metadata = {}
         #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from mike_custom_activity'
+        ''''
         self.custom_calendar = ShiftCalendar(
                 shift_definition = 
                     {
@@ -2317,8 +2313,9 @@ class MergeActivityData(BaseDBActivityMerge):
                  shift_start_date = 'start_date',
                  shift_end_date = 'end_date' 
                 )
-        self.add_scd(scd_property = 'status', table_name = 'widgets_scd_status')
-        self.add_scd(scd_property = 'operator', table_name = 'widgets_scd_operator')
+        '''
+        self.add_scd(scd_property = 'status', table_name = 'widgets_dec12b_scd_status')
+        self.add_scd(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')
 
      
 class MergeSampleTimeSeries(BaseDataSource):
@@ -2354,13 +2351,9 @@ class MergeSampleTimeSeries(BaseDataSource):
             query = query.filter(table.c[self._entity_type._timestamp] < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        params = {
-                    'schema': self._entity_type._db_schema
-                    }
         df = pd.read_sql(query.statement,
                          con = self._entity_type.db.connection,
-                         parse_dates=[self._entity_type._timestamp],
-                         params = params)        
+                         parse_dates=[self._entity_type._timestamp])        
         return df
     
     
