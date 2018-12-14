@@ -10,6 +10,7 @@
 
 import logging
 import datetime as dt
+import numpy as np
 import json
 import urllib3
 import pandas as pd
@@ -50,15 +51,17 @@ class EntityType(object):
             
     log_table = 'KPI_LOGGING'
     checkpoint_table = 'KPI_CHECKPOINT'
-    _start_entity_id = 73000 #used to build entity ids
-    _auto_entity_count = 5 #default number of entities to generate data for
     # These two columns will be available in the dataframe of a pipeline
     _entity_id = 'deviceid' #identify the instance
     _timestamp_col = '_timestamp' #copy of the event timestamp from the index
     # These two column names will be used to name the index of a pipeline dataframe
     _timestamp = 'evt_timestamp'
     _df_index_entity_id = 'id'
-       
+    # generator
+    _scd_frequency = '2D'
+    _activity_frequency = '3D'
+    _start_entity_id = 73000 #used to build entity ids
+    _auto_entity_count = 5 #default number of entities to generate data for       
     
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name.lower()
@@ -104,8 +107,8 @@ class EntityType(object):
             other columns describing the activity, e.g. materials_cost
         '''
         kwargs['_activities'] = activities
+        kwargs['schema'] = self._db_schema
         name = name.lower()
-        
         table = ActivityTable(name, self.db,*args, **kwargs)
         try:
             sqltable = self.db.get_table(name, self._db_schema)
@@ -115,7 +118,7 @@ class EntityType(object):
         
         
         
-    def add_slowly_changing_dimension(self,property_name,datatype):
+    def add_slowly_changing_dimension(self,property_name,datatype,**kwargs):
         '''
         add a slowly changing dimension table containing a single property for this entity type
         
@@ -129,11 +132,12 @@ class EntityType(object):
         property_name = property_name.lower()
         
         name= '%s_scd_%s' %(self.name,property_name)
-
+        kwargs['schema'] = self._db_schema
         table = SlowlyChangingDimension(name = name,
                                    database=self.db,
                                    property_name = property_name,
-                                   datatype = datatype)        
+                                   datatype = datatype,
+                                   **kwargs)        
         try:
             sqltable = self.db.get_table(name,self._db_schema)
         except KeyError:
@@ -147,7 +151,7 @@ class EntityType(object):
         tables = []
         tables.extend(self.activity_tables.values())
         tables.extend(self.scd.values())
-        [self.db.drop_table(x) for x in tables]
+        [self.db.drop_table(x,self._db_schema) for x in tables]
         msg = 'dropped tables %s' %tables
         logger.info(msg)
                 
@@ -262,17 +266,75 @@ class EntityType(object):
                                 schema = self._db_schema ,
                                 timestamp_col = self._timestamp)
             
-        for at in list(self.activity_tables.values()):
-            adf = at.generate_data(entities = entities, days = days, seconds = seconds, write = write)
-            msg = 'generated data for activity table %s' %at.name
+        for (at_name,at_table) in list(self.activity_tables.items()):
+            adf = self.generate_activity_data(table_name = at_name, activities = at_table._activities,entities = entities, days = days, seconds = seconds, write = write)            
+            msg = 'generated data for activity table %s' %at_name
             logger.debug(msg)
             
         for scd in list(self.scd.values()):
-            sdf = scd.generate_data(entities = entities, days = days, seconds = seconds, write = write)
+            sdf = self.generate_scd_data(scd_obj = scd, entities = entities, days = days, seconds = seconds, write = write)
             msg = 'generated data for scd table %s' %scd.name
             logger.debug(msg)
         
         return df
+    
+    def generate_activity_data(self,table_name, activities, entities,days,seconds,write=True):
+        
+        (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        metrics.append('duration')
+        categoricals.append('activity')
+        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
+                                 ids = entities, days = days, seconds = seconds, freq = self._activity_frequency)
+        ts.set_domain('activity',activities)               
+        df = ts.execute()
+        df['start_date'] = df[self._timestamp]
+        duration = df['duration'].abs()
+        df['end_date'] = df['start_date'] + pd.to_timedelta(duration, unit='h')
+        # probability that an activity took place in the interval
+        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._activity_frequency).total_seconds() 
+        is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
+        df = df[is_activity]
+        cols = [x for x in df.columns if x not in ['duration',self._timestamp]]
+        df = df[cols]
+        if write:
+            msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
+            self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema)       
+        return df
+    
+    def generate_scd_data(self,scd_obj,entities,days,seconds,write=True):
+        
+        table_name = scd_obj.name
+        msg = 'generating data for %s for %s days and %s seconds' %(table_name,days,seconds)
+        (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
+        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
+                                 ids = entities, days = days, seconds = seconds, freq = self._scd_frequency)
+        df = ts.execute()
+        df['start_date'] = df[self._timestamp]
+        # probability that a change took place in the interval
+        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._scd_frequency).total_seconds() 
+        is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
+        df = df[is_activity]
+        cols = [x for x in df.columns if x not in [self._timestamp]]
+        df = df[cols]
+        df['end_date'] = None
+        query,table = self.db.query(table_name, self._db_schema)
+        try:
+            edf = self.db.get_query_data(query)
+        except:
+            edf = pd.DataFrame()
+        df = pd.concat([df,edf],ignore_index = True,sort=False)
+        if len(df.index) > 0:
+            df = df.groupby([self._entity_id]).apply(self._set_end_date)
+            try:
+                self.db.truncate(table_name)
+            except KeyError:
+                pass
+            if write:
+                msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
+            self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
+        return df    
+        
     
     def register(self):
         '''
@@ -344,9 +406,7 @@ class EntityType(object):
         *args: sql alchemchy Column objects
         * kw: : schema
         '''
-        kw = {
-                'schema' : self._db_schema
-                }
+        kw['schema'] = self._db_schema
         if name is None:
             name = '%s_dimension' %self.name
             
@@ -392,7 +452,13 @@ class EntityType(object):
             
         if write:
             self.db.write_frame(df,table_name = self._dimension_table_name, if_exists = 'replace')
+     
+    def _set_end_date(self,df):
         
+        df['end_date'] = df['start_date'].shift(-1)
+        df['end_date'] = df['end_date'] - pd.Timedelta(seconds = 1)
+        df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
+        return df       
     
     def set_params(self, **params):
         '''
@@ -400,7 +466,9 @@ class EntityType(object):
         '''
         for key,value in list(params.items()):
             setattr(self, key, value)
-        return self        
+        return self   
+
+
         
         
         

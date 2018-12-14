@@ -431,7 +431,7 @@ class Database(object):
         try:
             table = self.get_table(table_name,schema)
         except KeyError:
-            msg = 'Didnt drop table %s becuase it doesnt exist in the the database' %table_name
+            msg = 'Didnt drop table %s because it doesnt exist in the the database' %table_name
         else:
             self.start_session()
             self.metadata.drop_all(tables = [table], checkfirst = True) 
@@ -780,40 +780,12 @@ class ActivityTable(BaseTable):
         
     def __init__ (self,name,database,*args, **kw):
         self.set_params(**kw)
-        self._freq = '1D' #default activity interval
         self.id_col = Column(self._entity_id,String(50))
         self.start_date = Column('start_date',DateTime)
         self.end_date = Column('end_date',DateTime)
         self.activity = Column('activity',String(255))
         super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.activity, *args, **kw)
         
-    def generate_data(self,entities,days,seconds,write=True):
-        
-        (metrics, dates, categoricals,others) = self.database.get_column_lists_by_type(self.name,self.schema,exclude_cols=[self._entity_id,'start_date','end_date'])
-        metrics.append('duration')
-        categoricals.append('activity')
-        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
-                                 ids = entities, days = days, seconds = seconds, freq = self._freq)
-        try:
-            ts.set_domain('activity',self._activities)
-        except AttributeError:
-            msg = 'Unable to find domain of activity data for %s. Set "_activities" instance variable using a keyword arg to override defaults' %self.name
-            logger.warning(msg)                 
-        df = ts.execute()
-        df['start_date'] = df[self._timestamp]
-        duration = df['duration'].abs()
-        df['end_date'] = df['start_date'] + pd.to_timedelta(duration, unit='h')
-        # probability that an activity took place in the interval
-        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._freq).total_seconds() 
-        is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
-        df = df[is_activity]
-        cols = [x for x in df.columns if x not in ['duration',self._timestamp]]
-        df = df[cols]
-        if write:
-            msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),self.table.name)
-            self.insert(df, )        
-        return df
-    
 
 class Dimension(BaseTable):
     """
@@ -867,49 +839,9 @@ class SlowlyChangingDimension(BaseTable):
         
     def __init__ (self,name,database,property_name,datatype,*args,**kw):
         self.set_params(**kw)
-        self._freq = '3D'
         self.start_date = Column('start_date',DateTime)
         self.end_date = Column('end_date',DateTime)
         self.property_name = Column(property_name,datatype)
         self.id_col = Column(self._entity_id,String(50))
         super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.property_name )
 
-    def generate_data(self,entities,days,seconds,write=True):
-        
-        msg = 'generating data for %s for %s days and %s seconds' %(self.table.name,days,seconds)
-        (metrics, dates, categoricals,others) = self.database.get_column_lists_by_type(self.name,self.schema,exclude_cols=[self._entity_id,'start_date','end_date'])
-        msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
-        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
-                                 ids = entities, days = days, seconds = seconds, freq = self._freq)
-        df = ts.execute()
-        df['start_date'] = df[self._timestamp]
-        # probability that a change took place in the interval
-        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._freq).total_seconds() 
-        is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
-        df = df[is_activity]
-        cols = [x for x in df.columns if x not in [self._timestamp]]
-        df = df[cols]
-        df['end_date'] = None
-        query,table = self.database.query(self.table)
-        try:
-            edf = self.database.get_query_data(query)
-        except:
-            edf = pd.DataFrame()
-        df = pd.concat([df,edf],ignore_index = True,sort=False)
-        if len(df.index) > 0:
-            df = df.groupby([self._entity_id]).apply(self._set_end_date)
-            try:
-                self.database.truncate(self.table)
-            except KeyError:
-                pass
-            if write:
-                msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),self.table.name)
-            self.insert(df)
-        return df
-    
-    def _set_end_date(self,df):
-        
-        df['end_date'] = df['start_date'].shift(-1)
-        df['end_date'] = df['end_date'] - pd.Timedelta(seconds = 1)
-        df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
-        return df
