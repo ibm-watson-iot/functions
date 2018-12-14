@@ -762,6 +762,19 @@ class BaseFunction(object):
                          parse_dates=[self._start_date,self._end_date])
         return df
     
+    def generate_model_name(self,target_name, prefix = 'model', suffix = None):
+        '''
+        Generate a model name
+        '''
+        name = []
+        if prefix is not None:
+            name.append(prefix)
+        name.extend([self._entity_type.name, self.name , target_name])
+        if suffix is not None:
+            name.append(suffix)
+        name = '.'.join(name)
+        return name    
+    
     def _add_explicit_outputs(self,df):
         
         for o in self.outputs:

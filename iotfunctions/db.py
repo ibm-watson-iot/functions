@@ -370,6 +370,7 @@ class Database(object):
         
         return True
     
+    
     def get_query_data(self, query):
         '''
         Execute a query and a return a dataframe containing results
