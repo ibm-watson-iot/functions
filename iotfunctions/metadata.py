@@ -18,6 +18,7 @@ from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, F
 from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
+from .util import cosSave as cos_save
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 
@@ -469,6 +470,25 @@ class EntityType(object):
         return self   
 
 
+class Model(object):
+    
+    def __init__(self, name , trained_date, features, eval_metric_type, eval_metric_value, trained_data = None):
+        
+        self.name = name
+        self.features = features
+        self.eval_metric_type = eval_metric_type
+        self.eval_metric_value = eval_metric_value
+        self.trained_date = trained_date
+        self.viz = {}
+        
+    def save(self, cos_credentials, bucket):
+        
+        cos_save(obj = self,bucket = bucket,filename = self.name , credentials = cos_credentials)
+        
+    def add_viz(self, name, cos_credentials, viz_obj, bucket):
+        
+        cos_save(obj = viz_obj,bucket = bucket,filename = name , credentials = cos_credentials)
+        
         
         
         

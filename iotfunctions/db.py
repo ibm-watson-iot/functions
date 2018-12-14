@@ -251,163 +251,20 @@ class Database(object):
         response= r.data.decode('utf-8')
         return response
 
-    def cos_load(self, filename, bucket = None):
+    def cos_load(self, filename, bucket):
         
-        response = self._cos_api_request('GET',key = filename, payload = '', bucket=bucket)
+        raise NotImplementedError('cant do this yet')
+        obj = 1
+        
+        return obj
+    
+    def cos_save(self, filename, bucket ):
+        
+        response = 'not implemented'
+        
+        log.info('This should be saving to cos')
         
         return response
-
-    
-    def cos_save(self, obj, filename, bucket = None):
-        
-        payload = dill.dumps(obj)
-        response = self._cos_api_request('PUT',key = filename, payload = payload, bucket=bucket)
-        
-        return response
-            
-    
-    def _cos_api_request(self,http_method, key, payload='',bucket=None, extra_headers= None, is_binary=False,  request_parameters=None):
-        '''
-        Make an api request to cloud object storage
-        
-        Parameters
-        -----------
-        http_method : str
-            GET, PUT, DELETE
-        key : str
-            Name of object
-        bucket: str
-            Name of bucket to place object in
-        payload: str
-            Payload
-        is_binary: bool
-            Default False
-        extra_headers: dict
-            Extra keys to include in hearder
-        request_parameters : dict
-            Extra request parameters
-        
-        '''
-        if bucket is None:
-            bucket = self.credentials['objectStorage']['bos_runtime_bucket']
-        try:
-            region = self.credentials['objectStorage']['region']
-            hmac_access_key = self.credentials['objectStorage']['username']
-            hmac_secret = self.credentials['objectStorage']['password']
-            endpoint = self.credentials['config']['objectStorageEndpoint']
-        except (TypeError,KeyError):
-            try: 
-                path = self.credentials['objectStorage']['path']
-            except KeyError:
-                msg = 'Credentials do not include region,username, passwork and config objectStorage Endpoint or a path filesystem storage. Will write to working directory on file system'
-                logger.warning(msg)
-                path = ''
-            filename = '%s%s' %(path,key)
-            if http_method == 'PUT':
-                with open(filename, "wb") as f:
-                    f.write(payload)
-                response = filename
-            elif http_method == 'GET':
-                with open(filename, 'rb') as f:
-                    response = dill.load(f)
-            else:
-                msg = 'http method not supported. Only GET and PUt currently available when using filesystem'
-                raise ValueError(msg)
-        else:
-            url = urlparse(endpoint)
-            scheme = url.scheme
-            host = url.netloc       
-            if bucket is None:
-                bucket = self.credentials['config']['bos_logs_bucket']
-            if extra_headers is None:
-                extra_headers = {}
-            # assemble the standardized request
-            time = dt.datetime.utcnow()
-            timestamp = time.strftime('%Y%m%dT%H%M%SZ')
-            datestamp = time.strftime('%Y%m%d')
-            payload_hash = hashlib.sha256(str.encode(payload) if isinstance(payload, str) else payload).hexdigest()
-            standardized_resource = '/'
-            if bucket is not None:
-                standardized_resource += bucket
-            if key is not None:
-                standardized_resource += '/' + key
-            if request_parameters is None:
-                standardized_querystring = ''
-            else:
-                standardized_querystring = '&'.join(['%s=%s' % (quote(k, safe=''), quote(v, safe='')) for k,v in request_parameters.items()])
-            all_headers = {'host': host, 'x-amz-content-sha256': payload_hash, 'x-amz-date': timestamp}
-            all_headers.update({k.lower(): v for k, v in extra_headers.items()})
-            standardized_headers = ''
-            for header in sorted(all_headers.keys()):
-                standardized_headers += '%s:%s\n' % (header, all_headers[header])
-            signed_headers = ';'.join(sorted(all_headers.keys()))    
-            standardized_request = (http_method + '\n' +
-                                    standardized_resource + '\n' +
-                                    standardized_querystring + '\n' +
-                                    standardized_headers + '\n' +
-                                    signed_headers + '\n' +
-                                    payload_hash)
-            logging.debug('standardized_request=\n%s' % standardized_request)
-            # assemble string-to-sign
-            hashing_algorithm = 'AWS4-HMAC-SHA256'
-            credential_scope = datestamp + '/' + region + '/' + 's3' + '/' + 'aws4_request'
-            sts = (hashing_algorithm + '\n' +
-                   timestamp + '\n' +
-                   credential_scope + '\n' +
-                   hashlib.sha256(str.encode(standardized_request)).hexdigest())
-            logging.debug('string-to-sign=\n%s' % sts)
-            # generate the signature
-            signature_key = self._create_signature_key(hmac_secret, datestamp, region, 's3')
-            signature = hmac.new(signature_key,
-                                 (sts).encode('utf-8'),
-                                 hashlib.sha256).hexdigest()
-            logging.debug('signature=\n%s' % signature)
-        
-            # assemble all elements into the 'authorization' header
-            v4auth_header = (hashing_algorithm + ' ' +
-                             'Credential=' + hmac_access_key + '/' + credential_scope + ', ' +
-                             'SignedHeaders=' + signed_headers + ', ' +
-                             'Signature=' + signature)
-        
-            logging.debug('v4auth_header=\n%s' % v4auth_header)
-        
-            # the 'requests' package autmatically adds the required 'host' header
-            headers = all_headers.copy()
-            headers.pop('host')
-            headers['Authorization'] = v4auth_header
-            # headers = {'x-amz-content-sha256': payload_hash, 'x-amz-date': timestamp, 'Authorization': v4auth_header}
-            request_url = endpoint + standardized_resource + '?' + standardized_querystring
-        
-            logging.debug('request_url=%s' % request_url)
-        
-            if http_method == 'GET':
-                resp = requests.get(request_url, headers=headers, timeout=30)
-            elif http_method == 'DELETE':
-                resp = requests.delete(request_url, headers=headers, timeout=30)
-            elif http_method == 'POST':
-                resp = requests.post(request_url, headers=headers, data=payload, timeout=30)
-            elif http_method == 'PUT':
-                resp = requests.put(request_url, headers=headers, data=payload, timeout=30)
-            else:
-                raise RuntimeError('unsupported_http_method=%s' % http_method)
-        
-            if resp.status_code != requests.codes.ok and not (resp.status_code == requests.codes.no_content and http_method == 'DELETE'):
-                logger.warn('error cos_api_request: request_url=%s, http_method=%s, status_code=%s, response_text=%s' % (request_url, http_method, str(resp.status_code), str(resp.text)))
-                return None
-            
-            response = resp.content if is_binary else resp.text
-    
-        return response
-    
-    def _create_hash(self,key, msg):
-        return hmac.new(key, msg.encode('utf-8'), hashlib.sha256).digest()
-    
-    def _create_signature_key(self,key, datestamp, region, service):
-        keyDate = self._create_hash(('AWS4' + key).encode('utf-8'), datestamp)
-        keyString = self._create_hash(keyDate, region)
-        keyService = self._create_hash(keyString, service)
-        keySigning = self._create_hash(keyService, 'aws4_request')
-        return keySigning
 
     def commit(self):
         '''
