@@ -9,9 +9,8 @@
 # *****************************************************************************
 
 '''
-The Built In Functions module contains functions that you may register and use as
-extensions to the 
-
+The Built In Functions module contains extensions to the function catalog that
+you may register and use.
 '''
 
 import datetime as dt
@@ -141,7 +140,8 @@ class IoTAlertLowValue(BaseEvent):
     def _calc(self,df):
         '''
         unused
-        '''        
+        '''
+        return df        
         
     def execute(self,df):
         
@@ -199,8 +199,8 @@ class IoTShiftCalendar(BaseTransformer):
         self.shift_day = shift_day
         self.shift_id = shift_id
         super().__init__()
-        self.inputs = ['shift_definition']
-        self.outputs = ['shift_start_date','shift_end_date','shift_day','shift_id']     
+        self.constants = ['shift_definition']
+        self.outputs = ['shift_start_date','shift_end_date','shift_day','shift_id']
         
     
     def get_data(self,start_date,end_date):
@@ -235,7 +235,7 @@ class IoTShiftCalendar(BaseTransformer):
                            right_on = self.shift_start_date,
                            direction = 'backward')
         df = self.conform_index(df)
-        return df  
-
+        return df
+    
 
    
