@@ -8,6 +8,13 @@
 #
 # *****************************************************************************
 
+'''
+The Built In Functions module contains functions that you may register and use as
+extensions to the 
+
+'''
+
+import datetime as dt
 import numpy as np
 import re
 import pandas as pd
@@ -19,6 +26,7 @@ from .preprocessor import BaseTransformer, BaseEvent
 logger = logging.getLogger(__name__)
 
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
+
 
 class IoTAlertExpression(BaseEvent):
     '''
@@ -163,5 +171,71 @@ class IoTPackageInfo(BaseTransformer):
         df[self.version] = iotf.__version__
         
         return df
+    
+class IoTShiftCalendar(BaseTransformer):
+    '''
+    Generate data for a shift calendar using a shift_definition in the form of a dict keyed on shift_id
+    Dict contains a tuple with the start and end hours of the shift expressed as numbers. Example:
+          {
+               "1": (5.5, 14),
+               "2": (14, 21),
+               "3": (21, 29.5)
+           },    
+    '''
+    def __init__ (self,shift_definition=None,
+                  shift_start_date = 'shift_start_date',
+                  shift_end_date = 'shift_end_date',
+                  shift_day = 'shift_day',
+                  shift_id = 'shift_id'):
+        if shift_definition is None:
+            shift_definition = {
+               "1": (5.5, 14),
+               "2": (14, 21),
+               "3": (21, 29.5)
+           }
+        self.shift_definition = shift_definition
+        self.shift_start_date = shift_start_date
+        self.shift_end_date = shift_end_date
+        self.shift_day = shift_day
+        self.shift_id = shift_id
+        super().__init__()
+        self.inputs = ['shift_definition']
+        self.outputs = ['shift_start_date','shift_end_date','shift_day','shift_id']     
+        
+    
+    def get_data(self,start_date,end_date):
+        start_date = start_date.date()
+        end_date = end_date.date()
+        dates = pd.DatetimeIndex(start=start_date,end=end_date,freq='1D').tolist()
+        dfs = []
+        for shift_id,start_end in list(self.shift_definition.items()):
+            data = {}
+            data[self.shift_day] = dates
+            data[self.shift_id] = shift_id
+            data[self.shift_start_date] = [x+dt.timedelta(hours=start_end[0]) for x in dates]
+            data[self.shift_end_date] = [x+dt.timedelta(hours=start_end[1]) for x in dates]
+            dfs.append(pd.DataFrame(data))
+        df = pd.concat(dfs)
+        df[self.shift_start_date] = pd.to_datetime(df[self.shift_start_date])
+        df[self.shift_end_date] = pd.to_datetime(df[self.shift_end_date])
+        df.sort_values([self.shift_start_date],inplace=True)
+        return df
+    
+    def get_empty_data(self):
+        cols = [self.shift_day, self.shift_id, self.shift_start_date, self.shift_end_date]
+        df = pd.DataFrame(columns = cols)
+        return df
+    
+    def execute(self,df):
+        df.sort_values([self._entity_type._timestamp_col],inplace = True)
+        calendar_df = self.get_data(start_date= df[self._entity_type._timestamp_col].min(), end_date = df[self._entity_type._timestamp_col].max())
+        df = pd.merge_asof(left = df,
+                           right = calendar_df,
+                           left_on = self._entity_type._timestamp,
+                           right_on = self.shift_start_date,
+                           direction = 'backward')
+        df = self.conform_index(df)
+        return df
+    
 
    
