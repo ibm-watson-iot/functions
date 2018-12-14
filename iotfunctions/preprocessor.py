@@ -737,7 +737,7 @@ class BaseFunction(object):
                 else:
                     metadata_outputs[array]['dataTypeFrom']=None
                 metadata_outputs[array]['cardinalityFrom']=array_source
-                del metadata_outputs[array]['dataType']
+                #del metadata_outputs[array]['dataType']
                 msg = 'Array argument %s is driven by %s so the cardinality and datatype are set from the source' %(a,array_source)
                 logger.debug(msg)
     
@@ -829,8 +829,10 @@ class BaseFunction(object):
         append_msg = ''
         
         datatype = None
-        for value in parm:   
-            if df is None:
+        for value in parm:
+            if is_dict_like(value):
+                datatype = 'JSON'
+            elif df is None:
                 #value is a constant
                 if isinstance(value,str):
                     datatype = 'LITERAL'              
@@ -839,9 +841,7 @@ class BaseFunction(object):
                 elif isinstance(value,bool):
                     datatype = 'BOOLEAN'              
                 elif isinstance(value, dt.datetime):
-                    datatype = 'TIMESTAMP'              
-                elif is_dict_like(value):
-                    datatype = 'JSON'
+                    datatype = 'TIMESTAMP'
                 else: 
                     raise TypeError('Cannot infer type of argument value %s for parm %s. Supply a string, number, boolean, datetime, dict or list containing any of these types.' %(value,parm))
             else:      
@@ -1885,6 +1885,22 @@ class BasePreload(BaseTransformer):
         raise NotImplementedError('This function has no execute method defined. You must implement a custom execute for any preload function')
         return True
     
+class BaseMetadataProvider(BasePreload):
+    """
+    Metadata providers do not transform data. They merely add metadata to the entity type
+    to make it available to other functions in the pipeline.
+    """
+    
+    def __init__(self, dummy_items, output_item = 'is_parameters_set', **kwargs):
+        super().__init__(dummy_items = dummy_items, output_item= output_item)
+        self.params = kwargs
+        
+    def exec(self,df):
+        self._entity_type.set_params(**self.params)
+        msg = 'Metadata provider added parameters to entity type: %s' %self.params
+        logger.debug(msg)
+        return True
+    
     
 class CompanyFilter(BaseFilter):
     '''
@@ -2294,7 +2310,7 @@ class MergeActivityData(BaseDBActivityMerge):
     '''
     execute_by = ['deviceid']
     
-    _is_instance_level_logged = True
+    _is_instance_level_logged = False
     
     def __init__(self,input_activities,
                  activity_duration=None,
@@ -2620,7 +2636,9 @@ class OutlierRemover(BaseTransformer):
         else:
             df[self.name] = np.where(self.min <= df[self.source], 
                                      np.where(df[self.source] <= self.max, df[self.source], np.nan), np.nan)
-        return df    
+        return df
+
+    
     
 class SamplePreLoad(BasePreload):
     '''
@@ -2668,6 +2686,8 @@ class ShiftCalendar(BaseTransformer):
         self.shift_day = shift_day
         self.shift_id = shift_id
         super().__init__()
+        self.inputs = ['shift_definition']
+        self.outputs = ['shift_start_date','shift_end_date','shift_day','shift_id']     
         
     
     def get_data(self,start_date,end_date):

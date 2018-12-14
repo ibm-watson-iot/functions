@@ -96,10 +96,10 @@ class CalcPipeline:
                 is_data_source = False
                 merge_method = None
             if is_data_source and merge_method == 'replace':
-                try:
-                    df = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
-                except TypeError:
-                    df = s.execute(df=df)
+                try: 
+                    df = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities) 
+                except TypeError: 
+                    df = s.execute(df=df) 
                 self.logger.debug("stage=%s is a custom data source. It replaced incoming entity data. " %s.__class__.__name__)
                 try:
                     s.log_df_info(df,'Incoming data replaced with function output from primary data source')
@@ -166,9 +166,9 @@ class CalcPipeline:
                                             end_ts = end_ts,
                                             entities = entities,
                                             to_csv = False)
-
         msg = 'Secondary data sources identified:  %s. Other stages are: %s' %(secondary_sources, stages)
         logger.debug(msg)       
+        
         
         #add a dummy item to the dataframe for each preload stage
         #added as the ui expects each stage to contribute one or more output items
@@ -340,7 +340,12 @@ class CalcPipeline:
         '''
         msg = '%s | %s' %(str(exception),msg)
         if abort_on_fail:
-            raise type(exception)(msg).with_traceback(sys.exc_info()[2])
+            try:
+                tb = sys.exc_info()[2]
+            except TypeError:
+                raise type(exception)(msg)
+            else:
+                raise type(exception)(msg).with_traceback(tb)
         else:
             logger.warn(msg)
             msg = 'An exception occured during execution of a pipeline stage. The stage is configured to continue after an execution failure'
