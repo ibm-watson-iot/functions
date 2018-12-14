@@ -177,9 +177,9 @@ class IoTShiftCalendar(BaseTransformer):
     Generate data for a shift calendar using a shift_definition in the form of a dict keyed on shift_id
     Dict contains a tuple with the start and end hours of the shift expressed as numbers. Example:
           {
-               "1": (5.5, 14),
-               "2": (14, 21),
-               "3": (21, 29.5)
+               "1": [5.5, 14],
+               "2": [14, 21],
+               "3": [21, 29.5]
            },    
     '''
     def __init__ (self,shift_definition=None,
@@ -189,9 +189,9 @@ class IoTShiftCalendar(BaseTransformer):
                   shift_id = 'shift_id'):
         if shift_definition is None:
             shift_definition = {
-               "1": (5.5, 14),
-               "2": (14, 21),
-               "3": (21, 29.5)
+               "1": [5.5, 14],
+               "2": [14, 21],
+               "3": [21, 29.5]
            }
         self.shift_definition = shift_definition
         self.shift_start_date = shift_start_date
@@ -201,6 +201,9 @@ class IoTShiftCalendar(BaseTransformer):
         super().__init__()
         self.constants = ['shift_definition']
         self.outputs = ['shift_start_date','shift_end_date','shift_day','shift_id']
+        self.itemTags['shift_start_date'] = ['DIMENSION']
+        self.itemTags['shift_day'] = ['DIMENSION']
+        self.itemTags['shift_id'] = ['DIMENSION']
         
     
     def get_data(self,start_date,end_date):
