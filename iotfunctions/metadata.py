@@ -10,12 +10,13 @@
 
 import logging
 import datetime as dt
+import numpy as np
 import json
 import urllib3
 import pandas as pd
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float
-from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension
-from .automation import TimeSeriesGenerator
+from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
+from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
@@ -50,39 +51,47 @@ class EntityType(object):
             
     log_table = 'KPI_LOGGING'
     checkpoint_table = 'KPI_CHECKPOINT'
-    _start_entity_id = 73000 #used to build entity ids
-    _auto_entity_count = 5 #default number of entities to generate data for
     # These two columns will be available in the dataframe of a pipeline
     _entity_id = 'deviceid' #identify the instance
     _timestamp_col = '_timestamp' #copy of the event timestamp from the index
     # These two column names will be used to name the index of a pipeline dataframe
     _timestamp = 'evt_timestamp'
     _df_index_entity_id = 'id'
-       
+    # generator
+    _scd_frequency = '2D'
+    _activity_frequency = '3D'
+    _start_entity_id = 73000 #used to build entity ids
+    _auto_entity_count = 5 #default number of entities to generate data for       
     
     def __init__ (self,name,db, *args, **kwargs):
-        self.name = name
+        self.name = name.lower()
         self.activity_tables = {}
         self.scd = {}
-        if db is None:
-            db = Database()
         self.db = db
-        self.tenant_id = self.db.tenant_id
+        if self.db is not None:
+            self.tenant_id = self.db.tenant_id
         self.logical_name = None
         self._db_connection_dbi = None
+        self._dimension_table = None
         self._dimension_table_name = None
         self._db_schema = None
         self._data_items = None
         self.set_params(**kwargs)
         if self.logical_name is None:
             self.logical_name = self.name
-        try:
-            self.table = self.db.get_table(self.name)
-        except KeyError:
-            ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
-            self.table = ts.table
-            self.table.create(self.db.connection)
             
+        if name is not None and db is not None:            
+            try:
+                self.table = self.db.get_table(self.name,self._db_schema)
+            except KeyError:
+                ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
+                self.table = ts.table
+                self.db.create()
+                msg = 'Create table %s' %self.name
+                logger.debug(msg)
+        else:
+            msg = 'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'
+            logger.debug(msg)
             
     def add_activity_table(self, name, activities, *args, **kwargs):
         '''
@@ -98,17 +107,18 @@ class EntityType(object):
             other columns describing the activity, e.g. materials_cost
         '''
         kwargs['_activities'] = activities
-        
+        kwargs['schema'] = self._db_schema
+        name = name.lower()
         table = ActivityTable(name, self.db,*args, **kwargs)
         try:
-            sqltable = self.db.get_table(name)
+            sqltable = self.db.get_table(name, self._db_schema)
         except KeyError:
-            table.create(self.db.connection)
+            table.create()
         self.activity_tables[name] = table
         
         
         
-    def add_slowly_changing_dimension(self,property_name,datatype):
+    def add_slowly_changing_dimension(self,property_name,datatype,**kwargs):
         '''
         add a slowly changing dimension table containing a single property for this entity type
         
@@ -119,16 +129,19 @@ class EntityType(object):
         datatype: sqlalchemy datatype
         '''
         
+        property_name = property_name.lower()
+        
         name= '%s_scd_%s' %(self.name,property_name)
-
+        kwargs['schema'] = self._db_schema
         table = SlowlyChangingDimension(name = name,
                                    database=self.db,
                                    property_name = property_name,
-                                   datatype = datatype)        
+                                   datatype = datatype,
+                                   **kwargs)        
         try:
-            sqltable = self.db.get_table(name)
+            sqltable = self.db.get_table(name,self._db_schema)
         except KeyError:
-            table.create(self.db.connection)
+            table.create()
         self.scd[property_name] = table
         
     def drop_child_tables(self):
@@ -138,7 +151,7 @@ class EntityType(object):
         tables = []
         tables.extend(self.activity_tables.values())
         tables.extend(self.scd.values())
-        [self.db.drop_table(x) for x in tables]
+        [self.db.drop_table(x,self._db_schema) for x in tables]
         msg = 'dropped tables %s' %tables
         logger.info(msg)
                 
@@ -154,14 +167,17 @@ class EntityType(object):
         '''
         Retrieve entity data
         '''
-        (query,table) = self.db.query(self.name)
+        (query,table) = self.db.query(self.name, schema = self._db_schema)
         if not start_ts is None:
             query = query.filter(table.c[self._timestamp] >= start_ts)
         if not end_ts is None:
             query = query.filter(table.c[self._timestamp] <= end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement, con = self.db.connection)
+        params = {
+                    'schema': self._db_schema
+                    }            
+        df = pd.read_sql(query.statement, con = self.db.connection, params = params)
         
         return df       
         
@@ -170,7 +186,7 @@ class EntityType(object):
         '''
         Get KPI execution log info. Returns a dataframe.
         '''
-        query, log = self.db.query(self.log_table)
+        query, log = self.db.query(self.log_table, self._db_schema)
         query = query.filter(log.c.entity_type==self.name).\
                       order_by(log.c.timestamp_utc.desc()).\
                       limit(rows)
@@ -185,7 +201,8 @@ class EntityType(object):
         last = last.to_dict('records')[0]
         return last
     
-    def generate_data(self, entities = None, days=0, seconds = 300, freq = '1min', write=True):
+    def generate_data(self, entities = None, days=0, seconds = 300, 
+                      freq = '1min', write=True, drop_existing = False):
         '''
         Generate random time series data for entities
         
@@ -209,23 +226,34 @@ class EntityType(object):
         categoricals = []
         dates = []
         others = []
-        for c in self.db.get_column_names(self.table):
-            if not c in ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]:
-                data_type = self.table.c[c].type
-                if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
-                    metrics.append(c)
-                elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
-                    categoricals.append(c)
-                elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
-                    dates.append(c)
-                else:
-                    others.append(c)
-                    msg = 'Encountered column %s of unknown data type %s' %(c,data_type.__class__.__name__)
-                    raise TypeError(msg)
+
+        if drop_existing:
+            self.db.drop_table(self.name)
+            self.drop_child_tables()
+                
+        exclude_cols =  ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]  
+        if self.db is None:
+            write = False
+            msg = 'This is a null entity with no database connection, test data will not be written'
+            logger.debug(msg)
+            metrics = ['x_1','x_2','x_3']
+            dates = ['d_1','d_2','d_3']
+            categoricals = ['c_1','c_2','c_3']
+            others = []
+        else:
+            (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(self.table,self._db_schema,exclude_cols = exclude_cols)
         msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,categoricals,dates)
         logger.debug(msg)
-        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,days=days,seconds=seconds,freq=freq, categoricals = categoricals, dates = dates)
+        ts = TimeSeriesGenerator(metrics=metrics,ids=entities,
+                                 days=days,seconds=seconds,
+                                 freq=freq, categoricals = categoricals,
+                                 dates = dates, timestamp = self._timestamp)
+        
         df = ts.execute()
+        
+        if self._dimension_table_name is not None:
+            self.generate_dimension_data(entities, write = write)
+        
         if write:
             for o in others:
                 if o not in df.columns:
@@ -234,19 +262,79 @@ class EntityType(object):
             df['devicetype'] = self.name
             df['format'] = ''
             df['updated_utc'] = None
-            self.db.write_frame(table_name = self.name, df = df)
+            self.db.write_frame(table_name = self.name, df = df, 
+                                schema = self._db_schema ,
+                                timestamp_col = self._timestamp)
             
-        for at in list(self.activity_tables.values()):
-            adf = at.generate_data(entities = entities, days = days, seconds = seconds, write = write)
-            msg = 'generated data for activity table %s' %at.name
+        for (at_name,at_table) in list(self.activity_tables.items()):
+            adf = self.generate_activity_data(table_name = at_name, activities = at_table._activities,entities = entities, days = days, seconds = seconds, write = write)            
+            msg = 'generated data for activity table %s' %at_name
             logger.debug(msg)
             
         for scd in list(self.scd.values()):
-            sdf = scd.generate_data(entities = entities, days = days, seconds = seconds, write = write)
+            sdf = self.generate_scd_data(scd_obj = scd, entities = entities, days = days, seconds = seconds, write = write)
             msg = 'generated data for scd table %s' %scd.name
             logger.debug(msg)
         
         return df
+    
+    def generate_activity_data(self,table_name, activities, entities,days,seconds,write=True):
+        
+        (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        metrics.append('duration')
+        categoricals.append('activity')
+        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
+                                 ids = entities, days = days, seconds = seconds, freq = self._activity_frequency)
+        ts.set_domain('activity',activities)               
+        df = ts.execute()
+        df['start_date'] = df[self._timestamp]
+        duration = df['duration'].abs()
+        df['end_date'] = df['start_date'] + pd.to_timedelta(duration, unit='h')
+        # probability that an activity took place in the interval
+        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._activity_frequency).total_seconds() 
+        is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
+        df = df[is_activity]
+        cols = [x for x in df.columns if x not in ['duration',self._timestamp]]
+        df = df[cols]
+        if write:
+            msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
+            self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema)       
+        return df
+    
+    def generate_scd_data(self,scd_obj,entities,days,seconds,write=True):
+        
+        table_name = scd_obj.name
+        msg = 'generating data for %s for %s days and %s seconds' %(table_name,days,seconds)
+        (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
+        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
+                                 ids = entities, days = days, seconds = seconds, freq = self._scd_frequency)
+        df = ts.execute()
+        df['start_date'] = df[self._timestamp]
+        # probability that a change took place in the interval
+        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._scd_frequency).total_seconds() 
+        is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
+        df = df[is_activity]
+        cols = [x for x in df.columns if x not in [self._timestamp]]
+        df = df[cols]
+        df['end_date'] = None
+        query,table = self.db.query(table_name, self._db_schema)
+        try:
+            edf = self.db.get_query_data(query)
+        except:
+            edf = pd.DataFrame()
+        df = pd.concat([df,edf],ignore_index = True,sort=False)
+        if len(df.index) > 0:
+            df = df.groupby([self._entity_id]).apply(self._set_end_date)
+            try:
+                self.db.truncate(table_name)
+            except KeyError:
+                pass
+            if write:
+                msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
+            self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
+        return df    
+        
     
     def register(self):
         '''
@@ -258,49 +346,119 @@ class EntityType(object):
             credentials for the ICS metadata service
 
         '''
+        cols = []
         columns = []
-        dates = []
+        table = {}
+        table['name'] = self.logical_name
+        table['metricTableName'] = self.name
+        table['metricTimestampColumn'] = self._timestamp
+        if self._dimension_table is not None:
+            table['dimensionTableName'] = self._dimension_table_name
+            for c in self.db.get_column_names(self._dimension_table):
+                cols.append((self._dimension_table,c,'DIMENSION'))
         for c in self.db.get_column_names(self.table):
-            if c not in ['logicalinterface_id','format','updated_utc']:
-                data_type = self.table.c[c].type
-                if isinstance(data_type,DOUBLE):
+            cols.append((self.table,c,'METRIC'))
+        for (table_obj,column_name,col_type) in cols:
+            msg = 'found %s column %s' %(col_type,column_name)
+            logger.debug(msg)
+            if column_name not in ['logicalinterface_id','format','updated_utc']:
+                data_type = table_obj.c[column_name].type
+                if isinstance(data_type,DOUBLE) or isinstance(data_type,Float) or isinstance(data_type,Integer):
                     data_type = 'NUMBER'
-                elif isinstance(data_type,TIMESTAMP):
-                    data_type = 'TIMESTAMP'
-                    dates.append(c)
-                elif isinstance(data_type,VARCHAR):
+                elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
                     data_type = 'LITERAL'
+                elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
+                    data_type = 'TIMESTAMP'
                 else:
                     data_type = str(data_type)
+                    logger.warning('Unknown datatype %s for column %s' %(data_type,c))
                 columns.append({ 
-                        'name' : c,
-                        'type' : 'METRIC',
-                        'columnName' : c,
+                        'name' : column_name,
+                        'type' : col_type,
+                        'columnName' : column_name,
                         'columnType'  : data_type,
                         'tags' : None,
                         'transient' : False
-                        })
-        table = {}
-        table['name'] = self.name
+                        })                
         table['dataItemDto'] = columns
-        table['metricTableName'] = self.name
-        table['metricTimestampColumn'] = self._timestamp
-        table['schemaName'] = self.db.credentials['db2']['username']
+        try:
+            table['schemaName'] = self.db.credentials['db2']['username']
+        except KeyError:
+            raise KeyError('No db2 credentials found. Unable to register table.')
         payload = [table]
         response = self.db.http_request(request='POST',
                                      object_type = 'entityType',
                                      object_name = self.name,
                                      payload = payload)
 
-        msg = 'Metadata registerd for table %s '%self.name
+        msg = 'Metadata registered for table %s '%self.name
         logger.debug(msg)
         return response
     
-    def set_dimension_columns(self,columns):
+    def make_dimension(self,name = None, *args, **kw):
         '''
-        TBD Add dimension table by specifying additional columns
+        Add dimension table by specifying additional columns
+        
+        Parameters
+        ----------
+        name: str
+            dimension table name
+        *args: sql alchemchy Column objects
+        * kw: : schema
         '''
-        pass
+        kw['schema'] = self._db_schema
+        if name is None:
+            name = '%s_dimension' %self.name
+            
+        name = name.lower()
+            
+        self._dimension_table_name = name
+    
+        try:
+            self._dimension_table = self.db.get_table(name,self._db_schema)
+        except KeyError:
+            dim = Dimension(
+                self._dimension_table_name, self.db,
+                *args,
+                **kw
+                )
+            self._dimension_table = dim.table
+            dim.create()
+            msg = 'Creates dimension table %s' %self._dimension_table_name
+            logger.debug(msg)
+            
+    def generate_dimension_data(self,entities,write=True):
+        
+        (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
+                                                self._dimension_table_name,
+                                                self._db_schema,exclude_cols = [self._entity_id])
+        
+        rows = len(entities)
+        data = {}
+        
+        for m in metrics:
+            data[m] = MetricGenerator(m).get_data(rows=rows)
+
+        for c in categoricals:
+            data[c] = CategoricalGenerator(c).get_data(rows=rows)            
+            
+        data[self._entity_id] = entities
+            
+        df = pd.DataFrame(data = data)
+        
+        for d in dates:
+            df[d] = DateGenerator(d).get_data(rows=rows)
+            df[d] = pd.to_datetime(df[d])
+            
+        if write:
+            self.db.write_frame(df,table_name = self._dimension_table_name, if_exists = 'replace')
+     
+    def _set_end_date(self,df):
+        
+        df['end_date'] = df['start_date'].shift(-1)
+        df['end_date'] = df['end_date'] - pd.Timedelta(seconds = 1)
+        df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
+        return df       
     
     def set_params(self, **params):
         '''
@@ -308,7 +466,9 @@ class EntityType(object):
         '''
         for key,value in list(params.items()):
             setattr(self, key, value)
-        return self        
+        return self   
+
+
         
         
         

@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+import json
 import numpy as np
 import sys
 logger = logging.getLogger(__name__)
@@ -127,9 +128,12 @@ class CalcPipeline:
         '''
         Execute the pipeline using an input dataframe as source.
         '''
+        last_msg = ''
         #preload may  have already taken place. if so pass the names of the stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
+        msg = 'Running pipeline with start timestamp %s' %start_ts
+        logger.debug(msg)
         #process preload stages first if there are any
         (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
         preloaded_item_names.extend(preload_item_names)
@@ -147,6 +151,9 @@ class CalcPipeline:
         if dropna:
             df = df.replace([np.inf, -np.inf], np.nan)
             df = df.dropna()
+        # remove rows that contain all nulls ignore deviceid and timestamp
+        subset = [x for x in df.columns if x not in [self.entity_type._entity_id,self.entity_type._timestamp_col]]
+        df = df.dropna(how='all', subset = subset )
         '''
         Divide the pipeline into data retrieval stages and transformation stages. First look for
         a primary data source. A primary data source will have a merge_method of 'replace'. This
@@ -159,7 +166,9 @@ class CalcPipeline:
                                             end_ts = end_ts,
                                             entities = entities,
                                             to_csv = False)
-        print('stages=%s, secondary_sources=%s' % (str(stages), str(secondary_sources)))
+
+        msg = 'Secondary data sources identified:  %s. Other stages are: %s' %(secondary_sources, stages)
+        logger.debug(msg)       
         
         #add a dummy item to the dataframe for each preload stage
         #added as the ui expects each stage to contribute one or more output items
@@ -177,9 +186,7 @@ class CalcPipeline:
                 if not s in secondary_sources:
                     continue
             #check to see if incoming data has a conformed index, conform if needed
-            trace = trace_history + ' pipeline failed during execution of stage %s. ' %s.__class__.__name__
-            trace = trace +' Dataframe had columns: %s.' %(list(df.columns))
-            trace = trace +' Dataframe had index: %s.' %(df.index.names)            
+            trace = trace_history + ' pipeline failed during execution of stage %s. ' %s.__class__.__name__          
             try:
                 df = s.conform_index(df)
             except AttributeError:
@@ -189,25 +196,40 @@ class CalcPipeline:
                 print(trace)
                 raise               
             try:
-                msg = 'Executing pipeline stage %s. Input dataframe.' %s.__class__.__name__
-                s.log_df_info(df,msg)
+                msg = ' Dataframe at start of %s: ' %s.__class__.__name__
+                last_msg = s.log_df_info(df,msg)
+            except Exception:
+                last_msg = self.log_df_info(df,msg)
+            try:
+                abort_on_fail = self._abort_on_fail
             except AttributeError:
-                pass             
+                abort_on_fail = True
             # There are two different signatures for the execute method
             try:
                 try:
                     newdf = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
                 except TypeError:
-                        newdf = s.execute(df=df)
+                    newdf = s.execute(df=df)
             except AttributeError as e:
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
                 trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__
-                trace = '%s | %s' %(str(e),trace)
-                raise type(e)(trace).with_traceback(sys.exc_info()[2])
-                #raise e.__class__(trace)
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
+            except SyntaxError as e:
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + ' The function contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct' 
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
+            except (ValueError,TypeError) as e:
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + ' The function is operating on data that has an unexpected value or data type. '
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)                
+            except (NameError) as e:
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + ' The function refered to an object that does not exist. You may be refering to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. '
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             except Exception as e:
-                trace = '%s | %s' %(str(e),trace)
-                raise type(e)(trace).with_traceback(sys.exc_info()[2])
-                #raise e.__class__(trace)
+                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
+                trace = trace + ' The function failed to execute '
+                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
             #validate that stage has not violated any pipeline processing rules
             try:
                 s.validate_df(df,newdf)
@@ -217,10 +239,8 @@ class CalcPipeline:
                 try:
                     s.register(df=df,new_df= newdf)
                 except AttributeError:
-                    raise
                     msg = 'Could not export %s as it has no register() method' %s.__class__.__name__
                     logger.warning(msg)
-
             df = newdf
             if dropna:
                 df = df.replace([np.inf, -np.inf], np.nan)
@@ -229,31 +249,31 @@ class CalcPipeline:
                 df.to_csv('debugPipelineOut_%s.csv' %s.__class__.__name__)
             try:
                 msg = 'Completed stage %s. Output dataframe.' %s.__class__.__name__
-                s.log_df_info(df,msg)
-            except AttributeError:
-                pass
+                last_msg = s.log_df_info(df,msg)
+            except Exception:
+                last_msg = self.log_df_info(df,msg)
             secondary_sources = [x for x in secondary_sources if x != s]
             trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
         return df
 
-    def export(self):
+    def publish(self):
         
         export = []
         for s in self.stages:
-            if self.source is None:
+            if self.entity_type is None:
                 source_name = None
             else:
-                source_name = self.source.name
+                source_name = self.entity_type.name
             metadata  = { 
                     'name' : s.name ,
                     'args' : s._get_arg_metadata()
                     }
             export.append(metadata)
             
-        response = self.db.http_request(object_type = 'kpiFunctions',
+        response = self.entity_type.db.http_request(object_type = 'kpiFunctions',
                                         object_name = source_name,
                                         request = 'POST',
-                                        payload = metadata)    
+                                        payload = export)    
         return response
     
     def get_input_items(self):
@@ -270,6 +290,61 @@ class CalcPipeline:
                 pass
             
         return inputs
+    
+    def get_stage_trace(self, stage, last_msg = ''):
+        '''
+        Get a trace message from the stage
+        '''
+        try:
+            msg = stage.trace_get()
+        except AttributeError:
+            try: 
+                msg = stage._trace
+            except AttributeError:
+                msg = ''
+            msg = ''
+        if msg is None:
+            msg = ''            
+        msg = msg + str(last_msg)
+        return msg
+    
+    def log_df_info(self,df,msg,include_data=True):
+        '''
+        Log a debugging entry showing first row and index structure
+        '''
+        try:
+            msg = msg + ' | df count: %s ' %(len(df.index))
+            if df.index.names != [None]:
+                msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
+            else:
+                msg = msg + ' | df index is unnamed'
+            if include_data:
+                msg = msg + ' | 1st row: '
+                try:
+                    cols = df.head(1).squeeze().to_dict()    
+                    for key,value in list(cols.items()):
+                        msg = msg + '%s : %s \n' %(key, value)
+                except AttributeError:
+                    msg = msg + str(df.head(1))
+            logger.debug(msg)
+            return msg
+        except Exception:
+            logger.warn('dataframe contents not logged due to an unknown logging error')
+            return ''
+        
+        
+    
+    def _raise_error(self,exception,msg, abort_on_fail = False):
+        '''
+        Raise an exception. Append a message to the stacktrace.
+        '''
+        msg = '%s | %s' %(str(exception),msg)
+        if abort_on_fail:
+            raise type(exception)(msg).with_traceback(sys.exc_info()[2])
+        else:
+            logger.warn(msg)
+            msg = 'An exception occured during execution of a pipeline stage. The stage is configured to continue after an execution failure'
+            logger.warn(msg)
             
     def set_stages(self,stages):
         '''
