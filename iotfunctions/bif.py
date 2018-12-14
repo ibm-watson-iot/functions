@@ -235,7 +235,7 @@ class IoTShiftCalendar(BaseTransformer):
                            right_on = self.shift_start_date,
                            direction = 'backward')
         df = self.conform_index(df)
-        return df
-    
+        return df  
+
 
    
