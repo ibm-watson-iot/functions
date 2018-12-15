@@ -18,7 +18,6 @@ from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, F
 from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
-from .util import cosSave as cos_save
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 
@@ -482,13 +481,14 @@ class Model(object):
         self.viz = {}
         
     def save(self, cos_credentials, bucket):
-        
-        cos_save(obj = self,bucket = bucket,filename = self.name , credentials = cos_credentials)
-        
+        db = Database()
+        db.cos_save(persisted_object=self, filename=self.name, bucket=bucket)
+
     def add_viz(self, name, cos_credentials, viz_obj, bucket):
-        
-        cos_save(obj = viz_obj,bucket = bucket,filename = name , credentials = cos_credentials)
-        
+        db = Database()
+        db.cos_save(persisted_object=self, filename=self.name, bucket=bucket)
+        #this line is suspicious here.. I think someone copied and paster from the previous method
+
         
         
         

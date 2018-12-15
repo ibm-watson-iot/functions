@@ -1,10 +1,8 @@
 import logging
-import numpy as np
 from sklearn import linear_model
 from sklearn.model_selection import train_test_split
-from .util import cosLoad, cosSave
-import ibm_botocore
 from iotfunctions.preprocessor import BaseTransformer
+from .db import Database
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +32,8 @@ class BaseRegressor(BaseTransformer):
     def get_bucket_name(self):
         return self._bucket
 
-    def get_model_name(self):
-        return 'abc.ml'
+    def get_model_name(self, target_name, suffix=None):
+        return self.generate_model_name(target_name=target_name, suffix=suffix)
 
 class SampleAnomalySGDRegressor(BaseRegressor):
     '''
@@ -59,25 +57,23 @@ class SampleAnomalySGDRegressor(BaseRegressor):
         'real_score_threshold': 0.0000005
     }
 
-    def __init__(self, credentials, features, targets, predictions=None):
-        self.credentials = credentials
-        self.estimator = linear_model.SGDRegressor(max_iter=self.config['max_iter'], tol=self.config['tol'])
+    def __init__(self, features, targets, predictions=None):
+        self._estimator = linear_model.SGDRegressor(max_iter=self.config['max_iter'], tol=self.config['tol'])
         super().__init__(features=features, targets=targets, predictions=predictions)
 
     def fit(self, X_train, y_train):
         logger.info('fitting a model with X and y')
-        self.estimator = self.estimator.fit(X_train, y_train)
-        return self.estimator
+        return self._estimator.fit(X_train, y_train)
 
 
     def predict(self, X_test):
-        result = self.estimator.predict(X_test)
+        result = self._estimator.predict(X_test)
         logger.info('Model predicted with test X')
         return result
 
 
     def score(self, X_test, y_test):
-        result = self.estimator.score(X_test, y_test, self.config['sample_weight'])
+        result = self._estimator.score(X_test, y_test, self.config['sample_weight'])
         logger.info('Model scored with test X and y')
         return result
 
@@ -86,13 +82,17 @@ class SampleAnomalySGDRegressor(BaseRegressor):
 
         df = df.copy()
 
-        persisted_model = None
+        db = Database()
 
-        pipeline = cosLoad(bucket=self.get_bucket_name(), filename=self.get_model_name(),
-                           credentials=self.credentials)
+        #use only the first target of the list for now. Multiple targets are not supported yet
+        model_stored = db.cos_load(filename=self.get_model_name(target_name=list(df[self.targets])[0]),
+                            bucket=self.get_bucket_name(),
+                            binary=True)
 
-        if pipeline is not None:
+
+        if model_stored is not None:
             self.model_created = True
+            self._estimator = model_stored
         else:
             logger.info('No model available.')
 
@@ -100,9 +100,6 @@ class SampleAnomalySGDRegressor(BaseRegressor):
             if self.train_if_no_model:
                 X_train, X_test, y_train, y_test = train_test_split(df[self.features].values,
                                                                     df[self.targets].values.ravel(), test_size=0.2)
-
-                self.estimator = linear_model.SGDRegressor(max_iter=self.config['max_iter'], tol=self.config['tol'])
-
 
                 '''
                 
@@ -113,7 +110,7 @@ class SampleAnomalySGDRegressor(BaseRegressor):
                 '''
 
                 logger.info('Prepare to train a model.')
-                persisted_model = self.fit(X_train, y_train)
+                self._estimator = self.fit(X_train, y_train)
 
                 logger.info('Preparing prediction')
                 predictions = self.predict(X_test)
@@ -125,35 +122,42 @@ class SampleAnomalySGDRegressor(BaseRegressor):
                     logger.debug('Scores: %s' % scores)
 
                 threshold = self.config['training_score_threshold']
-                if scores > threshold:
+                #if scores > threshold:
+                if 1==1:
                     logger.info('Training score %s is greater than threshold %s : GOOD' % (scores, threshold))
-                    cosSave(persisted_model, bucket=self.get_bucket_name(), filename=self.get_model_name(),
-                        credentials=self.credentials)
 
+                    # use only the first target of the list for now. Multiple targets are not supported yet
+                    db.cos_save(persisted_object=self._estimator,
+                                filename=self.get_model_name(target_name=list(df[self.targets])[0]),
+                                bucket=self.get_bucket_name(),
+                                binary=True)
                 else:
                     logger.info('Training score %s is smaller than threshold %s : BAD' % (scores, threshold))
 
 
         logger.info('Model is already created. No need to create a new one.')
-        predictions = pipeline.predict(df[self.features].values)
+        predictions = self._estimator.predict(df[self.features].values)
+
 
         df[self.predictions[0]] = predictions
 
-        scores = pipeline.score(df[self.features].values,
+
+        scores = self._estimator.score(df[self.features].values,
                             df[self.targets].values.ravel())
+
+
         logger.debug('Scores: %s' % scores)
 
 
-        #write score to the model!
 
-        threshold = self.config['real_score_threshold']
-        if scores > threshold:
-            logger.info('Read score %s is greater than threshold %s : STILL GOOD' % (scores, threshold))
-        else:
-            logger.info('Real score %s is smaller than threshold %s : REALLY BAD' % (scores, threshold))
-            #need to delete the old model
-            #cosDelete is not available yet
+        '''
+        #DELETE operation is working. Use when the model's results are not satisfactory.
+        A new model will be generated.
+        
+        db.cos_delete(filename=self.get_model_name(target_name=list(df[self.targets])[0]),
+            bucket=self.get_bucket_name())
 
+        '''
 
         return df
 
