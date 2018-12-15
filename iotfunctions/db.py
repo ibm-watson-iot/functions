@@ -13,14 +13,6 @@ import datetime as dt
 import logging
 import urllib3
 import json
-import hashlib
-import hmac
-import dill
-from lxml import etree
-import requests
-from base64 import b64encode
-from urllib.parse import quote, urlparse
-import numpy as np
 import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float
@@ -28,7 +20,8 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError    
-from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
+from .util import CosClient
+
 logger = logging.getLogger(__name__)
 DB2_INSTALLED = True
 try:
@@ -63,8 +56,6 @@ class Database(object):
                 self.credentials['objectStorage']['region'] = os.environ.get('COS_REGION')
                 self.credentials['objectStorage']['username'] = os.environ.get('COS_HMAC_ACCESS_KEY_ID')
                 self.credentials['objectStorage']['password'] = os.environ.get('COS_HMAC_SECRET_ACCESS_KEY')
-                self.credentials['config']['objectStorageEndpoint'] = os.environ.get('COS_ENDPOINT')
-                self.credentials['config']['bos_runtime_bucket'] = os.environ.get('COS_BUCKET_KPI')
             except KeyError:
                 msg = 'No objectStorage credentials supplied and COS_REGION, COS_HMAC_ACCESS_KEY_ID, COS_HMAC_SECRET_ACCESS_KEY, COS_ENDPOINT not set. COS not available. Will write to filesystem instead'
                 logger.warning(msg)
@@ -109,7 +100,9 @@ class Database(object):
         try:
             self.credentials['config']= credentials['config']
         except (KeyError,TypeError):
-            self.credentials['config'] = None 
+            self.credentials['config'] = {}
+            self.credentials['config']['objectStorageEndpoint'] = os.environ.get('COS_ENDPOINT')
+            self.credentials['config']['bos_runtime_bucket'] = os.environ.get('COS_BUCKET_KPI')
             msg = 'Unable to locate config credentials. Database object created, but it will not be able interact with object storage'
             logger.debug(msg)
         
@@ -251,20 +244,32 @@ class Database(object):
         response= r.data.decode('utf-8')
         return response
 
-    def cos_load(self, filename, bucket):
-        
-        raise NotImplementedError('cant do this yet')
-        obj = 1
-        
+    def cos_load(self, filename, bucket, binary=False):
+        cos_client = CosClient(self.credentials)
+        obj = cos_client.cos_get(key=filename, bucket=bucket, binary=binary)
+
+        if obj is None:
+            logger.error('Not able to GET %s from COS bucket %s' % (filename, bucket))
+
         return obj
     
-    def cos_save(self, filename, bucket ):
-        
-        response = 'not implemented'
-        
-        log.info('This should be saving to cos')
-        
-        return response
+    def cos_save(self, persisted_object, filename, bucket, binary=False):
+        cos_client = CosClient(self.credentials)
+        ret = cos_client.cos_put(key=filename, payload=persisted_object, bucket=bucket, binary=binary)
+
+        if ret is None:
+            logger.info('Not able to PUT %s to COS bucket %s', (filename, bucket))
+
+        return ret
+
+    def cos_delete(self, filename, bucket):
+        cos_client = CosClient(self.credentials)
+        ret = cos_client.cos_delete(key=filename, bucket=bucket)
+
+        if ret is None:
+            logger.info('Not able to DELETE %s to COS bucket %s', (filename, bucket))
+
+        return ret
 
     def commit(self):
         '''

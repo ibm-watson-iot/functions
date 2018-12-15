@@ -27,7 +27,6 @@ from sqlalchemy import create_engine, MetaData, Table
 from sqlalchemy.orm.session import sessionmaker
 from inspect import getargspec
 from collections import OrderedDict
-from .util import cosLoad, cosSave
 from .db import Database, SystemLogTable
 from .metadata import EntityType
 from .automation import TimeSeriesGenerator
@@ -2058,7 +2057,12 @@ class ExecuteFunctionSingleOut(BaseTransformer):
         super().__init__()
 
         if callable(function_name):
-            cosSave(function_name,bucket=bucket,credentials=cos_credentials,filename=function_name.__name__)
+            db = Database()
+
+            db.cos_save(persisted_object=function_name,
+                        filename=function_name.__name__,
+                        bucket=bucket, binary=True)
+
             function_name = function_name.__name__
         self.function_name = function_name
         
@@ -2070,11 +2074,14 @@ class ExecuteFunctionSingleOut(BaseTransformer):
         self.parameters = parameters
         
     def execute(self,df):
+        db = Database()
+
         
         # retrieve
-        function = cosLoad(bucket=self.parameters['bucket'],
-                           credentials=self.parameters['cos_credentials'],
-                           filename=self.parameters['function_name'])
+        function = db.cos_load(filename=self.parameters['function_name'],
+                               bucket=self.parameters['bucket'],
+                               binary=True)
+
         #execute
         rf = function(df,self.parameters)
         #rf will contain a single new output column. The name of this output column will be set to the 

@@ -12,6 +12,12 @@ os.environ['API_BASEURL'] = 'https://%s' %credentials['as_api_host']
 os.environ['API_KEY'] = credentials['as_api_key']
 os.environ['API_TOKEN'] = credentials['as_api_token']
 
+os.environ['COS_REGION'] = credentials['objectStorage']['region']
+os.environ['COS_HMAC_ACCESS_KEY_ID'] = credentials['objectStorage']['username']
+os.environ['COS_HMAC_SECRET_ACCESS_KEY'] = credentials['objectStorage']['password']
+os.environ['COS_ENDPOINT'] = credentials['config']['objectStorageEndpoint']
+os.environ['COS_BUCKET_KPI'] = credentials['config']['bos_runtime_bucket']
+
 from iotfunctions.db import Database
 from iotfunctions.metadata import EntityType
 from iotfunctions.estimator import SampleAnomalySGDRegressor
@@ -80,7 +86,7 @@ pl = entity.get_calc_pipeline()
 features = ['temp', 'humidity']
 targets = ['fill_time']
 
-pl.add_stage(SampleAnomalySGDRegressor(credentials=credentials, features=features, targets=targets))
+pl.add_stage(SampleAnomalySGDRegressor(features=features, targets=targets))
 df = pl.execute(to_csv= True,start_ts=None, register=True)
 '''
 Add more info here
