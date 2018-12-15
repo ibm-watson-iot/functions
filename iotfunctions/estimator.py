@@ -122,8 +122,7 @@ class SampleAnomalySGDRegressor(BaseRegressor):
                     logger.debug('Scores: %s' % scores)
 
                 threshold = self.config['training_score_threshold']
-                #if scores > threshold:
-                if 1==1:
+                if scores > threshold:
                     logger.info('Training score %s is greater than threshold %s : GOOD' % (scores, threshold))
 
                     # use only the first target of the list for now. Multiple targets are not supported yet
