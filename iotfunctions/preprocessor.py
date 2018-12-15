@@ -2059,7 +2059,9 @@ class ExecuteFunctionSingleOut(BaseTransformer):
         if callable(function_name):
             db = Database()
 
-            db.cos_save(persisted_object=function_name, filename=function_name.__name__, bucket=bucket)
+            db.cos_save(persisted_object=function_name,
+                        filename=function_name.__name__,
+                        bucket=bucket, binary=True)
 
             function_name = function_name.__name__
         self.function_name = function_name
@@ -2077,7 +2079,8 @@ class ExecuteFunctionSingleOut(BaseTransformer):
         
         # retrieve
         function = db.cos_load(filename=self.parameters['function_name'],
-                               bucket=self.parameters['bucket'])
+                               bucket=self.parameters['bucket'],
+                               binary=True)
 
         #execute
         rf = function(df,self.parameters)
