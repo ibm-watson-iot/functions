@@ -327,7 +327,7 @@ class EntityType(object):
         if len(df.index) > 0:
             df = df.groupby([self._entity_id]).apply(self._set_end_date)
             try:
-                self.db.truncate(table_name)
+                self.db.truncate(table_name, schema = self._db_schema)
             except KeyError:
                 pass
             if write:
@@ -470,24 +470,64 @@ class EntityType(object):
 
 
 class Model(object):
+    '''
+    Predictive model
+    '''
+    shelf_life_days = 30
     
-    def __init__(self, name , trained_date, features, eval_metric_type, eval_metric_value, trained_data = None):
+    def __init__(self, name , estimator, estimator_name , params, features, target, eval_metric_type, eval_metric_train):
         
         self.name = name
+        self.target = target
         self.features = features
+        self.estimator = estimator
+        self.estimator_name = estimator_name
+        self.params = params
         self.eval_metric_type = eval_metric_type
-        self.eval_metric_value = eval_metric_value
-        self.trained_date = trained_date
+        self.eval_metric_train = None
+        self.eval_metric_test = None
+        self.trained_date = None
+        if self.trained_date is not None:
+            self.expiry_date = self.trained_date + dt.timedelta(days = self.shelf_life_days)
+        else:
+            self.expiry_date = None
         self.viz = {}
-        
-    def save(self, cos_credentials, bucket):
-        db = Database()
-        db.cos_save(persisted_object=self, filename=self.name, bucket=bucket)
 
     def add_viz(self, name, cos_credentials, viz_obj, bucket):
-        db = Database()
-        db.cos_save(persisted_object=self, filename=self.name, bucket=bucket)
-        #this line is suspicious here.. I think someone copied and paster from the previous method
+        self.db.cos_save(persisted_object=viz_obj, filename= name, bucket=bucket)
+        
+    def fit(self,df):
+        self.estimator = self.estimator.fit(df[self.features],df[self.target])
+        self.trained_date = dt.datetime.utcnow()
+        self.eval_metric_train = self.score(df)
+        if self.shelf_life_days is not None:
+            self.expiry_date = self.trained_date + dt.timedelta(days = self.shelf_life_days)        
+        msg= 'trained model %s with evaluation metric value %s' %(self.name,self.eval_metric_train)
+        logger.info(msg)
+        return self.estimator
+
+    def predict(self,df):
+        result = self.estimator.predict(df[self.features])
+        msg= 'predicted using model %s' %(self.name)
+        logger.info(msg)        
+        return result
+
+    def score (self,df):
+        result = self.estimator.score(df[self.features],df[self.target])     
+        return result    
+    
+    def test(self,df):
+        self.eval_metric_test = self.score(df)
+        msg= 'evaluated model %s with evaluation metric value %s' %(self.name,self.eval_metric_test)
+        logger.info(msg)        
+        return self.eval_metric_test
+        
+    def save(self, cos_credentials, bucket):
+        self.db.cos_save(persisted_object=self, filename=self.name, bucket=bucket)
+        
+    
+
+        
 
         
         
