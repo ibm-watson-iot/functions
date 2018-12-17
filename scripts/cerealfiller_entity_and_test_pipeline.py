@@ -85,9 +85,10 @@ pl = entity.get_calc_pipeline()
 
 features = ['temp', 'humidity']
 targets = ['fill_time']
-
-pl.add_stage(SampleAnomalySGDRegressor(features=features, targets=targets))
+est = SimpleRegressor(features=['temp','humidity','fill_time'],targets=['fill_mass'])
+pl.add_stage(est)
 df = pl.execute(to_csv= True,start_ts=None, register=True)
+
 '''
 Add more info here
 '''

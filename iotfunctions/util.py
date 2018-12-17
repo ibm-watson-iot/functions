@@ -8,13 +8,19 @@
 #
 # *****************************************************************************
 
-from base64 import b64encode
+import os
+import tempfile
+import dill
+import requests
 import datetime
+from urllib.parse import quote, urlparse
+import ibm_boto3
+from ibm_boto3.s3.transfer import S3Transfer
+from ibm_botocore.client import Config
+from base64 import b64encode
 import hashlib
 import hmac
 from lxml import etree
-import requests
-from urllib.parse import quote, urlparse
 import logging
 import pickle
 
@@ -22,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 
 class CosClient:
+    '''
+    Cloud Object Storage client
+    '''
 
     def __init__(self, credentials):
         self._cod_hmac_access_key_id = credentials['objectStorage']['username']
@@ -45,7 +54,9 @@ class CosClient:
         keySigning = self._hash(keyService, 'aws4_request')
         return keySigning
 
-    def _cos_api_request(self, http_method, bucket, key, request_parameters=None, payload='', extra_headers={}, binary=False):
+    def _cos_api_request(self, http_method, bucket, key, request_parameters=None, payload='', extra_headers=None, binary=False):
+        if extra_headers is None:
+            extra_headers = {}
         # it seems region is not used by IBM COS and can be any string (but cannot be None below still)
         if any([(var is None or len(var.strip()) == 0) for var in [self._cod_hmac_access_key_id, self._cod_hmac_secret_access_key, self._cos_endpoint, bucket]]):
             logger.warning('logging to COS is disabled because not all COS config environment variables are set')
@@ -187,3 +198,62 @@ class CosClient:
 
         request_parameters = {'delete': ''}
         return self._cos_api_request('POST', bucket=bucket, key=None, payload=payload, request_parameters=request_parameters, extra_headers=extra_headers)
+    
+
+def cosSave(obj,bucket,filename,credentials):
+    '''
+    Use IAM credentials to write an object to Cloud Object Storage
+    '''
+    try:
+        fhandle, fname = tempfile.mkstemp("cosfile")
+        os.close(fhandle) 
+        with open(fname, 'wb') as file_obj:
+            dill.dump(obj, file_obj)
+        transfer = getCosTransferAgent(credentials)
+        transfer.upload_file(fname, bucket, filename)
+        os.unlink(fname)
+
+    except Exception as ex:
+        logging.exception(ex)
+    return filename
+
+
+
+def cosLoad(bucket,filename,credentials):
+    '''
+    Use IAM credentials to read an object from Cloud Object Storage
+    '''
+    try:
+        fhandle, fname = tempfile.mkstemp("cosfile")
+        os.close(fhandle)
+        transfer = getCosTransferAgent(credentials)
+        transfer.download_file(bucket, filename, fname)
+        answer = None
+        with open(fname, 'rb') as file_obj:
+            answer = dill.load(file_obj)
+        os.unlink(fname)
+        return answer
+
+    except Exception as ex:
+        logging.exception(ex)
+
+
+
+def getCosTransferAgent(credentials):
+    '''
+    Use IAM credentials to obtain a Cloud Object Storage transfer agent object
+    '''
+    endpoints = requests.get(credentials.get('endpoints')).json()
+    iam_host = (endpoints['identity-endpoints']['iam-token'])
+    cos_host = (endpoints['service-endpoints']['cross-region']['us']['public']['us-geo'])
+    api_key = credentials.get('apikey')
+    service_instance_id = credentials.get('resource_instance_id')
+    auth_endpoint = "https://" + iam_host + "/oidc/token"
+    service_endpoint = "https://" + cos_host
+    cos = ibm_boto3.client('s3',
+                           ibm_api_key_id=api_key,
+                           ibm_service_instance_id=service_instance_id,
+                           ibm_auth_endpoint=auth_endpoint,
+                           config=Config(signature_version='oauth'),
+                           endpoint_url=service_endpoint)
+    return S3Transfer(cos)    

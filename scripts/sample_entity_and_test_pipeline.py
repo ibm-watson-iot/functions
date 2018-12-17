@@ -42,7 +42,7 @@ Here is a basic entity type that has three data items: company_code, temperature
 '''
 entity_name = 'widgets' 
 db_schema = None # replace if you are not using the default schema
-db.drop_table(entity_name)
+db.drop_table(entity_name, schema = db_schema)
 entity = EntityType(entity_name,db,
                           Column('company_code',String(50)),
                           Column('temp',Float()),
