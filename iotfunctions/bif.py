@@ -155,9 +155,9 @@ class IoTExpression(BaseTransformer):
     '''
     Create a new item from an expression involving other items
     '''
-    def __init__(self, expression , name):
+    def __init__(self, expression , output_name):
         self.expression = expression
-        self.name = name
+        self.output_name = output_name
         super().__init__()
         self.input_items = []
                 
