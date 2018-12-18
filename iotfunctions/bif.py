@@ -160,6 +160,8 @@ class IoTExpression(BaseTransformer):
         self.output_name = output_name
         super().__init__()
         self.input_items = []
+        self.constants = ['expression']
+        self.outputs = ['output_name']
                 
     def execute(self, df):
         df = df.copy()
@@ -171,7 +173,7 @@ class IoTExpression(BaseTransformer):
             expr = self.expression
             msg = 'expression was not in the form "${item}" so it will evaluated asis (%s)' %expr
         self.trace_append(msg)
-        df[self.name] = eval(expr)
+        df[self.output_name] = eval(expr)
         return df
 
     def get_input_items(self):
@@ -275,3 +277,4 @@ class IoTShiftCalendar(BaseTransformer):
     
 
    
+    
