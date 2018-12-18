@@ -197,6 +197,9 @@ class BaseFunction(object):
         if module is None:
             module = self.__class__.__module__
             
+        if module == '__main__':
+            raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
+            
         if description is None:
             description = self.description
             
@@ -219,8 +222,11 @@ class BaseFunction(object):
         exec_str_ver = 'import %s as import_test' %(module.split('.', 1)[0])
         exec(exec_str_ver)
         try:
-            module_url = eval('import_test.%s.PACKAGE_URL' %(module.split('.', 1)[1]))
+            module_url = eval('import_test.%s.PACKAGE_URL' %(module.split('.', 1)[1]))        
         except Exception as e:
+            
+            print('******',module)
+            
             logger.exception('Error importing package. It has no PACKAGE_URL module variable')
             raise e
         if module_url == BaseFunction.url:

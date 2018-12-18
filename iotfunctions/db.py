@@ -105,12 +105,11 @@ class Database(object):
             self.credentials['config']['bos_runtime_bucket'] = os.environ.get('COS_BUCKET_KPI')
 
         try:
-            credentials['objectStorage']['region']
-            credentials['objectStorage']['url']
-            credentials['objectStorage']['username']
-            credentials['objectStorage']['password']
-            credentials['config']['objectStorageEndpoint']
-            credentials['config']['bos_runtime_bucket']
+            self.credentials['objectStorage']['region']
+            self.credentials['objectStorage']['username']
+            self.credentials['objectStorage']['password']
+            self.credentials['config']['objectStorageEndpoint']
+            self.credentials['config']['bos_runtime_bucket']
         except KeyError:
             msg = 'Missing objectStorage credentials. Database object created, but it will not be able interact with object storage'
             logger.warn(msg)
