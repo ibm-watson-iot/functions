@@ -15,11 +15,11 @@ import json
 import urllib3
 import pandas as pd
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float
+from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
+from ibm_db_sa.base import DOUBLE
 from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
-from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
-from ibm_db_sa.base import DOUBLE
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +228,7 @@ class EntityType(object):
         others = []
 
         if drop_existing:
-            self.db.drop_table(self.name)
+            self.db.drop_table(self.name, schema = self._db_schema)
             self.drop_child_tables()
                 
         exclude_cols =  ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]  
@@ -473,9 +473,9 @@ class Model(object):
     '''
     Predictive model
     '''
-    shelf_life_days = 30
-    
-    def __init__(self, name , estimator, estimator_name , params, features, target, eval_metric_type, eval_metric_train):
+    def __init__(self, name , estimator, estimator_name , params,
+                 features, target, eval_metric_name, eval_metric_train,
+                 shelf_life_days):
         
         self.name = name
         self.target = target
@@ -483,12 +483,15 @@ class Model(object):
         self.estimator = estimator
         self.estimator_name = estimator_name
         self.params = params
-        self.eval_metric_type = eval_metric_type
+        self.eval_metric_name = eval_metric_name
         self.eval_metric_train = None
         self.eval_metric_test = None
-        self.trained_date = None
-        if self.trained_date is not None:
-            self.expiry_date = self.trained_date + dt.timedelta(days = self.shelf_life_days)
+        if self.estimator is None:
+            self.trained_date = None
+        else:
+            self.trained_date = dt.datetime.utcnow()
+        if self.trained_date is not None and shelf_life_days is not None:
+            self.expiry_date = self.trained_date + dt.timedelta(days = shelf_life_days)
         else:
             self.expiry_date = None
         self.viz = {}
@@ -524,6 +527,22 @@ class Model(object):
         
     def save(self, cos_credentials, bucket):
         self.db.cos_save(persisted_object=self, filename=self.name, bucket=bucket)
+        
+    def __str__(self):
+        out = {}
+        output = ['name','target','features', 'estimator_name','eval_metric_name','eval_metric_train','eval_metric_test','trained_date','expiry_date']
+        for o in output:
+            try:
+                out[o] = getattr(self, o)
+            except AttributeError:
+                out[o] = '_missing_'
+        if out['trained_date'] is not None:
+            out['trained_date'] = out['trained_date'].isoformat()
+        if out['expiry_date'] is not None:
+            out['expiry_date'] = out['expiry_date'].isoformat()
+        return json.dumps(out,indent=1)
+            
+        
         
     
 

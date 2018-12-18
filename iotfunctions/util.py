@@ -59,9 +59,8 @@ class CosClient:
             extra_headers = {}
         # it seems region is not used by IBM COS and can be any string (but cannot be None below still)
         if any([(var is None or len(var.strip()) == 0) for var in [self._cod_hmac_access_key_id, self._cod_hmac_secret_access_key, self._cos_endpoint, bucket]]):
-            logger.warning('logging to COS is disabled because not all COS config environment variables are set')
+            logger.warning('write COS is disabled because not all COS config environment variables are set')
             return None
-
         # assemble the standardized request
 
         time = datetime.datetime.utcnow()

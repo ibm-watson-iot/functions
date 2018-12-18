@@ -103,8 +103,17 @@ class Database(object):
             self.credentials['config'] = {}
             self.credentials['config']['objectStorageEndpoint'] = os.environ.get('COS_ENDPOINT')
             self.credentials['config']['bos_runtime_bucket'] = os.environ.get('COS_BUCKET_KPI')
-            msg = 'Unable to locate config credentials. Database object created, but it will not be able interact with object storage'
-            logger.debug(msg)
+
+        try:
+            credentials['objectStorage']['region']
+            credentials['objectStorage']['url']
+            credentials['objectStorage']['username']
+            credentials['objectStorage']['password']
+            credentials['config']['objectStorageEndpoint']
+            credentials['config']['bos_runtime_bucket']
+        except KeyError:
+            msg = 'Missing objectStorage credentials. Database object created, but it will not be able interact with object storage'
+            logger.warn(msg)
         
         try:
             as_api_host = credentials['as_api_host']
@@ -191,10 +200,19 @@ class Database(object):
             self.session = self.Session()
         else:
             self.session = None
-        
         self.metadata = MetaData(self.connection)
         logger.debug('Db connection established')
         self.http = urllib3.PoolManager()
+        try:
+            self.cos_client = CosClient(self.credentials)
+        except KeyError:
+            msg = 'Unable to setup a cos client due to missing credentials. COS writes disabled'
+            logger.warning(msg)
+            self.cos_client = None
+        else:
+            msg = 'created a CosClient object'
+            logger.debug(msg)
+        
         
     def http_request(self, object_type,object_name, request, payload):
         '''
@@ -245,30 +263,30 @@ class Database(object):
         return response
 
     def cos_load(self, filename, bucket, binary=False):
-        cos_client = CosClient(self.credentials)
-        obj = cos_client.cos_get(key=filename, bucket=bucket, binary=binary)
-
+        if self.cos_client is not None:
+            obj = self.cos_client.cos_get(key=filename, bucket=bucket, binary=binary)
+        else:
+            obj = None
         if obj is None:
             logger.error('Not able to GET %s from COS bucket %s' % (filename, bucket))
-
         return obj
     
     def cos_save(self, persisted_object, filename, bucket, binary=False):
-        cos_client = CosClient(self.credentials)
-        ret = cos_client.cos_put(key=filename, payload=persisted_object, bucket=bucket, binary=binary)
-
+        if self.cos_client is not None:
+            ret = self.cos_client.cos_put(key=filename, payload=persisted_object, bucket=bucket, binary=binary)
+        else:
+            ret = None
         if ret is None:
             logger.info('Not able to PUT %s to COS bucket %s', (filename, bucket))
-
         return ret
 
     def cos_delete(self, filename, bucket):
-        cos_client = CosClient(self.credentials)
-        ret = cos_client.cos_delete(key=filename, bucket=bucket)
-
+        if self.cos_client is not None:
+            ret = self.cos_client.cos_delete(key=filename, bucket=bucket)
+        else:
+            ret = None
         if ret is None:
             logger.info('Not able to DELETE %s to COS bucket %s', (filename, bucket))
-
         return ret
 
     def commit(self):
@@ -293,7 +311,7 @@ class Database(object):
         try:
             table = self.get_table(table_name,schema)
         except KeyError:
-            msg = 'Didnt drop table %s because it doesnt exist in the the database' %table_name
+            msg = 'Didnt drop table %s because it doesnt exist in schema %s' %(table_name,schema)
         else:
             self.start_session()
             self.metadata.drop_all(tables = [table], checkfirst = True) 
@@ -314,7 +332,7 @@ class Database(object):
             try:
                 table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)        
             except NoSuchTableError:
-                raise KeyError ('Table %s does not exist in the database' %table_name)
+                raise KeyError ('Table %s does not exist in the schema %s ' %(table_name,schema))
         elif issubclass(table_name.__class__,BaseTable):
             table = table_name.table
         elif isinstance(table_name,Table):

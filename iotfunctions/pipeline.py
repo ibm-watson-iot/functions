@@ -10,8 +10,10 @@
 
 import logging
 import json
+import re
 import numpy as np
 import sys
+#from .bif import IoTExpression
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +25,13 @@ class CalcPipeline:
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
         self.entity_type = entity_type
         self.set_stages(stages)
+        
+    def add_expression(self,name,expression):
+        '''
+        Add a new stage using an expression
+        '''
+        stage = PipelineExpression(name=name,expression=expression)
+        self.add_stage(stage)
         
     def add_stage(self,stage):
         '''
@@ -361,6 +370,40 @@ class CalcPipeline:
                 stages = [stages]
             self.stages.extend(stages)
         for s in self.stages:
-            s._entity_type = self.entity_type        
+            s._entity_type = self.entity_type
+            
+
+class PipelineExpression(object):
+    '''
+    Create a new item from an expression involving other items
+    '''
+    def __init__(self, expression , name):
+        self.expression = expression
+        self.name = name
+        super().__init__()
+        self.input_items = []
+                
+    def execute(self, df):
+        df = df.copy()
+        self.infer_inputs(df)
+        if '${' in self.expression:
+            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
+            msg = 'expression converted to %s' %expr
+        else:
+            expr = self.expression
+            msg = 'expression was not in the form "${item}" so it will evaluated asis (%s)' %expr
+        df[self.name] = eval(expr)
+        return df
+
+    def get_input_items(self):
+        return self.input_items
+    
+    def infer_inputs(self,df):
+        #get all quoted strings in expression
+        possible_items = re.findall('"([^"]*)"', self.expression)
+        possible_items.extend(re.findall("'([^']*)'", self.expression))
+        self.input_items = [x for x in possible_items if x in list(df.columns)]       
+            
+
             
           
