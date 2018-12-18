@@ -20,7 +20,7 @@ os.environ['COS_BUCKET_KPI'] = credentials['config']['bos_runtime_bucket']
 
 from iotfunctions.db import Database
 from iotfunctions.metadata import EntityType
-from iotfunctions.estimator import SampleAnomalySGDRegressor
+from iotfunctions.estimator import SampleAnomalySGDRegressor, SimpleRegressor
 
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean
