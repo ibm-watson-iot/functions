@@ -10,7 +10,7 @@
 
 import os
 import tempfile
-import dill
+import dill as pickle
 import requests
 import datetime
 from urllib.parse import quote, urlparse
@@ -22,7 +22,6 @@ import hashlib
 import hmac
 from lxml import etree
 import logging
-import pickle
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +206,7 @@ def cosSave(obj,bucket,filename,credentials):
         fhandle, fname = tempfile.mkstemp("cosfile")
         os.close(fhandle) 
         with open(fname, 'wb') as file_obj:
-            dill.dump(obj, file_obj)
+            pickle.dump(obj, file_obj)
         transfer = getCosTransferAgent(credentials)
         transfer.upload_file(fname, bucket, filename)
         os.unlink(fname)
@@ -229,7 +228,7 @@ def cosLoad(bucket,filename,credentials):
         transfer.download_file(bucket, filename, fname)
         answer = None
         with open(fname, 'rb') as file_obj:
-            answer = dill.load(file_obj)
+            answer = pickle.load(file_obj)
         os.unlink(fname)
         return answer
 

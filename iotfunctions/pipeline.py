@@ -388,11 +388,12 @@ class PipelineExpression(object):
         self.infer_inputs(df)
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
-            msg = 'expression converted to %s' %expr
         else:
             expr = self.expression
-            msg = 'expression was not in the form "${item}" so it will evaluated asis (%s)' %expr
-        df[self.name] = eval(expr)
+        try:
+            df[self.name] = eval(expr)
+        except SyntaxError:
+            msg = 'Syntax error while evaluating expression %s' %expr
         return df
 
     def get_input_items(self):
