@@ -116,8 +116,6 @@ class EntityType(object):
             table.create()
         self.activity_tables[name] = table
         
-        
-        
     def add_slowly_changing_dimension(self,property_name,datatype,**kwargs):
         '''
         add a slowly changing dimension table containing a single property for this entity type

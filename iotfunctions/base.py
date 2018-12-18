@@ -1394,13 +1394,10 @@ class BaseDatabaseLookup(BaseTransformer):
     def __init__(self,
                  lookup_table_name,
                  lookup_items,
-                 sql,
                  lookup_keys,
                  parse_dates=None,
-                 output_items=None):
-
-        if sql is None or not isinstance(sql, str) or len(sql) == 0:
-            raise RuntimeError('argument sql must be given as a non-empty string')
+                 output_items=None,
+                 sql = None):
             
         self.lookup_table_name = lookup_table_name
         if lookup_items is None:
@@ -1446,11 +1443,20 @@ class BaseDatabaseLookup(BaseTransformer):
         self.db = self.get_db()
         if self._auto_create_lookup_table:
             self.create_lookup_table(df=None,table_name=self.lookup_table_name)
+            
+        if self.sql is None:
+            query, table = self._entity_type.db.query(table_name = self.lookup_table_name,
+                                                      schema = self._entity_type._db_schema)
+            self.sql = query.statement
 
+        msg = ' function attempted to excecute sql %s' %self.sql
+        self.trace_append(msg)
         df_sql = pd.read_sql(self.sql, 
                              self.db.connection,
                              index_col=self.lookup_keys,
                              parse_dates=self.parse_dates)
+        msg = ' lookup returned columns %s' %','.join(list(df_sql.columns))
+        self.trace_append(msg)
         df_sql = df_sql[self.lookup_items]
                 
         if len(self.output_items) > len(df_sql.columns):

@@ -392,9 +392,7 @@ class LookupCompany(BaseDatabaseLookup):
         self.company_key = company_key
         #must specify a name of the lookup name even if you are supplying your own sql.
         #use lower case table names
-        lookup_table_name = 'company'                
-        # A sql statement that will be used to retrieve data for the loookup
-        sql = 'select * from %s' %lookup_table_name
+        lookup_table_name = 'company'
         # Indicate which of the input parameters are lookup keys
         lookup_keys = [company_key] 
         # Indicate which of the column returned should be converted into dates
@@ -402,7 +400,6 @@ class LookupCompany(BaseDatabaseLookup):
         
         super().__init__(
              lookup_table_name = lookup_table_name,
-             sql= sql,
              lookup_keys= lookup_keys,
              lookup_items = lookup_items,
              parse_dates= parse_dates, 
