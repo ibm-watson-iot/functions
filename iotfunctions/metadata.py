@@ -74,9 +74,13 @@ class EntityType(object):
         self._db_connection_dbi = None
         self._dimension_table = None
         self._dimension_table_name = None
+        #initialize
         self._db_schema = None
         self._data_items = None
         self.set_params(**kwargs)
+        if self._db_schema is None:
+            msg = 'No _db_schema specified in **kwargs. Using default database schema.'
+            logger.warn(msg)
         if self.logical_name is None:
             self.logical_name = self.name
             
@@ -352,9 +356,9 @@ class EntityType(object):
         table['metricTimestampColumn'] = self._timestamp
         if self._dimension_table is not None:
             table['dimensionTableName'] = self._dimension_table_name
-            for c in self.db.get_column_names(self._dimension_table):
+            for c in self.db.get_column_names(self._dimension_table, schema = self._db_schema):
                 cols.append((self._dimension_table,c,'DIMENSION'))
-        for c in self.db.get_column_names(self.table):
+        for c in self.db.get_column_names(self.table, schema = self._db_schema):
             cols.append((self.table,c,'METRIC'))
         for (table_obj,column_name,col_type) in cols:
             msg = 'found %s column %s' %(col_type,column_name)
@@ -379,10 +383,13 @@ class EntityType(object):
                         'transient' : False
                         })                
         table['dataItemDto'] = columns
-        try:
-            table['schemaName'] = self.db.credentials['db2']['username']
-        except KeyError:
-            raise KeyError('No db2 credentials found. Unable to register table.')
+        if self._db_schema is not None:
+            table['schemaName'] = self._db_schema
+        else:
+            try:
+                table['schemaName'] = self.db.credentials['db2']['username']
+            except KeyError:
+                raise KeyError('No db2 credentials found. Unable to register table.')
         payload = [table]
         response = self.db.http_request(request='POST',
                                      object_type = 'entityType',
@@ -449,7 +456,10 @@ class EntityType(object):
             df[d] = pd.to_datetime(df[d])
             
         if write:
-            self.db.write_frame(df,table_name = self._dimension_table_name, if_exists = 'replace')
+            self.db.write_frame(df,
+                                table_name = self._dimension_table_name,
+                                if_exists = 'replace',
+                                schema = self._db_schema)
      
     def _set_end_date(self,df):
         

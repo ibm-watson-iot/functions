@@ -15,11 +15,11 @@ import urllib3
 import json
 import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float, func
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 from sqlalchemy.orm.session import sessionmaker
-from sqlalchemy.exc import NoSuchTableError    
+from sqlalchemy.exc import NoSuchTableError
 from .util import CosClient
 
 logger = logging.getLogger(__name__)
@@ -220,7 +220,7 @@ class Database(object):
         Parameters
         ----------
         object_type : str 
-            function, entityType
+            function,allFunctions, entityType, kpiFunctions
         object_name : str
             name of object
         request : str
@@ -229,6 +229,11 @@ class Database(object):
             Dictionary will be encoded as JSON
         
         '''
+        if object_name is None:
+            object_name = ''
+        if payload is None:
+            payload = ''            
+        
         if self.tenant_id is None:
             msg = 'tenant_id instance variable is not set. database object was not initialized with valid credentials'
             raise ValueError(msg)
@@ -237,6 +242,7 @@ class Database(object):
         self.url = {}
         self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])
         self.url[('entityType','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type,object_name])
+        self.url[('allFunctions','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,'function?customFunctionsOnly=false'])
         self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
@@ -427,7 +433,68 @@ class Database(object):
             table.delete()
             self.commit()
             msg = 'Truncated table name %s' %table_name
-        logger.debug(msg)             
+        logger.debug(msg)      
+        
+        
+    def read_table(self,table_name,schema,parse_dates =None,columns=None):
+        '''
+        Read whole table and return as dataframe
+        '''
+        q,table = self.query(table_name,schema=schema)
+        df = pd.read_sql(sql=q.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
+        return(df)
+        
+    def read_sql(self,sql,parse_dates =None,columns=None):
+        '''
+        Read whole table and return as dataframe
+        '''
+        df = pd.read_sql(sql,con=self.connection,parse_dates=parse_dates,columns=columns)
+        return(df)
+
+    def read_query(self,query,parse_dates =None,columns=None):
+        '''
+        Read whole table and return as dataframe
+        '''
+        df = pd.read_sql(query.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
+        return(df)
+        
+    def read_agg(self, table_name, schema, agg_dict, groupby, timestamp=None, time_grain = None):
+        '''
+        Pandas style aggregate function against db table
+        '''
+        q,a = self.query(table_name,schema=schema)
+        args = []
+        grp = [a.c[x] for x in groupby]
+        if time_grain is not None:
+            if timestamp is None:
+                msg = 'You must supply a timestamp column when doing a time-based aggregate'
+                raise ValueError (msg)
+            if time_grain == 'day':
+                grp.append(func.date(a.c[timestamp]).label(time_grain)) 
+            if time_grain == 'month':
+                grp.append(func.year(a.c[timestamp]).label('year')) 
+                grp.append(func.month(a.c[timestamp]).label(time_grain))
+            if time_grain == 'year':
+                grp.append(func.year(a.c[timestamp]).label(time_grain))                        
+        args.extend(grp)
+        for col,aggs in agg_dict.items():
+            for agg in aggs:        
+                if agg == 'count':
+                    args.append(func.count(a.c[col]).label('%s_count' %col))  
+                if agg == 'max':
+                    args.append(func.max(a.c[col]).label('%s_max' %col))        
+                if agg == 'mean':
+                    args.append(func.avg(a.c[col]).label('%s_mean' %col))
+                if agg == 'min':
+                    args.append(func.min(a.c[col]).label('%s_min' %col))        
+                if agg == 'std':
+                    args.append(func.stddev(a.c[col]).label('%s_std' %col))
+                if agg == 'sum':
+                    args.append(func.sum(a.c[col]).label('%s_sum' %col))
+        self.start_session()
+        qt = self.session.query(*args).group_by(*grp)
+        df = pd.read_sql(qt.statement,con = self.connection)
+        return df
         
     def query(self,table_name, schema):
         '''
@@ -560,10 +627,6 @@ class BaseTable(object):
         # the keyword arguments may contain properties and sql alchemy dialect specific options
         # set them in child classes before calling super._init__()
         # self.set_params(**kw)
-        try:
-            self.schema
-        except AttributeError:
-            self.schema = None
         # delete the designated AS metadata properties as sql alchemy will not understand them
         for k in as_keywords:
             try:
@@ -571,7 +634,18 @@ class BaseTable(object):
             except KeyError:
                 pass
         kw['extend_existing'] = True
-        kw['schema'] = self.schema
+        try: 
+            kwschema = kw['schema']
+        except KeyError:
+            try:
+                kw['schema'] = kw['_db_schema']
+            except KeyError:
+                msg = 'No schema specified as **kw, using default'
+                logger.warn(msg)
+        else:
+            if kwschema is None:
+                msg = 'Schema passed as None, using default schema'
+                logger.debug(msg)            
         self.table = Table(self.name,self.database.metadata, *args,**kw )
         self.id_col = Column(self._entity_id,String(50))
         
@@ -621,6 +695,7 @@ class BaseTable(object):
             raise
         finally:
             self.database.session.close()
+        
             
     def set_params(self, **params):
         '''
