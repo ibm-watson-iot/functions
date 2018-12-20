@@ -61,6 +61,7 @@ class BaseFunction(object):
     incremental_update = True
     auto_register_args = None  
     is_transient = False
+    array_output_datatype_from_input = False
     # item level metadata for function registration
     itemDescriptions = None #dict: items descriptions show as help text
     itemLearnMore = None #dict: item learn more test 
@@ -742,7 +743,7 @@ class BaseFunction(object):
                 raise ValueError('No candidate input array found to drive output array %s with length %s . Make sure input array and output array have the same length or explicity define the item_source_array. ' %(array,length))
             else:
                 #if the output array is driven by an array of items infer data types from items
-                if metadata_inputs[array_source]['type'] == 'DATA_ITEM':    
+                if metadata_inputs[array_source]['type'] == 'DATA_ITEM' and self.array_output_datatype_from_input:    
                     metadata_outputs[array]['dataTypeFrom']=array_source
                 else:
                     metadata_outputs[array]['dataTypeFrom']=None
