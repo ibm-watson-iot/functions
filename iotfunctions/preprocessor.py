@@ -31,6 +31,7 @@ from .db import Database, SystemLogTable
 from .metadata import EntityType
 from .automation import TimeSeriesGenerator
 from .base import BaseFunction, BaseTransformer, BaseDataSource, BaseEvent,BaseFilter, BaseAggregator, BaseDatabaseLookup, BaseDBActivityMerge, BaseSCDLookup, BaseMetadataProvider, BasePreload
+from .bif import IoTAlertOutOfRange as AlertThreshold #for compatibility
 
 '''
 Sample functions
@@ -359,6 +360,31 @@ class InputsAndOutputsOfMultipleTypes(BaseTransformer):
         df[self.output_date] = df[self.input_date]
         df[self.output_str] = df[self.input_str]
         return df
+    
+class InputDataGenerator(BaseTransformer):
+    '''
+    This sample function was removed.
+    '''
+    def __init__(self):
+        
+        super().__init__()
+        
+    def execute(self,df):
+        
+        raise ImportError ('Error in function catalog. InputDataGenerator was removed from samples. Use EntityDataGenerator.')
+
+class TempPressureVolumeGenerator(BaseTransformer):
+    '''
+    This sample function was removed.
+    '''
+    def __init__(self):
+        
+        super().__init__()
+        
+    def execute(self,df):
+        
+        raise ImportError ('Error in function catalog. TempPressureVolumeGenerator was removed from samples. Use EntityDataGenerator.')
+    
     
     
 class LookupCompany(BaseDatabaseLookup):

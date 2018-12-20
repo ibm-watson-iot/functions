@@ -14,6 +14,7 @@ import logging
 import urllib3
 import json
 import pandas as pd
+import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float, func
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
@@ -397,6 +398,87 @@ class Database(object):
             return False
         
         return True
+        
+    def install_package(self,url):
+        '''
+        Install python package located at URL
+        '''
+        
+        subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url])
+        msg = 'running pip install for url %s' %url
+        logger.debug(msg)
+         
+    def import_target(self,package,module,target,url=None):
+        '''
+        from package.module import target
+        if a url is specified import missing packages
+        '''
+        
+        if module is not None:
+            impstr = 'from %s.%s import %s' %(package,module,target)
+        else:
+            impstr = 'from %s import %s' %(package,target)
+        logger.debug(impstr)
+        try:
+            exec(impstr)
+        except ModuleNotFoundError:
+            if url is not None:
+                self.install_package(url)
+                return self.import_target(package=package,module=module,target=target)
+            else:
+                return (None,'package_error')
+        except ImportError:
+            return (None,'target_error')
+        else:
+            return (target,'ok')
+    
+    def import_all_functions(self,install_missing=True, unregister_invalid_target=False):
+        '''
+        Import all functions from the AS function catalog.
+        
+        Returns: 
+        --------
+        dict containing target names and an import status
+        
+        '''
+        
+        imported = {}
+        result = {}
+        fns = json.loads(self.http_request('allFunctions',object_name = None, request = 'GET', payload = None))
+        for fn in fns:
+            path = fn["moduleAndTargetName"].split('.')
+            name = fn["moduleAndTargetName"]
+            if path is None:
+                msg = 'Cannot import %s it has an invalid module and path %s' %(name,path)
+                logger.debug(msg)
+                tobj = None
+                status = 'metadata_error'
+            else:
+                (package,module,target) = (path[0],path[1],path[2])
+                if install_missing:
+                    url = fn['url']
+                else:
+                    url = None
+                try:
+                    tobj,status = self.import_target(package=package,module=module,target=target,url=url)    
+                except Exception as e:
+                    msg = 'unkown error when importing: %s' %name
+                    logger.exception(msg)
+                    raise e
+            try:
+                (epackage,emodule,etarget) = imported[name]
+            except KeyError:
+                result[name] = status
+                imported[name] = (package,module,target)
+            else:
+                if (package,module,target) != (epackage,emodule,etarget):
+                    msg = 'Duplicate class name encountered on import of %s. Ignored %s.%s' %(name,package,module)
+                    logger.warning(msg)
+            if status == 'target_error' and unregister_invalid_target:
+                self.unregister_functions([name])
+                msg = 'Unregistered invalid function %s' %name
+                logger.info(msg)
+        return result    
     
     
     def get_query_data(self, query):
@@ -527,7 +609,10 @@ class Database(object):
                 'name' : f
                 }
             r = self.http_request(object_type='function',object_name=f, request = 'DELETE', payload=payload)
-            msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+            try:
+                msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+            except AttributeError:
+                msg = 'Function registration deletion status: %s' %r
             logger.info(msg) 
     
     def write_frame(self,df,
