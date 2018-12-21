@@ -11,7 +11,6 @@ These instructions will get you up and running in your local environment or in W
  + python 3.X
  + numpy
  + pandas
- + ibm_boto3
  + ibm_db
  + ibm_dbi
  + sqlalchemy
