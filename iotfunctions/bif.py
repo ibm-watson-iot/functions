@@ -177,7 +177,7 @@ class IoTExpression(BaseTransformer):
         return df
 
     def get_input_items(self):
-        return self.input_items
+        return set(self.input_items_)
     
     def infer_inputs(self,df):
         #get all quoted strings in expression

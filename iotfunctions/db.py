@@ -18,7 +18,6 @@ import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float, func
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
-from ibm_db_sa.base import DOUBLE
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 from .util import CosClient
@@ -26,6 +25,7 @@ from .util import CosClient
 logger = logging.getLogger(__name__)
 DB2_INSTALLED = True
 try:
+    from ibm_db_sa.base import DOUBLE
     import ibm_db
     import ibm_db_dbi
 except ImportError:

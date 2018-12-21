@@ -187,7 +187,6 @@ class ExecuteFunctionSingleOut(BaseTransformer):
 
         if callable(function_name):
             db = Database()
-
             db.cos_save(persisted_object=function_name,
                         filename=function_name.__name__,
                         bucket=bucket, binary=True)

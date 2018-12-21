@@ -13,7 +13,6 @@ import logging
 import datetime as dt
 import math
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
-from ibm_db_sa.base import DOUBLE
 import numpy as np
 import pandas as pd
 
