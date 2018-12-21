@@ -342,14 +342,14 @@ class LookupCompany(BaseDatabaseLookup):
     #create the table and populate it using the data dict
     _auto_create_lookup_table = True
 
-    def __init__ (self, company_key , lookup_items= None, output_items=None):
+    def __init__ (self, lookup_items= None, output_items=None):
         
         # sample data will be used to create table if it doesn't already exist
         # sample data will be converted into a dataframe before being written to a  table
         # make sure that the dictionary that you provide is understood by pandas
         # use lower case column names
         self.data = {
-                'company_code' : ['ABC','ACME','JDI'] ,
+                'company' : ['ABC','ACME','JDI'] ,
                 'currency_code' : ['USD','CAD','USD'] ,
                 'employee_count' : [100,120,352],
                 'inception_date' : [
@@ -362,7 +362,7 @@ class LookupCompany(BaseDatabaseLookup):
         # Must specify:
         #One or more business key for the lookup
         #The UI will ask you to map each business key to an AS Data Item
-        self.company_key = company_key
+        company_key = 'company'
         #must specify a name of the lookup name even if you are supplying your own sql.
         #use lower case table names
         lookup_table_name = 'company'
