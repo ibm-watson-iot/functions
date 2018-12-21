@@ -166,58 +166,6 @@ class EntityDataGenerator(BasePreload):
         ids = [str(73000 + x) for x in list(range(5))]
         return (ids)
     
-class ExecuteFunctionSingleOut(BaseTransformer):
-    """
-    Execute a serialized function retrieved from cloud object storage. Function returns a single output.
-    """ 
-
-    optionalItems = ['parameters','bucket']       
-    
-    def __init__(self,function_name,cos_credentials,input_items,output_item,parameters=None,bucket=None):
-        
-        # the function name may be passed as a function object of function name (string)
-        # if astring is provided, it is assumed that the function object has already been serialized to COS
-        # if a function onbject is supplied, it will be serialized to cos 
-        
-        self.bucket = bucket
-        self.cos_credentials = cos_credentials
-        self.input_items = input_items
-        self.output_item = output_item
-        super().__init__()
-
-        if callable(function_name):
-            db = Database()
-            db.cos_save(persisted_object=function_name,
-                        filename=function_name.__name__,
-                        bucket=bucket, binary=True)
-
-            function_name = function_name.__name__
-        self.function_name = function_name
-        
-        # The function called during execution accepts a single dictionary as input
-        # add all instance variables to the parameters dict in case the function needs them
-        if parameters is None:
-            parameters = {}
-        parameters = {**parameters, **self.__dict__}
-        self.parameters = parameters
-        
-    def execute(self,df):
-        db = Database()
-
-        
-        # retrieve
-        function = db.cos_load(filename=self.parameters['function_name'],
-                               bucket=self.parameters['bucket'],
-                               binary=True)
-
-        #execute
-        rf = function(df,self.parameters)
-        #rf will contain a single new output column. The name of this output column will be set to the 
-        #value of parameters['output_item'] by the function
-        
-        return rf    
-    
-    
 class FillForwardByEntity(BaseTransformer):    
     '''
     Fill null values forward from last item for the same entity instance

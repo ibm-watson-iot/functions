@@ -98,61 +98,42 @@ class BaseFunction(object):
         
         if self.name is None:
             self.name = self.__class__.__name__
-
         if self.out_table_prefix is None:
-            self.out_table_prefix = self.name
-            
+            self.out_table_prefix = self.name            
         if self.description is None:
-            self.description = self.__class__.__doc__
-            
+            self.description = self.__class__.__doc__            
         if self.inputs is None:
-            self.inputs = []
-            
+            self.inputs = []            
         if self.outputs is None:
             self.outputs = []
-
         if self.constants is None:
-            self.constants = []            
-            
+            self.constants = []                        
         if self.itemDescriptions is None:
-            self.itemDescriptions = self._standard_item_descriptions()
-            
+            self.itemDescriptions = self._standard_item_descriptions()            
         if self.itemDatatypes is None:
             self.itemDatatypes = {}
-
         if self.itemLearnMore is None:
-            self.itemLearnMore = {}
-            
+            self.itemLearnMore = {}            
         if self.itemJsonSchema is None:
             self.itemJsonSchema = {}            
-
         if self.itemValues is None:
-            self.itemValues = {}
-            
+            self.itemValues = {}            
         if self.itemMaxCardinality is None:
             self.itemMaxCardinality = {}
-
         if self.itemArraySource is None:
-            self.itemArraySource = {}
-            
+            self.itemArraySource = {}            
         if self.itemTags is None:
-            self.itemTags = {}
-            
+            self.itemTags = {}            
         if self.optionalItems is None:
             self.optionalItems = []
-
         if self.out_table_prefix is None:
-            self.out_table_prefix = '' 
-            
+            self.out_table_prefix = ''             
         if self.execute_by is None:
             self.execute_by = []   
-
         if self.tags is None:
             self.tags = []  
-
         if self.scd_metadata is None:
-            self.scd_metadata= {}
-            
+            self.scd_metadata= {}            
         if self._entity_scd_dict is None:
             self._entity_scd_dict= {}
 
@@ -227,10 +208,7 @@ class BaseFunction(object):
         exec(exec_str_ver)
         try:
             module_url = eval('import_test.%s.PACKAGE_URL' %(module.split('.', 1)[1]))        
-        except Exception as e:
-            
-            print('******',module)
-            
+        except Exception as e:            
             logger.exception('Error importing package. It has no PACKAGE_URL module variable')
             raise e
         if module_url == BaseFunction.url:
@@ -390,7 +368,12 @@ class BaseFunction(object):
         return metadata
     
     def get_db(self,credentials = None, tenant_id = None):
-        
+        '''
+        Get the Database object associciated with the function's assigned entity type.
+        If there is no entity type, get a new database object using optionally supplied
+        credentials and tenant id. If no credentials are supplied, credentials will be
+        derived from environment variables
+        '''
         try:
             db = self._entity_type.db
         except AttributeError:
@@ -400,6 +383,19 @@ class BaseFunction(object):
             db = Database(credentials = credentials, tenant_id = tenant_id)
             
         return db
+    
+    def get_entity_type(self):
+        '''
+        Get the EntityType object assigned to the function instance
+        '''
+        return self._entity_type
+
+    def set_entity_type(self,entity_type):
+        '''
+        Set the EntityType object assigned to the function instance
+        '''
+        self._entity_type = entity_type
+
     
     def _getJsonDataType(self,datatype):
          
@@ -753,6 +749,22 @@ class BaseFunction(object):
                 logger.debug(msg)
     
         return (metadata_inputs,metadata_outputs)
+    
+    def get_bucket_name(self):
+        '''
+        Get the name of the cos bucket used to store models
+        '''
+        try:
+            bucket = self._entity_type.db.credentials['config']['bos_runtime_bucket']
+        except KeyError:
+            msg = 'Unable to read value of credentials.bos_runtime_bucket from credentials. COS read/write is disabled'
+            logger.error(msg)
+            bucket = '_unknown_'
+        except AttributeError:
+            msg = 'Could not find credentials for entity type. COS read/write is disabled '
+            logger.error(msg)
+            bucket = '_unknown_'
+        return bucket    
     
     
     def get_scd_data(self,table_name,start_ts, end_ts, entities):
@@ -2223,22 +2235,6 @@ class BaseEstimatorFunction(BaseTransformer):
         Add the preprocessing stages that will transform data prior to training, evaluation or making prediction
         '''
         #self.add_preprocessor(ClassName(args))
-
-    def get_bucket_name(self):
-        '''
-        Get the name of the cos bucket used to store models
-        '''
-        try:
-            bucket = self._entity_type.db.credentials['config']['bos_runtime_bucket']
-        except KeyError:
-            msg = 'Unable to read value of credentials.bos_runtime_bucket from credentials. COS read/write is disabled'
-            logger.error(msg)
-            bucket = '_unknown_'
-        except AttributeError:
-            msg = 'Could not find credentials for entity type. COS read/write is disabled '
-            logger.error(msg)
-            bucket = '_unknown_'
-        return bucket
 
     def get_model_name(self, target_name, suffix=None):
         return self.generate_model_name(target_name=target_name, suffix=suffix)

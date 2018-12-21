@@ -87,17 +87,23 @@ class Database(object):
             except (KeyError,TypeError):
                 pass
             else:
-                self.credentials['db2']= credentials
+                db2_creds={}
+                db2_creds['host'] = credentials['host']
+                db2_creds['hostname'] = credentials['host']
+                db2_creds['password'] = credentials['password']
+                db2_creds['port'] = credentials['port']
+                db2_creds['db'] = credentials['db']
+                db2_creds['database'] = credentials['database']
+                db2_creds['username'] = credentials['username']
+                self.credentials['db2']= db2_creds
                 logger.warning('Old style credentials still work just fine, but will be depreciated in the future. Check the usage section of the UI for the updated credentials dictionary')
                 self.credentials['as']= credentials
-                
         try:
             self.credentials['message_hub']= credentials['messageHub']
         except (KeyError,TypeError):
             self.credentials['message_hub'] = None
             msg = 'Unable to locate message_hub credentials. Database object created, but it will not be able interact with message hub.'
             logger.debug(msg)
-
         try:
             self.credentials['config']= credentials['config']
         except (KeyError,TypeError):
@@ -268,7 +274,9 @@ class Database(object):
         response= r.data.decode('utf-8')
         return response
 
-    def cos_load(self, filename, bucket, binary=False):
+    def cos_load(self, filename, bucket=None, binary=False):
+        if bucket is None:
+            bucket = self.credentials['config']['bos_runtime_bucket']        
         if self.cos_client is not None:
             obj = self.cos_client.cos_get(key=filename, bucket=bucket, binary=binary)
         else:
@@ -277,7 +285,9 @@ class Database(object):
             logger.error('Not able to GET %s from COS bucket %s' % (filename, bucket))
         return obj
     
-    def cos_save(self, persisted_object, filename, bucket, binary=False):
+    def cos_save(self, persisted_object, filename, bucket=None, binary=False):
+        if bucket is None:
+            bucket = self.credentials['config']['bos_runtime_bucket']
         if self.cos_client is not None:
             ret = self.cos_client.cos_put(key=filename, payload=persisted_object, bucket=bucket, binary=binary)
         else:
@@ -286,7 +296,9 @@ class Database(object):
             logger.info('Not able to PUT %s to COS bucket %s', (filename, bucket))
         return ret
 
-    def cos_delete(self, filename, bucket):
+    def cos_delete(self, filename, bucket=None):
+        if bucket is None:
+            bucket = self.credentials['config']['bos_runtime_bucket']
         if self.cos_client is not None:
             ret = self.cos_client.cos_delete(key=filename, bucket=bucket)
         else:

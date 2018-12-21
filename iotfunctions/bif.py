@@ -28,6 +28,9 @@ PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 
 
 
+
+
+
 class IoTAlertExpression(BaseEvent):
     '''
     Create alerts that are triggered when data values reach a particular range.
@@ -150,6 +153,56 @@ class IoTAlertLowValue(BaseEvent):
         df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
             
         return df
+
+
+class IoTCosFunction(BaseTransformer):
+    """
+    Execute a serialized function retrieved from cloud object storage. Function returns a single output.
+    """        
+    
+    def __init__(self,function_name,input_items,output_item,parameters=None):
+        
+        # the function name may be passed as a function object or function name (string)
+        # if a string is provided, it is assumed that the function object has already been serialized to COS
+        # if a function onbject is supplied, it will be serialized to cos 
+        self.input_items = input_items
+        self.output_item = output_item
+        super().__init__()
+        # get the cos bucket
+        # if function object, serialize and get name
+        self.function_name = function_name
+        # The function called during execution accepts a single dictionary as input
+        # add all instance variables to the parameters dict in case the function needs them
+        if parameters is None:
+            parameters = {}
+        parameters = {**parameters, **self.__dict__}
+        self.parameters = parameters
+        #registration metadata
+        self.optionalItems = ['parameters']
+        self.inputs = ['input_items']
+        self.outputs = ['ouput_item']
+        self.itemDatatypes['output_item'] = None #choose datatype in UI
+        
+    def execute(self,df):
+        db = self.get_db()
+        bucket = self.get_bucket_name()    
+        #first test execution could include a fnction object
+        #serialize it
+        if callable(self.function_name):
+            db.cos_save(persisted_object=self.function_name,
+                        filename=self.function_name.__name__,
+                        bucket=bucket, binary=True)
+            self.function_name = self.function_name.__name__
+        # retrieve
+        function = db.cos_load(filename=self.function_name,
+                               bucket=bucket,
+                               binary=True)
+        #execute
+        df = df.copy()
+        rf = function(df,self.parameters)
+        #rf will contain the orginal columns along with a single new output column.
+        return rf
+
     
 class IoTExpression(BaseTransformer):
     '''

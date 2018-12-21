@@ -50,8 +50,6 @@ class SimpleAnomaly(BaseRegressor):
         df = alert.execute(df)
         
         return df
-                
-
 
 class SimpleRegressor(BaseRegressor):
     '''
