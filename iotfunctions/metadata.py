@@ -519,11 +519,12 @@ class EntityType(object):
         df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
         return df
     
-    def test_function(self, fn, to_csv = False, register = False):
+    def exec_pipeline(self, *args, to_csv = False, register = False):
         '''
-        Test an AS function instance using entity data
+        Test an AS function instance using entity data. Provide one or more functions as args.
         '''
-        pl = self.get_calc_pipeline(stages=[fn])
+        stages = list(args)
+        pl = self.get_calc_pipeline(stages=stages)
         df = pl.execute(to_csv = to_csv, register = register)
         return df
         
