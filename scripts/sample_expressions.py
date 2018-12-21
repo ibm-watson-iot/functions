@@ -15,7 +15,7 @@ with open('credentials.json', encoding='utf-8') as F:
 #create a sample entity to work with
 db_schema = None #set if you are not using the default
 db = Database(credentials=credentials)
-entity = make_sample_entity(db=db)
+entity = make_sample_entity(db=db, schema = db_schema)
 
 #examine the sample entity
 df = db.read_table(entity.name,schema=db_schema)

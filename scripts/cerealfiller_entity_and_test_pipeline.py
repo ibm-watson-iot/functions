@@ -18,7 +18,7 @@ db_schema = None #set if you are not using the default
 db = Database(credentials=credentials)
 numeric_columns = ['fill_time','temp','humidity','wait_time','size_sd']
 table_name = 'as_sample_cereal'
-entity = make_sample_entity(db=db,
+entity = make_sample_entity(db=db, schema = db_schema,
                             float_cols = numeric_columns,
                             name = table_name,
                             register = True)
