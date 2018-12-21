@@ -27,10 +27,6 @@ logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 
 
-
-
-
-
 class IoTAlertExpression(BaseEvent):
     '''
     Create alerts that are triggered when data values reach a particular range.
@@ -212,7 +208,7 @@ class IoTExpression(BaseTransformer):
         self.expression = expression
         self.output_name = output_name
         super().__init__()
-        self.input_items = []
+        self.input_items_ = []
         self.constants = ['expression']
         self.outputs = ['output_name']
                 
@@ -230,13 +226,16 @@ class IoTExpression(BaseTransformer):
         return df
 
     def get_input_items(self):
+        if len(self.input_items_) == 0:
+            msg = 'The expression %s does not contain any input items or the function has not been executed to obtain them.' %self.expression
+            logger.debug(msg)
         return set(self.input_items_)
     
     def infer_inputs(self,df):
         #get all quoted strings in expression
         possible_items = re.findall('"([^"]*)"', self.expression)
         possible_items.extend(re.findall("'([^']*)'", self.expression))
-        self.input_items = [x for x in possible_items if x in list(df.columns)]
+        self.input_items_ = [x for x in possible_items if x in list(df.columns)]
     
 class IoTPackageInfo(BaseTransformer):
     """

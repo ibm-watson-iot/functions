@@ -23,6 +23,58 @@ from .pipeline import CalcPipeline
 
 logger = logging.getLogger(__name__)
 
+def make_sample_entity(db,schema=None,
+                      name = 'as_sample_entity',
+                      register = False,
+                      data_days = 1,
+                      float_cols = None,
+                      string_cols = None,
+                      drop_existing = True):
+    """
+    Get a sample entity to use for testing
+    
+    Parameters
+    ----------
+    db : Database object
+        database where entity resides.
+    schema: str (optional)
+        name of database schema. Will be placed in the default schema if none specified.
+    name: str (optional)
+        by default the entity type will be called as_sample_entity
+    register: bool
+        register so that it is available in the UI
+    data_days : number
+        Number of days of sample data to generate
+    float_cols: list
+        Name of float columns to add
+    string_cols : list
+        Name of string columns to add
+    """
+    
+    if float_cols is None:
+        float_cols = ['temp', 'grade', 'throttle' ]
+    if string_cols is None:
+        string_cols = ['company']
+        
+    if drop_existing:
+        db.drop_table(table_name=name, schema=schema)        
+        
+    float_cols = [Column(x,Float()) for x in float_cols]
+    string_cols = [Column(x,String(255)) for x in string_cols]
+    args = []
+    args.extend(float_cols)
+    args.extend(string_cols)
+    
+    entity = EntityType(name,db, *args,
+                      **{
+                        '_timestamp' : 'evt_timestamp',
+                        '_db_schema' : schema
+                         })
+    entity.generate_data(days=data_days, drop_existing = True)
+    if register:
+        entity.register()
+    return entity
+
 class EntityType(object):
     '''
     Data is organised around Entity Types. Entity Types have one or more 
@@ -249,8 +301,7 @@ class EntityType(object):
         ts = TimeSeriesGenerator(metrics=metrics,ids=entities,
                                  days=days,seconds=seconds,
                                  freq=freq, categoricals = categoricals,
-                                 dates = dates, timestamp = self._timestamp)
-        
+                                 dates = dates, timestamp = self._timestamp)    
         df = ts.execute()
         
         if self._dimension_table_name is not None:
@@ -337,6 +388,37 @@ class EntityType(object):
             self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
         return df    
         
+    def make_dimension(self,name = None, *args, **kw):
+        '''
+        Add dimension table by specifying additional columns
+        
+        Parameters
+        ----------
+        name: str
+            dimension table name
+        *args: sql alchemchy Column objects
+        * kw: : schema
+        '''
+        kw['schema'] = self._db_schema
+        if name is None:
+            name = '%s_dimension' %self.name
+            
+        name = name.lower()
+            
+        self._dimension_table_name = name
+    
+        try:
+            self._dimension_table = self.db.get_table(name,self._db_schema)
+        except KeyError:
+            dim = Dimension(
+                self._dimension_table_name, self.db,
+                *args,
+                **kw
+                )
+            self._dimension_table = dim.table
+            dim.create()
+            msg = 'Creates dimension table %s' %self._dimension_table_name
+            logger.debug(msg)     
     
     def register(self):
         '''
@@ -400,37 +482,6 @@ class EntityType(object):
         logger.debug(msg)
         return response
     
-    def make_dimension(self,name = None, *args, **kw):
-        '''
-        Add dimension table by specifying additional columns
-        
-        Parameters
-        ----------
-        name: str
-            dimension table name
-        *args: sql alchemchy Column objects
-        * kw: : schema
-        '''
-        kw['schema'] = self._db_schema
-        if name is None:
-            name = '%s_dimension' %self.name
-            
-        name = name.lower()
-            
-        self._dimension_table_name = name
-    
-        try:
-            self._dimension_table = self.db.get_table(name,self._db_schema)
-        except KeyError:
-            dim = Dimension(
-                self._dimension_table_name, self.db,
-                *args,
-                **kw
-                )
-            self._dimension_table = dim.table
-            dim.create()
-            msg = 'Creates dimension table %s' %self._dimension_table_name
-            logger.debug(msg)
             
     def generate_dimension_data(self,entities,write=True):
         
@@ -466,7 +517,16 @@ class EntityType(object):
         df['end_date'] = df['start_date'].shift(-1)
         df['end_date'] = df['end_date'] - pd.Timedelta(seconds = 1)
         df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
-        return df       
+        return df
+    
+    def test_function(self, fn, to_csv = False, register = False):
+        '''
+        Test an AS function instance using entity data
+        '''
+        pl = self.get_calc_pipeline(stages=[fn])
+        df = pl.execute(to_csv = to_csv, register = register)
+        return df
+        
     
     def set_params(self, **params):
         '''

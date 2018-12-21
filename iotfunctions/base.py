@@ -150,6 +150,12 @@ class BaseFunction(object):
                     except KeyError:
                         pass
                     
+    def _add_explicit_outputs(self,df):
+        
+        for o in self.outputs:
+            df[o] = True
+        return df                    
+                    
     def add_scd(self, scd_property, table_name):
         '''
         Add a new slowly changing dimension property to the entity type
@@ -798,11 +804,6 @@ class BaseFunction(object):
         name = '.'.join(name)
         return name    
     
-    def _add_explicit_outputs(self,df):
-        
-        for o in self.outputs:
-            df[o] = True
-        return df
     
     def _get_scd_history(self,start_ts,end_ts,entities):
         '''
