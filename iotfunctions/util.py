@@ -262,3 +262,29 @@ def getCosTransferAgent(credentials):
         return S3Transfer(cos)
     else:
         raise ValueError('Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
+
+def log_df_info(df,msg,include_data=False):
+    '''
+    Log a debugging entry showing first row and index structure
+    '''
+    try:
+        msg = msg + ' | df count: %s ' %(len(df.index))
+        if df.index.names != [None]:
+            msg = msg + ' | df index: %s ' %(','.join(df.index.names))
+        else:
+            msg = msg + ' | df index is unnamed'
+        if include_data:
+            msg = msg + ' | 1st row: '
+            try:
+                cols = df.head(1).squeeze().to_dict()    
+                for key,value in list(cols.items()):
+                    msg = msg + '%s : %s, ' %(key, value)
+            except AttributeError:
+                msg = msg + str(df.head(1))
+        else:
+            msg = msg + ' | columns: %s' %(','.join(list(df.columns)))
+        logger.debug(msg)
+        return msg
+    except Exception:
+        logger.warn('dataframe contents not logged due to an unknown logging error')
+        return ''

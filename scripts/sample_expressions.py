@@ -27,8 +27,4 @@ fn = IoTExpression(expression=expression, output_name='expression_out')
 df = entity.exec_pipeline(fn)
 df.head(1).transpose()
 
-#there was no need to specify input items required for the expression
-#the function automatically sets them using a fet_input_items method
-fn.get_input_items()
-
 

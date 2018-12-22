@@ -55,7 +55,7 @@ class IoTAlertExpression(BaseEvent):
             msg = 'expression converted to %s' %expr
         else:
             expr = self.expression
-            msg = 'expression was not in the form "${item}" so it will evaluated asis (%s)' %expr
+            msg = 'expression (%s)' %expr
         self.trace_append(msg)
         df[self.alert_name] = np.where(eval(expr), True, np.nan)
         return df
@@ -205,37 +205,41 @@ class IoTExpression(BaseTransformer):
     Create a new item from an expression involving other items
     '''
     def __init__(self, expression , output_name):
-        self.expression = expression
         self.output_name = output_name
         super().__init__()
-        self.input_items_ = []
+        #convert single quotes to double
+        expression = expression.replace("'",'"')
+        if '${' in expression:
+            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
+            msg = 'expression converted to %s' %expr
+        else:
+            expr = expression
+            msg = 'expression (%s)' %expr
+        self.trace_append(msg)
+        self.expression = expression
+        #registration
         self.constants = ['expression']
         self.outputs = ['output_name']
+        
                 
     def execute(self, df):
         df = df.copy()
-        self.infer_inputs(df)
-        if '${' in self.expression:
-            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
-            msg = 'expression converted to %s' %expr
-        else:
-            expr = self.expression
-            msg = 'expression was not in the form "${item}" so it will evaluated asis (%s)' %expr
+        requested = list(self.get_input_items())
+        msg = ' | function requested items %s using get_input_data. ' %','.join(requested)
         self.trace_append(msg)
-        df[self.output_name] = eval(expr)
+        df[self.output_name] = eval(self.expression)
         return df
-
-    def get_input_items(self):
-        if len(self.input_items_) == 0:
-            msg = 'The expression %s does not contain any input items or the function has not been executed to obtain them.' %self.expression
-            logger.debug(msg)
-        return set(self.input_items_)
     
-    def infer_inputs(self,df):
+    def get_input_items(self):
         #get all quoted strings in expression
         possible_items = re.findall('"([^"]*)"', self.expression)
-        possible_items.extend(re.findall("'([^']*)'", self.expression))
-        self.input_items_ = [x for x in possible_items if x in list(df.columns)]
+        #check if they have df[] wrapped around them
+        items = [x for x in possible_items if 'df["%s"]'%x in self.expression]
+        if len(items) == 0:
+            msg = 'The expression %s does not contain any input items or the function has not been executed to obtain them.' %self.expression
+            logger.debug(msg)
+        return set(items)
+            
     
 class IoTPackageInfo(BaseTransformer):
     """

@@ -13,6 +13,7 @@ import json
 import re
 import numpy as np
 import sys
+from .util import log_df_info
 #from .bif import IoTExpression
 logger = logging.getLogger(__name__)
 
@@ -177,8 +178,6 @@ class CalcPipeline:
                                             to_csv = False)
         msg = 'Secondary data sources identified:  %s. Other stages are: %s' %(secondary_sources, stages)
         logger.debug(msg)       
-        
-        
         #add a dummy item to the dataframe for each preload stage
         #added as the ui expects each stage to contribute one or more output items
         for pl in preloaded_item_names:
@@ -202,7 +201,6 @@ class CalcPipeline:
                 pass
             except KeyError:
                 logger.exception(trace)
-                print(trace)
                 raise               
             try:
                 msg = ' Dataframe at start of %s: ' %s.__class__.__name__
@@ -317,30 +315,12 @@ class CalcPipeline:
         msg = msg + str(last_msg)
         return msg
     
-    def log_df_info(self,df,msg,include_data=True):
+    def log_df_info(self,df,msg,include_data=False):
         '''
         Log a debugging entry showing first row and index structure
         '''
-        try:
-            msg = msg + ' | df count: %s ' %(len(df.index))
-            if df.index.names != [None]:
-                msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
-            else:
-                msg = msg + ' | df index is unnamed'
-            if include_data:
-                msg = msg + ' | 1st row: '
-                try:
-                    cols = df.head(1).squeeze().to_dict()    
-                    for key,value in list(cols.items()):
-                        msg = msg + '%s : %s \n' %(key, value)
-                except AttributeError:
-                    msg = msg + str(df.head(1))
-            logger.debug(msg)
-            return msg
-        except Exception:
-            logger.warn('dataframe contents not logged due to an unknown logging error')
-            return ''
-        
+        msg = log_df_info(df=df,msg=msg,include_data = include_data)
+        return msg
         
     
     def _raise_error(self,exception,msg, abort_on_fail = False):

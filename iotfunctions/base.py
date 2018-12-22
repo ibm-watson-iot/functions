@@ -35,6 +35,7 @@ from .db import Database, SystemLogTable
 from .metadata import EntityType, Model
 from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline, PipelineExpression
+from .util import log_df_info
 
 logger = logging.getLogger(__name__)
 
@@ -162,124 +163,12 @@ class BaseFunction(object):
         '''
         
         self.scd_metadata[scd_property] = table_name
-                            
-    
-    def register(self,df,credentials=None,new_df = None,
-                 name=None,url=None,constants = None, module=None,
-                 description=None,incremental_update=None, 
-                 outputs = None, show_metadata = False,
-                 metadata_only = False):
-        '''
-        Register the function type with AS
-        '''
         
-        if self._entity_type is None:
-            self._entity_type = EntityType(name='<Null Entity Type>',db=None)
-        
-        if not self.base_initialized:
-            raise RuntimeError('Cannot register function. Did not call super().__init__() in constructor so defaults have not be set correctly.')
-            
-        if self.category is None:
-            raise AttributeError('Class has no category. Class should inherit from BaseTransformer or BaseAggregator to obtain an appropriate category')
-            
-        if name is None:
-            name = self.name
-            
-        if module is None:
-            module = self.__class__.__module__
-            
-        if module == '__main__':
-            raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
-            
-        if description is None:
-            description = self.description
-            
-        if url is None:
-            url = self.url
-            
-        if incremental_update is None:
-            incremental_update = self.incremental_update
-            
-        (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
-
-        module_and_target = '%s.%s' %(module,self.__class__.__name__)
-
-        exec_str = 'from %s import %s as import_test' %(module,self.__class__.__name__)
-        try:
-            exec (exec_str)
-        except ImportError:
-            raise ValueError('Unable to register function as local import failed. Make sure it is installed locally and importable. %s ' %exec_str)
-        
-        exec_str_ver = 'import %s as import_test' %(module.split('.', 1)[0])
-        exec(exec_str_ver)
-        try:
-            module_url = eval('import_test.%s.PACKAGE_URL' %(module.split('.', 1)[1]))        
-        except Exception as e:            
-            logger.exception('Error importing package. It has no PACKAGE_URL module variable')
-            raise e
-        if module_url == BaseFunction.url:
-            logger.warning('The PACKAGE_URL for your module is the same as BaseFunction url. Make sure that your PACKAGE_URL points to your own package and not iotfunctions')            
-        msg = 'Test import succeeded for function using %s with module url %s' %(exec_str, module_url)
-        logger.debug(msg)            
-        payload = {
-            'name': name,
-            'description': description,
-            'category': self.category,
-            'tags': self.tags,
-            'moduleAndTargetName': module_and_target,
-            'url': url,
-            'input': list(metadata_input.values()),
-            'output':list(metadata_output.values()),
-            'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None
-        }
-        
-        if not credentials is None:
-            msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, or omit credentials to use credentials associated with the Database object for the function'
-            logger.info(msg)
-            http = urllib3.PoolManager()
-            encoded_payload = json.dumps(payload).encode('utf-8')
-            if show_metadata or metadata_only:
-                print(encoded_payload)
-            
-            try:
-                headers = {
-                    'Content-Type': "application/json",
-                    'X-api-key' : credentials['as_api_key'],
-                    'X-api-token' : credentials['as_api_token'],
-                    'Cache-Control': "no-cache",
-                }
-            except KeyError:
-                msg('Old style credentials are a dictionary with tennant_id.as_api_key, as_api_token and as_api_host')
-            
-            if not metadata_only:
-                url = 'http://%s/api/catalog/v1/%s/function/%s' %(credentials['as_api_host'],credentials['tennant_id'],name)
-                r = http.request("DELETE", url, body = encoded_payload, headers=headers)
-                msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
-                logger.info(msg)
-                r = http.request("PUT", url, body = encoded_payload, headers=headers)     
-                msg = 'Function registration status: %s' %(r.data.decode('utf-8'))
-                logger.info(msg)
-                return r.data.decode('utf-8')
-            else:
-                return encoded_payload
-            
-        else:
-            if self._entity_type is None:
-                msg ('Unable to register function as there is no _entity_type. Use set_entity_type to assign an EntityType')
-                logger.warning(msg)
-                
-            response = self._entity_type.db.http_request(object_type = 'function',
-                                 object_name = name,
-                                 request = 'DELETE',
-                                 payload = payload)
-            msg = 'Unregistered function with response %s' %response
-            logger.debug(msg)
-            response = self._entity_type.db.http_request(object_type = 'function',
-                                 object_name = name,
-                                 request = 'PUT',
-                                 payload = payload)
-            msg = 'Registered function with response %s' %response
-            logger.debug(msg)
+    def _calc(self,df):
+        """
+        If the function should be executed separately for each entity, describe the function logic in the _calc method
+        """
+        raise NotImplementedError('Class %s is not defined correctly. It should override the _calc() method of the base class.' %self.__class__.__name__)         
         
     def _coallesce_columns(self,df,cols,rsuffix='_new_'):
         '''
@@ -359,6 +248,45 @@ class BaseFunction(object):
         df = pd.DataFrame(columns=cols)
         df = self.conform_index(df)                
         return df
+    
+    def execute(self,df):
+        """
+        AS calls the execute() method of your function to transform or aggregate data. The execute method accepts a dataframe as input and returns a dataframe as output.
+        
+        If the function should be executed on all entities combined you can replace the execute method wih a custom one
+        If the function should be executed by entity instance, use the base execute method. Provide a custom _calc method instead.
+        """
+        group_base = []
+        for s in self.execute_by:
+            if s in df.columns:
+                group_base.append(s)
+            else:
+                try:
+                    x = df.index.get_level_values(s)
+                except KeyError:
+                    raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
+                else:
+                    group_base.append(pd.Grouper(axis=0, level=df.index.names.index(s)))
+                    
+        if len(group_base)>0:
+            df = df.groupby(group_base).apply(self._calc)                
+        else:
+            df = self._calc(df)
+            
+        return df
+
+    def generate_model_name(self,target_name, prefix = 'model', suffix = None):
+        '''
+        Generate a model name
+        '''
+        name = []
+        if prefix is not None:
+            name.append(prefix)
+        name.extend([self._entity_type.name, self.name , target_name])
+        if suffix is not None:
+            name.append(suffix)
+        name = '.'.join(name)
+        return name     
         
     def _get_arg_metadata(self):
         
@@ -372,6 +300,17 @@ class BaseFunction(object):
                 logger.exception(msg)
                 raise 
         return metadata
+    
+    def _get_data_scope(self,df):
+        '''
+        Return the start, end and set of entity ids contained in a dataframe as a tuple
+        '''
+        
+        start_ts = df[self._entity_type._timestamp_col].min()
+        end_ts = df[self._entity_type._timestamp_col].max()
+        entities = list(pd.unique(df[self._entity_type._entity_id]))
+        
+        return (start_ts,end_ts,entities)
     
     def get_db(self,credentials = None, tenant_id = None):
         '''
@@ -396,12 +335,6 @@ class BaseFunction(object):
         '''
         return self._entity_type
 
-    def set_entity_type(self,entity_type):
-        '''
-        Set the EntityType object assigned to the function instance
-        '''
-        self._entity_type = entity_type
-
     
     def _getJsonDataType(self,datatype):
          
@@ -411,17 +344,6 @@ class BaseFunction(object):
              result = datatype.lower()
          return result
      
-        
-    def _get_data_scope(self,df):
-        '''
-        Return the start, end and set of entity ids contained in a dataframe as a tuple
-        '''
-        
-        start_ts = df[self._entity_type._timestamp_col].min()
-        end_ts = df[self._entity_type._timestamp_col].max()
-        entities = list(pd.unique(df[self._entity_type._entity_id]))
-        
-        return (start_ts,end_ts,entities)
      
     def _getJsonSchema(self,column_metadata,datatype,min_items,arg,is_array,is_output,is_constant):
         
@@ -790,19 +712,82 @@ class BaseFunction(object):
                          con = self._entity_type.db.connection,
                          parse_dates=[self._start_date,self._end_date])
         return df
+   
     
-    def generate_model_name(self,target_name, prefix = 'model', suffix = None):
-        '''
-        Generate a model name
-        '''
-        name = []
-        if prefix is not None:
-            name.append(prefix)
-        name.extend([self._entity_type.name, self.name , target_name])
-        if suffix is not None:
-            name.append(suffix)
-        name = '.'.join(name)
-        return name    
+    def get_test_data(self):
+        """
+        Output a dataframe for testing function
+        """
+        
+        if self._entity_type is None:
+            self._entity_type = EntityType(name='<Null Entity Type>',db=None)
+        
+        data = {
+                self._entity_type._entity_id : ['D1','D1','D1','D1','D1','D2','D2','D2','D2','D2'],
+                self._entity_type._timestamp_col : [
+                        dt.datetime.strptime('Oct 1 2018 1:33AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 11:37PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 6:00AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 3 2018 3:00AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:29PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),                
+                ],                
+                'x_1' : [8.7,3.2,4.5,6.8,8.1,2.4,2.9,2.5,2.6,3.6],
+                'x_2' : [2.1,3.1,2.5,4.2,5.2,4.6,4.1,4.5,0.5,8.7],
+                'x_3' : [7.4,4.3,5.2,3.4,3.3,8.1,5.6,4.9,4.2,9.9],
+                'e_1' : [0,0,0,1,0,0,0,1,0,0],
+                'e_2' : [0,0,0,0,1,0,0,0,1,0],
+                'e_3' : [0,1,0,1,0,0,0,1,0,1],
+                's_1' : ['A','B','A','A','A','A','B','B','A','A'],
+                's_2' : ['C','C','C','D','D','D','E','E','C','D'],
+                's_3' : ['F','G','H','I','J','K','L','M','N','O'],
+                'x_null' : [4.1,4.2,None,4.1,3.9,None,3.2,3.1,None,3.4],
+                'd_1' : [
+                        dt.datetime.strptime('Sep 29 2018 1:33PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 29 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 30 2018 1:37PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:39PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 15 2018 1:38PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Aug 17 2018 1:29PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 20 2018 1:39PM', '%b %d %Y %I:%M%p'),                
+                ],
+                'd_2' : [
+                        dt.datetime.strptime('Oct 14 2018 1:33PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 13 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 12 2018 1:37PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 18 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 10 2018 1:39PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 11 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 12 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 13 2018 1:38PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 16 2018 1:29PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 10 2018 1:39PM', '%b %d %Y %I:%M%p'),                
+                ],                        
+                'd_3' : [
+                        dt.datetime.strptime('Oct 1 2018 10:05AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:02AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:03AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:01AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:08AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:29AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:02AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 9:55AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:25AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 11:02AM', '%b %d %Y %I:%M%p'),                
+                ],
+                'company_code' : ['ABC','ACME','JDI','ABC','ABC','ACME','JDI','ACME','JDI','ABC']
+                }
+        df = pd.DataFrame(data=data)
+        df = self.conform_index(df)
+        
+        return df       
     
     
     def _get_scd_history(self,start_ts,end_ts,entities):
@@ -817,13 +802,16 @@ class BaseFunction(object):
                 df = self.get_scd_data(table_name=table, start_ts=start_ts, end_ts = end_ts, entities = entities)
                 x[scd_property] = self._partition_df_by_id(df)
             return x
-            
-    def _partition_df_by_id(self,df):
+        
+    
+    def log_df_info(self,df,msg,include_data=False):
         '''
-        Partition dataframe into a dictionary keyed by _entity_id
+        Log a debugging entry showing first row and index structure
+        This is a default logger. You can implement a custom one if
+        there is something specific that you want to include.
         '''
-        d = {x: table for x, table in df.groupby(self._entity_type._entity_id)}
-        return d
+        msg = log_df_info(df=df,msg=msg,include_data = include_data)
+        return msg
             
     
     def _infer_array_source(self,candidate_inputs,output_length):
@@ -914,12 +902,14 @@ class BaseFunction(object):
             
         return datatype
     
+            
+    def _partition_df_by_id(self,df):
+        '''
+        Partition dataframe into a dictionary keyed by _entity_id
+        '''
+        d = {x: table for x, table in df.groupby(self._entity_type._entity_id)}
+        return d    
     
-    def _calc(self,df):
-        """
-        If the function should be executed separately for each entity, describe the function logic in the _calc method
-        """
-        raise NotImplementedError('Class %s is not defined correctly. It should override the _calc() method of the base class.' %self.__class__.__name__) 
 
     def _standard_item_descriptions(self):
         
@@ -956,6 +946,123 @@ class BaseFunction(object):
             logger.debug(msg)
         
         return df
+    
+    def register(self,df,credentials=None,new_df = None,
+                 name=None,url=None,constants = None, module=None,
+                 description=None,incremental_update=None, 
+                 outputs = None, show_metadata = False,
+                 metadata_only = False):
+        '''
+        Register the function type with AS
+        '''
+        
+        if self._entity_type is None:
+            self._entity_type = EntityType(name='<Null Entity Type>',db=None)
+        
+        if not self.base_initialized:
+            raise RuntimeError('Cannot register function. Did not call super().__init__() in constructor so defaults have not be set correctly.')
+            
+        if self.category is None:
+            raise AttributeError('Class has no category. Class should inherit from BaseTransformer or BaseAggregator to obtain an appropriate category')
+            
+        if name is None:
+            name = self.name
+            
+        if module is None:
+            module = self.__class__.__module__
+            
+        if module == '__main__':
+            raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
+            
+        if description is None:
+            description = self.description
+            
+        if url is None:
+            url = self.url
+            
+        if incremental_update is None:
+            incremental_update = self.incremental_update
+            
+        (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
+
+        module_and_target = '%s.%s' %(module,self.__class__.__name__)
+
+        exec_str = 'from %s import %s as import_test' %(module,self.__class__.__name__)
+        try:
+            exec (exec_str)
+        except ImportError:
+            raise ValueError('Unable to register function as local import failed. Make sure it is installed locally and importable. %s ' %exec_str)
+        
+        exec_str_ver = 'import %s as import_test' %(module.split('.', 1)[0])
+        exec(exec_str_ver)
+        try:
+            module_url = eval('import_test.%s.PACKAGE_URL' %(module.split('.', 1)[1]))        
+        except Exception as e:            
+            logger.exception('Error importing package. It has no PACKAGE_URL module variable')
+            raise e
+        if module_url == BaseFunction.url:
+            logger.warning('The PACKAGE_URL for your module is the same as BaseFunction url. Make sure that your PACKAGE_URL points to your own package and not iotfunctions')            
+        msg = 'Test import succeeded for function using %s with module url %s' %(exec_str, module_url)
+        logger.debug(msg)            
+        payload = {
+            'name': name,
+            'description': description,
+            'category': self.category,
+            'tags': self.tags,
+            'moduleAndTargetName': module_and_target,
+            'url': url,
+            'input': list(metadata_input.values()),
+            'output':list(metadata_output.values()),
+            'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None
+        }
+        
+        if not credentials is None:
+            msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, or omit credentials to use credentials associated with the Database object for the function'
+            logger.info(msg)
+            http = urllib3.PoolManager()
+            encoded_payload = json.dumps(payload).encode('utf-8')
+            if show_metadata or metadata_only:
+                print(encoded_payload)
+            
+            try:
+                headers = {
+                    'Content-Type': "application/json",
+                    'X-api-key' : credentials['as_api_key'],
+                    'X-api-token' : credentials['as_api_token'],
+                    'Cache-Control': "no-cache",
+                }
+            except KeyError:
+                msg('Old style credentials are a dictionary with tennant_id.as_api_key, as_api_token and as_api_host')
+            
+            if not metadata_only:
+                url = 'http://%s/api/catalog/v1/%s/function/%s' %(credentials['as_api_host'],credentials['tennant_id'],name)
+                r = http.request("DELETE", url, body = encoded_payload, headers=headers)
+                msg = 'Function registration deletion status: %s' %(r.data.decode('utf-8'))
+                logger.info(msg)
+                r = http.request("PUT", url, body = encoded_payload, headers=headers)     
+                msg = 'Function registration status: %s' %(r.data.decode('utf-8'))
+                logger.info(msg)
+                return r.data.decode('utf-8')
+            else:
+                return encoded_payload
+            
+        else:
+            if self._entity_type is None:
+                msg ('Unable to register function as there is no _entity_type. Use set_entity_type to assign an EntityType')
+                logger.warning(msg)
+                
+            response = self._entity_type.db.http_request(object_type = 'function',
+                                 object_name = name,
+                                 request = 'DELETE',
+                                 payload = payload)
+            msg = 'Unregistered function with response %s' %response
+            logger.debug(msg)
+            response = self._entity_type.db.http_request(object_type = 'function',
+                                 object_name = name,
+                                 request = 'PUT',
+                                 payload = payload)
+            msg = 'Registered function with response %s' %response
+            logger.debug(msg)    
         
     
     def rename_cols(self, df, input_names, output_names ):
@@ -1049,131 +1156,6 @@ class BaseFunction(object):
                                      timestamp_col = self._entity_type._timestamp_col)
         
         return status
-
-    def execute(self,df):
-        """
-        AS calls the execute() method of your function to transform or aggregate data. The execute method accepts a dataframe as input and returns a dataframe as output.
-        
-        If the function should be executed on all entities combined you can replace the execute method wih a custom one
-        If the function should be executed by entity instance, use the base execute method. Provide a custom _calc method instead.
-        """
-        group_base = []
-        for s in self.execute_by:
-            if s in df.columns:
-                group_base.append(s)
-            else:
-                try:
-                    x = df.index.get_level_values(s)
-                except KeyError:
-                    raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
-                else:
-                    group_base.append(pd.Grouper(axis=0, level=df.index.names.index(s)))
-                    
-        if len(group_base)>0:
-            df = df.groupby(group_base).apply(self._calc)                
-        else:
-            df = self._calc(df)
-            
-        return df
-    
-    def log_df_info(self,df,msg,include_data=True):
-        '''
-        Log a debugging entry showing first row and index structure
-        '''
-        try:
-            msg = msg + ' | df count: %s ' %(len(df.index))
-            if df.index.names != [None]:
-                msg = msg + ' | df index: %s \n' %(','.join(df.index.names))
-            else:
-                msg = msg + ' | df index is unnamed'
-            if include_data:
-                msg = msg + ' | 1st row: '
-                try:
-                    cols = df.head(1).squeeze().to_dict()    
-                    for key,value in list(cols.items()):
-                        msg = msg + '%s : %s \n' %(key, value)
-                except AttributeError:
-                    msg = msg + str(df.head(1))
-            logger.debug(msg)
-            return msg
-        except Exception:
-            logger.warn('dataframe contents not logged due to an unknown logging error')
-            return ''
-    
-    def get_test_data(self):
-        """
-        Output a dataframe for testing function
-        """
-        
-        if self._entity_type is None:
-            self._entity_type = EntityType(name='<Null Entity Type>',db=None)
-        
-        data = {
-                self._entity_type._entity_id : ['D1','D1','D1','D1','D1','D2','D2','D2','D2','D2'],
-                self._entity_type._timestamp_col : [
-                        dt.datetime.strptime('Oct 1 2018 1:33AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 11:37PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 6:00AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 3 2018 3:00AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:29PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),                
-                ],                
-                'x_1' : [8.7,3.2,4.5,6.8,8.1,2.4,2.9,2.5,2.6,3.6],
-                'x_2' : [2.1,3.1,2.5,4.2,5.2,4.6,4.1,4.5,0.5,8.7],
-                'x_3' : [7.4,4.3,5.2,3.4,3.3,8.1,5.6,4.9,4.2,9.9],
-                'e_1' : [0,0,0,1,0,0,0,1,0,0],
-                'e_2' : [0,0,0,0,1,0,0,0,1,0],
-                'e_3' : [0,1,0,1,0,0,0,1,0,1],
-                's_1' : ['A','B','A','A','A','A','B','B','A','A'],
-                's_2' : ['C','C','C','D','D','D','E','E','C','D'],
-                's_3' : ['F','G','H','I','J','K','L','M','N','O'],
-                'x_null' : [4.1,4.2,None,4.1,3.9,None,3.2,3.1,None,3.4],
-                'd_1' : [
-                        dt.datetime.strptime('Sep 29 2018 1:33PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Sep 29 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Sep 30 2018 1:37PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:39PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Sep 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Sep 15 2018 1:38PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Aug 17 2018 1:29PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Sep 20 2018 1:39PM', '%b %d %Y %I:%M%p'),                
-                ],
-                'd_2' : [
-                        dt.datetime.strptime('Oct 14 2018 1:33PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 13 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 12 2018 1:37PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 18 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 10 2018 1:39PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 11 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 12 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 13 2018 1:38PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 16 2018 1:29PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 10 2018 1:39PM', '%b %d %Y %I:%M%p'),                
-                ],                        
-                'd_3' : [
-                        dt.datetime.strptime('Oct 1 2018 10:05AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 10:02AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 10:03AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 10:01AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 10:08AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 10:29AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 10:02AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 9:55AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 10:25AM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 11:02AM', '%b %d %Y %I:%M%p'),                
-                ],
-                'company_code' : ['ABC','ACME','JDI','ABC','ABC','ACME','JDI','ACME','JDI','ABC']
-                }
-        df = pd.DataFrame(data=data)
-        df = self.conform_index(df)
-        
-        return df
     
     
     def validate_df(self,input_df, output_df):
@@ -1503,6 +1485,13 @@ class BaseDatabaseLookup(BaseTransformer):
         self.write_frame(df=df,table_name = table_name, if_exists = 'replace')
         msg = 'Created or replaced lookup table %s' %table_name
         logger.warning(msg)
+        
+    def get_input_items(self):
+        '''
+        Lookup must always include the lookup keys
+        '''
+        return set(self.lookup_keys)
+        
         
 class BaseDBActivityMerge(BaseDataSource):
     '''
