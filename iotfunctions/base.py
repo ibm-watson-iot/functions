@@ -1650,7 +1650,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     cdf['duration'] = (cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds() / 60
                     
             for i,value in enumerate(self.input_activities):
-                cdf[self.activity_duration[i]] = np.where(cdf[self._activity]==value,'duration',None)
+                cdf[self.activity_duration[i]] = np.where(cdf[self._activity]==value, cdf['duration'], None)
             
             self.log_df_info(cdf,'After pivot rows to columns')
                         
