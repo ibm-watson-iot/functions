@@ -1548,6 +1548,9 @@ class BaseDBActivityMerge(BaseDataSource):
         #for any function that requires database access, create a database object
         self.itemArraySource['activity_duration'] = 'input_activities'
         self.itemArraySource['additional_output_names'] = 'additional_items'
+        self.inputs = ['input_activities','input_activities']
+        self.outputs = ['activity_duration','additional_output_names']
+        self.optionalItems = ['additional_items']
         
     def get_data(self,
                     start_ts= None,
@@ -1673,6 +1676,19 @@ class BaseDBActivityMerge(BaseDataSource):
             cdf = self.conform_index(cdf,timestamp_col = self._start_date) 
             
         return cdf
+    
+    def get_item_values(self,arg):
+        
+        if arg == 'input_activities':
+            all_activities = []
+            for table_name,activities in list(self.activities_metadata.items()):
+                all_activities.exend(activities)
+            for activity,sql in list(self.activities_custom_query_metadata.items()):
+                all_activities.append(activity)                
+            return(all_activities)
+        else:
+            return None
+        
     
     def _get_non_activity_cols(self,df):
         
