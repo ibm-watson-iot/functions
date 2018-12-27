@@ -1651,6 +1651,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     
             for i,value in enumerate(self.input_activities):
                 cdf[self.activity_duration[i]] = np.where(cdf[self._activity]==value, cdf['duration'], None)
+                cdf[self.activity_duration[i]] = cdf[self.activity_duration[i]].astype(float)
             
             self.log_df_info(cdf,'After pivot rows to columns')
                         
