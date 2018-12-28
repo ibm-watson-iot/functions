@@ -529,6 +529,8 @@ class BaseFunction(object):
                 is_added = True
                 msg = 'Argument %s was explicitlty defined as output with datatype %s' %(a,datatype)
                 logger.debug(msg)
+                if is_array:
+                    array_outputs.append((a,len(arg_value)))  
             elif a in inputs:
                 is_constant = False
                 column_metadata['type'] = 'DATA_ITEM' 
@@ -590,7 +592,7 @@ class BaseFunction(object):
                     array_outputs.append((a,len(arg_value)))
                     is_added = True
                     msg = 'Array argument %s exists in the test output dataframe so it is a data item' %(a)
-                    logger.debug(msg)                                                                                                                                         
+                    logger.debug(msg)                                                                                                                                     
             #if parameter was not explicitly modelled and does not exist in the input and output dataframes
             # it must be a constant
             if not is_added:
@@ -642,7 +644,7 @@ class BaseFunction(object):
                     except (NotImplementedError,AttributeError):
                         pass
                         if is_array:
-                            msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the set_values() method' %a
+                            msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the get_item_values() method' %a
                             warnings.warn(msg)
                     else:
                         msg = 'Explicit values were found in the the get_item_values() method for constant argument %s ' %a
@@ -655,14 +657,14 @@ class BaseFunction(object):
         #array outputs are special. They inherit their datatype from an input array
         #that could be explicity defined, or use last array_input 
         for (array,length) in array_outputs:
+            
             try:
                 array_source =  self.itemArraySource[array]
-                msg = 'Cardinality and datatype of array output %s wer explicly set to be driven from %s' %(array,array_source)
+                msg = 'Cardinality and datatype of array output %s were explicly set to be driven from %s' %(array,array_source)
                 logger.debug(msg)
             except KeyError:
                 array_source = self._infer_array_source(candidate_inputs= array_inputs,
-                                                     output_length = length)
-                
+                                                     output_length = length)     
             if array_source is None:
                 raise ValueError('No candidate input array found to drive output array %s with length %s . Make sure input array and output array have the same length or explicity define the item_source_array. ' %(array,length))
             else:
@@ -672,10 +674,10 @@ class BaseFunction(object):
                 else:
                     metadata_outputs[array]['dataTypeFrom']=None
                 metadata_outputs[array]['cardinalityFrom']=array_source
+                
                 del metadata_outputs[array]['dataType']
                 msg = 'Array argument %s is driven by %s so the cardinality and datatype are set from the source' %(a,array_source)
                 logger.debug(msg)
-    
         return (metadata_inputs,metadata_outputs)
     
     def get_bucket_name(self):
@@ -1548,7 +1550,7 @@ class BaseDBActivityMerge(BaseDataSource):
         #for any function that requires database access, create a database object
         self.itemArraySource['activity_duration'] = 'input_activities'
         self.itemArraySource['additional_output_names'] = 'additional_items'
-        self.inputs = ['input_activities','input_activities']
+        self.constants = ['input_activities','input_activities']
         self.outputs = ['activity_duration','additional_output_names']
         self.optionalItems = ['additional_items']
         
@@ -1678,16 +1680,25 @@ class BaseDBActivityMerge(BaseDataSource):
         return cdf
     
     def get_item_values(self,arg):
-        
+        '''
+        Define picklist values
+        '''
+        msg = 'Getting item values for arg %s' %arg
+        logger.debug(msg)
         if arg == 'input_activities':
             all_activities = []
             for table_name,activities in list(self.activities_metadata.items()):
-                all_activities.exend(activities)
+                all_activities.extend(activities)
+                msg = 'Added activity list %s' %activities
+                logger.debug(msg)
             for activity,sql in list(self.activities_custom_query_metadata.items()):
                 all_activities.append(activity)                
+                msg = 'Added to activity list %s' %activity
+                logger.debug(msg)
             return(all_activities)
         else:
-            return None
+            msg = 'No code implemented to gather available values for argument %s' %arg
+            raise NotImplementedError(msg)
         
     
     def _get_non_activity_cols(self,df):

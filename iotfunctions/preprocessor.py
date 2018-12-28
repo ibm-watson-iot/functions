@@ -744,10 +744,8 @@ class SampleActivityMerge(BaseDBActivityMerge):
     '''
     Merge data from multiple tables containing activities with start and end dates
     '''
-    execute_by = ['deviceid']
-    
-    _is_instance_level_logged = False
-    
+    execute_by = ['deviceid']    
+    _is_instance_level_logged = False    
     def __init__(self,input_activities,
                  activity_duration=None,
                  additional_items = None,
@@ -774,6 +772,35 @@ class SampleActivityMerge(BaseDBActivityMerge):
                 )
         self.add_scd(scd_property = 'status', table_name = 'widgets_dec12b_scd_status')
         self.add_scd(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')
+        
+
+class SampleActivityDuration(BaseDBActivityMerge):
+    '''
+    Merge data from multiple tables containing activities with start and end dates
+    '''
+    execute_by = ['deviceid']
+    _is_instance_level_logged = False
+    def __init__(self,input_activities,
+                 activity_duration=None):
+        super().__init__(input_activities=input_activities,
+                         activity_duration=activity_duration,
+                         )
+        self.activities_metadata['widget_maintenance_activity'] = ['PM','UM']
+        self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
+        self.activities_custom_query_metadata = {}
+        #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from some_custom_activity_table'
+        self.custom_calendar = ShiftCalendar(
+                shift_definition = 
+                    {
+                       "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
+                       "2": (14, 21),
+                       "3": (21, 29.5)
+                       },
+                 shift_start_date = 'start_date',
+                 shift_end_date = 'end_date' 
+                )
+        self.add_scd(scd_property = 'status', table_name = 'widgets_dec12b_scd_status')
+        self.add_scd(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')           
 
 class ShiftCalendar(BaseTransformer):
     '''
