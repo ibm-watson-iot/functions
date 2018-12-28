@@ -462,8 +462,8 @@ class BaseFunction(object):
             tf = None
             raise NotImplementedError('Must supply a test dataframe for function registration. Explict metadata definition not suported')
         
-        metadata_inputs = {}
-        metadata_outputs = {}
+        metadata_inputs = OrderedDict()
+        metadata_outputs = OrderedDict()
         min_items = None
         array_outputs = []
         array_inputs = []
@@ -1248,12 +1248,15 @@ class BaseDataSource(BaseTransformer):
     source_entity_id = 'deviceid'
     source_timestamp = 'evt_timestamp'
     
-    def __init__(self, input_items, output_items=None):
+    def __init__(self, input_items, output_items=None, dummy_items = None):
         self.input_items = input_items
         if output_items is None:
             output_items = [x for x in self.input_items]
         self.output_items = output_items
         super().__init__()
+        if dummy_items is None:
+            dummy_items = []
+        self.dummy_items = dummy_items
         # explicitly define input_items as a constants parameter so that it does not
         # look like an output parameter
         self.constants.append('input_items')
@@ -1264,6 +1267,8 @@ class BaseDataSource(BaseTransformer):
         self.input_items = self.convertStrArgToList(input_items,argument = 'lookup_items')
         self.output_items = self.convertStrArgToList(output_items,argument = 'output_items')
         # define the list of values for the picklist of input items in the UI
+        # registration
+        self.optionalItems.extend([self.dummy_items])
 
 
     def _set_dms(self, dms):
@@ -1344,9 +1349,9 @@ class BaseFilter(BaseTransformer):
         super().__init__()
         self.dependent_items = dependent_items
         self.output_item = self.name.lower()
-        self.inputs = [self.dependent_items]
-        self.outputs = [self.output_item]
-        self.optional_items = [self.dependent_items]
+        self.inputs.extend([self.dependent_items])
+        self.outputs.extend([self.output_item])
+        self.optional_items.extend([self.dependent_items])
         
     def execute(self,df):
         '''
@@ -1525,7 +1530,8 @@ class BaseDBActivityMerge(BaseDataSource):
                  input_activities,
                  activity_duration= None, 
                  additional_items= None,
-                 additional_output_names = None):
+                 additional_output_names = None,
+                 dummy_items = None):
     
         if self.activities_metadata is None:
             self.activities_metadata = {}
@@ -1544,15 +1550,15 @@ class BaseDBActivityMerge(BaseDataSource):
             additional_output_names = ['output_%s' %x for x in self.additional_items]
         self.additional_output_names = additional_output_names
         self.available_non_activity_cols = []
-        
             
-        super().__init__(input_items = input_activities , output_items = None)
+        super().__init__(input_items = input_activities , output_items = None,
+                         dummy_items = dummy_items)
         #for any function that requires database access, create a database object
         self.itemArraySource['activity_duration'] = 'input_activities'
         self.itemArraySource['additional_output_names'] = 'additional_items'
-        self.constants = ['input_activities','input_activities']
-        self.outputs = ['activity_duration','additional_output_names']
-        self.optionalItems = ['additional_items']
+        self.constants.extend(['input_activities','input_activities'])
+        self.outputs.extend(['activity_duration','additional_output_names'])
+        self.optionalItems.extend(['additional_items'])
         
     def get_data(self,
                     start_ts= None,
@@ -1927,9 +1933,9 @@ class BasePreload(BaseTransformer):
         super().__init__()
         self.dummy_items = dummy_items
         self.output_item = self.name.lower()
-        self.inputs = [self.dummy_items]
-        self.outputs = [self.output_item]
-        self.optional_items = [self.dummy_items]
+        self.inputs.extend([self.dummy_items])
+        self.outputs.extend([self.output_item])
+        self.optional_items.extend([self.dummy_items])
         self.itemDatatypes['dummy_items'] = None
         self.itemDatatypes['output_items'] = 'BOOLEAN'
         

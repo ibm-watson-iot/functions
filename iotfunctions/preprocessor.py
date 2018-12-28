@@ -746,15 +746,18 @@ class SampleActivityMerge(BaseDBActivityMerge):
     '''
     execute_by = ['deviceid']    
     _is_instance_level_logged = False    
-    def __init__(self,input_activities,
+    def __init__(self,
+                 input_activities,
                  activity_duration=None,
                  additional_items = None,
-                 additional_output_names = None):
+                 additional_output_names = None,
+                 dummy_items = None):
         
         super().__init__(input_activities=input_activities,
                          activity_duration=activity_duration,
                          additional_items = additional_items,
-                         additional_output_names = additional_output_names)
+                         additional_output_names = additional_output_names,
+                         dummy_items = dummy_items)
         self.activities_metadata['widget_maintenance_activity'] = ['PM','UM']
         self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
         self.activities_custom_query_metadata = {}
@@ -781,9 +784,11 @@ class SampleActivityDuration(BaseDBActivityMerge):
     execute_by = ['deviceid']
     _is_instance_level_logged = False
     def __init__(self,input_activities,
-                 activity_duration=None):
+                 activity_duration=None,
+                 dummy_items = None):
         super().__init__(input_activities=input_activities,
                          activity_duration=activity_duration,
+                         dummy_items = dummy_items
                          )
         self.activities_metadata['widget_maintenance_activity'] = ['PM','UM']
         self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
