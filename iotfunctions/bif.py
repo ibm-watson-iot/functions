@@ -273,10 +273,12 @@ class IoTShiftCalendar(BaseTransformer):
                "3": [21, 29.5]
            },    
     '''
+    
+    auto_conform_index = True
     def __init__ (self,shift_definition=None,
                   dummy_items = None,
-                  shift_start_date = 'shift_start_date',
-                  shift_end_date = 'shift_end_date',
+                  period_start_date = 'shift_start_date',
+                  period_end_date = 'shift_end_date',
                   shift_day = 'shift_day',
                   shift_id = 'shift_id'):
         if shift_definition is None:
@@ -286,8 +288,8 @@ class IoTShiftCalendar(BaseTransformer):
                "3": [21, 29.5]
            }
         self.shift_definition = shift_definition
-        self.shift_start_date = shift_start_date
-        self.shift_end_date = shift_end_date
+        self.period_start_date = period_start_date
+        self.period_end_date = period_end_date
         self.shift_day = shift_day
         self.shift_id = shift_id
         super().__init__()
@@ -295,12 +297,11 @@ class IoTShiftCalendar(BaseTransformer):
         #registration
         self.inputs = ['dummy_items']
         self.constants = ['shift_definition']
-        self.outputs = ['shift_start_date','shift_end_date','shift_day','shift_id']
-        self.itemTags['shift_start_date'] = ['DIMENSION']
+        self.outputs = ['period_start_date','period_end_date','shift_day','shift_id']
+        self.itemTags['period_start_date'] = ['DIMENSION']
+        self.itemTags['period_end_date'] = ['DIMENSION']
         self.itemTags['shift_day'] = ['DIMENSION']
         self.itemTags['shift_id'] = ['DIMENSION']
-        
-        
     
     def get_data(self,start_date,end_date):
         start_date = start_date.date()
@@ -311,17 +312,17 @@ class IoTShiftCalendar(BaseTransformer):
             data = {}
             data[self.shift_day] = dates
             data[self.shift_id] = shift_id
-            data[self.shift_start_date] = [x+dt.timedelta(hours=start_end[0]) for x in dates]
-            data[self.shift_end_date] = [x+dt.timedelta(hours=start_end[1]) for x in dates]
+            data[self.period_start_date] = [x+dt.timedelta(hours=start_end[0]) for x in dates]
+            data[self.period_end_date] = [x+dt.timedelta(hours=start_end[1]) for x in dates]
             dfs.append(pd.DataFrame(data))
         df = pd.concat(dfs)
-        df[self.shift_start_date] = pd.to_datetime(df[self.shift_start_date])
-        df[self.shift_end_date] = pd.to_datetime(df[self.shift_end_date])
-        df.sort_values([self.shift_start_date],inplace=True)
+        df[self.period_start_date] = pd.to_datetime(df[self.period_start_date])
+        df[self.period_end_date] = pd.to_datetime(df[self.period_end_date])
+        df.sort_values([self.period_start_date],inplace=True)
         return df
     
     def get_empty_data(self):
-        cols = [self.shift_day, self.shift_id, self.shift_start_date, self.shift_end_date]
+        cols = [self.shift_day, self.shift_id, self.period_start_date, self.period_end_date]
         df = pd.DataFrame(columns = cols)
         return df
     
@@ -331,9 +332,10 @@ class IoTShiftCalendar(BaseTransformer):
         df = pd.merge_asof(left = df,
                            right = calendar_df,
                            left_on = self._entity_type._timestamp,
-                           right_on = self.shift_start_date,
+                           right_on = self.period_start_date,
                            direction = 'backward')
-        df = self.conform_index(df)
+        if self.auto_conform_index:
+            df = self.conform_index(df)
         return df
     
 

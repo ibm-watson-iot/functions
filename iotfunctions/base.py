@@ -1247,8 +1247,9 @@ class BaseDataSource(BaseTransformer):
     merge_nearest_direction = 'nearest' #or backward,forward
     source_entity_id = 'deviceid'
     source_timestamp = 'evt_timestamp'
+    auto_conform_index = True
     
-    def __init__(self, input_items, output_items=None, dummy_items = None):
+    def __init__(self, input_items, output_items=None, dummy_items = None, custom_calendar=None):
         self.input_items = input_items
         if output_items is None:
             output_items = [x for x in self.input_items]
@@ -1257,6 +1258,7 @@ class BaseDataSource(BaseTransformer):
         if dummy_items is None:
             dummy_items = []
         self.dummy_items = dummy_items
+        self.custom_calendar = custom_calendar
         # explicitly define input_items as a constants parameter so that it does not
         # look like an output parameter
         self.constants.append('input_items')
@@ -1269,7 +1271,6 @@ class BaseDataSource(BaseTransformer):
         # define the list of values for the picklist of input items in the UI
         # registration
         self.optionalItems.extend([self.dummy_items])
-
 
     def _set_dms(self, dms):
         self.dms = dms
@@ -1321,7 +1322,12 @@ class BaseDataSource(BaseTransformer):
             raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
     
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
-        df = self.conform_index(df)
+        if self.auto_conform_index:
+            df = self.conform_index(df)
+        if self.custom_calendar is not None:
+            self.custom_calendar.set_entity_type(self.get_entity_type())
+            df = self.custom_calendar.execute(df)
+            self.log_df_info(df,'After custom calendar lookup')
         
         return df
 
@@ -1517,8 +1523,6 @@ class BaseDBActivityMerge(BaseDataSource):
     activities_custom_query_metadata = None
     # merge in slow chaning dimnensions
     scd_metadata = None
-    # optionally align with a custom calendar
-    custom_calendar = None
     # decide on a strategy for removing gaps
     remove_gaps =  'within_single' # 'across_all'
     # column name metadata
@@ -1531,7 +1535,8 @@ class BaseDBActivityMerge(BaseDataSource):
                  activity_duration= None, 
                  additional_items= None,
                  additional_output_names = None,
-                 dummy_items = None):
+                 dummy_items = None,
+                 custom_calendar = None):
     
         if self.activities_metadata is None:
             self.activities_metadata = {}
@@ -1552,7 +1557,7 @@ class BaseDBActivityMerge(BaseDataSource):
         self.available_non_activity_cols = []
             
         super().__init__(input_items = input_activities , output_items = None,
-                         dummy_items = dummy_items)
+                         dummy_items = dummy_items, custom_calendar = custom_calendar)
         #for any function that requires database access, create a database object
         self.itemArraySource['activity_duration'] = 'input_activities'
         self.itemArraySource['additional_output_names'] = 'additional_items'
@@ -1610,8 +1615,8 @@ class BaseDBActivityMerge(BaseDataSource):
                     start_date =  adf[self._start_date].min()
                     end_date = adf[self._end_date].max()
                     self.custom_calendar_df = self.custom_calendar.get_data(start_date= start_date, end_date = end_date)
-                    add_dates = set(self.custom_calendar_df[self._start_date].tolist())
-                    add_dates |= set(self.custom_calendar_df[self._end_date].tolist())
+                    add_dates = set(self.custom_calendar_df[self.custom_calendar.period_start_date].tolist())
+                    add_dates |= set(self.custom_calendar_df[self.custom_calendar.period_end_date].tolist())
                     self.add_dates = list(add_dates)
                 else:
                     self.add_dates = []
@@ -1712,15 +1717,6 @@ class BaseDBActivityMerge(BaseDataSource):
         activity_cols = [self._entity_type._timestamp_col, self._entity_type._entity_id, 'start_date', 'end_date', 'activity']
         cols = [x for x in df.columns if x not in activity_cols]
         return cols
-        
-    def _fake_combine(self, df):
-        
-        data = { 'a' : [1,2,3],
-         'b' : [1,2,3] }
-
-        df = pd.DataFrame(data)
-        
-        return df
                     
     def _combine_activities(self,df):
         '''
@@ -1766,16 +1762,6 @@ class BaseDBActivityMerge(BaseDataSource):
         df = c.to_frame().reset_index()
         if is_logged:
             self.log_df_info(df,'Merging activity details. Initial dataframe with dates')
-        
-        #add custom calendar data
-        if not self.custom_calendar_df is None:
-            cols = [x for x in self.custom_calendar_df.columns if x != 'end_date']            
-            df = pd.merge(left=df, right = self.custom_calendar_df[cols], how ='left', left_on = self._start_date, right_on = 'start_date')
-            df['shift_id'] = df['shift_id'].fillna(method='ffill')
-            df['shift_day'] = df['shift_day'].fillna(method='ffill')
-            df[self._activity].fillna(method='ffill')
-            if is_logged:
-                self.log_df_info(df,'After custom calendar added')
             
         #perform scd lookup
         for scd_property,entity_data in list(self._entity_scd_dict.items()):
@@ -1813,7 +1799,7 @@ class BaseDBActivityMerge(BaseDataSource):
             if is_logged:
                 self.log_df_info(df,'after removing gaps') 
     
-        #combined activities dataframe has start_date,end_date,device_id, activity and may have shift day and id
+        #combined activities dataframe has start_date,end_date,device_id, activity 
         return df
 
     def _get_empty_combine_data(self):
@@ -1850,7 +1836,6 @@ class BaseDBActivityMerge(BaseDataSource):
         -------
         Dataframe
         """
-        
         
         (query,table) = self._entity_type.db.query(table_name,schema = self._entity_type._db_schema)
         query = query.filter(table.c.activity == activity_code)

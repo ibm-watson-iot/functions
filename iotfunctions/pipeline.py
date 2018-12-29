@@ -241,7 +241,11 @@ class CalcPipeline:
             try:
                 s.validate_df(df,newdf)
             except AttributeError:
-                pass                
+                pass
+            
+            s.register(df=df,new_df= newdf)
+            
+            
             if register:
                 try:
                     s.register(df=df,new_df= newdf)
