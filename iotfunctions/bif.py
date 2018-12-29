@@ -274,6 +274,7 @@ class IoTShiftCalendar(BaseTransformer):
            },    
     '''
     def __init__ (self,shift_definition=None,
+                  dummy_items = None,
                   shift_start_date = 'shift_start_date',
                   shift_end_date = 'shift_end_date',
                   shift_day = 'shift_day',
@@ -290,11 +291,15 @@ class IoTShiftCalendar(BaseTransformer):
         self.shift_day = shift_day
         self.shift_id = shift_id
         super().__init__()
+        self.dummy_items = dummy_items
+        #registration
+        self.inputs = ['dummy_items']
         self.constants = ['shift_definition']
         self.outputs = ['shift_start_date','shift_end_date','shift_day','shift_id']
         self.itemTags['shift_start_date'] = ['DIMENSION']
         self.itemTags['shift_day'] = ['DIMENSION']
         self.itemTags['shift_id'] = ['DIMENSION']
+        
         
     
     def get_data(self,start_date,end_date):

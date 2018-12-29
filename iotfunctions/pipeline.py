@@ -196,7 +196,7 @@ class CalcPipeline:
             #check to see if incoming data has a conformed index, conform if needed
             trace = trace_history + ' pipeline failed during execution of stage %s. ' %s.__class__.__name__          
             try:
-                df = s.conform_index(df)
+                df = s.conform_index(df=df)
             except AttributeError:
                 pass
             except KeyError:
