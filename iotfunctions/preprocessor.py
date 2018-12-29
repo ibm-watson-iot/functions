@@ -823,6 +823,10 @@ class SampleActivityDuration(BaseDBActivityMerge):
         self.add_scd(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')           
         #registration
         self.outputs = ['activity_duration','shift_day','shift_id','shift_start_date','shift_end_date']
+        self.itemTags['shift_start_date'] = ['DIMENSION']
+        self.itemTags['shift_end_date'] = ['DIMENSION']
+        self.itemTags['shift_day'] = ['DIMENSION']
+        self.itemTags['shift_id'] = ['DIMENSION']
 
     
 class StatusFilter(BaseFilter):
