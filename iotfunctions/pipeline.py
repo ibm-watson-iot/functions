@@ -46,6 +46,8 @@ class CalcPipeline:
         pre-load stages are special stages that are processed outside of the pipeline
         they execute before loading data into the pipeline
         return tuple containing list of preload stages and list of other stages to be processed
+        
+        also extract scd lookups. Place them on the entity.
         '''
         stages = []
         extracted_stages = []
@@ -54,12 +56,30 @@ class CalcPipeline:
                 is_preload = s.is_preload
             except AttributeError:
                 is_preload = False
+            try:
+                is_scd_lookup = s.is_scd_lookup
+            except AttributeError:
+                is_scd_lookup = False
+            try:
+                is_custom_calendar = s.is_custom_calendar
+            except AttributeError:
+                is_custom_calendar = False
+            #extract preload and scd stages
             if is_preload:
-                msg = 'Extracted preload stage %s from pipeline' %self.__class__.__name__
+                msg = 'Extracted preload stage %s from pipeline' %s.__class__.__name__
                 logger.debug(msg)
                 extracted_stages.append(s)
+            elif is_scd_lookup:
+                msg = 'Extracted SCD lookup stage for %s from table %s' %(s.output_item,s.table_name)
+                logger.debug(msg)
+                self.entity_type._add_scd_pipeline_stage(s)
+            elif is_custom_calendar:
+                msg = 'Extracted custom calendar lookup stage for %s' %(s.name)
+                logger.debug(msg)
+                self.entity_type.set_custom_calendar(s)                
             else:
                 stages.append(s)
+                
         return (extracted_stages,stages)
                         
     
@@ -131,6 +151,39 @@ class CalcPipeline:
             self.logger.warning("The pipeline has more than one custom source with a merge strategy of replace. The pipeline will only contain data from the last replacement")        
             
         return(df,remaining_stages,secondary_sources)    
+        
+    def execute_special_lookup_stages(self,df,register,to_csv):
+        '''
+        Special lookup stages process SCD and calendar  lookups. They are
+        performed after all input data is present in the pipeline.
+        '''
+        custom_calendar = self.get_custom_calendar()
+        if  custom_calendar is not None:
+            new_df = custom_calendar.execute(df)
+            self.log_df_info(new_df,'After custom calendar lookup')
+            if to_csv:
+                new_df.to_csv('debugCustomCalendar_%s.csv' %custom_calendar.__class__.__name__) 
+            if register:
+                try:
+                    custom_calendar.register(df=df,new_df= new_df)
+                except AttributeError:
+                    msg = 'Could not regiser %s as it has no register() method' %custom_calendar.__class__.__name__
+                    logger.warning(msg)
+            df = new_df
+        for s in self.get_scd_lookup_stages():
+            new_df = s.execute(df=df)
+            self.log_df_info(new_df,'After scd lookup %s') %s.table_name   
+            if to_csv:
+                new_df.to_csv('debugSCD_%s.csv' %s.table_name)
+            if register:
+                try:
+                    s.register(df=df,new_df= new_df)
+                except AttributeError:
+                    msg = 'Could not register %s as it has no register() method' %s.__class__.__name__
+                    logger.warning(msg)
+            df = new_df                
+        self.mark_special_stages_complete()                
+        return df
     
                 
     def execute(self, df=None, to_csv=False, dropna=False, start_ts = None, end_ts = None, entities = None, preloaded_item_names=None,
@@ -261,7 +314,15 @@ class CalcPipeline:
                 last_msg = self.log_df_info(df,msg)
             secondary_sources = [x for x in secondary_sources if x != s]
             trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
+            if len(secondary_sources) == 0:
+                msg = 'All data source stages have been executed. Do special lookup stages'
+                logger.debug(msg)
+                self.execute_special_lookup_stages(df=df,register=register,to_csv=to_csv)
         return df
+    
+    def mark_special_stages_complete(self):
+        
+        self.entity_type._unprocessed_scd_stages = []
 
     def publish(self):
         
@@ -282,6 +343,13 @@ class CalcPipeline:
                                         request = 'POST',
                                         payload = export)    
         return response
+    
+    
+    def get_custom_calendar(self):
+        '''
+        Get the optional custom calendar for the entity type
+        '''
+        return self.entity_type._custom_calendar
     
     def get_input_items(self):
         '''
@@ -314,6 +382,12 @@ class CalcPipeline:
             msg = ''            
         msg = msg + str(last_msg)
         return msg
+    
+    def get_scd_lookup_stages(self):
+        '''
+        Get the scd lookup stages for the entity type
+        '''
+        return self.entity_type._unprocessed_scd_stages
     
     def log_df_info(self,df,msg,include_data=False):
         '''

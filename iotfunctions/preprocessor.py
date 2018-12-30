@@ -753,23 +753,11 @@ class SampleActivityMerge(BaseDBActivityMerge):
                  additional_items = None,
                  additional_output_names = None,
                  dummy_items = None):
-
-        custom_calendar = IoTShiftCalendar(
-                shift_definition = 
-                    {
-                       "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
-                       "2": (14, 21),
-                       "3": (21, 29.5)
-                       
-                       }
-                )
-        
         super().__init__(input_activities=input_activities,
                          activity_duration=activity_duration,
                          additional_items = additional_items,
                          additional_output_names = additional_output_names,
-                         dummy_items = dummy_items,
-                         custom_calendar = custom_calendar)
+                         dummy_items = dummy_items )
         self.activities_metadata['widget_maintenance_activity'] = ['PM','UM']
         self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
         self.activities_custom_query_metadata = {}
@@ -784,49 +772,18 @@ class SampleActivityDuration(BaseDBActivityMerge):
     '''
     execute_by = ['deviceid']
     _is_instance_level_logged = False
-    def __init__(self,input_activities,
-                 activity_duration=None,
-                 dummy_items = None,
-                 shift_day = 'shift_day', 
-                 shift_id = 'shift_id',
-                 shift_start_date = 'shift_start_date',
-                 shift_end_date = 'shift_end_date'):
-        
-        custom_calendar = IoTShiftCalendar(
-                shift_definition = 
-                    {
-                       "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
-                       "2": (14, 21),
-                       "3": (21, 29.5)
-                       },
-                  period_start_date = shift_start_date,
-                  period_end_date = shift_end_date,
-                  shift_day = shift_day,
-                  shift_id = shift_id
-                )
-        
+    def __init__(self,input_activities, activity_duration=None):
         super().__init__(input_activities=input_activities,
-                         activity_duration=activity_duration,
-                         dummy_items = dummy_items,
-                         custom_calendar = custom_calendar
-                         )
-        self.shift_day = shift_day
-        self.shift_id = shift_id
-        self.shift_start_date = shift_start_date
-        self.shift_end_date= shift_end_date
+                         activity_duration=activity_duration )
         # define metadata for related activity tables
         self.activities_metadata['widget_maintenance_activity'] = ['PM','UM']
         self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
         self.activities_custom_query_metadata = {}
-        #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from some_custom_activity_table'
-        self.add_scd(scd_property = 'status', table_name = 'widgets_dec12b_scd_status')
-        self.add_scd(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')           
+        #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from some_custom_activity_table'         
         #registration
+        self.constants = ['input_activities']
         self.outputs = ['activity_duration','shift_day','shift_id','shift_start_date','shift_end_date']
-        self.itemTags['shift_start_date'] = ['DIMENSION']
-        self.itemTags['shift_end_date'] = ['DIMENSION']
-        self.itemTags['shift_day'] = ['DIMENSION']
-        self.itemTags['shift_id'] = ['DIMENSION']
+        self.optionalItems = ['dummy_items']
 
     
 class StatusFilter(BaseFilter):
@@ -925,21 +882,6 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
         df = custom_calendar.execute(df)
         return df
     
-    def get_custom_calendar(self):
-        '''
-        create a custom calendar object
-        '''
-        custom_calendar = IoTShiftCalendar(
-            {
-               "1": (5.5, 14), #shift 1 starts at 5.5 hours after midnight (5:30) and ends at 14:00
-               "2": (14, 21),
-               "3": (21, 29.5)
-               },
-            period_start_date = self.period_start,
-            period_end_date = self.period_end)        
-        custom_calendar.set_entity_type(self._entity_type)
-        
-        return custom_calendar
 
 
 class WriteDataFrame(BaseTransformer):

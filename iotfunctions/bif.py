@@ -19,7 +19,7 @@ import re
 import pandas as pd
 import logging
 import iotfunctions as iotf
-from .base import BaseTransformer, BaseEvent
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup
 
 
 logger = logging.getLogger(__name__)
@@ -263,6 +263,17 @@ class IoTPackageInfo(BaseTransformer):
         
         return df
     
+class IoTSCDLookup(BaseSCDLookup):
+    '''
+    Lookup an scd property from a scd lookup table containing: 
+    Start_date, end_date, device_id and property. End dates are not currently used.
+    Previous lookup value is assumed to be valid until the next.
+    '''
+    
+    def __init__(self, table_name , output_item = None):
+        self.table_name = table_name
+        super().__init__(table_name = table_name, output_item = output_item)    
+    
 class IoTShiftCalendar(BaseTransformer):
     '''
     Generate data for a shift calendar using a shift_definition in the form of a dict keyed on shift_id
@@ -274,9 +285,9 @@ class IoTShiftCalendar(BaseTransformer):
            },    
     '''
     
+    is_custom_calendar = True
     auto_conform_index = True
     def __init__ (self,shift_definition=None,
-                  dummy_items = None,
                   period_start_date = 'shift_start_date',
                   period_end_date = 'shift_end_date',
                   shift_day = 'shift_day',
@@ -293,9 +304,7 @@ class IoTShiftCalendar(BaseTransformer):
         self.shift_day = shift_day
         self.shift_id = shift_id
         super().__init__()
-        self.dummy_items = dummy_items
         #registration
-        self.inputs = ['dummy_items']
         self.constants = ['shift_definition']
         self.outputs = ['period_start_date','period_end_date','shift_day','shift_id']
         self.itemTags['period_start_date'] = ['DIMENSION']

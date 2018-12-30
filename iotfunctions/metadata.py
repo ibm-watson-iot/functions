@@ -126,6 +126,9 @@ class EntityType(object):
         self._db_connection_dbi = None
         self._dimension_table = None
         self._dimension_table_name = None
+        #special pipeline stages
+        self._unprocessed_scd_stages = []
+        self._custom_calendar = None
         #initialize
         self._db_schema = None
         self._data_items = None
@@ -197,6 +200,16 @@ class EntityType(object):
         except KeyError:
             table.create()
         self.scd[property_name] = table
+        
+    def _add_scd_pipeline_stage(self, scd_lookup):
+        
+        self._unprocessed_scd_stages.append(scd_lookup)
+        
+    def cos_save(self):
+        
+        name = ['entity_type', self.name]
+        name = '.'.join(name)
+        self.db.cos_save(self, name)
         
     def drop_child_tables(self):
         '''
@@ -386,7 +399,10 @@ class EntityType(object):
             if write:
                 msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
             self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
-        return df    
+        return df  
+    
+    def _get_scd_list(self):
+        return [(s.output_item,s.table_name) for s in self._unprocessed_scd_stages ]
         
     def make_dimension(self,name = None, *args, **kw):
         '''
@@ -480,6 +496,9 @@ class EntityType(object):
 
         msg = 'Metadata registered for table %s '%self.name
         logger.debug(msg)
+        #response = self.cos_save()
+        #msg = 'Entity type saved to cos %s '%response
+        #logger.debug(msg)
         return response
     
             
@@ -511,6 +530,12 @@ class EntityType(object):
                                 table_name = self._dimension_table_name,
                                 if_exists = 'replace',
                                 schema = self._db_schema)
+            
+    def set_custom_calendar(self,custom_calendar):
+        '''
+        Set a custom calendar for the entity type.
+        '''
+        self._custom_calendar = custom_calendar
      
     def _set_end_date(self,df):
         
@@ -535,7 +560,19 @@ class EntityType(object):
         '''
         for key,value in list(params.items()):
             setattr(self, key, value)
-        return self   
+        return self
+    
+    
+class Job(EntityType):
+    '''
+    EntityType with execution logic tweaked for job processing. 
+    '''
+    def __init__ (self,name,db, *args, **kwargs):
+        args.append(Column('status'))        
+        args.append(Column('start_date'))
+        args.append(Column('end_date'))
+        super().init(name = name, db=db, *args, **kwargs)
+        
 
 
 class Model(object):
@@ -625,5 +662,6 @@ class Model(object):
         
             
             
+    
     
     

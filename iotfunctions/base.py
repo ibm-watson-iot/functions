@@ -90,7 +90,6 @@ class BaseFunction(object):
     write_chunk_size = None #use db default
     # lookups
     # a slowly changing dimensions is use to record property changes to master data over time
-    scd_metadata = None
     _entity_scd_dict = None
     _start_date = 'start_date'
     _end_date = 'end_date'    
@@ -132,9 +131,7 @@ class BaseFunction(object):
         if self.execute_by is None:
             self.execute_by = []   
         if self.tags is None:
-            self.tags = []  
-        if self.scd_metadata is None:
-            self.scd_metadata= {}            
+            self.tags = []             
         if self._entity_scd_dict is None:
             self._entity_scd_dict= {}
 
@@ -156,13 +153,6 @@ class BaseFunction(object):
         for o in self.outputs:
             df[o] = True
         return df                    
-                    
-    def add_scd(self, scd_property, table_name):
-        '''
-        Add a new slowly changing dimension property to the entity type
-        '''
-        
-        self.scd_metadata[scd_property] = table_name
         
     def _calc(self,df):
         """
@@ -300,6 +290,12 @@ class BaseFunction(object):
                 logger.exception(msg)
                 raise 
         return metadata
+    
+    def get_custom_calendar(self):
+        '''
+        Get the customer calendar from the entity type
+        '''
+        return self._entity_type._custom_calendar
     
     def _get_data_scope(self,df):
         '''
@@ -797,10 +793,11 @@ class BaseFunction(object):
         Build a dict keyed on scd property and entity id
         '''
         x = {}
-        if self.scd_metadata is None:
+        scd_metadata = self._entity_type._get_scd_list()
+        if len(scd_metadata) ==0:
             return None
         else:
-            for scd_property, table in list(self.scd_metadata.items()):
+            for (scd_property, table) in scd_metadata:
                 df = self.get_scd_data(table_name=table, start_ts=start_ts, end_ts = end_ts, entities = entities)
                 x[scd_property] = self._partition_df_by_id(df)
             return x
@@ -1249,7 +1246,7 @@ class BaseDataSource(BaseTransformer):
     source_timestamp = 'evt_timestamp'
     auto_conform_index = True
     
-    def __init__(self, input_items, output_items=None, dummy_items = None, custom_calendar=None):
+    def __init__(self, input_items, output_items=None, dummy_items = None):
         self.input_items = input_items
         if output_items is None:
             output_items = [x for x in self.input_items]
@@ -1258,7 +1255,6 @@ class BaseDataSource(BaseTransformer):
         if dummy_items is None:
             dummy_items = []
         self.dummy_items = dummy_items
-        self.custom_calendar = custom_calendar
         # explicitly define input_items as a constants parameter so that it does not
         # look like an output parameter
         self.constants.append('input_items')
@@ -1324,13 +1320,8 @@ class BaseDataSource(BaseTransformer):
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
         if self.auto_conform_index:
             df = self.conform_index(df)
-        if self.custom_calendar is not None:
-            self.custom_calendar.set_entity_type(self.get_entity_type())
-            df = self.custom_calendar.execute(df)
-            self.log_df_info(df,'After custom calendar lookup')
-        
+            
         return df
-
 
 class BaseEvent(BaseTransformer):
     """
@@ -1521,8 +1512,6 @@ class BaseDBActivityMerge(BaseDataSource):
     activities_metadata = None
     # merge in data from one or more custom sql statement
     activities_custom_query_metadata = None
-    # merge in slow chaning dimnensions
-    scd_metadata = None
     # decide on a strategy for removing gaps
     remove_gaps =  'within_single' # 'across_all'
     # column name metadata
@@ -1535,15 +1524,12 @@ class BaseDBActivityMerge(BaseDataSource):
                  activity_duration= None, 
                  additional_items= None,
                  additional_output_names = None,
-                 dummy_items = None,
-                 custom_calendar = None):
+                 dummy_items = None):
     
         if self.activities_metadata is None:
             self.activities_metadata = {}
         if self.activities_custom_query_metadata is None:
             self.activities_custom_query_metadata = {}  
-        if self.scd_metadata is None:
-            self.scd_metadata = {}
         self.input_activities = input_activities
         if additional_items is None:
             additional_items = []
@@ -1557,7 +1543,7 @@ class BaseDBActivityMerge(BaseDataSource):
         self.available_non_activity_cols = []
             
         super().__init__(input_items = input_activities , output_items = None,
-                         dummy_items = dummy_items, custom_calendar = custom_calendar)
+                         dummy_items = dummy_items)
         #for any function that requires database access, create a database object
         self.itemArraySource['activity_duration'] = 'input_activities'
         self.itemArraySource['additional_output_names'] = 'additional_items'
@@ -1610,17 +1596,18 @@ class BaseDBActivityMerge(BaseDataSource):
             #get shift changes
             self.add_dates = []
             self.custom_calendar_df = None
-            if not self.custom_calendar is None:
+            custom_calendar = self.get_custom_calendar()
+            if not custom_calendar is None:
                 if len(adf.index) > 0:
                     start_date =  adf[self._start_date].min()
                     end_date = adf[self._end_date].max()
-                    self.custom_calendar_df = self.custom_calendar.get_data(start_date= start_date, end_date = end_date)
-                    add_dates = set(self.custom_calendar_df[self.custom_calendar.period_start_date].tolist())
-                    add_dates |= set(self.custom_calendar_df[self.custom_calendar.period_end_date].tolist())
+                    self.custom_calendar_df = custom_calendar.get_data(start_date= start_date, end_date = end_date)
+                    add_dates = set(self.custom_calendar_df[custom_calendar.period_start_date].tolist())
+                    add_dates |= set(self.custom_calendar_df[custom_calendar.period_end_date].tolist())
                     self.add_dates = list(add_dates)
                 else:
                     self.add_dates = []
-                    self.custom_calendar_df = self.custom_calendar.get_empty_data()
+                    self.custom_calendar_df = custom_calendar.get_empty_data()
             #get scd changes
             self._entity_scd_dict = self._get_scd_history(start_ts= adf[self._start_date].min(), end_ts = adf[self._end_date].max(),entities=entities)
             #merge takes place separately by entity instance
@@ -1762,32 +1749,6 @@ class BaseDBActivityMerge(BaseDataSource):
         df = c.to_frame().reset_index()
         if is_logged:
             self.log_df_info(df,'Merging activity details. Initial dataframe with dates')
-            
-        #perform scd lookup
-        for scd_property,entity_data in list(self._entity_scd_dict.items()):
-            if is_logged:
-                msg = 'Merging scd property %s' %scd_property
-                logger.debug(msg)
-            if has_scd[scd_property]:
-                dfr = entity_data[entity]
-                try:
-                    scd_data = dfr[scd_property]
-                except KeyError as e:
-                    msg = 'The scd property %s does not exist in the database table. Change the table or property name' %scd_property
-                    self.trace_append(msg)    
-                    raise e
-                scd_data.index = dfr[self._start_date]
-                scd_data.name = scd_property
-                df = df.join(scd_data, how ='left', on = self._start_date)
-                df[scd_property] = df[scd_property].fillna(method='ffill')
-                msg = 'Found %s scd data for entity %s' %(scd_property,entity)
-            else:
-                msg = 'Missing %s scd data for entity %s' %(scd_property,entity)
-                df[scd_property] = None
-            if is_logged:
-                logger.debug(msg)
-                msg = 'After scd %s merged' %scd_property
-                self.log_df_info(df,msg)
         
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
@@ -1861,6 +1822,7 @@ class BaseSCDLookup(BaseTransformer):
     _start_date = 'start_date'
     _end_date = 'end_date'
     merge_nearest_tolerance = None # or something like pd.Timedelta('1D')
+    is_scd_lookup = True
     
     def __init__ (self, table_name, output_item = None):
         
