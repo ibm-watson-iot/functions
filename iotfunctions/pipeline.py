@@ -194,50 +194,56 @@ class CalcPipeline:
         '''
         Execute the pipeline using an input dataframe as source.
         '''
-        last_msg = ''
         #preload may  have already taken place. if so pass the names of the stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
         msg = 'Running pipeline with start timestamp %s' %start_ts
         logger.debug(msg)
-        #process preload stages first if there are any
-        (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
-        preloaded_item_names.extend(preload_item_names)
+        is_initial_transform = self.get_initial_transform_status()
+        # A single execution can contain multiple CalcPipeline executions
+        # An initial transform and one or more aggregation executions and post aggregation transforms
+        # Behavior is different during initial transform
+        if is_initial_transform:
+            #process preload stages first if there are any
+            (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
+            preloaded_item_names.extend(preload_item_names)
+            if df is None:
+                msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
+                logger.debug(msg)
+                df = self.entity_type.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)            
+            #Divide the pipeline into data retrieval stages and transformation stages. First look for
+            #a primary data source. A primary data source will have a merge_method of 'replace'. This
+            #implies that it replaces whatever data was fed into the pipeline as default entity data.
+            (df,stages,secondary_sources) = self._execute_primary_source (
+                                                df = df,
+                                                stages = stages,
+                                                start_ts = start_ts,
+                                                end_ts = end_ts,
+                                                entities = entities,
+                                                to_csv = False,
+                                                register = register,
+                                                dropna =  dropna,
+                                                trace_history = 'custom source>'
+                                                )
+            msg = 'Secondary data sources identified:  %s. Other stages are: %s' %(secondary_sources, stages)
+            logger.debug(msg)                
+        else:
+            stages = []
+            stages.extend(self.stages)
+            secondary_sources = []
         if df is None:
-            msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
-            logger.debug(msg)
-            df = self.entity_type.get_data(start_ts=start_ts, end_ts = end_ts, entities = entities)
-        if df is None:
-            msg = 'Pipeline has no primary source. Provide a dataframe or source entity'
+            msg = 'Pipeline has no source dataframe'
             raise ValueError (msg)
         if to_csv:
             filename = 'debugPipelineSourceData.csv'
             df.to_csv(filename)
-        #get entity metadata - will be inserted later into each stage
         if dropna:
             df = df.replace([np.inf, -np.inf], np.nan)
             df = df.dropna()
         # remove rows that contain all nulls ignore deviceid and timestamp
-        subset = [x for x in df.columns if x not in [self.entity_type._entity_id,self.entity_type._timestamp_col]]
+        subset = [x for x in df.columns if x not in self.get_system_columns()]
         df = df.dropna(how='all', subset = subset )
-        '''
-        Divide the pipeline into data retrieval stages and transformation stages. First look for
-        a primary data source. A primary data source will have a merge_method of 'replace'. This
-        implies that it replaces whatever data was fed into the pipeline as default entity data.
-        '''
-        (df,stages,secondary_sources) = self._execute_primary_source (
-                                            df = df,
-                                            stages = stages,
-                                            start_ts = start_ts,
-                                            end_ts = end_ts,
-                                            entities = entities,
-                                            to_csv = False,
-                                            register = register,
-                                            dropna =  dropna,
-                                            trace_history = 'custom source>'
-                                            )
-        msg = 'Secondary data sources identified:  %s. Other stages are: %s' %(secondary_sources, stages)
-        logger.debug(msg)       
+        self.log_df_info(df,'post drop all null rows')       
         #add a dummy item to the dataframe for each preload stage
         #added as the ui expects each stage to contribute one or more output items
         for pl in preloaded_item_names:
@@ -259,10 +265,11 @@ class CalcPipeline:
             except AttributeError:
                 pass
             except KeyError:
+                trace = trace_history + ' Failure occured when attempting to conform index'
                 logger.exception(trace)
                 raise               
             try:
-                abort_on_fail = self._abort_on_fail
+                abort_on_fail = s._abort_on_fail
             except AttributeError:
                 abort_on_fail = True
             df = self._execute_stage(stage=s,
@@ -277,7 +284,7 @@ class CalcPipeline:
                                 abort_on_fail = abort_on_fail)
             secondary_sources = [x for x in secondary_sources if x != s]
             trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
-            if len(secondary_sources) == 0:
+            if len(secondary_sources) == 0 and is_initial_transform:
                 self.log_df_info(df,'About to start processing special stages')
                 self.execute_special_lookup_stages(df=df,
                                                    register=register,
@@ -289,6 +296,7 @@ class CalcPipeline:
                                                    end_ts = end_ts,
                                                    abort_on_fail = abort_on_fail
                                                    )
+        self.mark_initial_transform_complete()
         return df
     
     
@@ -337,47 +345,29 @@ class CalcPipeline:
                 msg = 'Could not export %s as it has no register() method or because an AttributeError was raised during execution' %stage.__class__.__name__
                 logger.warning(msg)
                 logger.warning(str(e))
-        df = newdf
         if dropna:
-            df = df.replace([np.inf, -np.inf], np.nan)
-            df = df.dropna()
+            newdf = newdf.replace([np.inf, -np.inf], np.nan)
+            newdf = newdf.dropna()
         if to_csv:
-            df.to_csv('debugPipelineOut_%s.csv' %stage.__class__.__name__)
+            newdf.to_csv('debugPipelineOut_%s.csv' %stage.__class__.__name__)
         try:
             msg = 'Completed stage %s. Output dataframe.' %stage.__class__.__name__
-            last_msg = stage.log_df_info(df,msg)
+            last_msg = stage.log_df_info(newdf,msg)
         except Exception:
-            last_msg = self.log_df_info(df,msg)
+            last_msg = self.log_df_info(newdf,msg)
         return newdf
-    
-    
-    def mark_special_stages_complete(self):
-        self.entity_type._unprocessed_scd_stages = []
-
-    def publish(self):
-        export = []
-        for s in self.stages:
-            if self.entity_type is None:
-                source_name = None
-            else:
-                source_name = self.entity_type.name
-            metadata  = { 
-                    'name' : s.name ,
-                    'args' : s._get_arg_metadata()
-                    }
-            export.append(metadata)
-            
-        response = self.entity_type.db.http_request(object_type = 'kpiFunctions',
-                                        object_name = source_name,
-                                        request = 'POST',
-                                        payload = export)    
-        return response
     
     def get_custom_calendar(self):
         '''
         Get the optional custom calendar for the entity type
         '''
         return self.entity_type._custom_calendar
+    
+    def get_initial_transform_status(self):
+        '''
+        Determine whether initial transform stage is complete
+        '''
+        return self.entity_type._is_initial_transform    
     
     def get_input_items(self):
         '''
@@ -417,13 +407,46 @@ class CalcPipeline:
         '''
         return self.entity_type._unprocessed_scd_stages
     
+    def get_system_columns(self):
+        '''
+        Get a list of system columns for the entity type
+        '''
+        return self.entity_type._system_columns
+
+    
     def log_df_info(self,df,msg,include_data=False):
         '''
         Log a debugging entry showing first row and index structure
         '''
         msg = log_df_info(df=df,msg=msg,include_data = include_data)
         return msg
+    
         
+    def mark_initial_transform_complete(self):
+        self.entity_type._is_initial_transform = False
+
+    def mark_special_stages_complete(self):
+        self.entity_type._unprocessed_scd_stages = []
+        
+    def publish(self):
+        export = []
+        for s in self.stages:
+            if self.entity_type is None:
+                source_name = None
+            else:
+                source_name = self.entity_type.name
+            metadata  = { 
+                    'name' : s.name ,
+                    'args' : s._get_arg_metadata()
+                    }
+            export.append(metadata)
+            
+        response = self.entity_type.db.http_request(object_type = 'kpiFunctions',
+                                        object_name = source_name,
+                                        request = 'POST',
+                                        payload = export)    
+        return response    
+    
     
     def _raise_error(self,exception,msg, abort_on_fail = False):
         '''

@@ -126,9 +126,12 @@ class EntityType(object):
         self._db_connection_dbi = None
         self._dimension_table = None
         self._dimension_table_name = None
+        self._system_columns = [self._entity_id,self._timestamp_col,'logicalinterface_id',
+                                'devicetype','format','updated_utc']
         #special pipeline stages
         self._unprocessed_scd_stages = []
         self._custom_calendar = None
+        self._is_initial_transform = True
         #initialize
         self._db_schema = None
         self._data_items = None
@@ -225,8 +228,11 @@ class EntityType(object):
     
     def get_calc_pipeline(self,stages=None):
         '''
-        Get a CalcPipeline object
+        Make a new CalcPipeline object. Reset processing variables.
         '''
+        self._unprocessed_scd_stages = []
+        self._custom_calendar = None
+        self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
         
         
@@ -544,13 +550,13 @@ class EntityType(object):
         df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
         return df
     
-    def exec_pipeline(self, *args, to_csv = False, register = False):
+    def exec_pipeline(self, *args, to_csv = False, register = False, start_ts = None):
         '''
         Test an AS function instance using entity data. Provide one or more functions as args.
         '''
         stages = list(args)
         pl = self.get_calc_pipeline(stages=stages)
-        df = pl.execute(to_csv = to_csv, register = register)
+        df = pl.execute(to_csv = to_csv, register = register, start_ts = start_ts)
         return df
         
     
