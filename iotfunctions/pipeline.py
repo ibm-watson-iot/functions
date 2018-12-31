@@ -110,7 +110,15 @@ class CalcPipeline:
         return(stages,preload_item_names)
     
     
-    def _execute_primary_source(self,stages,df,start_ts=None,end_ts=None,entities=None,to_csv=False):
+    def _execute_primary_source(self,stages,
+                                df,
+                                start_ts=None,
+                                end_ts=None,
+                                entities=None,
+                                to_csv=False,
+                                trace_history ='',
+                                register=False,
+                                dropna = False):
         '''
         Extract and execute data source stages with a merge_method of replace.
         Identify other data source stages that add rows of data to the pipeline
@@ -126,18 +134,15 @@ class CalcPipeline:
                 is_data_source = False
                 merge_method = None
             if is_data_source and merge_method == 'replace':
-                try: 
-                    df = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities) 
-                except TypeError: 
-                    df = s.execute(df=df) 
-                self.logger.debug("stage=%s is a custom data source. It replaced incoming entity data. " %s.__class__.__name__)
-                try:
-                    s.log_df_info(df,'Incoming data replaced with function output from primary data source')
-                except AttributeError:
-                    pass
-                replace_count += 1
-                if to_csv:
-                    df.to_csv('debugPrimaryDataSource_%s.csv' %s.__class__.__name__)  
+                df = self._execute_stage(stage=s,
+                    df = df,
+                    start_ts = start_ts,
+                    end_ts = end_ts,
+                    entities = entities,
+                    trace_history = trace_history,
+                    register = register,
+                    to_csv = to_csv,
+                    dropna = dropna)
             elif is_data_source and merge_method == 'outer':
                 '''
                 A data source with a merge method of outer is considered a secondary source
@@ -152,36 +157,34 @@ class CalcPipeline:
             
         return(df,remaining_stages,secondary_sources)    
         
-    def execute_special_lookup_stages(self,df,register,to_csv):
+    def execute_special_lookup_stages(self,df,register,to_csv,trace_history,entities,start_ts,end_ts,dropna, abort_on_fail):
         '''
         Special lookup stages process SCD and calendar  lookups. They are
         performed after all input data is present in the pipeline.
         '''
         custom_calendar = self.get_custom_calendar()
         if  custom_calendar is not None:
-            new_df = custom_calendar.execute(df)
-            self.log_df_info(new_df,'After custom calendar lookup')
-            if to_csv:
-                new_df.to_csv('debugCustomCalendar_%s.csv' %custom_calendar.__class__.__name__) 
-            if register:
-                try:
-                    custom_calendar.register(df=df,new_df= new_df)
-                except AttributeError:
-                    msg = 'Could not regiser %s as it has no register() method' %custom_calendar.__class__.__name__
-                    logger.warning(msg)
-            df = new_df
+            df = self._execute_stage(stage=custom_calendar,
+                                df = df,
+                                start_ts = start_ts,
+                                end_ts = end_ts,
+                                entities = entities,
+                                trace_history = trace_history,
+                                register = register,
+                                to_csv = to_csv,
+                                dropna = dropna,
+                                abort_on_fail = abort_on_fail)
         for s in self.get_scd_lookup_stages():
-            new_df = s.execute(df=df)
-            self.log_df_info(new_df,'After scd lookup %s') %s.table_name   
-            if to_csv:
-                new_df.to_csv('debugSCD_%s.csv' %s.table_name)
-            if register:
-                try:
-                    s.register(df=df,new_df= new_df)
-                except AttributeError:
-                    msg = 'Could not register %s as it has no register() method' %s.__class__.__name__
-                    logger.warning(msg)
-            df = new_df                
+            df = self._execute_stage(stage=s,
+                                df = df,
+                                start_ts = start_ts,
+                                end_ts = end_ts,
+                                entities = entities,
+                                trace_history = trace_history,
+                                register = register,
+                                to_csv = to_csv,
+                                dropna = dropna,
+                                abort_on_fail = abort_on_fail)                    
         self.mark_special_stages_complete()                
         return df
     
@@ -228,7 +231,11 @@ class CalcPipeline:
                                             start_ts = start_ts,
                                             end_ts = end_ts,
                                             entities = entities,
-                                            to_csv = False)
+                                            to_csv = False,
+                                            register = register,
+                                            dropna =  dropna,
+                                            trace_history = 'custom source>'
+                                            )
         msg = 'Secondary data sources identified:  %s. Other stages are: %s' %(secondary_sources, stages)
         logger.debug(msg)       
         #add a dummy item to the dataframe for each preload stage
@@ -247,7 +254,6 @@ class CalcPipeline:
                 if not s in secondary_sources:
                     continue
             #check to see if incoming data has a conformed index, conform if needed
-            trace = trace_history + ' pipeline failed during execution of stage %s. ' %s.__class__.__name__          
             try:
                 df = s.conform_index(df=df)
             except AttributeError:
@@ -256,76 +262,99 @@ class CalcPipeline:
                 logger.exception(trace)
                 raise               
             try:
-                msg = ' Dataframe at start of %s: ' %s.__class__.__name__
-                last_msg = s.log_df_info(df,msg)
-            except Exception:
-                last_msg = self.log_df_info(df,msg)
-            try:
                 abort_on_fail = self._abort_on_fail
             except AttributeError:
                 abort_on_fail = True
-            # There are two different signatures for the execute method
-            try:
-                try:
-                    newdf = s.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
-                except TypeError:
-                    newdf = s.execute(df=df)
-            except AttributeError as e:
-                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
-                trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %s.__dict__
-                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
-            except SyntaxError as e:
-                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
-                trace = trace + ' The function contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct' 
-                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
-            except (ValueError,TypeError) as e:
-                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
-                trace = trace + ' The function is operating on data that has an unexpected value or data type. '
-                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)                
-            except (NameError) as e:
-                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
-                trace = trace + ' The function refered to an object that does not exist. You may be refering to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. '
-                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
-            except Exception as e:
-                trace = trace + self.get_stage_trace(stage=s,last_msg=last_msg)
-                trace = trace + ' The function failed to execute '
-                self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
-            #validate that stage has not violated any pipeline processing rules
-            try:
-                s.validate_df(df,newdf)
-            except AttributeError:
-                pass            
-            if register:
-                try:
-                    s.register(df=df,new_df= newdf)
-                except AttributeError:
-                    msg = 'Could not export %s as it has no register() method' %s.__class__.__name__
-                    logger.warning(msg)
-            df = newdf
-            if dropna:
-                df = df.replace([np.inf, -np.inf], np.nan)
-                df = df.dropna()
-            if to_csv:
-                df.to_csv('debugPipelineOut_%s.csv' %s.__class__.__name__)
-            try:
-                msg = 'Completed stage %s. Output dataframe.' %s.__class__.__name__
-                last_msg = s.log_df_info(df,msg)
-            except Exception:
-                last_msg = self.log_df_info(df,msg)
+            df = self._execute_stage(stage=s,
+                                df = df,
+                                start_ts = start_ts,
+                                end_ts = end_ts,
+                                entities = entities,
+                                trace_history = trace_history,
+                                register = register,
+                                to_csv = to_csv,
+                                dropna = dropna,
+                                abort_on_fail = abort_on_fail)
             secondary_sources = [x for x in secondary_sources if x != s]
             trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
             if len(secondary_sources) == 0:
-                msg = 'All data source stages have been executed. Do special lookup stages'
-                logger.debug(msg)
-                self.execute_special_lookup_stages(df=df,register=register,to_csv=to_csv)
+                self.log_df_info(df,'About to start processing special stages')
+                self.execute_special_lookup_stages(df=df,
+                                                   register=register,
+                                                   to_csv=to_csv,
+                                                   trace_history =trace_history,
+                                                   dropna= dropna,
+                                                   entities = entities,
+                                                   start_ts = start_ts,
+                                                   end_ts = end_ts,
+                                                   abort_on_fail = abort_on_fail
+                                                   )
         return df
     
+    
+    def _execute_stage(self,stage,df,start_ts,end_ts,entities,trace_history,register,to_csv,dropna, abort_on_fail): 
+        msg = ' Dataframe at start of %s: ' %stage.__class__.__name__
+        try:
+            last_msg = stage.log_df_info(df,msg)
+        except Exception:
+            last_msg = self.log_df_info(df,msg)
+        trace = trace_history + ' pipeline failed during execution of stage %s. ' %stage.__class__.__name__  
+        #there are two signatures for the execute method
+        try:
+            try:
+                newdf = stage.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
+            except TypeError:
+                newdf = stage.execute(df=df)
+        except AttributeError as e:
+            trace = trace + self.get_stage_trace(stage=stage,last_msg=last_msg)
+            trace = trace + ' The function makes a reference to an object property that does not exist. Available object properties are %s' %stage.__dict__
+            self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
+        except SyntaxError as e:
+            trace = trace + self.get_stage_trace(stage=stage,last_msg=last_msg)
+            trace = trace + ' The function contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct' 
+            self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
+        except (ValueError,TypeError) as e:
+            trace = trace + self.get_stage_trace(stage=stage,last_msg=last_msg)
+            trace = trace + ' The function is operating on data that has an unexpected value or data type. '
+            self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)                
+        except NameError as e:
+            trace = trace + self.get_stage_trace(stage=stage,last_msg=last_msg)
+            trace = trace + ' The function refered to an object that does not exist. You may be refering to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. '
+            self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
+        except Exception as e:
+            trace = trace + self.get_stage_trace(stage=stage,last_msg=last_msg)
+            trace = trace + ' The function failed to execute '
+            self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
+        #validate that stage has not violated any pipeline processing rules
+        try:
+            stage.validate_df(df,newdf)
+        except AttributeError:
+            pass            
+        if register:
+            try:
+                stage.register(df=df,new_df= newdf)
+            except AttributeError as e:
+                msg = 'Could not export %s as it has no register() method or because an AttributeError was raised during execution' %stage.__class__.__name__
+                logger.warning(msg)
+                logger.warning(str(e))
+        df = newdf
+        if dropna:
+            df = df.replace([np.inf, -np.inf], np.nan)
+            df = df.dropna()
+        if to_csv:
+            df.to_csv('debugPipelineOut_%s.csv' %stage.__class__.__name__)
+        try:
+            msg = 'Completed stage %s. Output dataframe.' %stage.__class__.__name__
+            last_msg = stage.log_df_info(df,msg)
+        except Exception:
+            last_msg = self.log_df_info(df,msg)
+        return newdf
+    
+    
     def mark_special_stages_complete(self):
-        
         self.entity_type._unprocessed_scd_stages = []
 
     def publish(self):
-        
         export = []
         for s in self.stages:
             if self.entity_type is None:
@@ -343,7 +372,6 @@ class CalcPipeline:
                                         request = 'POST',
                                         payload = export)    
         return response
-    
     
     def get_custom_calendar(self):
         '''
