@@ -335,8 +335,13 @@ class IoTShiftCalendar(BaseTransformer):
         df = pd.DataFrame(columns = cols)
         return df
     
-    def execute(self,df):        
-        df.sort_values([self._entity_type._timestamp_col],inplace = True)
+    def execute(self,df):
+        try:
+            df.sort_values([self._entity_type._timestamp_col],inplace = True)
+        except KeyError:
+            msg = self.log_df_info(df,'key error when sorting on _timestamp during custom calendar lookup')
+            raise(msg)
+            
         calendar_df = self.get_data(start_date= df[self._entity_type._timestamp_col].min(), end_date = df[self._entity_type._timestamp_col].max())
         df = pd.merge_asof(left = df,
                            right = calendar_df,
