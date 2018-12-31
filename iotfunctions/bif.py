@@ -335,11 +335,7 @@ class IoTShiftCalendar(BaseTransformer):
         df = pd.DataFrame(columns = cols)
         return df
     
-    def execute(self,df):
-        
-        msg = self.log_df_info(df,'prior to calendar lookup')
-        raise RuntimeError(msg)
-        
+    def execute(self,df):        
         df.sort_values([self._entity_type._timestamp_col],inplace = True)
         calendar_df = self.get_data(start_date= df[self._entity_type._timestamp_col].min(), end_date = df[self._entity_type._timestamp_col].max())
         df = pd.merge_asof(left = df,
