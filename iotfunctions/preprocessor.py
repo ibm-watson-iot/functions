@@ -156,7 +156,7 @@ class EntityDataGenerator(BasePreload):
         
         msg = 'generating data for entity type %s' %(self._entity_type.name)
         logger.debug(msg)
-        raise(msg)
+        raise RuntimeError (msg)
         
         return True  
     
