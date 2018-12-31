@@ -1316,11 +1316,9 @@ class BaseDataSource(BaseTransformer):
                     df[i] = orginal_df[i].max() #preserve type. value is not important
         else:
             raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
-    
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
         if self.auto_conform_index:
             df = self.conform_index(df)
-            
         return df
 
 class BaseEvent(BaseTransformer):
@@ -1674,6 +1672,8 @@ class BaseDBActivityMerge(BaseDataSource):
             #rename initial outputs
             cdf = self.rename_cols(cdf,self.additional_items,self.additional_output_names)
             cdf = self.conform_index(cdf,timestamp_col = self._start_date) 
+            #add end dates
+            cdf[self._end_date] = cdf[self._start_date].shift(-1)
             
         return cdf
     
