@@ -1727,13 +1727,14 @@ class BaseDBActivityMerge(BaseDataSource):
         dates |= set((df[self._end_date].tolist()))
         dates |= set(self.add_dates)
         #scd changes are another potential interruption
-        has_scd={}
-        for scd_property,entity_data in list(self._entity_scd_dict.items()):
-            has_scd[scd_property] = True
-            try:
-                dates |= set(entity_data[entity][self._start_date])
-            except KeyError:
-                has_scd[scd_property]=False
+        if self._entity_scd_dict is not None:
+            has_scd={}
+            for scd_property,entity_data in list(self._entity_scd_dict.items()):
+                has_scd[scd_property] = True
+                try:
+                    dates |= set(entity_data[entity][self._start_date])
+                except KeyError:
+                    has_scd[scd_property]=False
         dates = list(dates)
         dates.sort()
         
@@ -1773,8 +1774,9 @@ class BaseDBActivityMerge(BaseDataSource):
         cols.extend(self.execute_by)
         if self.custom_calendar_df is not None:
             cols.extend(['shift_id','shift_day'])
-        scd_properties = list(self._entity_scd_dict.keys())
-        cols.extend(scd_properties)
+        if self._entity_scd_dict is not None:
+            scd_properties = list(self._entity_scd_dict.keys())
+            cols.extend(scd_properties)
         return pd.DataFrame(columns = cols)
                 
     def read_activity_data(self,table_name,activity_code,start_ts=None,end_ts=None,entities=None):
