@@ -142,7 +142,8 @@ class CalcPipeline:
                     trace_history = trace_history,
                     register = register,
                     to_csv = to_csv,
-                    dropna = dropna)
+                    dropna = dropna,
+                    abort_on_fail = False)
             elif is_data_source and merge_method == 'outer':
                 '''
                 A data source with a merge method of outer is considered a secondary source
