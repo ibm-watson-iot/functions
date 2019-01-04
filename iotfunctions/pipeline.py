@@ -286,7 +286,7 @@ class CalcPipeline:
             trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
             if len(secondary_sources) == 0 and is_initial_transform:
                 self.log_df_info(df,'About to start processing special stages')
-                self.execute_special_lookup_stages(df=df,
+                df = self.execute_special_lookup_stages(df=df,
                                                    register=register,
                                                    to_csv=to_csv,
                                                    trace_history =trace_history,
