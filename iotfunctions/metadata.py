@@ -567,7 +567,57 @@ class EntityType(object):
         for key,value in list(params.items()):
             setattr(self, key, value)
         return self
-    
+
+
+    '''
+    Check if dataframe columns type is equivalent to the data item that is defined in the metadata
+    It checks the entire list of data items. Thus, depending where this code is executed, the dataframe might not be completed.
+    An exception is generated if there are not incompatible types of matching items AND and flag throw_error is set to TRUE
+    '''
+    def check_data_items_type(self, df, items, throw_error=False):
+
+        invalid_data_items = []
+
+        dict_types = {
+            'NUMBER' : ['int64','float64'],
+            'TIMESTAMP' : ['datetime64'],
+            'LITERAL' : ['O'],
+            'BOOLEAN' : ['bool']
+        }
+
+        if df is not None:
+            logger.info('Dataframe types:')
+            logger.info(df.dtypes)
+
+            for item in list(items.data_items):  #transform in list to iterate over it
+                df_column = {}
+                try:
+                    data_item = items.get(item)  #back to the original dict to retrieve item object
+                    df_column = df[data_item['name']]
+                except KeyError:
+                    logger.debug('Data item %s is not part of the dataframe yet.'% item)
+                    continue
+
+                compatible_types = dict_types.get(data_item['columnType'])
+
+                #check if dataframe column is not in the supported type expected by the current data item
+                if (df_column.dtype.name not in compatible_types):
+                    invalid_data_items.append(
+                        'Item %s is not consistent. Dataframe column is %s and data type column is %s' % (
+                        item, df_column.dtype.name, data_item['columnType']))
+                    continue
+        else:
+            logger.info('Not possible to retrieve information from the data frame')
+
+        if len(invalid_data_items) > 0:
+            logger.info('Some dataitems are not consistent with current dataframe columns')
+            logger.info(list(invalid_data_items))
+            if throw_error:
+                raise Exception('Data items type are not consistent with current dataframe columns type.')
+
+        return self
+
+
     
 class Job(EntityType):
     '''
