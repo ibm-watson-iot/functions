@@ -192,12 +192,13 @@ class EntityType(object):
         property_name = property_name.lower()
         
         name= '%s_scd_%s' %(self.name,property_name)
-        kwargs['schema'] = self._db_schema
+        kwargs['schema'] = self._db_schema        
         table = SlowlyChangingDimension(name = name,
                                    database=self.db,
                                    property_name = property_name,
                                    datatype = datatype,
-                                   **kwargs)        
+                                   **kwargs) 
+        
         try:
             sqltable = self.db.get_table(name,self._db_schema)
         except KeyError:
@@ -550,13 +551,15 @@ class EntityType(object):
         df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
         return df
     
-    def exec_pipeline(self, *args, to_csv = False, register = False, start_ts = None):
+    def exec_pipeline(self, *args, to_csv = False, register = False, start_ts = None, publish = False):
         '''
         Test an AS function instance using entity data. Provide one or more functions as args.
         '''
         stages = list(args)
         pl = self.get_calc_pipeline(stages=stages)
         df = pl.execute(to_csv = to_csv, register = register, start_ts = start_ts)
+        if publish:
+            pl.publish()
         return df
         
     

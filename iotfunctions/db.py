@@ -739,7 +739,7 @@ class BaseTable(object):
             try:
                 kw['schema'] = kw['_db_schema']
             except KeyError:
-                msg = 'No schema specified as **kw, using default'
+                msg = 'No schema specified as **kw, using default for table %s' %self.name
                 logger.warn(msg)
         else:
             if kwschema is None:
@@ -897,5 +897,5 @@ class SlowlyChangingDimension(BaseTable):
         self.end_date = Column('end_date',DateTime)
         self.property_name = Column(property_name,datatype)
         self.id_col = Column(self._entity_id,String(50))
-        super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.property_name )
+        super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.property_name,**kw )
 
