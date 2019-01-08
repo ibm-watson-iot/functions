@@ -792,16 +792,15 @@ class StatusFilter(BaseFilter):
     '''
     
     def __init__(self, status_input_item, include_only,output_item = None):
-        super().__init__(dependent_items = 'status_input_item', output_item = output_item)
+        super().__init__(dependent_items = [status_input_item], output_item = output_item)
         self.status_input_item = status_input_item
         self.include_only = include_only
         
     def get_item_values(self,arg):
-        """
-        Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
-        """
-        if arg == 'company':           
-            return(['AMCE','ABC','JDI'])
+        if arg == 'include_only':
+            return(['active','inactive'])
+        else:
+            return None
         
     def filter(self,df):
         df = df[df['status']==self.include_only]

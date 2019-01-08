@@ -350,6 +350,7 @@ class IoTShiftCalendar(BaseTransformer):
                            direction = 'backward')
         if self.auto_conform_index:
             df = self.conform_index(df)
+            
         return df
     
 

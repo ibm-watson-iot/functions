@@ -1346,7 +1346,7 @@ class BaseFilter(BaseTransformer):
         self.output_item = self.name.lower()
         self.inputs.extend([self.dependent_items])
         self.outputs.extend([self.output_item])
-        self.optional_items.extend([self.dependent_items])
+        self.optionalItems.extend([self.dependent_items])
         
     def execute(self,df):
         '''
