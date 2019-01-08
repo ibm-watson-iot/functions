@@ -236,11 +236,18 @@ class EntityType(object):
         return CalcPipeline(stages=stages, entity_type = self)
         
         
-    def get_data(self,start_ts =None,end_ts=None,entities=None):
+    def get_data(self,start_ts =None,end_ts=None,entities=None,columns=None):
         '''
         Retrieve entity data
         '''
         (query,table) = self.db.query(self.name, schema = self._db_schema)
+
+        if not columns is None:
+            from sqlalchemy.sql.expression import text
+            stmt = text('SELECT %s FROM %s' % (', '.join(columns), self.name))
+            stmt = stmt.columns(*[table.c[col] for col in columns])
+            query = query.from_statement(stmt)
+
         if not start_ts is None:
             query = query.filter(table.c[self._timestamp] >= start_ts)
         if not end_ts is None:
@@ -250,6 +257,7 @@ class EntityType(object):
         params = {
                     'schema': self._db_schema
                     }            
+        logger.info('sql=%s' % query.statement)
         df = pd.read_sql(query.statement, con = self.db.connection, params = params)
         
         return df       
