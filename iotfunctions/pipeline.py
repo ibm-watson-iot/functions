@@ -430,7 +430,12 @@ class CalcPipeline:
         for s in self.stages:
             msg = msg + s.__class__.__name__
             msg = msg + ' > '
-        logger.debug(msg)
+        if len(self.entity_type._unprocessed_scd_stages) > 0:
+            msg = msg + '| unprocessed special lookup stages : '
+            for s in self.entity_type._unprocessed_scd_stages:
+                msg = msg + s.__class__.__name__
+                msg = msg + ' > '
+            logger.debug(msg)
         return msg
     
         
