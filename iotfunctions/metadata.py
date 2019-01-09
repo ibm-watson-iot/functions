@@ -128,10 +128,12 @@ class EntityType(object):
         self._dimension_table_name = None
         self._system_columns = [self._entity_id,self._timestamp_col,'logicalinterface_id',
                                 'devicetype','format','updated_utc']
-        #special pipeline stages
+        #pipeline work variables stages
         self._unprocessed_scd_stages = []
+        self._is_custom_calendar_complete = True
         self._custom_calendar = None
         self._is_initial_transform = True
+        self._trace_msg = ''
         #initialize
         self._db_schema = None
         self._data_items = None
@@ -209,6 +211,7 @@ class EntityType(object):
         
         self._unprocessed_scd_stages.append(scd_lookup)
         
+        
     def cos_save(self):
         
         name = ['entity_type', self.name]
@@ -233,6 +236,7 @@ class EntityType(object):
         '''
         self._unprocessed_scd_stages = []
         self._custom_calendar = None
+        self._is_custom_calendar_complete = True
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
         
@@ -542,7 +546,9 @@ class EntityType(object):
         '''
         Set a custom calendar for the entity type.
         '''
-        self._custom_calendar = custom_calendar
+        if custom_calendar is not None:
+            self._custom_calendar = custom_calendar
+            self._is_custom_calendar_complete = False
      
     def _set_end_date(self,df):
         

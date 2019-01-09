@@ -40,7 +40,13 @@ class CalcPipeline:
         Add a new stage to a pipeline. A stage is Transformer or Aggregator.
         '''
         stage._entity_type = self.entity_type
-        self.stages.append(stage)   
+        self.stages.append(stage)
+        
+    def append_trace(self,msg):
+        '''
+        Append to the trace information collected the entity type
+        '''
+        self.entity_type._trace_msg = self.entity_type._trace_msg +' ' + msg        
         
     def _extract_preload_stages(self):
         '''
@@ -94,6 +100,7 @@ class CalcPipeline:
         #if no dataframe provided, querying the source entity to get one
         for p in preload_stages:
             status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
+            self.append_trace(' preloaded %s ->' %p.__class__.__name__)
             try:
                 preload_item_names.append(p.output_item)
             except AttributeError:
@@ -164,6 +171,7 @@ class CalcPipeline:
         performed after all input data is present in the pipeline.
         '''
         custom_calendar = self.get_custom_calendar()
+        self.append_trace('<lookup stages start>')
         if  custom_calendar is not None:
             df = self._execute_stage(stage=custom_calendar,
                                 df = df,
@@ -186,7 +194,8 @@ class CalcPipeline:
                                 to_csv = to_csv,
                                 dropna = dropna,
                                 abort_on_fail = abort_on_fail)                    
-        self.mark_special_stages_complete()                
+        self.mark_special_stages_complete()
+        self.append_trace('<lookup stages end>')              
         return df
     
                 
@@ -250,7 +259,7 @@ class CalcPipeline:
         for pl in preloaded_item_names:
             df[pl] = True
         # process remaining stages
-        trace_history = ''
+        is_special_lookup_complete = False
         for s in stages:
             if df.empty:
                 #only continue empty stages while there are unprocessed secondary sources
@@ -266,7 +275,7 @@ class CalcPipeline:
             except AttributeError:
                 pass
             except KeyError:
-                trace = trace_history + ' Failure occured when attempting to conform index'
+                trace = self.get_trace_history() + ' Failure occured when attempting to conform index'
                 logger.exception(trace)
                 raise               
             try:
@@ -278,25 +287,25 @@ class CalcPipeline:
                                 start_ts = start_ts,
                                 end_ts = end_ts,
                                 entities = entities,
-                                trace_history = trace_history,
+                                trace_history = self.get_trace_history(),
                                 register = register,
                                 to_csv = to_csv,
                                 dropna = dropna,
                                 abort_on_fail = abort_on_fail)
             secondary_sources = [x for x in secondary_sources if x != s]
-            trace_history = trace_history + ' Completed stage %s ->' %s.__class__.__name__
-            if len(secondary_sources) == 0 and is_initial_transform:
+            if len(secondary_sources) == 0 and is_initial_transform and not is_special_lookup_complete:
                 self.log_df_info(df,'About to start processing special stages')
                 df = self.execute_special_lookup_stages(df=df,
                                                    register=register,
                                                    to_csv=to_csv,
-                                                   trace_history =trace_history,
+                                                   trace_history =self.get_trace_history(),
                                                    dropna= dropna,
                                                    entities = entities,
                                                    start_ts = start_ts,
                                                    end_ts = end_ts,
                                                    abort_on_fail = abort_on_fail
                                                    )
+                is_special_lookup_complete = True
         self.mark_initial_transform_complete()
         return df
     
@@ -356,6 +365,7 @@ class CalcPipeline:
             last_msg = stage.log_df_info(newdf,msg)
         except Exception:
             last_msg = self.log_df_info(newdf,msg)
+        self.append_trace(' completed %s ->' %stage.__class__.__name__)            
         return newdf
     
     def get_custom_calendar(self):
@@ -402,6 +412,12 @@ class CalcPipeline:
         msg = msg + str(last_msg)
         return msg
     
+    def get_trace_history(self):
+        '''
+        Retrieve trace history from the entity type
+        '''
+        return self.entity_type._trace_msg
+    
     def get_scd_lookup_stages(self):
         '''
         Get the scd lookup stages for the entity type
@@ -438,12 +454,12 @@ class CalcPipeline:
             logger.debug(msg)
         return msg
     
-        
     def mark_initial_transform_complete(self):
         self.entity_type._is_initial_transform = False
 
     def mark_special_stages_complete(self):
         self.entity_type._unprocessed_scd_stages = []
+        self.entity_type._is_custom_calendar_complete = True
         
     def publish(self):
         export = []
