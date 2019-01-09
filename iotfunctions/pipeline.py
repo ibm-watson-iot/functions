@@ -26,6 +26,7 @@ class CalcPipeline:
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
         self.entity_type = entity_type
         self.set_stages(stages)
+        self.log_pipeline_stages()
         
     def add_expression(self,name,expression):
         '''
@@ -194,7 +195,7 @@ class CalcPipeline:
         '''
         Execute the pipeline using an input dataframe as source.
         '''
-        #preload may  have already taken place. if so pass the names of the stages that were executed prior to loading.
+        #preload may  have already taken place. if so pass the names of the items produced by stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
         msg = 'Running pipeline with start timestamp %s' %start_ts
@@ -419,6 +420,17 @@ class CalcPipeline:
         Log a debugging entry showing first row and index structure
         '''
         msg = log_df_info(df=df,msg=msg,include_data = include_data)
+        return msg
+    
+    def log_pipeline_stages(self):
+        '''
+        log pipeline stage metadata
+        '''
+        msg = 'pipeline stages (initial_transform=%s) ' %self.entity_type._is_initial_transform
+        for s in self.stages:
+            msg = msg + s.__class__.__name__
+            msg = msg + ' > '
+        logger.debug(msg)
         return msg
     
         
