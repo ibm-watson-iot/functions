@@ -530,7 +530,10 @@ class CalcPipeline:
                 stages = [stages]
             self.stages.extend(stages)
         for s in self.stages:
-            s.set_entity_type(self.entity_type)
+            try:
+                s.set_entity_type(self.entity_type)
+            except AttributeError:
+                s._entity_type = self.entity_type
             
 
 class PipelineExpression(object):
