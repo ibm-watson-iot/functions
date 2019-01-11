@@ -260,6 +260,19 @@ class CalcPipeline:
             df[pl] = True
         # process remaining stages
         is_special_lookup_complete = False
+        if len(stages) == 0:
+            self.log_df_info(df,'No normal stages. Execute special stages.')
+            df = self.execute_special_lookup_stages(df=df,
+                                               register=register,
+                                               to_csv=to_csv,
+                                               trace_history =self.get_trace_history(),
+                                               dropna= dropna,
+                                               entities = entities,
+                                               start_ts = start_ts,
+                                               end_ts = end_ts,
+                                               abort_on_fail = True
+                                               )
+            is_special_lookup_complete = True            
         for s in stages:
             if df.empty:
                 #only continue empty stages while there are unprocessed secondary sources

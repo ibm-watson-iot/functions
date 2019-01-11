@@ -268,10 +268,12 @@ class Database(object):
             
         logger.debug(url)
         logger.debug(encoded_payload)
-            
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
-                
+        response = r.read().decode('utf-8')
+        logger.debug(response)
         response= r.data.decode('utf-8')
+        logger.debug(response)
+        
         return response
 
     def cos_load(self, filename, bucket=None, binary=False):
