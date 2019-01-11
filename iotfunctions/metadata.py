@@ -128,6 +128,9 @@ class EntityType(object):
         self._dimension_table_name = None
         self._system_columns = [self._entity_id,self._timestamp_col,'logicalinterface_id',
                                 'devicetype','format','updated_utc']
+        #pipeline processing options
+        self._custom_exclude_col_from_auto_drop_nulls = []
+        self._drop_all_null_rows = True
         #pipeline work variables stages
         self._unprocessed_scd_stages = []
         self._is_custom_calendar_complete = True
@@ -278,6 +281,11 @@ class EntityType(object):
         last = self.get_log(rows = 1)
         last = last.to_dict('records')[0]
         return last
+    
+    def get_param(self,param):
+        
+        return getattr(self, param)
+        
     
     def generate_data(self, entities = None, days=0, seconds = 300, 
                       freq = '1min', write=True, drop_existing = False):

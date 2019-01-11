@@ -39,7 +39,7 @@ class CalcPipeline:
         '''
         Add a new stage to a pipeline. A stage is Transformer or Aggregator.
         '''
-        stage._entity_type = self.entity_type
+        stage.set_entity_type(self.entity_type)
         self.stages.append(stage)
         
     def append_trace(self,msg):
@@ -90,7 +90,7 @@ class CalcPipeline:
         return (extracted_stages,stages)
                         
     
-    def _execute_preload_stages(self, start_ts = None, end_ts = None, entities = None):
+    def _execute_preload_stages(self, start_ts = None, end_ts = None, entities = None, register= False):
         '''
         Extract and run preload stages
         Return remaining stages to process
@@ -100,6 +100,8 @@ class CalcPipeline:
         #if no dataframe provided, querying the source entity to get one
         for p in preload_stages:
             status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
+            if register:
+                p.register(df=None)
             self.append_trace(' preloaded %s ->' %p.__class__.__name__)
             try:
                 preload_item_names.append(p.output_item)
@@ -215,7 +217,7 @@ class CalcPipeline:
         # Behavior is different during initial transform
         if is_initial_transform:
             #process preload stages first if there are any
-            (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities)
+            (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities,register=register)
             preloaded_item_names.extend(preload_item_names)
             if df is None:
                 msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
@@ -251,9 +253,16 @@ class CalcPipeline:
             df = df.replace([np.inf, -np.inf], np.nan)
             df = df.dropna()
         # remove rows that contain all nulls ignore deviceid and timestamp
-        subset = [x for x in df.columns if x not in self.get_system_columns()]
-        df = df.dropna(how='all', subset = subset )
-        self.log_df_info(df,'post drop all null rows')       
+        if self.entity_type.get_param('_drop_all_null_rows'):
+            exclude_cols = self.get_system_columns()
+            exclude_cols.extend(self.entity_type.get_param('_custom_exclude_col_from_auto_drop_nulls'))
+            msg = 'columns excluded when dropping null rows %s' %exclude_cols
+            logger.debug(msg)
+            subset = [x for x in df.columns if x not in exclude_cols]
+            df = df.dropna(how='all', subset = subset )
+            self.log_df_info(df,'post drop all null rows')
+        else:
+            logger.debug('drop all null rows disabled')
         #add a dummy item to the dataframe for each preload stage
         #added as the ui expects each stage to contribute one or more output items
         for pl in preloaded_item_names:
@@ -521,7 +530,7 @@ class CalcPipeline:
                 stages = [stages]
             self.stages.extend(stages)
         for s in self.stages:
-            s._entity_type = self.entity_type
+            s.set_entity_type(self.entity_type)
             
 
 class PipelineExpression(object):

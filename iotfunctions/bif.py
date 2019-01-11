@@ -19,7 +19,8 @@ import re
 import pandas as pd
 import logging
 import iotfunctions as iotf
-from .base import BaseTransformer, BaseEvent, BaseSCDLookup
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider
+from .ui import UISingle,UIMultiItem,UIFunctionOutSingle
 
 
 logger = logging.getLogger(__name__)
@@ -198,6 +199,37 @@ class IoTCosFunction(BaseTransformer):
         rf = function(df,self.parameters)
         #rf will contain the orginal columns along with a single new output column.
         return rf
+    
+class IoTDropNull(BaseMetadataProvider):
+    '''
+    Drop any row that has all null metrics
+    '''
+    def __init__(self,exclude_items,drop_all_null_rows = True,output_item = 'drop_nulls'):
+        
+        kw = {'_custom_exclude_col_from_auto_drop_nulls': exclude_items,
+              '_drop_all_null_rows' : drop_all_null_rows}
+        super().__init__(dummy_items = exclude_items, output_item = output_item, **kw)
+        self.exclude_items = exclude_items
+        self.drop_all_null_rows = drop_all_null_rows
+        #registration
+        self.constants = ['drop_all_null_rows']
+        self.inputs = ['exclude_items']
+        self.outputs = ['output_item']
+        self.optionalItems = ['exclude_items']
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):
+        '''
+        Preload function has no dataframe in or out so standard _getMetadata() does not work
+        '''
+        #define arguments that behave as function inputs
+        inputs = {}
+        inputs['exclude_items'] = UIMultiItem(name = 'exclude_items',datatype=None,description = 'Ignore non-null values in these columns when dropping rows').to_metadata()
+        inputs['drop_all_null_rows'] = UISingle(name = 'drop_all_null_rows',datatype=bool,description = 'Enable or disable drop of all null rows').to_metadata()
+        #define arguments that behave as function outputs
+        outputs = {}
+        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',datatype=bool,description='Returns a status flag of True when executed').to_metadata()
+                
+        return (inputs,outputs)            
 
     
 class IoTExpression(BaseTransformer):
