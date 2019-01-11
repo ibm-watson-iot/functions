@@ -384,6 +384,7 @@ class EntityType(object):
         msg = 'generating data for %s for %s days and %s seconds' %(table_name,days,seconds)
         (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
         msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
+        logger.debug(msg)
         ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
                                  ids = entities, days = days, seconds = seconds, freq = self._scd_frequency)
         df = ts.execute()
@@ -409,7 +410,8 @@ class EntityType(object):
                 pass
             if write:
                 msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
-            self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
+                logger.debug(msg)
+                self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
         return df  
     
     def _get_scd_list(self):

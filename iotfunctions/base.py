@@ -301,11 +301,11 @@ class BaseFunction(object):
         '''
         Return the start, end and set of entity ids contained in a dataframe as a tuple
         '''
-        
-        start_ts = df[self._entity_type._timestamp_col].min()
-        end_ts = df[self._entity_type._timestamp_col].max()
-        entities = list(pd.unique(df[self._entity_type._entity_id]))
-        
+        ts_series = self.get_timestamp_series(df=df)
+        start_ts = ts_series.min()
+        end_ts = ts_series.max()
+        entity_id_series = self.get_entity_id_series(df=df)
+        entities = list(pd.unique(entity_id_series))
         return (start_ts,end_ts,entities)
     
     def get_db(self,credentials = None, tenant_id = None):
@@ -324,6 +324,14 @@ class BaseFunction(object):
             db = Database(credentials = credentials, tenant_id = tenant_id)
             
         return db
+    
+    def get_entity_id_series(self,df):
+        '''
+        Return a series containing entity ids
+        '''
+        series = self._get_series(df,[self._entity_type._entity_id,self._entity_type._df_index_entity_id])
+        return series
+    
     
     def get_entity_type(self):
         '''
@@ -372,6 +380,13 @@ class BaseFunction(object):
             msg = 'Argument %s is has explicit json schema defined for it %s' %(arg, self.itemJsonSchema[arg])
             logger.debug(msg)
         return column_metadata
+    
+    def get_timestamp_series(self,df):
+        '''
+        Return a series containing timestamps
+        '''
+        series = self._get_series(df,[self._entity_type._timestamp,self._entity_type._timestamp_col])
+        return series
     
     def _get_series(self,df,col_names):
         
