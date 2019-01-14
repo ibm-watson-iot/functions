@@ -127,7 +127,7 @@ class EntityType(object):
         self._dimension_table = None
         self._dimension_table_name = None
         self._system_columns = [self._entity_id,self._timestamp_col,'logicalinterface_id',
-                                'devicetype','format','updated_utc']
+                                'devicetype','format','updated_utc', self._timestamp]
         #pipeline processing options
         self._custom_exclude_col_from_auto_drop_nulls = []
         self._drop_all_null_rows = True

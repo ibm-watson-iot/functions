@@ -261,6 +261,8 @@ class CalcPipeline:
             msg = 'columns excluded when dropping null rows %s' %exclude_cols
             logger.debug(msg)
             subset = [x for x in df.columns if x not in exclude_cols]
+            msg = 'columns considered when dropping null rows %s' %subset
+            logger.debug(msg)
             df = df.dropna(how='all', subset = subset )
             self.log_df_info(df,'post drop all null rows')
         else:
