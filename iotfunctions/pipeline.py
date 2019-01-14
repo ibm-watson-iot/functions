@@ -99,24 +99,25 @@ class CalcPipeline:
         preload_item_names = []
         #if no dataframe provided, querying the source entity to get one
         for p in preload_stages:
-            status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
-            if register:
-                p.register(df=None)
-            self.append_trace(' preloaded %s ->' %p.__class__.__name__)
-            try:
-                preload_item_names.append(p.output_item)
-            except AttributeError:
-                msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
-                raise AttributeError (msg)
-            if status:
-                msg = 'Successfully executed preload stage %s' %p.__class__.__name__
-                logger.debug(msg)
-            else:
-                msg = 'Preload stage %s returned continue pipeline value of False. Aborting execution.' %p.__class__.__name__
-                logger.debug(msg)
-                stages = []
-                break
-            
+            if not self.entity_type._is_preload_complete:
+                status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
+                if register:
+                    p.register(df=None)
+                self.append_trace(' preloaded %s ->' %p.__class__.__name__)
+                try:
+                    preload_item_names.append(p.output_item)
+                except AttributeError:
+                    msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
+                    raise AttributeError (msg)
+                if status:
+                    msg = 'Successfully executed preload stage %s' %p.__class__.__name__
+                    logger.debug(msg)
+                else:
+                    msg = 'Preload stage %s returned continue pipeline value of False. Aborting execution.' %p.__class__.__name__
+                    logger.debug(msg)
+                    stages = []
+                    break
+        self.entity_type._is_preload_complete = True
         return(stages,preload_item_names)
     
     

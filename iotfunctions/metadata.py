@@ -137,6 +137,7 @@ class EntityType(object):
         self._custom_calendar = None
         self._is_initial_transform = True
         self._trace_msg = ''
+        self._is_preload_complete = False
         #initialize
         self._db_schema = None
         self._data_items = None
