@@ -258,30 +258,7 @@ class GenerateCerealFillerData(BaseDataSource):
                                  timestamp = self._entity_type._timestamp)
         df = ts.execute()
         
-        return df
-    
-class GenerateException(BaseTransformer):
-    """
-    Halt execution of the pipeline raising an error that will be shown. This function is 
-    useful for testing a pipeline that is running to completion but not delivering the expected results.
-    By halting execution of the pipeline you can view useful diagnostic information in an error
-    message displayed in the UI.
-    """
-    def __init__(self,halt_after, output_item = 'pipeline_exception'):
-                 
-        super().__init__()
-        self.halt_after = halt_after
-        self.output_item = output_item
-        self.outputs = ['output_item']
-        
-    def execute(self,df):
-        
-        msg = 'Calculation was halted deliberately by the inclusion of a function that raised an exception in the configuration of the pipeline'
-        raise RuntimeError(msg)
-        
-        df[self.output_item] = True
-        return df
-    
+        return df    
 
     
 class InputsAndOutputsOfMultipleTypes(BaseTransformer):

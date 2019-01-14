@@ -592,7 +592,7 @@ class Database(object):
         self.start_session()
         qt = self.session.query(*args).group_by(*grp)
         df = pd.read_sql(qt.statement,con = self.connection)
-        return df
+        return df    
         
     def query(self,table_name, schema):
         '''
