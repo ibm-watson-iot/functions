@@ -257,9 +257,9 @@ class Database(object):
         self.url[('kpiFunction','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])
         self.url[('kpiFunction','DELETE')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
         self.url[('kpiFunction','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])
-        self.url[('granularitySet','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])
-        self.url[('granularitySet','DELETE')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
-        self.url[('granularitySet','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])
+        self.url[('granularitySet','POST')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
+        self.url[('granularitySet','DELETE')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
+        self.url[('granularitySet','GET')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
         self.url[('engineInput','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_type])
         encoded_payload = json.dumps(payload).encode('utf-8')        
         headers = {
