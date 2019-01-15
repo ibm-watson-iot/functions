@@ -266,6 +266,10 @@ class CalcPipeline:
             subset = [x for x in df.columns if x not in exclude_cols]
             msg = 'columns considered when dropping null rows %s' %subset
             logger.debug(msg)
+            for col in subset:
+                count = df[col].count()
+                msg = '%s count not null: %s' %(col,count)
+                logger.debug(msg)
             df = df.dropna(how='all', subset = subset )
             self.log_df_info(df,'post drop all null rows')
         else:
@@ -366,7 +370,7 @@ class CalcPipeline:
             self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)                
         except NameError as e:
             trace = trace + self.get_stage_trace(stage=stage,last_msg=last_msg)
-            trace = trace + ' The function refered to an object that does not exist. You may be refering to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. '
+            trace = trace + ' The function referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. '
             self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)
         except Exception as e:
             trace = trace + self.get_stage_trace(stage=stage,last_msg=last_msg)

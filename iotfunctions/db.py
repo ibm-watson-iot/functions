@@ -309,17 +309,6 @@ class Database(object):
             logger.info('Not able to DELETE %s to COS bucket %s', (filename, bucket))
         return ret
 
-    def cos_create_bucket(self, bucket=None):
-        if bucket is None:
-            logger.info('Not able to CREATE the bucket. A name should be provided.')
-        if self.cos_client is not None:
-            ret = self.cos_client.cos_put(key=None, payload=None, bucket=bucket)
-        else:
-            ret = None
-        if ret is None:
-            logger.info('Not able to CREATE the bucket %s.'% bucket)
-        return ret
-
     def commit(self):
         '''
         Commit the active session
@@ -336,6 +325,22 @@ class Database(object):
         '''
         
         self.metadata.create_all(tables = tables, checkfirst = checkfirst)
+        
+        
+    def cos_create_bucket(self, bucket=None):
+        '''
+        Create a bucket in cloud object storage
+        '''
+        
+        if bucket is None:
+            logger.info('Not able to CREATE the bucket. A name should be provided.')
+        if self.cos_client is not None:
+            ret = self.cos_client.cos_put(key=None, payload=None, bucket=bucket)
+        else:
+            ret = None
+        if ret is None:
+            logger.info('Not able to CREATE the bucket %s.'% bucket)
+        return ret        
         
     def drop_table(self,table_name,schema=None):
         
