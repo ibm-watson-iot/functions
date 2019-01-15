@@ -1216,7 +1216,8 @@ class BaseFunction(object):
             if mismatched_type:
                 logger.warning(msg)
 
-        self.get_entity_type()
+        entity_type = self.get_entity_type()
+        self.check_data_items_type(df=output_df, items=entity_type.get_data_items())
             
         return(validation_result,validation_types)
 
@@ -1240,13 +1241,13 @@ class BaseFunction(object):
                     data_item = items.get(item)  #back to the original dict to retrieve item object
                     df_column = df[data_item['name']]
                 except KeyError:
-                    logger.debug('Data item %s is not part of the dataframe yet.'% item)
+                    logger.debug('Data item %s is not part of the dataframe yet.' % item)
                     continue
 
 
                 #check if it is Number
                 if data_item['columnType'] == 'NUMBER':
-                    if not is_number(df_column):
+                    if not is_numeric_dtype(df_column):
                         invalid_data_items.append(
                             '%s: df type is %s and data type is %s' % (
                                 item, df_column.dtype.name, data_item['columnType']))
@@ -1272,7 +1273,7 @@ class BaseFunction(object):
 
                 #check if it is Boolean
                 if data_item['columnType'] == 'BOOLEAN':
-                    if not is_bool(df_column):
+                    if not is_bool_dtype(df_column):
                         invalid_data_items.append(
                             '%s: df type is %s and data type is %s' % (
                                 item, df_column.dtype.name, data_item['columnType']))

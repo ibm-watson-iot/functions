@@ -569,6 +569,13 @@ class EntityType(object):
             setattr(self, key, value)
         return self
 
+    def get_data_items(self):
+        '''
+        Get the list of data items defined
+        :return: list of data items
+        '''
+        return self._data_items
+
 
 class Job(EntityType):
     '''
