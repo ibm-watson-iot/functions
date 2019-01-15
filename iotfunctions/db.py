@@ -646,9 +646,9 @@ class Database(object):
             except AttributeError:
                 tags = None  
             try:
-                (metadata_input,metadata_output) = f.get_metadata()
+                (metadata_input,metadata_output) = f.build_ui()
             except AttributeError:
-                msg = 'Function %s has no get_metadata() method. It cannot be registered this way. Register using function_instance.register()' %name
+                msg = 'Function %s has no build_ui method. It cannot be registered this way. Register using function_instance.register()' %name
                 raise AttributeError (msg)                
             payload = {
                 'name': name,

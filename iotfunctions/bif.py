@@ -215,7 +215,7 @@ class IoTDropNull(BaseMetadataProvider):
         
         
     @classmethod
-    def get_metadata(cls):
+    def build_ui(cls):
         '''
         Registration metadata
         '''
@@ -237,7 +237,7 @@ class IoTDropNull(BaseMetadataProvider):
     
     def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
                 
-        return self.get_metadata()    
+        return self.build_ui()    
 
     
 class IoTExpression(BaseTransformer):
@@ -313,7 +313,7 @@ class IoTRaiseError(BaseTransformer):
         return df
     
     @classmethod
-    def get_metadata(cls):
+    def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = OrderedDict()
         inputs['halt_after'] = UIMultiItem(name = 'halt_after',
@@ -332,7 +332,7 @@ class IoTRaiseError(BaseTransformer):
         
     def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
                 
-        return self.get_metadata()
+        return self.build_ui()
 
             
     

@@ -440,7 +440,7 @@ class BaseFunction(object):
         raise NotImplementedError (msg)
         
     @classmethod
-    def get_metadata():
+    def build_ui():
         """
         Define metadata for function registration explicly.
         """
