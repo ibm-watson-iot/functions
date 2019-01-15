@@ -380,7 +380,8 @@ class CalcPipeline:
         try:
             stage.validate_df(df,newdf)
         except AttributeError:
-            pass            
+            msg = 'Function has no validate_df method. Skipping validation of the dataframe'
+            logger.debug(msg)
         if register:
             try:
                 stage.register(df=df,new_df= newdf)
