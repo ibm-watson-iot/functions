@@ -128,11 +128,17 @@ class EntityType(object):
         self._dimension_table = None
         self._dimension_table_name = None
         self._system_columns = [self._entity_id,self._timestamp_col,'logicalinterface_id',
-                                'devicetype','format','updated_utc']
-        #special pipeline stages
+                                'devicetype','format','updated_utc', self._timestamp]
+        #pipeline processing options
+        self._custom_exclude_col_from_auto_drop_nulls = []
+        self._drop_all_null_rows = True
+        #pipeline work variables stages
         self._unprocessed_scd_stages = []
+        self._is_custom_calendar_complete = True
         self._custom_calendar = None
         self._is_initial_transform = True
+        self._trace_msg = ''
+        self._is_preload_complete = False
         #initialize
         self._db_schema = None
         self._data_items = None
@@ -193,12 +199,13 @@ class EntityType(object):
         property_name = property_name.lower()
         
         name= '%s_scd_%s' %(self.name,property_name)
-        kwargs['schema'] = self._db_schema
+        kwargs['schema'] = self._db_schema        
         table = SlowlyChangingDimension(name = name,
                                    database=self.db,
                                    property_name = property_name,
                                    datatype = datatype,
-                                   **kwargs)        
+                                   **kwargs) 
+        
         try:
             sqltable = self.db.get_table(name,self._db_schema)
         except KeyError:
@@ -208,6 +215,7 @@ class EntityType(object):
     def _add_scd_pipeline_stage(self, scd_lookup):
         
         self._unprocessed_scd_stages.append(scd_lookup)
+        
         
     def cos_save(self):
         
@@ -233,6 +241,7 @@ class EntityType(object):
         '''
         self._unprocessed_scd_stages = []
         self._custom_calendar = None
+        self._is_custom_calendar_complete = True
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
         
@@ -274,6 +283,11 @@ class EntityType(object):
         last = self.get_log(rows = 1)
         last = last.to_dict('records')[0]
         return last
+    
+    def get_param(self,param):
+        
+        return getattr(self, param)
+        
     
     def generate_data(self, entities = None, days=0, seconds = 300, 
                       freq = '1min', write=True, drop_existing = False):
@@ -380,6 +394,7 @@ class EntityType(object):
         msg = 'generating data for %s for %s days and %s seconds' %(table_name,days,seconds)
         (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
         msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
+        logger.debug(msg)
         ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
                                  ids = entities, days = days, seconds = seconds, freq = self._scd_frequency)
         df = ts.execute()
@@ -405,7 +420,8 @@ class EntityType(object):
                 pass
             if write:
                 msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
-            self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
+                logger.debug(msg)
+                self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
         return df  
     
     def _get_scd_list(self):
@@ -542,7 +558,9 @@ class EntityType(object):
         '''
         Set a custom calendar for the entity type.
         '''
-        self._custom_calendar = custom_calendar
+        if custom_calendar is not None:
+            self._custom_calendar = custom_calendar
+            self._is_custom_calendar_complete = False
      
     def _set_end_date(self,df):
         
@@ -551,13 +569,15 @@ class EntityType(object):
         df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
         return df
     
-    def exec_pipeline(self, *args, to_csv = False, register = False, start_ts = None):
+    def exec_pipeline(self, *args, to_csv = False, register = False, start_ts = None, publish = False):
         '''
         Test an AS function instance using entity data. Provide one or more functions as args.
         '''
         stages = list(args)
         pl = self.get_calc_pipeline(stages=stages)
         df = pl.execute(to_csv = to_csv, register = register, start_ts = start_ts)
+        if publish:
+            pl.publish()
         return df
         
     

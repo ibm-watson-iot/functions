@@ -36,6 +36,7 @@ from .metadata import EntityType, Model
 from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline, PipelineExpression
 from .util import log_df_info
+from .ui import UIFunctionOutSingle, UIMultiItem
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,8 @@ class BaseFunction(object):
     # _entity_type, An EntityType object will be added to the pipeline 
     # this will give the function access to all of the properties and methods of the entity type
     _entity_type = None 
+    # metadata data parameters are instance variables to be added to the entity type
+    _metadata_params = {}
     #function registration metadata 
     name = None # name of function
     description =  None # description of function shows as help text
@@ -301,12 +304,13 @@ class BaseFunction(object):
         '''
         Return the start, end and set of entity ids contained in a dataframe as a tuple
         '''
-        
-        start_ts = df[self._entity_type._timestamp_col].min()
-        end_ts = df[self._entity_type._timestamp_col].max()
-        entities = list(pd.unique(df[self._entity_type._entity_id]))
-        
+        ts_series = self.get_timestamp_series(df=df)
+        start_ts = ts_series.min()
+        end_ts = ts_series.max()
+        entity_id_series = self.get_entity_id_series(df=df)
+        entities = list(pd.unique(entity_id_series))
         return (start_ts,end_ts,entities)
+    
     
     def get_db(self,credentials = None, tenant_id = None):
         '''
@@ -325,11 +329,29 @@ class BaseFunction(object):
             
         return db
     
+    def get_entity_id_series(self,df):
+        '''
+        Return a series containing entity ids
+        '''
+        series = self._get_series(df,[self._entity_type._entity_id,self._entity_type._df_index_entity_id])
+        return series
+    
+    
     def get_entity_type(self):
         '''
         Get the EntityType object assigned to the function instance
         '''
         return self._entity_type
+    
+    def get_entity_type_param(self,param):
+        '''
+        Get a metadata parameter from the entity type
+        '''
+        entity_type = self.get_entity_type()
+        if entity_type is None:
+            raise RuntimeError ('This function has no entity type associated with it. This is a programatic error. After creating a function instance, use set_entity_type to assign an entity type')
+        out = entity_type.get_param(param)
+        return out
 
     
     def _getJsonDataType(self,datatype):
@@ -373,6 +395,13 @@ class BaseFunction(object):
             logger.debug(msg)
         return column_metadata
     
+    def get_timestamp_series(self,df):
+        '''
+        Return a series containing timestamps
+        '''
+        series = self._get_series(df,[self._entity_type._timestamp,self._entity_type._timestamp_col])
+        return series
+    
     def _get_series(self,df,col_names):
         
         if isinstance(col_names,str):
@@ -409,6 +438,15 @@ class BaseFunction(object):
         msg = 'No code implemented to gather available values for argument %s' %arg
         
         raise NotImplementedError (msg)
+        
+    @classmethod
+    def build_ui():
+        """
+        Define metadata for function registration explicly.
+        """
+        
+        raise NotImplementedError('Implement this method to enable registration of a class without creating an instance')
+        
         
     def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):
         """
@@ -1081,6 +1119,10 @@ class BaseFunction(object):
         Set the _entity_type property of the function
         """
         self._entity_type = entity_type
+        if self._metadata_params != {}:
+            self._entity_type.set_params(**self._metadata_params)
+            msg = 'Metadata provider added parameters to entity type: %s' %self._metadata_params
+            logger.debug(msg)
     
     def set_params(self, **params):
         '''
@@ -1420,7 +1462,7 @@ class BaseFilter(BaseTransformer):
         self.output_item = self.name.lower()
         self.inputs.extend([self.dependent_items])
         self.outputs.extend([self.output_item])
-        self.optional_items.extend([self.dependent_items])
+        self.optionalItems.extend([self.dependent_items])
         
     def execute(self,df):
         '''
@@ -1969,6 +2011,20 @@ class BasePreload(BaseTransformer):
         raise NotImplementedError('This function has no execute method defined. You must implement a custom execute for any preload function')
         return True
     
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):
+        '''
+        Preload function has no dataframe in or out so standard _getMetadata() does not work
+        '''
+        #define arguments that behave as function inputs
+        inputs = {}
+        inputs['dummy_items'] = UIMultiItem(name = 'dummy_items',datatype=None).to_metadata()
+        #define arguments that behave as function outputs
+        outputs = {}
+        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',datatype=bool).to_metadata()
+                
+        return (inputs,outputs)
+        
+    
 class BaseMetadataProvider(BasePreload):
     """
     Metadata providers do not transform data. They merely add metadata to the entity type
@@ -1977,12 +2033,14 @@ class BaseMetadataProvider(BasePreload):
     
     def __init__(self, dummy_items, output_item = 'is_parameters_set', **kwargs):
         super().__init__(dummy_items = dummy_items, output_item= output_item)
-        self.params = kwargs
+        self._metadata_params = kwargs
         
-    def exec(self,df):
-        self._entity_type.set_params(**self.params)
-        msg = 'Metadata provider added parameters to entity type: %s' %self.params
-        logger.debug(msg)
+    def execute(self,df,start_ts=None,end_ts=None,entities=None):
+        '''
+        A metadata provider does not do anything except set _metadata_params
+        _metadata_params are automatically copied to the _entity_type when the
+        _entity_type is set using set_entity_type
+        '''
         return True
     
 

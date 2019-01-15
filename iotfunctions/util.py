@@ -134,7 +134,11 @@ class CosClient:
         headers.pop('host')
         headers['Authorization'] = v4auth_header
         # headers = {'x-amz-content-sha256': payload_hash, 'x-amz-date': timestamp, 'Authorization': v4auth_header}
-        request_url = self._cos_endpoint + standardized_resource + '?' + standardized_querystring
+
+        if standardized_querystring == '':
+            request_url = self._cos_endpoint + standardized_resource
+        else:
+            request_url = self._cos_endpoint + standardized_resource + '?' + standardized_querystring
 
         logging.debug('request_url=%s' % request_url)
 
@@ -172,7 +176,11 @@ class CosClient:
         return [elem.text for elem in root.findall('Contents/Key', root.nsmap)]
 
     def cos_put(self, key, payload, bucket, binary=False):
-        payload = pickle.dumps(payload)
+        if payload is not None:
+            payload = pickle.dumps(payload)
+        else:
+            payload = ''
+
         return self._cos_api_request('PUT', bucket=bucket, key=key, payload=payload, binary=binary)
 
 

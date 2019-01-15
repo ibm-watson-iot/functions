@@ -268,10 +268,12 @@ class Database(object):
             
         logger.debug(url)
         logger.debug(encoded_payload)
-            
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
-                
+        response = r.read().decode('utf-8')
+        logger.debug(response)
         response= r.data.decode('utf-8')
+        logger.debug(response)
+        
         return response
 
     def cos_load(self, filename, bucket=None, binary=False):
@@ -323,6 +325,22 @@ class Database(object):
         '''
         
         self.metadata.create_all(tables = tables, checkfirst = checkfirst)
+        
+        
+    def cos_create_bucket(self, bucket=None):
+        '''
+        Create a bucket in cloud object storage
+        '''
+        
+        if bucket is None:
+            logger.info('Not able to CREATE the bucket. A name should be provided.')
+        if self.cos_client is not None:
+            ret = self.cos_client.cos_put(key=None, payload=None, bucket=bucket)
+        else:
+            ret = None
+        if ret is None:
+            logger.info('Not able to CREATE the bucket %s.'% bucket)
+        return ret        
         
     def drop_table(self,table_name,schema=None):
         
@@ -591,6 +609,61 @@ class Database(object):
         qt = self.session.query(*args).group_by(*grp)
         df = pd.read_sql(qt.statement,con = self.connection)
         return df
+
+    def register_functions(self,functions,url=None):
+        '''
+        Register one or more class for use with AS
+        '''
+        
+        if not isinstance(functions,list):
+            functions = [functions]
+            
+        for f in functions:
+            module = f.__module__    
+            if module == '__main__':
+                raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
+            if url is None:
+                url = f.url
+            module_and_target = '%s.%s' %(module,f.__name__)
+            exec_str = 'from %s import %s as import_test' %(module,f.__name__)
+            try:
+                exec (exec_str)
+            except ImportError:
+                raise ValueError('Unable to register function as local import failed. Make sure it is installed locally and importable. %s ' %exec_str)
+            msg = 'Test import succeeded for function using %s' %(exec_str)
+            try:
+                name = f.name
+            except AttributeError:
+                name = None
+            if name is None:
+                name = f.__name__
+            try:
+                category = f.category
+            except AttributeError:
+                category = 'TRANSFORMER'            
+            try:
+                tags = f.tags
+            except AttributeError:
+                tags = None  
+            try:
+                (metadata_input,metadata_output) = f.build_ui()
+            except AttributeError:
+                msg = 'Function %s has no build_ui method. It cannot be registered this way. Register using function_instance.register()' %name
+                raise AttributeError (msg)                
+            payload = {
+                'name': name,
+                'description': f.__doc__,
+                'category': category,
+                'moduleAndTargetName': module_and_target,
+                'url': url,
+                'input': list(metadata_input.values()),
+                'output':list(metadata_output.values()),
+                'incremental_update': True if category == 'AGGREGATOR' else None,
+                'tags' : tags
+            }
+            self.http_request(object_type='function',object_name=name, request = "DELETE", payload=payload)
+            self.http_request(object_type='function',object_name=name, request = "PUT", payload=payload)                        
+                      
         
     def query(self,table_name, schema):
         '''
@@ -739,7 +812,7 @@ class BaseTable(object):
             try:
                 kw['schema'] = kw['_db_schema']
             except KeyError:
-                msg = 'No schema specified as **kw, using default'
+                msg = 'No schema specified as **kw, using default for table %s' %self.name
                 logger.warn(msg)
         else:
             if kwschema is None:
@@ -897,5 +970,5 @@ class SlowlyChangingDimension(BaseTable):
         self.end_date = Column('end_date',DateTime)
         self.property_name = Column(property_name,datatype)
         self.id_col = Column(self._entity_id,String(50))
-        super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.property_name )
+        super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.property_name,**kw )
 

@@ -14,12 +14,14 @@ you may register and use.
 '''
 
 import datetime as dt
+from collections import OrderedDict
 import numpy as np
 import re
 import pandas as pd
 import logging
 import iotfunctions as iotf
-from .base import BaseTransformer, BaseEvent, BaseSCDLookup
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider
+from .ui import UISingle,UIMultiItem,UIFunctionOutSingle
 
 
 logger = logging.getLogger(__name__)
@@ -198,6 +200,44 @@ class IoTCosFunction(BaseTransformer):
         rf = function(df,self.parameters)
         #rf will contain the orginal columns along with a single new output column.
         return rf
+    
+class IoTDropNull(BaseMetadataProvider):
+    '''
+    Drop any row that has all null metrics
+    '''
+    def __init__(self,exclude_items,drop_all_null_rows = True,output_item = 'drop_nulls'):
+        
+        kw = {'_custom_exclude_col_from_auto_drop_nulls': exclude_items,
+              '_drop_all_null_rows' : drop_all_null_rows}
+        super().__init__(dummy_items = exclude_items, output_item = output_item, **kw)
+        self.exclude_items = exclude_items
+        self.drop_all_null_rows = drop_all_null_rows
+        
+        
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['exclude_items'] = UIMultiItem(name = 'exclude_items',
+                                              datatype=None,
+                                              description = 'Ignore non-null values in these columns when dropping rows'
+                                              ).to_metadata()
+        inputs['drop_all_null_rows'] = UISingle(name = 'drop_all_null_rows',
+                                                datatype=bool,
+                                                description = 'Enable or disable drop of all null rows'
+                                                ).to_metadata()
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',datatype=bool,description='Returns a status flag of True when executed').to_metadata()
+                
+        return (inputs,outputs)            
+    
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui()    
 
     
 class IoTExpression(BaseTransformer):
@@ -239,6 +279,61 @@ class IoTExpression(BaseTransformer):
             msg = 'The expression %s does not contain any input items or the function has not been executed to obtain them.' %self.expression
             logger.debug(msg)
         return set(items)
+
+
+class IoTRaiseError(BaseTransformer):
+    """
+    Halt execution of the pipeline raising an error that will be shown. This function is 
+    useful for testing a pipeline that is running to completion but not delivering the expected results.
+    By halting execution of the pipeline you can view useful diagnostic information in an error
+    message displayed in the UI.
+    """
+    def __init__(self,halt_after, 
+                 abort_execution = True,
+                 output_item = 'pipeline_exception'):
+                 
+        super().__init__()
+        self.halt_after = halt_after
+        self.abort_execution = abort_execution
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        msg = self.log_df_info(df,'Prior to raising error')
+        self.trace_append(msg)
+        msg = 'Entity type metadata: %s' %self._entity_type.__dict__
+        self.trace_append(msg)
+        msg = 'Function metadata: %s' %self.__dict__
+        self.trace_append(msg)
+        msg = 'Calculation was halted deliberately by the inclusion of a function that raised an exception in the configuration of the pipeline'
+        if self.abort_execution:
+            raise RuntimeError(msg)
+        
+        df[self.output_item] = True
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['halt_after'] = UIMultiItem(name = 'halt_after',
+                                              datatype=None,
+                                              description = 'Raise error after calculating items'
+                                              ).to_metadata()
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',
+                                                     datatype=bool,
+                                                     description='Dummy function output'
+                                                     ).to_metadata()
+    
+        return (inputs,outputs)    
+
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui()
+
             
     
 class IoTPackageInfo(BaseTransformer):
@@ -350,6 +445,7 @@ class IoTShiftCalendar(BaseTransformer):
                            direction = 'backward')
         if self.auto_conform_index:
             df = self.conform_index(df)
+            
         return df
     
 
