@@ -99,24 +99,25 @@ class CalcPipeline:
         preload_item_names = []
         #if no dataframe provided, querying the source entity to get one
         for p in preload_stages:
-            status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
-            if register:
-                p.register(df=None)
-            self.append_trace(' preloaded %s ->' %p.__class__.__name__)
-            try:
-                preload_item_names.append(p.output_item)
-            except AttributeError:
-                msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
-                raise AttributeError (msg)
-            if status:
-                msg = 'Successfully executed preload stage %s' %p.__class__.__name__
-                logger.debug(msg)
-            else:
-                msg = 'Preload stage %s returned continue pipeline value of False. Aborting execution.' %p.__class__.__name__
-                logger.debug(msg)
-                stages = []
-                break
-            
+            if not self.entity_type._is_preload_complete:
+                status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
+                if register:
+                    p.register(df=None)
+                self.append_trace(' preloaded %s ->' %p.__class__.__name__)
+                try:
+                    preload_item_names.append(p.output_item)
+                except AttributeError:
+                    msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
+                    raise AttributeError (msg)
+                if status:
+                    msg = 'Successfully executed preload stage %s' %p.__class__.__name__
+                    logger.debug(msg)
+                else:
+                    msg = 'Preload stage %s returned continue pipeline value of False. Aborting execution.' %p.__class__.__name__
+                    logger.debug(msg)
+                    stages = []
+                    break
+        self.entity_type._is_preload_complete = True
         return(stages,preload_item_names)
     
     
@@ -152,7 +153,8 @@ class CalcPipeline:
                     trace_history = trace_history,
                     register = register,
                     to_csv = to_csv,
-                    dropna = dropna)
+                    dropna = dropna,
+                    abort_on_fail = True)
             elif is_data_source and merge_method == 'outer':
                 '''
                 A data source with a merge method of outer is considered a secondary source
@@ -216,6 +218,9 @@ class CalcPipeline:
         # An initial transform and one or more aggregation executions and post aggregation transforms
         # Behavior is different during initial transform
         if is_initial_transform:
+            if not start_ts is None:
+                msg = 'start ts %s :' %start_ts
+                self.append_trace(msg)
             #process preload stages first if there are any
             (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities,register=register)
             preloaded_item_names.extend(preload_item_names)
@@ -259,6 +264,8 @@ class CalcPipeline:
             msg = 'columns excluded when dropping null rows %s' %exclude_cols
             logger.debug(msg)
             subset = [x for x in df.columns if x not in exclude_cols]
+            msg = 'columns considered when dropping null rows %s' %subset
+            logger.debug(msg)
             df = df.dropna(how='all', subset = subset )
             self.log_df_info(df,'post drop all null rows')
         else:

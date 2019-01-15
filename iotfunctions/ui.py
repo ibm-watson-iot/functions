@@ -30,7 +30,7 @@ class BaseUIControl(object):
             logger.warning(msg)
             return from_datatype
 
-class UIMultiItem(BaseUIControl):
+class UISingleItem(BaseUIControl):
     '''
     Multi-select list of data items
     '''
@@ -62,6 +62,49 @@ class UIMultiItem(BaseUIControl):
                 'dataType' : self.convert_datatype(self.datatype),
                 'required' : self.required,
                 'description' : self.description,
+                'tags' : self.tags
+                }
+        return meta
+    
+    
+class UIMultiItem(BaseUIControl):
+    '''
+    Multi-select list of data items
+    '''
+    def __init__(self,name, datatype=None, description=None, required = True,
+                 min_items = None, max_items = None, tags = None):
+        
+        self.name = name
+        self.datatype = datatype
+        self.required = required
+        if description is None:
+            description = 'Choose one or more data item to use as a function input'
+        self.description = description
+        if min_items is None:
+            if self.required:
+                min_items = 1
+            else:
+                min_items = 0
+        self.min_items = min_items
+        self.max_items = max_items
+        if tags is None:
+            tags = []
+        self.tags = tags
+        
+    def to_metadata(self):
+        
+        if self.datatype is None:
+            datatype = None
+        else:
+            datatype = [self.convert_datatype(self.datatype)]
+        
+        meta = {
+                'name' : self.name,
+                'type' : 'DATA_ITEM' ,
+                'dataType' : 'ARRAY',
+                'dataTypeForArray' : datatype,
+                'required' : self.required,
+                'description' : self.description,
                 'tags' : self.tags,
                 'jsonSchema' : {
                                 "$schema" : "http://json-schema.org/draft-07/schema#",
@@ -71,7 +114,7 @@ class UIMultiItem(BaseUIControl):
                                 "items" : {"type": "string"}
                                 }
                 }
-        return meta
+        return meta      
                 
 class UIFunctionOutSingle(BaseUIControl):
     '''
