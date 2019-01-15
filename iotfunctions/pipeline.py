@@ -218,6 +218,9 @@ class CalcPipeline:
         # An initial transform and one or more aggregation executions and post aggregation transforms
         # Behavior is different during initial transform
         if is_initial_transform:
+            if not start_ts is None:
+                msg = 'start ts %s :' %start_ts
+                self.append_trace(msg)
             #process preload stages first if there are any
             (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities,register=register)
             preloaded_item_names.extend(preload_item_names)
