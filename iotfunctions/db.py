@@ -608,7 +608,62 @@ class Database(object):
         self.start_session()
         qt = self.session.query(*args).group_by(*grp)
         df = pd.read_sql(qt.statement,con = self.connection)
-        return df    
+        return df
+
+    def register_functions(self,functions,url=None):
+        '''
+        Register one or more class for use with AS
+        '''
+        
+        if not isinstance(functions,list):
+            functions = [functions]
+            
+        for f in functions:
+            module = f.__module__    
+            if module == '__main__':
+                raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
+            if url is None:
+                url = f.url
+            module_and_target = '%s.%s' %(module,f.__name__)
+            exec_str = 'from %s import %s as import_test' %(module,f.__name__)
+            try:
+                exec (exec_str)
+            except ImportError:
+                raise ValueError('Unable to register function as local import failed. Make sure it is installed locally and importable. %s ' %exec_str)
+            msg = 'Test import succeeded for function using %s' %(exec_str)
+            try:
+                name = f.name
+            except AttributeError:
+                name = None
+            if name is None:
+                name = f.__name__
+            try:
+                category = f.category
+            except AttributeError:
+                category = 'TRANSFORMER'            
+            try:
+                tags = f.tags
+            except AttributeError:
+                tags = None  
+            try:
+                (metadata_input,metadata_output) = f.get_metadata()
+            except AttributeError:
+                msg = 'Function %s has no get_metadata() method. It cannot be registered this way. Register using function_instance.register()' %name
+                raise AttributeError (msg)                
+            payload = {
+                'name': name,
+                'description': f.__doc__,
+                'category': category,
+                'moduleAndTargetName': module_and_target,
+                'url': url,
+                'input': list(metadata_input.values()),
+                'output':list(metadata_output.values()),
+                'incremental_update': True if category == 'AGGREGATOR' else None,
+                'tags' : tags
+            }
+            self.http_request(object_type='function',object_name=name, request = "DELETE", payload=payload)
+            self.http_request(object_type='function',object_name=name, request = "PUT", payload=payload)                        
+                      
         
     def query(self,table_name, schema):
         '''

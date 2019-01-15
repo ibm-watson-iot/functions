@@ -29,43 +29,75 @@ class BaseUIControl(object):
             msg = 'couldnt convert type %s. will attempt to use type supplied '
             logger.warning(msg)
             return from_datatype
-
-class UISingleItem(BaseUIControl):
+                
+class UIFunctionOutSingle(BaseUIControl):
     '''
-    Multi-select list of data items
+    Single output item
     '''
-    def __init__(self,name, datatype=None, description=None, required = True,
-                 min_items = None, max_items = None, tags = None):
+    def __init__(self,name, datatype=None, description=None, tags = None):
         
         self.name = name
         self.datatype = datatype
-        self.required = required
         if description is None:
-            description = 'Choose one or more data item to use as a function input'
+            description = 'Choose an item name for the function output'
         self.description = description
-        if min_items is None:
-            if self.required:
-                min_items = 1
-            else:
-                min_items = 0
-        self.min_items = min_items
-        self.max_items = max_items
+        if tags is None:
+            tags = []
+        self.tags = tags
+        
+    def to_metadata(self):
+        meta = {
+                'name' : self.name,
+                'dataType' : self.convert_datatype(self.datatype),
+                'description' : self.description,
+                'tags' : self.tags
+                }
+        return meta
+
+
+class UIFunctionOutMulti(BaseUIControl):
+    '''
+    Array of multiple outputs
+    '''
+    def __init__(self,name, cardinality_from,
+                 is_datatype_derived = False,
+                 datatype=None, description=None,
+                 tags = None):
+        
+        self.name = name
+        self.cardinality_from = cardinality_from
+        self.is_datatype_derived = self.is_datatype_derived
+        if description is None:
+            description = 'Provide names and datatypes for output items'
+        self.description = description
         if tags is None:
             tags = []
         self.tags = tags
         
     def to_metadata(self):
         
+        if self.datatype is None:
+            datatype = None
+        else:
+            datatype = [self.convert_datatype(self.datatype)]
+            
         meta = {
                 'name' : self.name,
-                'type' : 'DATA_ITEM' ,
-                'dataType' : self.convert_datatype(self.datatype),
-                'required' : self.required,
+                'cardinalityFrom' : self.cardinality_from,
+                'dataTypeForArray' : datatype,
                 'description' : self.description,
-                'tags' : self.tags
+                'tags' : self.tags,
+                'jsonSchema' : {
+                                "$schema" : "http://json-schema.org/draft-07/schema#",
+                                "type" : "array",
+                                "items" : {"type": "string"}
+                                }
                 }
+                
+        if self.is_datatype_derived:
+            meta['dataTypeFrom'] = self.cardinality_from
+                
         return meta
-    
     
 class UIMultiItem(BaseUIControl):
     '''
@@ -114,31 +146,7 @@ class UIMultiItem(BaseUIControl):
                                 "items" : {"type": "string"}
                                 }
                 }
-        return meta      
-                
-class UIFunctionOutSingle(BaseUIControl):
-    '''
-    Single output item
-    '''
-    def __init__(self,name, datatype=None, description=None, tags = None):
-        
-        self.name = name
-        self.datatype = datatype
-        if description is None:
-            description = 'Choose an item name for the function output'
-        self.description = description
-        if tags is None:
-            tags = []
-        self.tags = tags
-        
-    def to_metadata(self):
-        meta = {
-                'name' : self.name,
-                'dataType' : self.convert_datatype(self.datatype),
-                'description' : self.description,
-                'tags' : self.tags
-                }
-        return meta
+        return meta          
     
 class UISingle(BaseUIControl):
     '''
@@ -163,6 +171,43 @@ class UISingle(BaseUIControl):
                 'description' : self.description,
                 'tags' : self.tags
                 }
-        return meta    
+        return meta
+    
+class UISingleItem(BaseUIControl):
+    '''
+    Multi-select list of data items
+    '''
+    def __init__(self,name, datatype=None, description=None, required = True,
+                 min_items = None, max_items = None, tags = None):
+        
+        self.name = name
+        self.datatype = datatype
+        self.required = required
+        if description is None:
+            description = 'Choose one or more data item to use as a function input'
+        self.description = description
+        if min_items is None:
+            if self.required:
+                min_items = 1
+            else:
+                min_items = 0
+        self.min_items = min_items
+        self.max_items = max_items
+        if tags is None:
+            tags = []
+        self.tags = tags
+        
+    def to_metadata(self):
+        
+        meta = {
+                'name' : self.name,
+                'type' : 'DATA_ITEM' ,
+                'dataType' : self.convert_datatype(self.datatype),
+                'required' : self.required,
+                'description' : self.description,
+                'tags' : self.tags
+                }
+        return meta
+        
     
     

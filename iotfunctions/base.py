@@ -311,6 +311,7 @@ class BaseFunction(object):
         entities = list(pd.unique(entity_id_series))
         return (start_ts,end_ts,entities)
     
+    
     def get_db(self,credentials = None, tenant_id = None):
         '''
         Get the Database object associciated with the function's assigned entity type.
@@ -437,6 +438,15 @@ class BaseFunction(object):
         msg = 'No code implemented to gather available values for argument %s' %arg
         
         raise NotImplementedError (msg)
+        
+    @classmethod
+    def get_metadata():
+        """
+        Define metadata for function registration explicly.
+        """
+        
+        raise NotImplementedError('Implement this method to enable registration of a class without creating an instance')
+        
         
     def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):
         """

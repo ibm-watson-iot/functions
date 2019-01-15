@@ -213,9 +213,11 @@ class IoTDropNull(BaseMetadataProvider):
         self.exclude_items = exclude_items
         self.drop_all_null_rows = drop_all_null_rows
         
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):
+        
+    @classmethod
+    def get_metadata(cls):
         '''
-        Preload function has no dataframe in or out so standard _getMetadata() does not work
+        Registration metadata
         '''
         #define arguments that behave as function inputs
         inputs = OrderedDict()
@@ -232,6 +234,10 @@ class IoTDropNull(BaseMetadataProvider):
         outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',datatype=bool,description='Returns a status flag of True when executed').to_metadata()
                 
         return (inputs,outputs)            
+    
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.get_metadata()    
 
     
 class IoTExpression(BaseTransformer):
@@ -305,8 +311,9 @@ class IoTRaiseError(BaseTransformer):
         
         df[self.output_item] = True
         return df
-        
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+    
+    @classmethod
+    def get_metadata(cls):
         #define arguments that behave as function inputs
         inputs = OrderedDict()
         inputs['halt_after'] = UIMultiItem(name = 'halt_after',
@@ -319,8 +326,13 @@ class IoTRaiseError(BaseTransformer):
                                                      datatype=bool,
                                                      description='Dummy function output'
                                                      ).to_metadata()
+    
+        return (inputs,outputs)    
+
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
                 
-        return (inputs,outputs)   
+        return self.get_metadata()
 
             
     
