@@ -1281,7 +1281,7 @@ class BaseFunction(object):
                 df_column = {}
                 try:
                     data_item = items.get(item)  #back to the original dict to retrieve item object
-                    df_column = df[data_item['name']]
+                    df_column = df[data_item['name']].values
                 except KeyError:
                     logger.debug('Data item %s is not part of the dataframe yet.' % item)
                     continue
