@@ -20,6 +20,7 @@ import datetime as dt
 import logging
 import warnings
 import json
+import re
 import numpy as np
 import pandas as pd
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine
@@ -352,7 +353,24 @@ class BaseFunction(object):
             raise RuntimeError ('This function has no entity type associated with it. This is a programatic error. After creating a function instance, use set_entity_type to assign an entity type')
         out = entity_type.get_param(param)
         return out
+    
+    
+    def get_expression_items(self,expressions):
 
+        if isinstance(expressions,str):
+            expressions = [expressions]
+            
+        all_items = set()
+        for e in expressions:
+            #get all quoted strings in expression
+            possible_items = re.findall('"([^"]*)"', e)
+            #check if they have df[] wrapped around them
+            all_items |= set([x for x in possible_items if 'df["%s"]'%x in e])
+            
+        if len(all_items) == 0:
+            msg = 'The expression %s does not contain any input items or the function has not been executed to obtain them.' %self.expression
+            logger.debug(msg)
+        return all_items
     
     def _getJsonDataType(self,datatype):
          
@@ -939,7 +957,22 @@ class BaseFunction(object):
             
         return datatype
     
-            
+    def parse_expression(self, expression):
+        '''
+        Convert a string expression into a form where it is ready to be executed
+        '''
+        expression = expression.replace("'",'"')
+        if '${' in expression:
+            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
+            msg = 'expression converted to %s' %expr
+        else:
+            expr = expression
+            msg = 'expression (%s)' %expr
+        self.trace_append(msg)
+
+        return expr
+
+        
     def _partition_df_by_id(self,df):
         '''
         Partition dataframe into a dictionary keyed by _entity_id

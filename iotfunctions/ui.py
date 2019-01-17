@@ -61,26 +61,30 @@ class UIFunctionOutMulti(BaseUIControl):
     '''
     def __init__(self,name, cardinality_from,
                  is_datatype_derived = False,
-                 datatype=None, description=None,
+                 datatype = None,
+                 description=None,
                  tags = None):
         
         self.name = name
         self.cardinality_from = cardinality_from
-        self.is_datatype_derived = self.is_datatype_derived
+        self.is_datatype_derived = is_datatype_derived
         if description is None:
             description = 'Provide names and datatypes for output items'
         self.description = description
+        if datatype is not None:
+            datatype = self.convert_datatype(datatype)
+        self.datatype = datatype
         if tags is None:
             tags = []
         self.tags = tags
         
     def to_metadata(self):
         
-        if self.datatype is None:
-            datatype = None
+        if not self.datatype is None:
+            datatype = [self.datatype]
         else:
-            datatype = [self.convert_datatype(self.datatype)]
-            
+            datatype= None
+                    
         meta = {
                 'name' : self.name,
                 'cardinalityFrom' : self.cardinality_from,
@@ -98,6 +102,40 @@ class UIFunctionOutMulti(BaseUIControl):
             meta['dataTypeFrom'] = self.cardinality_from
                 
         return meta
+    
+class UISingleItem(BaseUIControl):
+    '''
+    Choose a single item as a function argument
+    '''
+    def __init__(self,name, datatype=None, description=None, required = True,
+                 tags = None):
+        
+        self.name = name
+        self.datatype = datatype
+        self.required = required
+        if description is None:
+            description = 'Choose one or more data item to use as a function input'
+        self.description = description
+        if tags is None:
+            tags = []
+        self.tags = tags
+        
+    def to_metadata(self):
+        
+        if self.datatype is None:
+            datatype = None
+        else:
+            datatype = [self.convert_datatype(self.datatype)]
+        
+        meta = {
+                'name' : self.name,
+                'type' : 'DATA_ITEM' ,
+                'dataType' : datatype,
+                'required' : self.required,
+                'description' : self.description,
+                'tags' : self.tags
+                }
+        return meta     
     
 class UIMultiItem(BaseUIControl):
     '''
@@ -152,7 +190,7 @@ class UISingle(BaseUIControl):
     '''
     Single valued constant
     '''
-    def __init__(self,name, datatype=None, description=None, tags = None):
+    def __init__(self,name, datatype=None, description=None, tags = None, required = True):
         
         self.name = name
         self.datatype = datatype
@@ -162,6 +200,7 @@ class UISingle(BaseUIControl):
         if tags is None:
             tags = []
         self.tags = tags
+        self.required = required
         
     def to_metadata(self):
         meta = {
@@ -169,7 +208,8 @@ class UISingle(BaseUIControl):
                 'type' : 'CONSTANT',
                 'dataType' : self.convert_datatype(self.datatype),
                 'description' : self.description,
-                'tags' : self.tags
+                'tags' : self.tags,
+                'required' : self.required
                 }
         return meta
     

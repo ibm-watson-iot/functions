@@ -21,13 +21,10 @@ import pandas as pd
 import logging
 import iotfunctions as iotf
 from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider
-from .ui import UISingle,UIMultiItem,UIFunctionOutSingle
-
+from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti
 
 logger = logging.getLogger(__name__)
-
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
-
 
 class IoTAlertExpression(BaseEvent):
     '''
@@ -62,13 +59,37 @@ class IoTAlertExpression(BaseEvent):
         df[self.alert_name] = np.where(eval(expr), True, np.nan)
         return df
     
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['input_items'] = UIMultiItem(name = 'input_items',
+                                              datatype=None,
+                                              description = 'Input items'
+                                              ).to_metadata()
+        inputs['expression'] = UISingle(name = 'expression',
+                                              datatype=str,
+                                              description = 'Define alert expression using pandas systax. Example: df["inlet_temperature"]>50'
+                                              ).to_metadata()        
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['alert_name'] = UIFunctionOutSingle(name = 'alert_name',
+                                                     datatype=bool,
+                                                     description='Output of alert function'
+                                                     ).to_metadata()
+    
+        return (inputs,outputs)    
+
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui()    
+    
     
 class IoTAlertOutOfRange(BaseEvent):
     """
     Fire alert when metric exceeds an upper threshold or drops below a lower_theshold. Specify at least one threshold.
     """
-    
-    optionalItems = ['lower_threshold','upper_threshold'] 
     
     def __init__ (self,input_item, lower_threshold=None, upper_threshold=None,
                   output_alert_upper = 'output_alert_upper', output_alert_lower = 'output_alert_lower'):
@@ -102,6 +123,42 @@ class IoTAlertOutOfRange(BaseEvent):
             
         return df  
     
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['input_item'] = UISingleItem(name = 'input_item',
+                                              datatype=None,
+                                              description = 'Item to alert on'
+                                              ).to_metadata()
+        inputs['lower_threshold'] = UISingle(name = 'lower_threshold',
+                                              datatype=float,
+                                              description = 'Alert when item value is lower than this value',
+                                              required = False,
+                                              ).to_metadata()
+        inputs['upper_threshold'] = UISingle(name = 'upper_threshold',
+                                              datatype=float,
+                                              description = 'Alert when item value is higher than this value',
+                                              required = False,
+                                              ).to_metadata()  
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['output_alert_lower'] = UIFunctionOutSingle(name = 'output_alert_lower',
+                                                     datatype=bool,
+                                                     description='Output of alert function'
+                                                     ).to_metadata()        
+        outputs['output_alert_upper'] = UIFunctionOutSingle(name = 'output_alert_upper',
+                                                     datatype=bool,
+                                                     description='Output of alert function'
+                                                     ).to_metadata()
+    
+        return (inputs,outputs)    
+
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui()     
+    
     
 class IoTAlertHighValue(BaseEvent):
     """
@@ -125,7 +182,34 @@ class IoTAlertHighValue(BaseEvent):
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
             
-        return df     
+        return df  
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['input_item'] = UISingleItem(name = 'input_item',
+                                              datatype=None,
+                                              description = 'Item to alert on'
+                                              ).to_metadata()
+        inputs['upper_threshold'] = UISingle(name = 'upper_threshold',
+                                              datatype=float,
+                                              description = 'Alert when item value is higher than this value'
+                                              ).to_metadata()  
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()       
+        outputs['alert_name'] = UIFunctionOutSingle(name = 'alert_name',
+                                                     datatype=bool,
+                                                     description='Output of alert function'
+                                                     ).to_metadata()
+    
+        return (inputs,outputs)    
+
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui()
+
     
 class IoTAlertLowValue(BaseEvent):
     """
@@ -151,6 +235,32 @@ class IoTAlertLowValue(BaseEvent):
         df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
             
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['input_item'] = UISingleItem(name = 'input_item',
+                                              datatype=None,
+                                              description = 'Item to alert on'
+                                              ).to_metadata()
+        inputs['lower_threshold'] = UISingle(name = 'upper_threshold',
+                                              datatype=float,
+                                              description = 'Alert when item value is lower than this value'
+                                              ).to_metadata()  
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()       
+        outputs['alert_name'] = UIFunctionOutSingle(name = 'alert_name',
+                                                     datatype=bool,
+                                                     description='Output of alert function'
+                                                     ).to_metadata()
+    
+        return (inputs,outputs)    
+
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui()    
 
 
 class IoTCosFunction(BaseTransformer):
@@ -248,15 +358,7 @@ class IoTExpression(BaseTransformer):
         self.output_name = output_name
         super().__init__()
         #convert single quotes to double
-        expression = expression.replace("'",'"')
-        if '${' in expression:
-            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
-            msg = 'expression converted to %s' %expr
-        else:
-            expr = expression
-            msg = 'expression (%s)' %expr
-        self.trace_append(msg)
-        self.expression = expression
+        self.expression = self.parse_expression(expression)
         #registration
         self.constants = ['expression']
         self.outputs = ['output_name']
@@ -271,15 +373,112 @@ class IoTExpression(BaseTransformer):
         return df
     
     def get_input_items(self):
-        #get all quoted strings in expression
-        possible_items = re.findall('"([^"]*)"', self.expression)
-        #check if they have df[] wrapped around them
-        items = [x for x in possible_items if 'df["%s"]'%x in self.expression]
-        if len(items) == 0:
-            msg = 'The expression %s does not contain any input items or the function has not been executed to obtain them.' %self.expression
-            logger.debug(msg)
-        return set(items)
-
+        items = self.get_expression_items(self.expression)
+        return items
+    
+class IoTIfThenElse(BaseTransformer):
+    """
+    Set the value of a data item based on the value of a conditional expression
+    """
+    def __init__(self,conditional_expression, true_expression, false_expression, output_item = 'output_item'):
+        
+        super().__init__()
+        self.conditional_expression = self.parse_expression(conditional_expression)
+        self.true_expression = self.parse_expression(true_expression)
+        self.false_expression = self.parse_expression(false_expression)
+        self.output_item = output_item
+        
+    def execute(self,df):
+        df = df.copy()
+        df[self.output_item] = np.where(eval(self.conditional_expression),
+                                        eval(self.true_expression),
+                                        eval(self.false_expression))
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['conditional_expression'] = UISingle(name = 'conditional_expression',
+                                              datatype=str,
+                                              description = 'expression that returns a True/False value, eg. if df["temp"]>50 then df["temp"] else None'
+                                              ).to_metadata()
+        inputs['true_expression'] = UISingle(name = 'true_expression',
+                                              datatype=str,
+                                              description = 'expression when true, eg. df["temp"]'
+                                              ).to_metadata()        
+        inputs['false_expression'] = UISingle(name = 'false_expression',
+                                              datatype=str,
+                                              description = 'expression when false, eg. None'
+                                              ).to_metadata()                
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',
+                                                     datatype=bool,
+                                                     description='Dummy function output'
+                                                     ).to_metadata()
+    
+        return (inputs,outputs)
+    
+    def get_input_items(self):
+        items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
+        return items    
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui()
+    
+class IoTConditionalItems(BaseTransformer):
+    """
+    Set the value of a data item based on the value of a conditional expression eg. if df["sensor_is_valid"]==True then df["temp"] and df["pressure"] are valid else null
+    """
+    def __init__(self,conditional_expression, conditional_items, output_items = None):
+        
+        super().__init__()
+        self.conditional_expression = self.parse_expression(conditional_expression)
+        self.conditional_items = conditional_items
+        if output_items is None:
+            output_items = ['conditional_%s' %x for x in conditional_items]
+        self.output_items = output_items
+        
+    def execute(self,df):
+        df = df.copy()
+        result  = eval(self.conditional_expression)
+        for i,o in enumerate(self.conditional_items):
+            df[self.output_items[i]] = np.where(result,df[o],None)
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['conditional_expression'] = UISingle(name = 'conditional_expression',
+                                              datatype=str,
+                                              description = 'expression that returns a True/False value, eg. if df["sensor_is_valid"]==True'
+                                              ).to_metadata()
+        inputs['conditional_items'] = UIMultiItem(name = 'conditional_items',
+                                              datatype=None,
+                                              description = 'Data items that have conditional values, e.g. temp and pressure'
+                                              ).to_metadata()        
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['output_items'] = UIFunctionOutMulti(name = 'output_items',
+                                                     cardinality_from = 'conditional_items',
+                                                     is_datatype_derived = False,
+                                                     description='Function output items'
+                                                     ).to_metadata()
+        
+        return (inputs,outputs)
+    
+    def get_input_items(self):
+        items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
+        return items    
+        
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui()    
+        
+        
 
 class IoTRaiseError(BaseTransformer):
     """
