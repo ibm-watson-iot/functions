@@ -121,7 +121,7 @@ class CalcPipeline:
         return(stages,preload_item_names)
     
     
-    def _execute_primary_source(self,stages,
+    def _execute_data_sources(self,stages,
                                 df,
                                 start_ts=None,
                                 end_ts=None,
@@ -155,19 +155,47 @@ class CalcPipeline:
                     to_csv = to_csv,
                     dropna = dropna,
                     abort_on_fail = True)
+                msg = 'replaced incoming dataframe with custom data source %s' %s.__class__.__name__
+                logger.debug(msg)
+                
             elif is_data_source and merge_method == 'outer':
                 '''
                 A data source with a merge method of outer is considered a secondary source
                 A secondary source can add rows of data to the pipeline.
                 '''
                 secondary_sources.append(s)
-                remaining_stages.append(s)
             else:
                 remaining_stages.append(s)
         if replace_count > 1:
             self.logger.warning("The pipeline has more than one custom source with a merge strategy of replace. The pipeline will only contain data from the last replacement")        
+        
+        #execute secondary data sources
+        for s in secondary_sources:
+            msg = 'processing secondary data source %s' %s.__class__.__name__
+            logger.debug(msg)
+            df = self._execute_stage(stage=s,
+                df = df,
+                start_ts = start_ts,
+                end_ts = end_ts,
+                entities = entities,
+                trace_history = trace_history,
+                register = register,
+                to_csv = to_csv,
+                dropna = dropna,
+                abort_on_fail = True)
+        
+        #now that all rows have been added to the pipeline, do special lookup stages for custom calendars and SCDs
+        df = self.execute_special_lookup_stages(df=df,
+                                         register = register,
+                                         to_csv = to_csv,
+                                         trace_history = trace_history,
+                                         entities = entities,
+                                         start_ts = start_ts,
+                                         end_ts = end_ts,
+                                         dropna = dropna,
+                                         abort_on_fail = True)
             
-        return(df,remaining_stages,secondary_sources)    
+        return(df,remaining_stages)    
         
     def execute_special_lookup_stages(self,df,register,to_csv,trace_history,entities,start_ts,end_ts,dropna, abort_on_fail):
         '''
@@ -231,7 +259,7 @@ class CalcPipeline:
             #Divide the pipeline into data retrieval stages and transformation stages. First look for
             #a primary data source. A primary data source will have a merge_method of 'replace'. This
             #implies that it replaces whatever data was fed into the pipeline as default entity data.
-            (df,stages,secondary_sources) = self._execute_primary_source (
+            (df,stages) = self._execute_data_sources (
                                                 df = df,
                                                 stages = stages,
                                                 start_ts = start_ts,
@@ -242,12 +270,10 @@ class CalcPipeline:
                                                 dropna =  dropna,
                                                 trace_history = 'custom source>'
                                                 )
-            msg = 'Secondary data sources identified:  %s. Other stages are: %s' %(secondary_sources, stages)
-            logger.debug(msg)                
+              
         else:
             stages = []
             stages.extend(self.stages)
-            secondary_sources = []
         if df is None:
             msg = 'Pipeline has no source dataframe'
             raise ValueError (msg)
@@ -278,49 +304,11 @@ class CalcPipeline:
         #added as the ui expects each stage to contribute one or more output items
         for pl in preloaded_item_names:
             df[pl] = True
-        # process remaining stages
-        is_special_lookup_complete = False
-        # if there are no stages or the only stage is PersistCols look for scd lookups
-        is_empty = False
-        if len(stages) == 0:
-            is_empty = True
-        elif stages[0].__class__.__name__ == 'PersistColumns ':
-            is_empty = True
-        if is_empty:
-            self.log_df_info(df,'No normal stages. Execute special stages.')
-            df = self.execute_special_lookup_stages(df=df,
-                                               register=register,
-                                               to_csv=to_csv,
-                                               trace_history =self.get_trace_history(),
-                                               dropna= dropna,
-                                               entities = entities,
-                                               start_ts = start_ts,
-                                               end_ts = end_ts,
-                                               abort_on_fail = True
-                                               )
-            is_special_lookup_complete = True
         for s in stages:
             if df.empty:
-                #only continue empty stages while there are unprocessed secondary sources
-                if len(secondary_sources) == 0:
-                    self.logger.info('No data retrieved and no remaining secondary sources to process. Exiting pipeline execution')        
-                    break
-                #skip this stage of it is not a secondary source
-                if not s in secondary_sources:
-                    continue
-            #check to see if incoming data has a conformed index, conform if needed
-            try:
-                df = s.conform_index(df=df)
-            except AttributeError:
-                pass
-            except KeyError:
-                trace = self.get_trace_history() + ' Failure occured when attempting to conform index'
-                logger.exception(trace)
-                raise               
-            try:
-                abort_on_fail = s._abort_on_fail
-            except AttributeError:
-                abort_on_fail = True
+                self.logger.info('No data retrieved from all sources. Exiting pipeline execution')        
+                break
+                #skip this stage of it is not a secondary source             
             df = self._execute_stage(stage=s,
                                 df = df,
                                 start_ts = start_ts,
@@ -330,26 +318,25 @@ class CalcPipeline:
                                 register = register,
                                 to_csv = to_csv,
                                 dropna = dropna,
-                                abort_on_fail = abort_on_fail)
-            secondary_sources = [x for x in secondary_sources if x != s]
-            if len(secondary_sources) == 0 and is_initial_transform and not is_special_lookup_complete:
-                self.log_df_info(df,'About to start processing special stages')
-                df = self.execute_special_lookup_stages(df=df,
-                                                   register=register,
-                                                   to_csv=to_csv,
-                                                   trace_history =self.get_trace_history(),
-                                                   dropna= dropna,
-                                                   entities = entities,
-                                                   start_ts = start_ts,
-                                                   end_ts = end_ts,
-                                                   abort_on_fail = abort_on_fail
-                                                   )
-                is_special_lookup_complete = True
+                                abort_on_fail = True)
         self.mark_initial_transform_complete()
         return df
     
     
     def _execute_stage(self,stage,df,start_ts,end_ts,entities,trace_history,register,to_csv,dropna, abort_on_fail): 
+        #check to see if incoming data has a conformed index, conform if needed
+        try:
+            df = stage.conform_index(df=df)
+        except AttributeError:
+            pass
+        except KeyError:
+            trace = self.get_trace_history() + ' Failure occured when attempting to conform index'
+            logger.exception(trace)
+            raise               
+        try:
+            abort_on_fail = stage._abort_on_fail
+        except AttributeError:
+            abort_on_fail = abort_on_fail
         msg = ' Dataframe at start of %s: ' %stage.__class__.__name__
         try:
             last_msg = stage.log_df_info(df,msg)
