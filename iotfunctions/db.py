@@ -255,6 +255,8 @@ class Database(object):
         self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('kpiFunctions','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,'import'])            
         self.url[('kpiFunction','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])
+        self.url[('kpiFunction','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
+        self.url[('dataItem','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
         self.url[('kpiFunction','DELETE')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
         self.url[('kpiFunction','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])
         self.url[('granularitySet','POST')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
