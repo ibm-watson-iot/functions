@@ -132,8 +132,7 @@ class EntityType(object):
         self._custom_exclude_col_from_auto_drop_nulls = []
         self._drop_all_null_rows = True
         #pipeline work variables stages
-        self._unprocessed_scd_stages = []
-        self._is_custom_calendar_complete = True
+        self._scd_stages = []
         self._custom_calendar = None
         self._is_initial_transform = True
         self._trace_msg = ''
@@ -213,7 +212,7 @@ class EntityType(object):
         
     def _add_scd_pipeline_stage(self, scd_lookup):
         
-        self._unprocessed_scd_stages.append(scd_lookup)
+        self._scd_stages.append(scd_lookup)
         
         
     def cos_save(self):
@@ -239,9 +238,8 @@ class EntityType(object):
         '''
         Make a new CalcPipeline object. Reset processing variables.
         '''
-        self._unprocessed_scd_stages = []
+        self._scd_stages = []
         self._custom_calendar = None
-        self._is_custom_calendar_complete = True
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
         
@@ -425,7 +423,7 @@ class EntityType(object):
         return df  
     
     def _get_scd_list(self):
-        return [(s.output_item,s.table_name) for s in self._unprocessed_scd_stages ]
+        return [(s.output_item,s.table_name) for s in self._scd_stages ]
         
     def make_dimension(self,name = None, *args, **kw):
         '''
@@ -560,7 +558,6 @@ class EntityType(object):
         '''
         if custom_calendar is not None:
             self._custom_calendar = custom_calendar
-            self._is_custom_calendar_complete = False
      
     def _set_end_date(self,df):
         
