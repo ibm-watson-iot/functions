@@ -340,7 +340,30 @@ class Database(object):
             ret = None
         if ret is None:
             logger.info('Not able to CREATE the bucket %s.'% bucket)
-        return ret        
+        return ret
+    
+    def delete_data(self, table_name, schema = None, timestamp = None,older_than_days = None):
+        '''
+        Delete data from table. Optional older_than_days parameter deletes old data only.
+        '''
+        try:
+            table = self.get_table(table_name,schema=schema)
+        except KeyError:
+            msg = 'No table %s in schema %s' %(table_name,schema)
+            raise KeyError(msg)
+            
+        self.start_session()
+        if older_than_days is None:
+            result = self.connection.execute(table.delete())
+            msg = 'deleted all data from table %s' %table_name
+            logger.debug(msg)
+        else:
+            until_date = dt.datetime.utcnow() - dt.timedelta(days=older_than_days)
+            result = self.connection.execute(table.delete().where(table.c[timestamp]<until_date))
+            msg = 'deleted data from table %s older than %s' %(table_name,until_date)
+            logger.debug(msg)
+        self.commit()
+    
         
     def drop_table(self,table_name,schema=None):
         

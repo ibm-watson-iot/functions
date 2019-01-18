@@ -280,7 +280,13 @@ class CalcPipeline:
             df[pl] = True
         # process remaining stages
         is_special_lookup_complete = False
+        # if there are no stages or the only stage is PersistCols look for scd lookups
+        is_empty = False
         if len(stages) == 0:
+            is_empty = True
+        elif stages[0].__class__.__name__ == 'PersistColumns ':
+            is_empty = True
+        if is_empty:
             self.log_df_info(df,'No normal stages. Execute special stages.')
             df = self.execute_special_lookup_stages(df=df,
                                                register=register,
@@ -292,7 +298,7 @@ class CalcPipeline:
                                                end_ts = end_ts,
                                                abort_on_fail = True
                                                )
-            is_special_lookup_complete = True            
+            is_special_lookup_complete = True
         for s in stages:
             if df.empty:
                 #only continue empty stages while there are unprocessed secondary sources

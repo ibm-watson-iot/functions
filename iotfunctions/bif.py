@@ -20,7 +20,7 @@ import re
 import pandas as pd
 import logging
 import iotfunctions as iotf
-from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti
 
 logger = logging.getLogger(__name__)
@@ -310,6 +310,54 @@ class IoTCosFunction(BaseTransformer):
         rf = function(df,self.parameters)
         #rf will contain the orginal columns along with a single new output column.
         return rf
+    
+class IoTDeleteInputData(BasePreload):
+    '''
+    Delete data from time series input table for entity type
+    '''
+    
+    def __init__(self,dummy_items,older_than_days, output_item = 'output_item'):
+        
+        super().__init__(dummy_items = dummy_items)
+        self.older_than_days = older_than_days
+        self.output_item = output_item
+        
+    def execute(self,df=None,start_ts=None,end_ts=None,entities=None):
+        
+        entity_type = self.get_entity_type()
+        self.get_db().delete_data(table_name=entity_type.name,
+                                  schema = entity_type._db_schema, 
+                                  timestamp='evt_timestamp',
+                                  older_than_days = self.older_than_days)
+        msg = 'Deleted data for %s' %(self._entity_type.name)
+        logger.debug(msg)
+        return True
+    
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['dummy_items'] = UIMultiItem(name = 'dummy_items',
+                                              datatype=None,
+                                              description = 'Dummy data items'
+                                              ).to_metadata()
+        inputs['older_than_days'] = UISingle(name = 'older_than_days',
+                                              datatype=float,
+                                              description = 'Delete data older than this many days'
+                                              ).to_metadata()
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',datatype=bool,description='Returns a status flag of True when executed').to_metadata()
+                
+        return (inputs,outputs)            
+    
+    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
+                
+        return self.build_ui() 
+        
     
 class IoTDropNull(BaseMetadataProvider):
     '''

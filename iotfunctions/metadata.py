@@ -221,6 +221,7 @@ class EntityType(object):
         name = ['entity_type', self.name]
         name = '.'.join(name)
         self.db.cos_save(self, name)
+                
         
     def drop_child_tables(self):
         '''
