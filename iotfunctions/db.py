@@ -203,6 +203,10 @@ class Database(object):
                 
         self.connection =  create_engine(connection_string, echo = echo, **connection_kwargs)
         self.Session = sessionmaker(bind=self.connection)
+
+        # this method should be invoked before the get Metadata()
+        self.set_isolation_level(self.connection)
+
         if start_session:
             self.session = self.Session()
         else:
@@ -536,7 +540,12 @@ class Database(object):
                 self.unregister_functions([name])
                 msg = 'Unregistered invalid function %s' %name
                 logger.info(msg)
-        return result    
+        return result
+
+    def set_isolation_level(self, conn):
+        if DB2_INSTALLED:
+            with conn.connect() as con:
+                con.execute('SET ISOLATION TO DIRTY READ;')  #specific for DB2
     
     
     def get_query_data(self, query):
