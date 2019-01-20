@@ -69,7 +69,7 @@ class IoTAlertExpression(BaseEvent):
                                               ).to_metadata()
         inputs['expression'] = UISingle(name = 'expression',
                                               datatype=str,
-                                              description = 'Define alert expression using pandas systax. Example: df["inlet_temperature"]>50'
+                                              description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
                                               ).to_metadata()        
         #define arguments that behave as function outputs
         outputs = OrderedDict()
@@ -79,11 +79,6 @@ class IoTAlertExpression(BaseEvent):
                                                      ).to_metadata()
     
         return (inputs,outputs)    
-
-        
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
-                
-        return self.build_ui()    
     
     
 class IoTAlertOutOfRange(BaseEvent):
@@ -153,11 +148,6 @@ class IoTAlertOutOfRange(BaseEvent):
                                                      ).to_metadata()
     
         return (inputs,outputs)    
-
-        
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
-                
-        return self.build_ui()     
     
     
 class IoTAlertHighValue(BaseEvent):
@@ -257,18 +247,13 @@ class IoTAlertLowValue(BaseEvent):
     
         return (inputs,outputs)    
 
-        
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
-                
-        return self.build_ui()    
-
 
 class IoTCosFunction(BaseTransformer):
     """
     Execute a serialized function retrieved from cloud object storage. Function returns a single output.
     """        
     
-    def __init__(self,function_name,input_items,output_item,parameters=None):
+    def __init__(self,function_name,input_items,output_item='output_item',parameters=None):
         
         # the function name may be passed as a function object or function name (string)
         # if a string is provided, it is assumed that the function object has already been serialized to COS
@@ -285,11 +270,6 @@ class IoTCosFunction(BaseTransformer):
             parameters = {}
         parameters = {**parameters, **self.__dict__}
         self.parameters = parameters
-        #registration metadata
-        self.optionalItems = ['parameters']
-        self.inputs = ['input_items']
-        self.outputs = ['ouput_item']
-        self.itemDatatypes['output_item'] = None #choose datatype in UI
         
     def execute(self,df):
         db = self.get_db()
@@ -310,6 +290,28 @@ class IoTCosFunction(BaseTransformer):
         rf = function(df,self.parameters)
         #rf will contain the orginal columns along with a single new output column.
         return rf
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem('input_items'))
+        inputs.append(UISingle(name = 'function_name',
+                                              datatype=float,
+                                              description = 'Name of function object. Function object must be serialized to COS before you can use it'
+                                              )
+                     )
+        inputs.append(UISingle(name = 'parameters',
+                                              datatype=dict,
+                                              required=False,
+                                              description = 'Parameters required by the function are provides as json.'
+                                              )
+                    )
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle('output_item'))
+
+        return (inputs,outputs)
     
 class IoTDeleteInputData(BasePreload):
     '''
@@ -339,24 +341,22 @@ class IoTDeleteInputData(BasePreload):
         Registration metadata
         '''
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['dummy_items'] = UIMultiItem(name = 'dummy_items',
+        inputs = []
+        inputs.append(UIMultiItem(name = 'dummy_items',
                                               datatype=None,
                                               description = 'Dummy data items'
-                                              ).to_metadata()
-        inputs['older_than_days'] = UISingle(name = 'older_than_days',
+                                              ))
+        inputs.append(UISingle(name = 'older_than_days',
                                               datatype=float,
                                               description = 'Delete data older than this many days'
-                                              ).to_metadata()
+                                              ))
         #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',datatype=bool,description='Returns a status flag of True when executed').to_metadata()
+        outputs = []
+        outputs.append(UIFunctionOutSingle(
+                        name = 'output_item',datatype=bool,description='Returns a status flag of True when executed')
+                        )
                 
         return (inputs,outputs)            
-    
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
-                
-        return self.build_ui() 
         
     
 class IoTDropNull(BaseMetadataProvider):
@@ -378,24 +378,22 @@ class IoTDropNull(BaseMetadataProvider):
         Registration metadata
         '''
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['exclude_items'] = UIMultiItem(name = 'exclude_items',
+        inputs = []
+        inputs.append(UIMultiItem(name = 'exclude_items',
                                               datatype=None,
                                               description = 'Ignore non-null values in these columns when dropping rows'
-                                              ).to_metadata()
-        inputs['drop_all_null_rows'] = UISingle(name = 'drop_all_null_rows',
+                                              ))
+        inputs.append(UISingle(name = 'drop_all_null_rows',
                                                 datatype=bool,
                                                 description = 'Enable or disable drop of all null rows'
-                                                ).to_metadata()
+                                                ))
         #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',datatype=bool,description='Returns a status flag of True when executed').to_metadata()
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype=bool,
+                                           description='Returns a status flag of True when executed'))
                 
         return (inputs,outputs)            
-    
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
-                
-        return self.build_ui()    
 
     
 class IoTExpression(BaseTransformer):
@@ -424,6 +422,23 @@ class IoTExpression(BaseTransformer):
         items = self.get_expression_items(self.expression)
         return items
     
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['expression'] = UISingle(name = 'expression',
+                                              datatype=str,
+                                              description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
+                                              ).to_metadata()        
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['output_name'] = UIFunctionOutSingle(name = 'output_name',
+                                                     datatype=None,
+                                                     description='Output of expression'
+                                                     ).to_metadata()
+    
+        return (inputs,outputs)   
+    
 class IoTIfThenElse(BaseTransformer):
     """
     Set the value of a data item based on the value of a conditional expression
@@ -446,25 +461,25 @@ class IoTIfThenElse(BaseTransformer):
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['conditional_expression'] = UISingle(name = 'conditional_expression',
+        inputs = []
+        inputs.append(UISingle(name = 'conditional_expression',
                                               datatype=str,
-                                              description = 'expression that returns a True/False value, eg. if df["temp"]>50 then df["temp"] else None'
-                                              ).to_metadata()
-        inputs['true_expression'] = UISingle(name = 'true_expression',
+                                              description = "expression that returns a True/False value, eg. if df['temp']>50 then df['temp'] else None"
+                                              ))
+        inputs.append(UISingle(name = 'true_expression',
                                               datatype=str,
-                                              description = 'expression when true, eg. df["temp"]'
-                                              ).to_metadata()        
-        inputs['false_expression'] = UISingle(name = 'false_expression',
+                                              description = "expression when true, eg. df['temp']"
+                                              ))
+        inputs.append(UISingle(name = 'false_expression',
                                               datatype=str,
                                               description = 'expression when false, eg. None'
-                                              ).to_metadata()                
+                                              ))
         #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
                                                      datatype=bool,
                                                      description='Dummy function output'
-                                                     ).to_metadata()
+                                                     ))
     
         return (inputs,outputs)
     
@@ -472,9 +487,6 @@ class IoTIfThenElse(BaseTransformer):
         items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
         return items    
         
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
-                
-        return self.build_ui()
     
 class IoTConditionalItems(BaseTransformer):
     """
@@ -502,7 +514,7 @@ class IoTConditionalItems(BaseTransformer):
         inputs = OrderedDict()
         inputs['conditional_expression'] = UISingle(name = 'conditional_expression',
                                               datatype=str,
-                                              description = 'expression that returns a True/False value, eg. if df["sensor_is_valid"]==True'
+                                              description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
                                               ).to_metadata()
         inputs['conditional_items'] = UIMultiItem(name = 'conditional_items',
                                               datatype=None,
@@ -521,10 +533,7 @@ class IoTConditionalItems(BaseTransformer):
     def get_input_items(self):
         items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
         return items    
-        
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
-                
-        return self.build_ui()    
+
         
         
 
@@ -576,11 +585,6 @@ class IoTRaiseError(BaseTransformer):
     
         return (inputs,outputs)    
 
-        
-    def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):        
-                
-        return self.build_ui()
-
             
     
 class IoTPackageInfo(BaseTransformer):
@@ -604,6 +608,22 @@ class IoTPackageInfo(BaseTransformer):
         df[self.version] = iotf.__version__
         
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name = 'halt_after',
+                                              datatype=None,
+                                              description = 'Raise error after calculating items'
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'package_url', datatype = str))
+        outputs.append(UIFunctionOutSingle(name = 'module', datatype = str))
+        outputs.append(UIFunctionOutSingle(name = 'version', datatype = str))
+    
+        return (inputs,outputs)     
     
 class IoTSCDLookup(BaseSCDLookup):
     '''
@@ -646,13 +666,6 @@ class IoTShiftCalendar(BaseTransformer):
         self.shift_day = shift_day
         self.shift_id = shift_id
         super().__init__()
-        #registration
-        self.constants = ['shift_definition']
-        self.outputs = ['period_start_date','period_end_date','shift_day','shift_id']
-        self.itemTags['period_start_date'] = ['DIMENSION']
-        self.itemTags['period_end_date'] = ['DIMENSION']
-        self.itemTags['shift_day'] = ['DIMENSION']
-        self.itemTags['shift_id'] = ['DIMENSION']
     
     def get_data(self,start_date,end_date):
         start_date = start_date.date()
@@ -694,6 +707,23 @@ class IoTShiftCalendar(BaseTransformer):
             df = self.conform_index(df)
             
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name = 'shift_definition',
+                                              datatype= dict,
+                                              description = ''
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'period_start_date', datatype = dt.datetime, tags = ['DIMENSION']))
+        outputs.append(UIFunctionOutSingle(name = 'period_end_date', datatype = dt.datetime, tags = ['DIMENSION']))
+        outputs.append(UIFunctionOutSingle(name = 'shift_day', datatype = dt.datetime, tags = ['DIMENSION']))
+        outputs.append(UIFunctionOutSingle(name = 'shift_id', datatype = int, tags = ['DIMENSION']))
+    
+        return (inputs,outputs)        
     
 
    

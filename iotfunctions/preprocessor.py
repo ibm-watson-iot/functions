@@ -33,6 +33,7 @@ from .automation import TimeSeriesGenerator
 from .base import BaseFunction, BaseTransformer, BaseDataSource, BaseEvent,BaseFilter, BaseAggregator, BaseDatabaseLookup, BaseDBActivityMerge, BaseSCDLookup, BaseMetadataProvider, BasePreload
 from .bif import IoTAlertOutOfRange as AlertThreshold #for compatibility
 from .bif import IoTShiftCalendar
+from .ui import UIFunctionOutSingle, UISingle, UISingleItem
 
 '''
 Sample functions
@@ -781,8 +782,27 @@ class StatusFilter(BaseFilter):
         
     def filter(self,df):
         df = df[df['status']==self.include_only]
-        return df       
-    
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs=[]
+        inputs.append(UISingleItem(name = 'status_input_item',
+                                              datatype=None,
+                                              description = 'Item name to use for status'
+                                              ))
+        inputs.append(UISingle(name = 'include_only',
+                                              datatype=str,
+                                              description = 'Filter to include only rows with a status of this'
+                                              ))        
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                                     datatype=bool,
+                                                     description='Item that contains the execution status of this function'
+                                                     ))
+        return (inputs,outputs)
             
     
 class TimeToFirstAndLastInDay(BaseTransformer):

@@ -21,6 +21,7 @@ class BaseUIControl(object):
                        str: 'LITERAL',
                        float: 'NUMBER',
                        int: 'NUMBER',
+                       dict: 'JSON',
                        dt.datetime: 'TIMESTAMP'
                        }
         try:
@@ -213,41 +214,6 @@ class UISingle(BaseUIControl):
                 }
         return meta
     
-class UISingleItem(BaseUIControl):
-    '''
-    Multi-select list of data items
-    '''
-    def __init__(self,name, datatype=None, description=None, required = True,
-                 min_items = None, max_items = None, tags = None):
-        
-        self.name = name
-        self.datatype = datatype
-        self.required = required
-        if description is None:
-            description = 'Choose one or more data item to use as a function input'
-        self.description = description
-        if min_items is None:
-            if self.required:
-                min_items = 1
-            else:
-                min_items = 0
-        self.min_items = min_items
-        self.max_items = max_items
-        if tags is None:
-            tags = []
-        self.tags = tags
-        
-    def to_metadata(self):
-        
-        meta = {
-                'name' : self.name,
-                'type' : 'DATA_ITEM' ,
-                'dataType' : self.convert_datatype(self.datatype),
-                'required' : self.required,
-                'description' : self.description,
-                'tags' : self.tags
-                }
-        return meta
-        
+
     
     

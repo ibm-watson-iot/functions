@@ -37,7 +37,7 @@ from .metadata import EntityType, Model
 from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline, PipelineExpression
 from .util import log_df_info
-from .ui import UIFunctionOutSingle, UIMultiItem
+from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,15 @@ class BaseFunction(object):
         
         for o in self.outputs:
             df[o] = True
-        return df                    
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        """
+        Define metadata for function registration explicly.
+        """
+        
+        raise NotImplementedError('Implement this method to enable registration of a class without creating an instance')                    
         
     def _calc(self,df):
         """
@@ -457,14 +465,6 @@ class BaseFunction(object):
         
         raise NotImplementedError (msg)
         
-    @classmethod
-    def build_ui():
-        """
-        Define metadata for function registration explicly.
-        """
-        
-        raise NotImplementedError('Implement this method to enable registration of a class without creating an instance')
-        
         
     def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):
         """
@@ -482,6 +482,13 @@ class BaseFunction(object):
         constants: list
             list of strings. name of constant input parameters to the function
         """
+        
+        #if the class has a build_ui class method, use it and return (input,output) metadat
+        try:
+            return self.build_ui()
+        except (AttributeError,NotImplementedError):
+            #else infer metadata from the dataframes supplied
+            pass
           
         if inputs is None:
             inputs = self.inputs
@@ -980,8 +987,8 @@ class BaseFunction(object):
         d = {x: table for x, table in df.groupby(self._entity_type._entity_id)}
         return d    
     
-
-    def _standard_item_descriptions(self):
+    @classmethod
+    def _standard_item_descriptions(cls):
         
         itemDescriptions = {}
         
@@ -1054,6 +1061,7 @@ class BaseFunction(object):
             incremental_update = self.incremental_update
             
         (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
+        (input_list, output_list) = self._transform_metadata(metadata_input,metadata_output)
 
         module_and_target = '%s.%s' %(module,self.__class__.__name__)
 
@@ -1081,8 +1089,8 @@ class BaseFunction(object):
             'tags': self.tags,
             'moduleAndTargetName': module_and_target,
             'url': url,
-            'input': list(metadata_input.values()),
-            'output':list(metadata_output.values()),
+            'input': input_list ,
+            'output':output_list,
             'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None
         }
         
@@ -1120,11 +1128,15 @@ class BaseFunction(object):
             if self._entity_type is None:
                 msg ('Unable to register function as there is no _entity_type. Use set_entity_type to assign an EntityType')
                 logger.warning(msg)
-                
-            response = self._entity_type.db.http_request(object_type = 'function',
-                                 object_name = name,
-                                 request = 'DELETE',
-                                 payload = payload)
+            
+            try:
+                response = self._entity_type.db.http_request(object_type = 'function',
+                                     object_name = name,
+                                     request = 'DELETE',
+                                     payload = payload)
+            except TypeError:
+                msg = 'Unable to serialize payload %s' %payload
+                raise TypeError(msg)
             msg = 'Unregistered function with response %s' %response
             logger.debug(msg)
             response = self._entity_type.db.http_request(object_type = 'function',
@@ -1189,6 +1201,33 @@ class BaseFunction(object):
         Replace the trace string. This trace will be displayed if the function fails during execution.
         '''
         self._trace = msg
+
+    @classmethod        
+    def _transform_metadata(cls,metadata_input,metadata_output):
+        '''
+        legacy metadata structure is a dict containing a metadata dict
+        new metadata structure is a list containing ui objects
+        convert to a list containing a metadata dict
+        '''
+        
+        if not isinstance(metadata_input,list):
+            metadata_input = list(metadata_input.values())
+        input_list= []
+        for m in metadata_input:
+            try:
+                input_list.append(m.to_metadata())
+            except AttributeError:
+                input_list.append(m)
+        if not isinstance(metadata_output,list):
+            metadata_output = list(metadata_output.values())
+        output_list= []
+        for m in metadata_output:
+            try:
+                output_list.append(m.to_metadata())
+            except AttributeError:
+                output_list.append(m)
+                
+        return(input_list,output_list)
         
     
     def write_frame(self,df,
@@ -1940,6 +1979,19 @@ class BaseSCDLookup(BaseTransformer):
         msg = 'after scd lookup of %s from table %s' %(scd_property,self.table_name)
         self.log_df_info(df,msg) 
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name = 'table_name',
+                                              datatype=str,
+                                              description = 'Table name to use as source for lookup'
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item'))    
+        return (inputs,outputs)   
     
     
 class BasePreload(BaseTransformer):
