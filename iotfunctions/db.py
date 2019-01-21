@@ -13,9 +13,9 @@ import datetime as dt
 import logging
 import urllib3
 import json
+import inspect
 import pandas as pd
 import subprocess
-import inspect
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float, func
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
@@ -258,8 +258,7 @@ class Database(object):
         self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
-        self.url[('kpiFunctions','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,'import'])
-        
+        self.url[('kpiFunctions','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,'import'])            
         encoded_payload = json.dumps(payload).encode('utf-8')        
         headers = {
             'Content-Type': "application/json",
@@ -275,12 +274,11 @@ class Database(object):
         logger.debug(url)
         logger.debug(encoded_payload)
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
-        response = r.data.decode('utf-8')
-        if r.status != 200:
-            msg = 'http request was not successful'
-            logger.warning(msg)
-            logger.debug(response)
-
+        response = r.read().decode('utf-8')
+        logger.debug(response)
+        response= r.data.decode('utf-8')
+        logger.debug(response)
+        
         return response
 
     def cos_load(self, filename, bucket=None, binary=False):
@@ -714,7 +712,7 @@ class Database(object):
                         msg = 'Did not register %s as it is not a registerable function' %name
                         logger.debug(msg)
                 else:
-                    print(name,cls.__module__)
+                    print(name,cls.__module__)                       
                       
         
     def query(self,table_name, schema):

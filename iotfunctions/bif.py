@@ -177,22 +177,21 @@ class IoTAlertHighValue(BaseEvent):
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['input_item'] = UISingleItem(name = 'input_item',
+        inputs = []
+        inputs.append(UISingleItem(name = 'input_item',
                                               datatype=None,
                                               description = 'Item to alert on'
-                                              ).to_metadata()
-        inputs['upper_threshold'] = UISingle(name = 'upper_threshold',
+                                              ))
+        inputs.append(UISingle(name = 'upper_threshold',
                                               datatype=float,
                                               description = 'Alert when item value is higher than this value'
-                                              ).to_metadata()  
+                                              ))  
         #define arguments that behave as function outputs
-        outputs = OrderedDict()       
-        outputs['alert_name'] = UIFunctionOutSingle(name = 'alert_name',
+        outputs = []     
+        outputs.append(UIFunctionOutSingle(name = 'alert_name',
                                                      datatype=bool,
                                                      description='Output of alert function'
-                                                     ).to_metadata()
-    
+                                                     ))    
         return (inputs,outputs)    
 
         
