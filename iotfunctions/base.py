@@ -1264,24 +1264,24 @@ class BaseFunction(object):
         return(validation_result,validation_types)
 
 
-    def check_data_items_type(self, df, items, throw_error=False):
+    def check_data_items_type(self, df, items):
         '''
         Check if dataframe columns type is equivalent to the data item that is defined in the metadata
         It checks the entire list of data items. Thus, depending where this code is executed, the dataframe might not be completed.
         An exception is generated if there are not incompatible types of matching items AND and flag throw_error is set to TRUE
         '''
 
-        invalid_data_items = []
+        invalid_data_items = list()
 
         if df is not None:
-            logger.info('Dataframe types:')
+            logger.info('Dataframe types before type conciliation: \n')
             logger.info(df.dtypes)
 
             for item in list(items.data_items):  #transform in list to iterate over it
                 df_column = {}
                 try:
                     data_item = items.get(item)  #back to the original dict to retrieve item object
-                    df_column = df[data_item['name']].values
+                    df_column = df[data_item['name']]
                 except KeyError:
                     logger.debug('Data item %s is not part of the dataframe yet.' % item)
                     continue
@@ -1289,46 +1289,62 @@ class BaseFunction(object):
 
                 #check if it is Number
                 if data_item['columnType'] == 'NUMBER':
-                    if not is_numeric_dtype(df_column):
-                        invalid_data_items.append(
-                            '%s: df type is %s and data type is %s' % (
-                                item, df_column.dtype.name, data_item['columnType']))
-                        continue
+                    if not is_numeric_dtype(df_column.values) or is_bool_dtype(df_column.dtype):
+                        logger.info(
+                            'Type is not consistent %s: df type is %s and data type is %s' % (
+                            item, df_column.dtype.name, data_item['columnType']))
+
+                        try:
+                            df[data_item['name']] = df_column.astype('float64')  #try to convert to numeric
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
 
                 #check if it is String
                 if data_item['columnType'] == 'LITERAL':
-                    if not is_string_dtype(df_column):
-                        invalid_data_items.append(
-                            '%s: df type is %s and data type is %s' % (
+                    if not is_string_dtype(df_column.dtype):
+                        logger.info(
+                            'Type is not consistent %s: df type is %s and data type is %s' % (
                                 item, df_column.dtype.name, data_item['columnType']))
-                        continue
-
+                        try:
+                            df[data_item['name']] = df_column.astype('str') #try to convert to string
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
 
                 #check if it is Timestamp
                 if data_item['columnType'] == 'TIMESTAMP':
-                    if not is_string_dtype(df_column):
-                        invalid_data_items.append(
-                            '%s: df type is %s and data type is %s' % (
+                    if not is_datetime64_any_dtype(df_column.dtype):
+                        logger.info(
+                            'Type is not consistent %s: df type is %s and data type is %s' % (
                                 item, df_column.dtype.name, data_item['columnType']))
-                        continue
-
+                        try:
+                            df[data_item['name']] = pd.to_datetime(df_column)   #try to convert to timestamp
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
 
                 #check if it is Boolean
                 if data_item['columnType'] == 'BOOLEAN':
-                    if not is_bool_dtype(df_column):
-                        invalid_data_items.append(
-                            '%s: df type is %s and data type is %s' % (
+                    if not is_bool_dtype(df_column.dtype):
+                        logger.info(
+                            'Type is not consistent %s: df type is %s and data type is %s' % (
                                 item, df_column.dtype.name, data_item['columnType']))
-                        continue
+                        try:
+                            df[data_item['name']] =  df_column.astype('bool')
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
+
         else:
             logger.info('Not possible to retrieve information from the data frame')
 
         if len(invalid_data_items) > 0:
-            msg = 'Some dataitems are not consistent with current dataframe columns \n'
-            msg += list(invalid_data_items)
-            logger.info(msg)
-            if throw_error:
-                raise Exception(msg)
+            msg = 'Some data items could not have its type conciliated:'
+            for item, df_type, data_type in invalid_data_items:
+                msg += ('\n %s: df type is %s and data type is %s'% (item, df_type, data_type))
+            logger.error(msg)
+            raise Exception(msg)
 
 
 
