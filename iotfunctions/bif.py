@@ -20,8 +20,8 @@ import re
 import pandas as pd
 import logging
 import iotfunctions as iotf
-from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload
-from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup
+from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -311,6 +311,61 @@ class IoTCosFunction(BaseTransformer):
         outputs.append(UIFunctionOutSingle('output_item'))
 
         return (inputs,outputs)
+    
+    
+class IoTDatabaseLookup(BaseDatabaseLookup):
+    """
+    Lookup Company information from a database table        
+    """
+    
+    #create the table and populate it using the data dict
+    _auto_create_lookup_table = True
+
+    def __init__ (self, lookup_table_name, lookup_keys, lookup_items, parse_dates, output_items=None):
+                        
+        super().__init__(
+             lookup_table_name = lookup_table_name,
+             lookup_keys= lookup_keys,
+             lookup_items = lookup_items,
+             parse_dates= parse_dates, 
+             output_items = output_items
+             )
+        
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name = 'lookup_table_name',
+                                              datatype=str,
+                                              description = 'Table name to perform lookup against'
+                                              )),
+        inputs.append(UIMulti(name = 'lookup_keys',
+                                              datatype=str,
+                                              description = 'Data items to use as a key to the lookup'
+                                              ))
+        inputs.append(UIMulti(name = 'lookup_items',
+                                              datatype=str,
+                                              description = 'columns to return from the lookup'
+                                              )),
+        inputs.append(UIMulti(name = 'parse_dates',
+                                              datatype=str,
+                                              description = 'columns that should be converted to dates',
+                                              required = False
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutMulti(name = 'output_items',
+                                                     cardinality_from = 'lookup_items',
+                                                     is_datatype_derived = False,
+                                                     description='Function output items'
+                                                     ))
+        return (inputs,outputs) 
+    
+    def get_item_values(self,arg):
+        raise NotImplementedError('No items values available for generic database lookup function. Implement a specific one for each table to define item values. ')
     
 class IoTDeleteInputData(BasePreload):
     '''

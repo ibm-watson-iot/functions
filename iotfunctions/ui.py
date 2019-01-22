@@ -186,6 +186,56 @@ class UIMultiItem(BaseUIControl):
                                 }
                 }
         return meta          
+
+
+class UIMulti(BaseUIControl):
+    '''
+    Multi-select list of constants
+    '''
+    def __init__(self,name, datatype, description=None, required = True,
+                 min_items = None, max_items = None, tags = None):
+        
+        self.name = name
+        self.datatype = datatype
+        self.required = required
+        if description is None:
+            description = 'Enter a list of comma separated values'
+        self.description = description
+        if min_items is None:
+            if self.required:
+                min_items = 1
+            else:
+                min_items = 0
+        self.min_items = min_items
+        self.max_items = max_items
+        if tags is None:
+            tags = []
+        self.tags = tags
+        
+    def to_metadata(self):
+        
+        if self.datatype is None:
+            datatype = None
+        else:
+            datatype = [self.convert_datatype(self.datatype)]
+        
+        meta = {
+                'name' : self.name,
+                'type' : 'CONSTANT' ,
+                'dataType' : 'ARRAY',
+                'dataTypeForArray' : datatype,
+                'required' : self.required,
+                'description' : self.description,
+                'tags' : self.tags,
+                'jsonSchema' : {
+                                "$schema" : "http://json-schema.org/draft-07/schema#",
+                                "type" : "array",
+                                "minItems" : self.min_items,
+                                "maxItems" : self.max_items,
+                                "items" : {"type": "string"}
+                                }
+                }
+        return meta 
     
 class UISingle(BaseUIControl):
     '''
@@ -213,6 +263,8 @@ class UISingle(BaseUIControl):
                 'required' : self.required
                 }
         return meta
+    
+
     
 
     
