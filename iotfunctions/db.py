@@ -694,7 +694,7 @@ class Database(object):
                 'output':output_list,
                 'incremental_update': True if category == 'AGGREGATOR' else None,
                 'tags' : tags
-            }
+             }            
             self.http_request(object_type='function',object_name=name, request = "DELETE", payload=payload)
             self.http_request(object_type='function',object_name=name, request = "PUT", payload=payload)
 

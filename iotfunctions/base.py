@@ -1226,6 +1226,19 @@ class BaseFunction(object):
                 output_list.append(m.to_metadata())
             except AttributeError:
                 output_list.append(m)
+        for i in input_list:
+            try:    
+                item_values = cls.get_item_values(arg=i)
+            except (AttributeError,NotImplementedError,TypeError):
+                item_values = None
+            if item_values is not None:
+                metadata_values = None
+                try:
+                    metadata_values = i['value']
+                except KeyError:
+                    pass
+                if metadata_values is None:
+                    i['values'] = item_values
                 
         return(input_list,output_list)
         

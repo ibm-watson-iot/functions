@@ -13,9 +13,7 @@ import datetime as dt
 logger = logging.getLogger(__name__)
 
 class BaseUIControl(object):
-    '''
-    Base class for UI
-    '''
+
     def convert_datatype(self,from_datatype):
         conversions = {bool: 'BOOLEAN',
                        str: 'LITERAL',
@@ -34,7 +32,19 @@ class BaseUIControl(object):
 class UIFunctionOutSingle(BaseUIControl):
     '''
     Single output item
+    
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    datatype: python datatype object 
+        Used to validate UI input. e.g. str, float, dt.datetime, bool
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
+    
     def __init__(self,name, datatype=None, description=None, tags = None):
         
         self.name = name
@@ -59,6 +69,21 @@ class UIFunctionOutSingle(BaseUIControl):
 class UIFunctionOutMulti(BaseUIControl):
     '''
     Array of multiple outputs
+    
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    cardinality_from: str
+        Name of input argument that defines the number of items to expect from this array output. Specify an array input.
+    is_datatype_derived: bool
+        Specify true when the output datatypes are the same as the datatypes of the input array that drives this output array.
+    datatype: python datatype object
+        Used to validate UI input. e.g. str, float, dt.datetime, bool
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
     def __init__(self,name, cardinality_from,
                  is_datatype_derived = False,
@@ -107,6 +132,19 @@ class UIFunctionOutMulti(BaseUIControl):
 class UISingleItem(BaseUIControl):
     '''
     Choose a single item as a function argument
+    
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    datatype: python datatype object 
+        Used to validate UI input. e.g. str, float, dt.datetime, bool
+    required: bool
+        Specify True when this argument is mandatory
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
     def __init__(self,name, datatype=None, description=None, required = True,
                  tags = None):
@@ -141,6 +179,23 @@ class UISingleItem(BaseUIControl):
 class UIMultiItem(BaseUIControl):
     '''
     Multi-select list of data items
+    
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    datatype: python datatype object 
+        Used to validate UI input. e.g. str, float, dt.datetime, bool
+    required: bool
+        Specify True when this argument is mandatory
+    min_items: int
+        The minimum number of items that must be selected
+    max_items: int
+        The maximum number of items that can be selected
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT'] 
     '''
     def __init__(self,name, datatype=None, description=None, required = True,
                  min_items = None, max_items = None, tags = None):
@@ -191,9 +246,28 @@ class UIMultiItem(BaseUIControl):
 class UIMulti(BaseUIControl):
     '''
     Multi-select list of constants
+    
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    datatype: python datatype object 
+        Used to validate UI input. e.g. str, float, dt.datetime, bool
+    required: bool
+        Specify True when this argument is mandatory
+    min_items: int
+        The minimum number of values that must be entered/selected
+    max_items: int
+        The maximum number of values that can be entered/selected
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
+    values: list
+        Values to display in UI picklist        
     '''
     def __init__(self,name, datatype, description=None, required = True,
-                 min_items = None, max_items = None, tags = None):
+                 min_items = None, max_items = None, tags = None, values = None):
         
         self.name = name
         self.datatype = datatype
@@ -211,6 +285,7 @@ class UIMulti(BaseUIControl):
         if tags is None:
             tags = []
         self.tags = tags
+        self.values = values
         
     def to_metadata(self):
         
@@ -227,6 +302,7 @@ class UIMulti(BaseUIControl):
                 'required' : self.required,
                 'description' : self.description,
                 'tags' : self.tags,
+                'values' : self.values,
                 'jsonSchema' : {
                                 "$schema" : "http://json-schema.org/draft-07/schema#",
                                 "type" : "array",
@@ -240,8 +316,24 @@ class UIMulti(BaseUIControl):
 class UISingle(BaseUIControl):
     '''
     Single valued constant
-    '''
-    def __init__(self,name, datatype=None, description=None, tags = None, required = True):
+    
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    datatype: python datatype object 
+        Used to validate UI input. e.g. str, float, dt.datetime, bool
+    required: bool
+        Specify True when this argument is mandatory
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
+    values: list
+        Values to display in UI picklist        
+    '''    
+    def __init__(self,name, datatype=None, description=None, tags = None,
+                 required = True, values = None):
         
         self.name = name
         self.datatype = datatype
@@ -252,6 +344,7 @@ class UISingle(BaseUIControl):
             tags = []
         self.tags = tags
         self.required = required
+        self.values = values
         
     def to_metadata(self):
         meta = {
@@ -260,7 +353,8 @@ class UISingle(BaseUIControl):
                 'dataType' : self.convert_datatype(self.datatype),
                 'description' : self.description,
                 'tags' : self.tags,
-                'required' : self.required
+                'required' : self.required,
+                'values' : self.values
                 }
         return meta
     
