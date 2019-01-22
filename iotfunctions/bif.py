@@ -321,7 +321,7 @@ class IoTDatabaseLookup(BaseDatabaseLookup):
     #create the table and populate it using the data dict
     _auto_create_lookup_table = True
 
-    def __init__ (self, lookup_table_name, lookup_keys, lookup_items, parse_dates, output_items=None):
+    def __init__ (self, lookup_table_name, lookup_keys, lookup_items, parse_dates=None, output_items=None):
                         
         super().__init__(
              lookup_table_name = lookup_table_name,
