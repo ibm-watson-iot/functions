@@ -1572,6 +1572,9 @@ class BaseDatabaseLookup(BaseTransformer):
                              parse_dates=self.parse_dates)
         msg = ' lookup returned columns %s' %','.join(list(df_sql.columns))
         self.trace_append(msg)
+        
+        raise RuntimeError('db looked failed - temp debug')
+        
         df_sql = df_sql[self.lookup_items]
                 
         if len(self.output_items) > len(df_sql.columns):
