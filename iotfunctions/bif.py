@@ -360,7 +360,8 @@ class IoTDatabaseLookup(BaseDatabaseLookup):
         outputs.append(UIFunctionOutMulti(name = 'output_items',
                                                      cardinality_from = 'lookup_items',
                                                      is_datatype_derived = False,
-                                                     description='Function output items'
+                                                     description='Function output items',
+                                                     tags = ['DIMENSION']
                                                      ))
         return (inputs,outputs) 
     
