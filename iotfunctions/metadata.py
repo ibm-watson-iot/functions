@@ -14,6 +14,7 @@ import numpy as np
 import json
 import urllib3
 import pandas as pd
+from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
@@ -585,8 +586,15 @@ class EntityType(object):
         for key,value in list(params.items()):
             setattr(self, key, value)
         return self
-    
-    
+
+    def get_data_items(self):
+        '''
+        Get the list of data items defined
+        :return: list of data items
+        '''
+        return self._data_items
+
+
 class Job(EntityType):
     '''
     EntityType with execution logic tweaked for job processing. 
