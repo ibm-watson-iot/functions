@@ -19,6 +19,7 @@ import hashlib
 import hmac
 from lxml import etree
 import logging
+import pandas as pd
 logger = logging.getLogger(__name__)
 try:
     import ibm_boto3
@@ -296,3 +297,50 @@ def log_df_info(df,msg,include_data=False):
     except Exception:
         logger.warn('dataframe contents not logged due to an unknown logging error')
         return ''
+    
+def resample(df,time_frequency,timestamp,dimensions=None,agg=None, default_aggregate = 'last'):
+    '''
+    Resample a dataframe to a new time grain / dimensional grain
+    
+    Parameters:
+    -----------
+    df: Pandas dataframe
+        Dataframe to resample
+    time_frequency: str
+        Pandas frequency string
+    dimensions: list of strs
+        List of columns to group by
+    agg : dict
+        Pandas aggregate dictionary
+    default_aggregate: str
+        Default aggregation function to apply for anything not specified in agg
+    
+    Returns
+    -------
+    Pandas dataframe
+    
+    '''
+    if dimensions is None:
+        dimensions = []
+    if agg is None:
+        agg = {}
+
+    index_cols = [timestamp]
+    index_cols.extend(dimensions)        
+    for r in [x for x in df.columns if x not in index_cols]:
+        try:
+            agg[r]
+        except KeyError:
+            agg[r] = default_aggregate
+
+    group_base = [pd.Grouper(key = timestamp, freq = time_frequency)]
+    for d in dimensions:
+        group_base.append(pd.Grouper(key = d))
+    
+    df = df.groupby(group_base).agg(agg)
+    df.reset_index(inplace=True)
+    
+    return df
+    
+    
+    

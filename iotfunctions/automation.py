@@ -81,6 +81,8 @@ class CategoricalGenerator(object):
             return ['1.0','1.12','1.13','2.1']
         elif self.name in ['manufacturer']:
             return ['Rentech','GHI Industries']                
+        elif self.name in ['zone']:
+            return ['27A','27B','27C']
         elif self.name in ['status','status_code']:
             return ['inactive','active']
         elif self.name in ['operator','operator_id','person','employee']:

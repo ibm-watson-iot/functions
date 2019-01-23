@@ -223,6 +223,29 @@ class Database(object):
         else:
             msg = 'created a CosClient object'
             logger.debug(msg)
+            
+    def _aggregate_item(self,table,column_name,aggregate,alias_column=False):
+        
+        if alias_column:
+            alias = '%s_%s' %(column_name,aggregate)
+        else:
+            alias = column_name
+        
+        if aggregate == 'count':
+            return func.count(table.c[column_name]).label(alias)
+        elif aggregate == 'max':
+            return func.max(table.c[column_name]).label(alias)
+        elif aggregate == 'mean':
+            return func.avg(table.c[column_name]).label(alias)
+        elif aggregate == 'min':
+            return func.min(table.c[column_name]).label(alias)
+        elif aggregate == 'std':
+            return func.stddev(table.c[column_name]).label(alias)
+        elif aggregate == 'sum':
+            return func.sum(table.c[column_name]).label(alias)
+        else:
+            msg = 'Unsupported aggrgegate function %s' % aggregate
+            raise ValueError (msg)
         
         
     def http_request(self, object_type,object_name, request, payload):
@@ -583,11 +606,48 @@ class Database(object):
         logger.debug(msg)      
         
         
-    def read_table(self,table_name,schema,parse_dates =None,columns=None):
+    def read_table(self,table_name,
+                   schema,
+                   parse_dates = None,
+                   columns = None,
+                   start_ts = None,
+                   end_ts = None,
+                   entities = None,
+                   dimension = None
+                   ):
         '''
         Read whole table and return as dataframe
+        
+        Parameters
+        -----------
+        table_name: str
+            Source table name
+        schema: str
+            Schema name where table is located
+        columns: list of strs
+            Projection list
+        timestamp_col: str
+            Name of timestamp column in the table. Required for time filters.
+        start_ts: datetime
+            Retrieve data from this date
+        end_ts: datetime
+            Retrieve data up until date
+        entities: list of strs
+            Retrieve data for a list of deviceids
+        dimension: str
+            Table name for dimension table. Dimension table will be joined on deviceid. 
+        parse_dates: list of strs
+            Column names to parse as dates
+        
+        
         '''
-        q,table = self.query(table_name,schema=schema)
+        q,table = self.query(table_name,
+                             schema=schema,
+                             column_names = columns,
+                             start_ts = start_ts,
+                             end_ts = end_ts,
+                             entities = entities,
+                             dimension = dimension)
         df = pd.read_sql(sql=q.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
         return(df)
         
@@ -605,42 +665,91 @@ class Database(object):
         df = pd.read_sql(query.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
         return(df)
         
-    def read_agg(self, table_name, schema, agg_dict, groupby, timestamp=None, time_grain = None):
+    def read_agg(self, table_name, schema, agg_dict, groupby,
+                       timestamp=None,
+                       time_grain = None,
+                       dimension = None,
+                       start_ts = None,
+                       end_ts = None,
+                       entities = None):
         '''
         Pandas style aggregate function against db table
+        
+        Parameters
+        ----------
+        table_name: str
+            Source table name
+        schema: str
+            Schema name where table is located
+        agg_dict: dict
+            Dictionary of aggregate functions keyed on column name, e.g. { "temp": "mean", "pressure":["min","max"]}
+        timestamp: str
+            Name of timestamp column in the table. Required for time filters.
+        time_grain: str
+            Time grain for aggregation may be day,month,year or a pandas frequency string
+        start_ts: datetime
+            Retrieve data from this date
+        end_ts: datetime
+            Retrieve data up until date
+        entities: list of strs
+            Retrieve data for a list of deviceids
+        dimension: str
+            Table name for dimension table. Dimension table will be joined on deviceid.
+        
         '''
         q,a = self.query(table_name,schema=schema)
+        dim = None
+        if dimension is not None:
+            dim = self.get_table(table_name=dimension,schema=schema)
+            q = q.join(dim, dim.c.deviceid == a.c.deviceid)
         args = []
-        grp = [a.c[x] for x in groupby]
+        grp = []
+        for g in groupby:
+            try:
+                grp.append(a.c[g])
+            except KeyError:
+                if dimension is not None:
+                    try:
+                        grp.append(dim.c[g])
+                    except KeyError:
+                        msg = 'group by column %s not found in main table or dimension table' %g  
+                        raise (msg)
+                else:
+                    msg = 'group by column %s not found in main table and no dimension table specified' %g  
+                    raise (msg)
+        #attempt to push aggregates down to sql
+        #for db aggregates that can't be pushed, do them in pandas
+        pandas_aggregate = None
         if time_grain is not None:
             if timestamp is None:
                 msg = 'You must supply a timestamp column when doing a time-based aggregate'
                 raise ValueError (msg)
-            if time_grain == 'day':
+            if time_grain == timestamp:
+                grp.append(a.c[timestamp].label(timestamp)) 
+            elif time_grain == 'day':
                 grp.append(func.date(a.c[timestamp]).label(time_grain)) 
-            if time_grain == 'month':
+            elif time_grain == 'month':
                 grp.append(func.year(a.c[timestamp]).label('year')) 
                 grp.append(func.month(a.c[timestamp]).label(time_grain))
-            if time_grain == 'year':
-                grp.append(func.year(a.c[timestamp]).label(time_grain))                        
+            elif time_grain == 'year':
+                grp.append(func.year(a.c[timestamp]).label(time_grain))
+            else:
+                pandas_aggregate = time_grain
         args.extend(grp)
         for col,aggs in agg_dict.items():
-            for agg in aggs:        
-                if agg == 'count':
-                    args.append(func.count(a.c[col]).label('%s_count' %col))  
-                if agg == 'max':
-                    args.append(func.max(a.c[col]).label('%s_max' %col))        
-                if agg == 'mean':
-                    args.append(func.avg(a.c[col]).label('%s_mean' %col))
-                if agg == 'min':
-                    args.append(func.min(a.c[col]).label('%s_min' %col))        
-                if agg == 'std':
-                    args.append(func.stddev(a.c[col]).label('%s_std' %col))
-                if agg == 'sum':
-                    args.append(func.sum(a.c[col]).label('%s_sum' %col))
+            if isinstance(aggs,str):
+                args.append(self._aggregate_item(table=a,column_name=col,aggregate=aggs,alias_column=False))
+            elif isinstance(aggs,list):
+                for agg in aggs:
+                    args.append(self._aggregate_item(table=a,column_name=col,aggregate=aggs,alias_column=True))
+            else:
+                msg = 'Aggregate dictionary is not in the correct form. Supply a single aggregate function as a string or a list of strings.'
+                raise ValueError(msg)
         self.start_session()
         qt = self.session.query(*args).group_by(*grp)
         df = pd.read_sql(qt.statement,con = self.connection)
+        if pandas_aggregate is not None:
+            df = self.resample(rule=pandas_aggregate,on=timestamp).agg(agg_dict)
         return df
 
     def register_functions(self,functions,url=None):
@@ -715,23 +824,79 @@ class Database(object):
                     print(name,cls.__module__)                       
                       
         
-    def query(self,table_name, schema):
+    def query(self,table_name, schema,
+              column_names = None,
+              timestamp_col = None,
+              start_ts = None,
+              end_ts = None,
+              entities = None,
+              dimension = None
+              ):
         '''
         Build a sqlalchemy query object for a table. You can further manipulate the query object using standard sqlalchemcy operations to do things like filter and join.
         
         Parameters
         ----------
         table_name : str or Table object
+        columns_names: list of strs
+            Projection list
+        timestamp_col: str
+            Name of timestamp column in the table. Required for time filters.
+        start_ts: datetime
+            Retrieve data from this date
+        end_ts: datetime
+            Retrieve data up until date
+        entities: list of strs
+            Retrieve data for a list of deviceids
+        dimension: str
+            Table name for dimension table. Dimension table will be joined on deviceid.
         
         Returns
         -------
         tuple containing a sqlalchemy query object and a sqlalchemy table object
         '''        
+        
         self.start_session()
         table = self.get_table(table_name,schema)
-        q = self.session.query(table)        
+        dim = None
+        if dimension is not None:
+            dim = self.get_table(table_name=dimension,schema=schema)
         
-        return (q,table)
+        if column_names is None or column_names == []:
+            if dim is None:
+                query_args = [table]
+            else:
+                query_args = [table]
+                for col_name,col in list(dim.c.items()):
+                    if col_name != 'deviceid':
+                        query_args.append(col)
+        else:
+            query_args = []
+            if isinstance(column_names,str):
+                column_names = [column_names]
+            for c in column_names:
+                try:
+                    query_args.append(table.c[c])
+                except KeyError:
+                    try:
+                       query_args.append(dim.c[c])     
+                    except KeyError:
+                        msg = 'Unable to find column %s in table or dimension' %c
+                        raise KeyError(msg)
+    
+        query = self.session.query(*query_args)
+        
+        if dim is not None:
+            query = query.join(dim, dim.c.deviceid == table.c.deviceid)
+        
+        if not start_ts is None:
+            query = query.filter(table.c[timestamp_col] >= start_ts)
+        if not end_ts is None:
+            query = query.filter(table.c[timestamp_col] < end_ts)  
+        if not entities is None:
+            query = query.filter(table.c.deviceid.in_(entities))
+        
+        return (query,table)
     
     
     def unregister_functions(self,function_names):
