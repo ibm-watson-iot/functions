@@ -248,7 +248,7 @@ class Database(object):
             raise ValueError (msg)
         
         
-    def http_request(self, object_type,object_name, request, payload):
+    def http_request(self, object_type,object_name, request, payload, object_name_2=''):
         '''
         Make an api call to AS
         
@@ -275,13 +275,30 @@ class Database(object):
         
         base_url = 'http://%s/api' %(self.credentials['as']['host'])
         self.url = {}
+        self.url[('allFunctions','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,'function?customFunctionsOnly=false'])
+        
+        self.url[('dataItem','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2]) 
+        
         self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])
         self.url[('entityType','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type,object_name])
-        self.url[('allFunctions','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,'function?customFunctionsOnly=false'])
+        
+        self.url[('engineInput','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_type])
+        
         self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
+        
+        self.url[('granularitySet','POST')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
+        self.url[('granularitySet','DELETE')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
+        self.url[('granularitySet','GET')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
+
         self.url[('kpiFunctions','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,'import'])            
+
+        self.url[('kpiFunction','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type]) 
+        self.url[('kpiFunction','DELETE')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2]) 
+        self.url[('kpiFunction','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])         
+        self.url[('kpiFunction','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
+        
         encoded_payload = json.dumps(payload).encode('utf-8')        
         headers = {
             'Content-Type': "application/json",
