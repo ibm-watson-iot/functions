@@ -245,21 +245,21 @@ class EntityType(object):
         return CalcPipeline(stages=stages, entity_type = self)
         
         
-    def get_data(self,start_ts =None,end_ts=None,entities=None):
+    def get_data(self,start_ts =None,end_ts=None,entities=None,columns=None):
         '''
         Retrieve entity data
         '''
-        (query,table) = self.db.query(self.name, schema = self._db_schema)
-        if not start_ts is None:
-            query = query.filter(table.c[self._timestamp] >= start_ts)
-        if not end_ts is None:
-            query = query.filter(table.c[self._timestamp] <= end_ts)  
-        if not entities is None:
-            query = query.filter(table.c.deviceid.in_(entities))
-        params = {
-                    'schema': self._db_schema
-                    }            
-        df = pd.read_sql(query.statement, con = self.db.connection, params = params)
+        
+        df = self.db.read_table(
+                table_name = self.name,
+                schema = self._db_schema,
+                parse_dates = None,
+                columns = columns,
+                start_ts = start_ts,
+                end_ts = end_ts,
+                entities = entities,
+                dimension = self._dimension_table_name
+                )
         
         return df       
         
