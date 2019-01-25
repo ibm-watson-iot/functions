@@ -253,21 +253,60 @@ class EntityType(object):
         
     def get_data(self,start_ts =None,end_ts=None,entities=None,columns=None):
         '''
-        Retrieve entity data
+        Retrieve entity data at input grain or preaggregated
         '''
         
-        df = self.db.read_table(
-                table_name = self.name,
-                schema = self._db_schema,
-                parse_dates = None,
-                columns = columns,
-                start_ts = start_ts,
-                end_ts = end_ts,
-                entities = entities,
-                dimension = self._dimension_table_name
-                )
-        
-        return df       
+        if self._pre_aggregate_time_grain is None:    
+            df = self.db.read_table(
+                    table_name = self.name,
+                    schema = self._db_schema,
+                    parse_dates = None,
+                    columns = columns,
+                    start_ts = start_ts,
+                    end_ts = end_ts,
+                    entities = entities,
+                    dimension = self._dimension_table_name
+                    )    
+        else:
+            (metrics,dates,categoricals,others) = self.db.get_column_lists_by_type(self.name,self._db_schema)
+            if self._dimension_table_name is not None:
+                categoricals.extend(self.db.get_column_names(self._dimension_table_name,self._db_schema))
+            if columns is None:
+                columns = []
+                columns.extend(metrics)
+                columns.extend(dates)
+                columns.extend(categoricals)
+                columns.extend(others)
+            agg = {}
+            print (columns)
+            for c in columns:
+                if c not in [self._timestamp,self._entity_id]:
+                    if c in metrics:
+                        agg[c] = 'mean'
+                    else: 
+                        agg[c] = 'max'
+                        
+            df = self.db.read_agg(
+                    table_name = self.name,
+                    schema = self._db_schema,
+                    groupby = [self._entity_id],
+                    timestamp = self._timestamp,
+                    time_grain = self._pre_aggregate_time_grain,
+                    agg_dict = agg,
+                    start_ts = start_ts,
+                    end_ts = end_ts,
+                    entities = entities,
+                    dimension = self._dimension_table_name                    
+                    )            
+
+        return df   
+
+    def get_data_items(self):
+        '''
+        Get the list of data items defined
+        :return: list of data items
+        '''
+        return self._data_items
         
         
     def get_log(self,rows = 100):
@@ -608,12 +647,7 @@ class EntityType(object):
             setattr(self, key, value)
         return self
 
-    def get_data_items(self):
-        '''
-        Get the list of data items defined
-        :return: list of data items
-        '''
-        return self._data_items
+
 
 
 class Job(EntityType):

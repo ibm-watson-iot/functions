@@ -247,6 +247,58 @@ class IoTAlertLowValue(BaseEvent):
         return (inputs,outputs)    
 
 
+class IoTCalcSettings(BaseMetadataProvider):
+    """
+    Overide default calculation settings for the entity type
+    """
+    
+    def __init__ (self, 
+                  checkpoint_by_entity = False,
+                  pre_aggregate_time_grain = None,
+                  auto_read_from_ts_table = True,
+                  output_item = 'output_item'):
+        
+        kwargs = {
+                '_checkpoint_by_entity' : checkpoint_by_entity,
+                '_pre_aggregate_time_grain' : pre_aggregate_time_grain,
+                '_auto_read_from_ts_table' : auto_read_from_ts_table
+                }
+        
+        super().__init__(dummy_items=[],output_item=output_item, **kwargs)
+        
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle( 
+                        name = '_auto_read_from_ts_table',
+                        datatype=str,
+                        required = False,
+                        description = 'By default, data retrieved is from the designated input table. Use this setting to disable.',
+                                              ))
+        inputs.append(UISingle(
+                        name = 'checkpoint_by_entity',
+                        datatype = bool,
+                        required = False,
+                        description = 'By default a single '
+                    ))
+        inputs.append(UISingle( 
+                        name = 'pre_aggregate_time_grain',
+                        datatype=str,
+                        required = False,
+                        description = 'By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
+                        values = ['1min','5min','15min','30min','60min','day','month','year']
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                                     datatype=bool,
+                                                     description='Dummy function output'
+                                                     ))
+    
+        return (inputs,outputs)   
+
+
 class IoTConditionalItems(BaseTransformer):
     """
     Set the value of a data item based on the value of a conditional expression eg. if df["sensor_is_valid"]==True then df["temp"] and df["pressure"] are valid else null
@@ -557,10 +609,8 @@ class IoTGetEntityData(BaseDataSource):
 
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
-
-        df = pd.read_sql(query.statement,
-                         con = self._entity_type.db.connection,
-                         parse_dates=[self._entity_type._timestamp])        
+        raise NotImplementedError('stay tuned')
+        
         return df               
     
 class IoTIfThenElse(BaseTransformer):
@@ -658,58 +708,7 @@ class IoTRaiseError(BaseTransformer):
                                                      description='Dummy function output'
                                                      ))
     
-        return (inputs,outputs)    
-
-
-
-class IoTCalcSettings(BaseMetadataProvider):
-    """
-    Overide default calculation settings for the entity type
-    """
-    
-    def __init__ (self, 
-                  checkpoint_by_entity = False,
-                  pre_aggregate_time_grain = None,
-                  auto_read_from_ts_table = True,
-                  output_item = 'output_item'):
-        
-        kwargs = {
-                '_checkpoint_by_entity' : checkpoint_by_entity,
-                '_pre_aggregate_time_grain' : pre_aggregate_time_grain,
-                '_auto_read_from_ts_table' : auto_read_from_ts_table
-                }
-        
-        super().__init__(dummy_items=[],output_item=output_item, **kwargs)
-        
-    @classmethod
-    def build_ui(cls):
-        #define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingle( 
-                        name = '_auto_read_from_ts_table',
-                        datatype=str,
-                        description = 'By default, data retrieved is from the designated input table. Use this setting to disable.',
-                        values = [None,'1min','5min','15min','30min','60min','day','month','year']
-                                              ))
-        inputs.append(UISingle(
-                        name = 'checkpoint_by_entity',
-                        datatype = bool,
-                        description = 'By default a single '
-                    ))
-        inputs.append(UISingle( 
-                        name = 'pre_aggregate_time_grain',
-                        datatype=str,
-                        description = 'By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
-                        values = [None,'1min','5min','15min','30min','60min','day','month','year']
-                                              ))
-        #define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item',
-                                                     datatype=bool,
-                                                     description='Dummy function output'
-                                                     ))
-    
-        return (inputs,outputs)    
+        return (inputs,outputs)     
         
         
     

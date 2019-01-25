@@ -224,29 +224,38 @@ class Database(object):
             msg = 'created a CosClient object'
             logger.debug(msg)
             
-    def _aggregate_item(self,table,column_name,aggregate,alias_column=False):
+    def _aggregate_item(self,table,column_name,aggregate,alias_column=False, dimension_table = None):
         
         if alias_column:
             alias = '%s_%s' %(column_name,aggregate)
         else:
             alias = column_name
+            
+        agg_map = {
+                'count': func.count,
+                'max' : func.max,
+                'mean' : func.avg,
+                'min' : func.min,
+                'std' : func.std,
+                'sum' : func.sum
+                }
         
-        if aggregate == 'count':
-            return func.count(table.c[column_name]).label(alias)
-        elif aggregate == 'max':
-            return func.max(table.c[column_name]).label(alias)
-        elif aggregate == 'mean':
-            return func.avg(table.c[column_name]).label(alias)
-        elif aggregate == 'min':
-            return func.min(table.c[column_name]).label(alias)
-        elif aggregate == 'std':
-            return func.stddev(table.c[column_name]).label(alias)
-        elif aggregate == 'sum':
-            return func.sum(table.c[column_name]).label(alias)
-        else:
-            msg = 'Unsupported aggrgegate function %s' % aggregate
-            raise ValueError (msg)
+        try:
+            agg_function = agg_map[aggregate]
+        except KeyError:
+            msg = 'Unsupported database aggregegate function %s' % aggregate
+            raise ValueError (msg)           
         
+        try:
+            col = agg_function(table.c[column_name]).label(alias)
+        except KeyError:
+            try:
+                col = agg_function(dimension_table.c[column_name]).label(alias)
+            except (KeyError,AttributeError):
+                msg = 'Aggregate column %s not present in table or on dimension' %column_name
+                raise KeyError(msg)
+                
+        return col
         
     def http_request(self, object_type,object_name, request, payload, object_name_2=''):
         '''
@@ -922,10 +931,10 @@ class Database(object):
         # aggregate dict is keyed on column - may contain a single aggregate function or a list of aggregation functions
         for col,aggs in agg_dict.items():
             if isinstance(aggs,str):
-                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=False))
+                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=False, dimension_table = dim))
             elif isinstance(aggs,list):
                 for agg in aggs:
-                    args.append(self._aggregate_item(table=table,column_name=col,aggregate=agg,alias_column=True))
+                    args.append(self._aggregate_item(table=table,column_name=col,aggregate=agg,alias_column=True, dimension_table = dim))
             else:
                 msg = 'Aggregate dictionary is not in the correct form. Supply a single aggregate function as a string or a list of strings.'
                 raise ValueError(msg)
