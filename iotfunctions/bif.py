@@ -271,7 +271,7 @@ class IoTCalcSettings(BaseMetadataProvider):
         #define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingle( 
-                        name = '_auto_read_from_ts_table',
+                        name = 'auto_read_from_ts_table',
                         datatype=bool,
                         required = False,
                         description = 'By default, data retrieved is from the designated input table. Use this setting to disable.',
