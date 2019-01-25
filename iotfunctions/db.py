@@ -21,7 +21,7 @@ from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, M
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
-from .util import CosClient
+from .util import CosClient, resample
 
 logger = logging.getLogger(__name__)
 DB2_INSTALLED = True
@@ -682,7 +682,7 @@ class Database(object):
         df = pd.read_sql(query.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
         return(df)
         
-    def read_agg(self, table_name, schema, agg_dict, groupby,
+    def read_agg(self, table_name, schema, agg_dict, groupby=None,
                        timestamp=None,
                        time_grain = None,
                        dimension = None,
@@ -712,62 +712,26 @@ class Database(object):
             Retrieve data for a list of deviceids
         dimension: str
             Table name for dimension table. Dimension table will be joined on deviceid.
-        
         '''
-        q,a = self.query(table_name,schema=schema)
-        dim = None
-        if dimension is not None:
-            dim = self.get_table(table_name=dimension,schema=schema)
-            q = q.join(dim, dim.c.deviceid == a.c.deviceid)
-        args = []
-        grp = []
-        for g in groupby:
-            try:
-                grp.append(a.c[g])
-            except KeyError:
-                if dimension is not None:
-                    try:
-                        grp.append(dim.c[g])
-                    except KeyError:
-                        msg = 'group by column %s not found in main table or dimension table' %g  
-                        raise (msg)
-                else:
-                    msg = 'group by column %s not found in main table and no dimension table specified' %g  
-                    raise (msg)
-        #attempt to push aggregates down to sql
-        #for db aggregates that can't be pushed, do them in pandas
-        pandas_aggregate = None
-        if time_grain is not None:
-            if timestamp is None:
-                msg = 'You must supply a timestamp column when doing a time-based aggregate'
-                raise ValueError (msg)
-            if time_grain == timestamp:
-                grp.append(a.c[timestamp].label(timestamp)) 
-            elif time_grain == 'day':
-                grp.append(func.date(a.c[timestamp]).label(time_grain)) 
-            elif time_grain == 'month':
-                grp.append(func.year(a.c[timestamp]).label('year')) 
-                grp.append(func.month(a.c[timestamp]).label(time_grain))
-            elif time_grain == 'year':
-                grp.append(func.year(a.c[timestamp]).label(time_grain))
-            else:
-                pandas_aggregate = time_grain
-        args.extend(grp)
-        for col,aggs in agg_dict.items():
-            if isinstance(aggs,str):
-                args.append(self._aggregate_item(table=a,column_name=col,aggregate=aggs,alias_column=False))
-            elif isinstance(aggs,list):
-                for agg in aggs:
-                    args.append(self._aggregate_item(table=a,column_name=col,aggregate=aggs,alias_column=True))
-            else:
-                msg = 'Aggregate dictionary is not in the correct form. Supply a single aggregate function as a string or a list of strings.'
-                raise ValueError(msg)
-        self.start_session()
-        qt = self.session.query(*args).group_by(*grp)
-        df = pd.read_sql(qt.statement,con = self.connection)
+        
+        (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+                    agg_dict = agg_dict,
+                    table_name = table_name,
+                    schema = schema,
+                    groupby = groupby,
+                    timestamp = timestamp,
+                    time_grain = time_grain,
+                    dimension = dimension,
+                    start_ts = start_ts,
+                    end_ts = end_ts,
+                    entities = entities
+                )
+
+        df = pd.read_sql(query.statement,con = self.connection)
         if pandas_aggregate is not None:
-            df = self.resample(rule=pandas_aggregate,on=timestamp).agg(agg_dict)
+            df = resample(df=df,time_frequency=pandas_aggregate,timestamp=timestamp,dimensions=groupby,agg=agg_dict)
         return df
+        
 
     def register_functions(self,functions,url=None):
         '''
@@ -879,7 +843,7 @@ class Database(object):
         if dimension is not None:
             dim = self.get_table(table_name=dimension,schema=schema)
         
-        if column_names is None or column_names == []:
+        if column_names is None:
             if dim is None:
                 query_args = [table]
             else:
@@ -914,6 +878,155 @@ class Database(object):
             query = query.filter(table.c.deviceid.in_(entities))
         
         return (query,table)
+    
+    
+    def query_agg(self, table_name, schema, agg_dict, groupby=None,
+                       timestamp=None,
+                       time_grain = None,
+                       dimension = None,
+                       start_ts = None,
+                       end_ts = None,
+                       entities = None):
+        '''
+        Pandas style aggregate function against db table
+        
+        Parameters
+        ----------
+        table_name: str
+            Source table name
+        schema: str
+            Schema name where table is located
+        agg_dict: dict
+            Dictionary of aggregate functions keyed on column name, e.g. { "temp": "mean", "pressure":["min","max"]}
+        timestamp: str
+            Name of timestamp column in the table. Required for time filters.
+        time_grain: str
+            Time grain for aggregation may be day,month,year or a pandas frequency string
+        start_ts: datetime
+            Retrieve data from this date
+        end_ts: datetime
+            Retrieve data up until date
+        entities: list of strs
+            Retrieve data for a list of deviceids
+        dimension: str
+            Table name for dimension table. Dimension table will be joined on deviceid.        
+        '''        
+        
+        table = self.get_table(table_name,schema)
+        dim = None
+        if dimension is not None:
+            dim = self.get_table(table_name=dimension,schema=schema)
+        # assemble list as a set of aggregates to project        
+        
+        args = []
+        # aggregate dict is keyed on column - may contain a single aggregate function or a list of aggregation functions
+        for col,aggs in agg_dict.items():
+            if isinstance(aggs,str):
+                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=False))
+            elif isinstance(aggs,list):
+                for agg in aggs:
+                    args.append(self._aggregate_item(table=table,column_name=col,aggregate=agg,alias_column=True))
+            else:
+                msg = 'Aggregate dictionary is not in the correct form. Supply a single aggregate function as a string or a list of strings.'
+                raise ValueError(msg)
+        #assemble group by
+        grp = []
+        #attempt to push aggregates down to sql
+        #for db aggregates that can't be pushed, do them in pandas
+        pandas_aggregate = None
+        if time_grain is not None:
+            if timestamp is None:
+                msg = 'You must supply a timestamp column when doing a time-based aggregate'
+                raise ValueError (msg)
+            if time_grain == timestamp:
+                grp.append(table.c[timestamp].label(timestamp)) 
+            elif time_grain == 'day':
+                grp.append(func.date(table.c[timestamp]).label(timestamp)) 
+            elif time_grain == 'month':
+                grp.append(func.year(table.c[timestamp]).label('year')) 
+                grp.append(func.month(table.c[timestamp]).label(time_grain))
+            elif time_grain == 'year':
+                grp.append(func.year(table.c[timestamp]).label(time_grain))
+            else:
+                pandas_aggregate = time_grain
+        if groupby is None:
+            groupby = []
+        for g in groupby:
+            try:
+                grp.append(table.c[g])
+            except KeyError:
+                if dimension is not None:
+                    try:
+                        grp.append(dim.c[g])
+                    except KeyError:
+                        msg = 'group by column %s not found in main table or dimension table' %g  
+                        raise (msg)
+                else:
+                    msg = 'group by column %s not found in main table and no dimension table specified' %g  
+                    raise KeyError(msg)
+        args.extend(grp)
+
+        self.start_session()
+        if pandas_aggregate is None:
+            query = self.session.query(*args).group_by(*grp)
+            if dimension is not None:
+                query = query.join(dim, dim.c.deviceid == table.c.deviceid)            
+        else:
+            (query,table) = self.query(
+                        table_name = table_name,
+                        schema = schema,
+                        timestamp_col = timestamp,
+                        start_ts = start_ts,
+                        end_ts = end_ts,
+                        entities = entities,
+                        dimension = dimension
+                    )
+        
+            
+        return (query,table,dim,pandas_aggregate,agg_dict)
+    
+    
+    def query_column_aggregate(self, table_name, schema, column, aggregate,
+                       start_ts = None,
+                       end_ts = None,
+                       entities = None):
+
+        '''
+        Perform a single aggregate operation against a table to return a scalar value
+        
+        Parameters
+        ----------
+        table_name: str
+            Source table name
+        schema: str
+            Schema name where table is located
+        column: str
+            column name
+        aggregate: str
+            aggregate function
+        start_ts: datetime
+            Retrieve data from this date
+        end_ts: datetime
+            Retrieve data up until date
+        entities: list of strs
+            Retrieve data for a list of deviceids
+        '''         
+        
+        agg_dict = { column: aggregate}
+                
+        (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+                    agg_dict = agg_dict,
+                    table_name = table_name,
+                    schema = schema,
+                    groupby = None,
+                    time_grain = None,
+                    dimension = None,
+                    start_ts = start_ts,
+                    end_ts = end_ts,
+                    entities = entities
+                )
+        
+        return (query,table)    
     
     
     def unregister_functions(self,function_names):

@@ -20,7 +20,7 @@ import re
 import pandas as pd
 import logging
 import iotfunctions as iotf
-from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
 
 logger = logging.getLogger(__name__)
@@ -246,6 +246,52 @@ class IoTAlertLowValue(BaseEvent):
     
         return (inputs,outputs)    
 
+
+class IoTConditionalItems(BaseTransformer):
+    """
+    Set the value of a data item based on the value of a conditional expression eg. if df["sensor_is_valid"]==True then df["temp"] and df["pressure"] are valid else null
+    """
+    def __init__(self,conditional_expression, conditional_items, output_items = None):
+        
+        super().__init__()
+        self.conditional_expression = self.parse_expression(conditional_expression)
+        self.conditional_items = conditional_items
+        if output_items is None:
+            output_items = ['conditional_%s' %x for x in conditional_items]
+        self.output_items = output_items
+        
+    def execute(self,df):
+        df = df.copy()
+        result  = eval(self.conditional_expression)
+        for i,o in enumerate(self.conditional_items):
+            df[self.output_items[i]] = np.where(result,df[o],None)
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['conditional_expression'] = UISingle(name = 'conditional_expression',
+                                              datatype=str,
+                                              description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
+                                              ).to_metadata()
+        inputs['conditional_items'] = UIMultiItem(name = 'conditional_items',
+                                              datatype=None,
+                                              description = 'Data items that have conditional values, e.g. temp and pressure'
+                                              ).to_metadata()        
+        #define arguments that behave as function outputs
+        outputs = OrderedDict()
+        outputs['output_items'] = UIFunctionOutMulti(name = 'output_items',
+                                                     cardinality_from = 'conditional_items',
+                                                     is_datatype_derived = False,
+                                                     description='Function output items'
+                                                     ).to_metadata()
+        
+        return (inputs,outputs)
+    
+    def get_input_items(self):
+        items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
+        return items  
 
 class IoTCosFunction(BaseTransformer):
     """
@@ -494,6 +540,29 @@ class IoTExpression(BaseTransformer):
     
         return (inputs,outputs)   
     
+    
+class IoTGetEntityData(BaseDataSource):
+    """
+    Get time series data from an entity type
+    """
+    merge_method = 'outer'
+    
+    def __init__(self,entity_type_name, key_column, input_items,
+                 output_items = None):
+        self.source_table_name = entity_type_name
+        self.source_entity_id = key_column
+        self.entity_type_name = entity_type_name
+        self.key_column = key_column
+        super().__init__(input_items = input_items, output_items = output_items)
+
+    def get_data(self,start_ts=None,end_ts=None,entities=None):
+        
+
+        df = pd.read_sql(query.statement,
+                         con = self._entity_type.db.connection,
+                         parse_dates=[self._entity_type._timestamp])        
+        return df               
+    
 class IoTIfThenElse(BaseTransformer):
     """
     Set the value of a data item based on the value of a conditional expression
@@ -541,56 +610,7 @@ class IoTIfThenElse(BaseTransformer):
     def get_input_items(self):
         items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
         return items    
-        
-    
-class IoTConditionalItems(BaseTransformer):
-    """
-    Set the value of a data item based on the value of a conditional expression eg. if df["sensor_is_valid"]==True then df["temp"] and df["pressure"] are valid else null
-    """
-    def __init__(self,conditional_expression, conditional_items, output_items = None):
-        
-        super().__init__()
-        self.conditional_expression = self.parse_expression(conditional_expression)
-        self.conditional_items = conditional_items
-        if output_items is None:
-            output_items = ['conditional_%s' %x for x in conditional_items]
-        self.output_items = output_items
-        
-    def execute(self,df):
-        df = df.copy()
-        result  = eval(self.conditional_expression)
-        for i,o in enumerate(self.conditional_items):
-            df[self.output_items[i]] = np.where(result,df[o],None)
-        return df
-    
-    @classmethod
-    def build_ui(cls):
-        #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['conditional_expression'] = UISingle(name = 'conditional_expression',
-                                              datatype=str,
-                                              description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
-                                              ).to_metadata()
-        inputs['conditional_items'] = UIMultiItem(name = 'conditional_items',
-                                              datatype=None,
-                                              description = 'Data items that have conditional values, e.g. temp and pressure'
-                                              ).to_metadata()        
-        #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['output_items'] = UIFunctionOutMulti(name = 'output_items',
-                                                     cardinality_from = 'conditional_items',
-                                                     is_datatype_derived = False,
-                                                     description='Function output items'
-                                                     ).to_metadata()
-        
-        return (inputs,outputs)
-    
-    def get_input_items(self):
-        items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
-        return items    
-
-        
-        
+                
 
 class IoTRaiseError(BaseTransformer):
     """
@@ -626,21 +646,72 @@ class IoTRaiseError(BaseTransformer):
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['halt_after'] = UIMultiItem(name = 'halt_after',
+        inputs = []
+        inputs.append(UIMultiItem(name = 'halt_after',
                                               datatype=None,
                                               description = 'Raise error after calculating items'
-                                              ).to_metadata()
+                                              ))
         #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['output_item'] = UIFunctionOutSingle(name = 'output_item',
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
                                                      datatype=bool,
                                                      description='Dummy function output'
-                                                     ).to_metadata()
+                                                     ))
     
         return (inputs,outputs)    
 
-            
+
+
+class IoTCalcSettings(BaseMetadataProvider):
+    """
+    Overide default calculation settings for the entity type
+    """
+    
+    def __init__ (self, 
+                  checkpoint_by_entity = False,
+                  pre_aggregate_time_grain = None,
+                  auto_read_from_ts_table = True,
+                  output_item = 'output_item'):
+        
+        kwargs = {
+                '_checkpoint_by_entity' : checkpoint_by_entity,
+                '_pre_aggregate_time_grain' : pre_aggregate_time_grain,
+                '_auto_read_from_ts_table' : auto_read_from_ts_table
+                }
+        
+        super().__init__(dummy_items=[],output_item=output_item, **kwargs)
+        
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle( 
+                        name = '_auto_read_from_ts_table',
+                        datatype=str,
+                        description = 'By default, data retrieved is from the designated input table. Use this setting to disable.',
+                        values = [None,'1min','5min','15min','30min','60min','day','month','year']
+                                              ))
+        inputs.append(UISingle(
+                        name = 'checkpoint_by_entity',
+                        datatype = bool,
+                        description = 'By default a single '
+                    ))
+        inputs.append(UISingle( 
+                        name = 'pre_aggregate_time_grain',
+                        datatype=str,
+                        description = 'By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
+                        values = [None,'1min','5min','15min','30min','60min','day','month','year']
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                                     datatype=bool,
+                                                     description='Dummy function output'
+                                                     ))
+    
+        return (inputs,outputs)    
+        
+        
     
 class IoTPackageInfo(BaseTransformer):
     """
