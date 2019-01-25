@@ -1059,8 +1059,12 @@ class BaseFunction(object):
             
         if incremental_update is None:
             incremental_update = self.incremental_update
-            
-        (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
+        
+        try:
+            (metadata_input,metadata_output) = self.build_ui()
+        except AttributeError:
+            (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
+        
         (input_list, output_list) = self._transform_metadata(metadata_input,metadata_output)
 
         module_and_target = '%s.%s' %(module,self.__class__.__name__)
