@@ -15,7 +15,7 @@ import json
 import urllib3
 import pandas as pd
 from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
@@ -107,15 +107,26 @@ class EntityType(object):
     # These two columns will be available in the dataframe of a pipeline
     _entity_id = 'deviceid' #identify the instance
     _timestamp_col = '_timestamp' #copy of the event timestamp from the index
-    # These two column names will be used to name the index of a pipeline dataframe
-    _timestamp = 'evt_timestamp'
+    # This column will identify an instance in the index
     _df_index_entity_id = 'id'
     # generator
     _scd_frequency = '2D'
     _activity_frequency = '3D'
     _start_entity_id = 73000 #used to build entity ids
-    _auto_entity_count = 5 #default number of entities to generate data for       
-    
+    _auto_entity_count = 5 #default number of entities to generate data for
+    # variabes that will be set when run inside an engine pipeline, or may be set as kwargs
+    _entity_type_id = None
+    logical_name = None
+    _timestamp = 'evt_timestamp'
+    _dimension_table_name = None
+    _db_connection_dbi = None
+    _db_schema = None
+    _data_items = None
+    tenant_id = None
+    # processing defaults
+    _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
+    _pre_aggregate_time_grain = None # aggregate incoming data before processing
+    _auto_read_from_ts_table = True # read new data from designated time series table for the entity
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name.lower()
         self.activity_tables = {}
@@ -123,24 +134,19 @@ class EntityType(object):
         self.db = db
         if self.db is not None:
             self.tenant_id = self.db.tenant_id
-        self.logical_name = None
-        self._db_connection_dbi = None
-        self._dimension_table = None
-        self._dimension_table_name = None
         self._system_columns = [self._entity_id,self._timestamp_col,'logicalinterface_id',
                                 'devicetype','format','updated_utc', self._timestamp]
         #pipeline processing options
         self._custom_exclude_col_from_auto_drop_nulls = []
         self._drop_all_null_rows = True
         #pipeline work variables stages
+        self._dimension_table = None
         self._scd_stages = []
         self._custom_calendar = None
         self._is_initial_transform = True
         self._trace_msg = ''
         self._is_preload_complete = False
         #initialize
-        self._db_schema = None
-        self._data_items = None
         self.set_params(**kwargs)
         if self._db_schema is None:
             msg = 'No _db_schema specified in **kwargs. Using default database schema.'
@@ -386,6 +392,21 @@ class EntityType(object):
             msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
             self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema)       
         return df
+    
+    def get_last_checkpoint(self):
+        '''
+        Get the last checkpoint recorded for entity type
+        '''
+        
+        (query,table) = self.db.query_column_aggregate(
+                                table_name = self.checkpoint_table,
+                                schema = self._db_schema,
+                                column = 'TIMESTAMP',
+                                aggregate = 'max')
+        
+        query.filter(table.c.entity_type_id==self._entity_type_id)                
+        return query.scalar()
+                
     
     def generate_scd_data(self,scd_obj,entities,days,seconds,write=True):
         

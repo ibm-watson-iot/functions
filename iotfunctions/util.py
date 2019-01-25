@@ -324,6 +324,8 @@ def resample(df,time_frequency,timestamp,dimensions=None,agg=None, default_aggre
         dimensions = []
     if agg is None:
         agg = {}
+        
+    df = df.reset_index()
 
     index_cols = [timestamp]
     index_cols.extend(dimensions)        
