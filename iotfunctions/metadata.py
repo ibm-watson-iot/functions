@@ -127,6 +127,8 @@ class EntityType(object):
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     _pre_aggregate_time_grain = None # aggregate incoming data before processing
     _auto_read_from_ts_table = True # read new data from designated time series table for the entity
+    _pre_agg_rules = None # pandas agg dictionary containing list of aggregates to apply for each item
+    _pre_agg_outputs = None #dictionary containing list of output items names for each item
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name.lower()
         self.activity_tables = {}
@@ -152,8 +154,7 @@ class EntityType(object):
             msg = 'No _db_schema specified in **kwargs. Using default database schema.'
             logger.warn(msg)
         if self.logical_name is None:
-            self.logical_name = self.name
-            
+            self.logical_name = self.name         
         if name is not None and db is not None:            
             try:
                 self.table = self.db.get_table(self.name,self._db_schema)
@@ -279,14 +280,25 @@ class EntityType(object):
                 columns.extend(dates)
                 columns.extend(categoricals)
                 columns.extend(others)
-            agg = {}
-            print (columns)
+            
+            #make sure each column is in the aggregate dictionary
+            #apply a default aggregate for each column not specified in the aggregation metadata
+            if self._pre_agg_rules is None:
+                self._pre_agg_rules = {}
+                self._pre_agg_outputs = {}
             for c in columns:
-                if c not in [self._timestamp,self._entity_id]:
-                    if c in metrics:
-                        agg[c] = 'mean'
-                    else: 
-                        agg[c] = 'max'
+                try:
+                    self._pre_agg_rules[c]
+                except KeyError:                    
+                    if c not in [self._timestamp,self._entity_id]:
+                        if c in metrics:
+                            self._pre_agg_rules[c] = 'mean'
+                            self._pre_agg_outputs[c] = 'mean_%s' %c
+                        else: 
+                            self._pre_agg_rules[c] = 'max'
+                            self._pre_agg_outputs[c] = 'max_%s' %c
+                else:
+                    pass
                         
             df = self.db.read_agg(
                     table_name = self.name,
@@ -294,7 +306,8 @@ class EntityType(object):
                     groupby = [self._entity_id],
                     timestamp = self._timestamp,
                     time_grain = self._pre_aggregate_time_grain,
-                    agg_dict = agg,
+                    agg_dict = self._pre_agg_rules,
+                    agg_outputs = self._pre_agg_outputs,
                     start_ts = start_ts,
                     end_ts = end_ts,
                     entities = entities,

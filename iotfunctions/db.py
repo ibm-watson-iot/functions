@@ -224,12 +224,10 @@ class Database(object):
             msg = 'created a CosClient object'
             logger.debug(msg)
             
-    def _aggregate_item(self,table,column_name,aggregate,alias_column=False, dimension_table = None):
+    def _aggregate_item(self,table,column_name,aggregate,alias_column=None, dimension_table = None):
         
-        if alias_column:
-            alias = '%s_%s' %(column_name,aggregate)
-        else:
-            alias = column_name
+        if alias_column is None:
+            alias_column = column_name
             
         agg_map = {
                 'count': func.count,
@@ -247,10 +245,10 @@ class Database(object):
             raise ValueError (msg)           
         
         try:
-            col = agg_function(table.c[column_name]).label(alias)
+            col = agg_function(table.c[column_name]).label(alias_column)
         except KeyError:
             try:
-                col = agg_function(dimension_table.c[column_name]).label(alias)
+                col = agg_function(dimension_table.c[column_name]).label(alias_column)
             except (KeyError,AttributeError):
                 msg = 'Aggregate column %s not present in table or on dimension' %column_name
                 raise KeyError(msg)
@@ -691,7 +689,9 @@ class Database(object):
         df = pd.read_sql(query.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
         return(df)
         
-    def read_agg(self, table_name, schema, agg_dict, groupby=None,
+    def read_agg(self, table_name, schema, agg_dict,
+                       agg_outputs = None,
+                       groupby=None,
                        timestamp=None,
                        time_grain = None,
                        dimension = None,
@@ -725,6 +725,7 @@ class Database(object):
         
         (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
                     agg_dict = agg_dict,
+                    agg_outputs = agg_outputs,
                     table_name = table_name,
                     schema = schema,
                     groupby = groupby,
@@ -913,7 +914,9 @@ class Database(object):
         return (query,table)
     
     
-    def query_agg(self, table_name, schema, agg_dict, groupby=None,
+    def query_agg(self, table_name, schema, agg_dict,
+                       agg_outputs = None,
+                       groupby=None,
                        timestamp=None,
                        time_grain = None,
                        dimension = None,
@@ -955,10 +958,18 @@ class Database(object):
         # aggregate dict is keyed on column - may contain a single aggregate function or a list of aggregation functions
         for col,aggs in agg_dict.items():
             if isinstance(aggs,str):
-                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=False, dimension_table = dim))
+                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=None, dimension_table = dim))
             elif isinstance(aggs,list):
-                for agg in aggs:
-                    args.append(self._aggregate_item(table=table,column_name=col,aggregate=agg,alias_column=True, dimension_table = dim))
+                for i,agg in enumerate(aggs):
+                    try:
+                        output = agg_outputs[col][i]
+                    except (KeyError,IndexError):
+                        output = '%s_%s' %(col,agg)
+                        msg = 'No output item name specified for %s, %s. Using default.' %(col,agg)
+                        logger.warning(msg)
+                    else:
+                        pass
+                    args.append(self._aggregate_item(table=table,column_name=col,aggregate=agg,alias_column=output,dimension_table = dim))
             else:
                 msg = 'Aggregate dictionary is not in the correct form. Supply a single aggregate function as a string or a list of strings.'
                 raise ValueError(msg)
@@ -981,11 +992,12 @@ class Database(object):
                 grp.append(self._ts_col_rounded_to_hours(table_name,schema,timestamp,hours,timestamp))                 
             elif time_grain == 'day':
                 grp.append(func.day(table.c[timestamp]).label(timestamp)) 
+            elif time_grain == 'week':
+                grp.append(func.this_week(table.c[timestamp]).label(timestamp)) 
             elif time_grain == 'month':
-                grp.append(func.year(table.c[timestamp]).label('year')) 
-                grp.append(func.month(table.c[timestamp]).label(time_grain))
+                grp.append(func.this_month(table.c[timestamp]).label(timestamp)) 
             elif time_grain == 'year':
-                grp.append(func.year(table.c[timestamp]).label(time_grain))
+                grp.append(func.this_year(table.c[timestamp]).label(timestamp))
             else:
                 pandas_aggregate = time_grain
         if groupby is None:
@@ -1020,7 +1032,6 @@ class Database(object):
                         entities = entities,
                         dimension = dimension
                     )
-        
             
         return (query,table,dim,pandas_aggregate,agg_dict)
     
