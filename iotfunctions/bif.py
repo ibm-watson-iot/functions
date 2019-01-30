@@ -256,15 +256,58 @@ class IoTCalcSettings(BaseMetadataProvider):
                   checkpoint_by_entity = False,
                   pre_aggregate_time_grain = None,
                   auto_read_from_ts_table = True,
+                  sum_items = None,
+                  mean_items = None,
+                  min_items = None,
+                  max_items = None,
+                  count_items = None,
+                  sum_outputs = None,
+                  mean_outputs = None,
+                  min_outputs = None,
+                  max_outputs = None,
+                  count_outputs = None,                  
                   output_item = 'output_item'):
         
+        #metadata for pre-aggregation:
+        #pandas aggregate dict containing a list of aggregates for each item
+        self._pre_agg_rules = {}
+        #dict containing names of aggregate items produced for each item
+        self._pre_agg_outputs = {}
+        #assemble these metadata structures
+        self._apply_pre_agg_metadata('sum',items = sum_items, outputs = sum_outputs)
+        self._apply_pre_agg_metadata('mean',items = mean_items, outputs = mean_outputs)
+        self._apply_pre_agg_metadata('min',items = min_items, outputs = min_outputs)
+        self._apply_pre_agg_metadata('max',items = max_items, outputs = max_outputs)
+        self._apply_pre_agg_metadata('count',items = count_items, outputs = count_outputs)
+        #pass metadata to the entity type
         kwargs = {
                 '_checkpoint_by_entity' : checkpoint_by_entity,
                 '_pre_aggregate_time_grain' : pre_aggregate_time_grain,
-                '_auto_read_from_ts_table' : auto_read_from_ts_table
+                '_auto_read_from_ts_table' : auto_read_from_ts_table,
+                '_pre_agg_rules' : self._pre_agg_rules,
+                '_pre_agg_outputs' : self._pre_agg_outputs
                 }
-        
         super().__init__(dummy_items=[],output_item=output_item, **kwargs)
+    
+    def _apply_pre_agg_metadata(self,aggregate,items,outputs):
+        '''
+        convert UI inputs into a pandas aggregate dictioonary and a separate dictionary containing names of aggregate items
+        '''
+        if items is not None:
+            if outputs is None:
+                outputs = ['%s_%s'%(x,aggregate) for x in items]
+            for i,item in enumerate(items):
+                try:
+                    self._pre_agg_rules[item].append(aggregate)
+                    self._pre_agg_outputs[item].append(outputs[i])
+                except KeyError:
+                    self._pre_agg_rules[item] = [aggregate]
+                    self._pre_agg_outputs[item] = [outputs[i]]
+                except IndexError:
+                    msg = 'Metadata for aggregate %s is not defined correctly. Outputs array should match length of items array.' %aggregate
+                    raise ValueError(msg)
+        
+        return None
         
     @classmethod
     def build_ui(cls):
@@ -287,7 +330,7 @@ class IoTCalcSettings(BaseMetadataProvider):
                         datatype=str,
                         required = False,
                         description = 'By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
-                        values = ['1min','5min','15min','30min','60min','day','month','year']
+                        values = ['1min','5min','15min','30min','1H','2H','4H','8H','12H','day','week','month','year']
                                               ))
         #define arguments that behave as function outputs
         outputs = []
@@ -296,7 +339,7 @@ class IoTCalcSettings(BaseMetadataProvider):
                                                      description='Dummy function output'
                                                      ))
     
-        return (inputs,outputs)   
+        return (inputs,outputs)  
 
 
 class IoTConditionalItems(BaseTransformer):
