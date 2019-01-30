@@ -737,6 +737,7 @@ class Database(object):
                 )
 
         df = pd.read_sql(query.statement,con = self.connection)
+        logger.debug(query.statement)
         if pandas_aggregate is not None:
             df = resample(df=df,time_frequency=pandas_aggregate,timestamp=timestamp,dimensions=groupby,agg=agg_dict)
         return df
@@ -801,7 +802,6 @@ class Database(object):
         '''
         Register all of the functions contained within a python module
         '''
-        
         for name, cls in inspect.getmembers(module):
             if inspect.isclass(cls):
                 if cls.__module__ == module.__name__:
@@ -813,7 +813,30 @@ class Database(object):
                 else:
                     print(name,cls.__module__)                       
                       
-        
+    def _ts_col_rounded_to_minutes(self,table_name,schema,column_name,minutes,label):
+        '''
+        Returns a column expression that rounds the timestamp to the specified number of minutes
+        '''
+        a = self.get_table(table_name,schema)
+        col = a.c[column_name]
+        hour = func.add_hours(func.timestamp(func.date(col)),func.hour(col))
+        min_col = (func.minute(col)/minutes)*minutes
+        exp = (func.add_minutes(hour,min_col)).label(label)
+        return exp
+    
+    
+    def _ts_col_rounded_to_hours(self,table_name,schema,column_name,hours,label):
+        '''
+        Returns a column expression that rounds the timestamp to the specified number of minutes
+        '''
+        a = self.get_table(table_name,schema)
+        col = a.c[column_name]
+        date_col = func.timestamp(func.date(col))
+        hour_col = (func.hour(col)/hours)*hours
+        exp = (func.add_hours(date_col,hour_col)).label(label)
+        return exp
+    
+    
     def query(self,table_name, schema,
               column_names = None,
               timestamp_col = None,
@@ -949,8 +972,14 @@ class Database(object):
                 raise ValueError (msg)
             if time_grain == timestamp:
                 grp.append(table.c[timestamp].label(timestamp)) 
+            elif time_grain.endswith('min'):
+                minutes = int(time_grain[:-3])
+                grp.append(self._ts_col_rounded_to_minutes(table_name,schema,timestamp,minutes,timestamp)) 
+            elif time_grain.endswith('H'):
+                hours = int(time_grain[:-1])
+                grp.append(self._ts_col_rounded_to_hours(table_name,schema,timestamp,hours,timestamp))                 
             elif time_grain == 'day':
-                grp.append(func.date(table.c[timestamp]).label(timestamp)) 
+                grp.append(func.day(table.c[timestamp]).label(timestamp)) 
             elif time_grain == 'month':
                 grp.append(func.year(table.c[timestamp]).label('year')) 
                 grp.append(func.month(table.c[timestamp]).label(time_grain))
