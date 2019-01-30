@@ -736,8 +736,9 @@ class Database(object):
                     entities = entities
                 )
 
-        df = pd.read_sql(query.statement,con = self.connection)
-        logger.debug(query.statement)
+        sql = query.statement.compile(compile_kwargs={"literal_binds": True})
+        df = pd.read_sql(sql,con = self.connection)
+        logger.debug(sql)
         if pandas_aggregate is not None:
             df = resample(df=df,time_frequency=pandas_aggregate,timestamp=timestamp,dimensions=groupby,agg=agg_dict)
         return df
