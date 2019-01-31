@@ -302,18 +302,19 @@ class CalcPipeline:
     def _execute_stage(self,stage,df,start_ts,end_ts,entities,trace_history,register,to_csv,dropna, abort_on_fail): 
         #check to see if incoming data has a conformed index, conform if needed
         try:
-            df = stage.conform_index(df=df)
-        except AttributeError:
-            pass
-        except KeyError:
-            trace = self.get_trace_history() + ' Failure occured when attempting to conform index'
-            logger.exception(trace)
-            raise               
-        try:
             abort_on_fail = stage._abort_on_fail
         except AttributeError:
             abort_on_fail = abort_on_fail
+        try:
+            df = stage.conform_index(df=df)
+        except AttributeError:
+            pass
+        except KeyError as e:
+            msg = self.log_df_info(df,'conform_index')
+            msg = 'KeyError while conforming index (%s) ' %msg
+            self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)               
         msg = ' Dataframe at start of %s: ' %stage.__class__.__name__
+        self.log_df_info(df,msg)
         try:
             last_msg = stage.log_df_info(df,msg)
         except Exception:

@@ -315,7 +315,6 @@ class EntityType(object):
                     )
 
             self.trace_append(' Read input data start %s aggregated to %s'  %(start_ts,self._pre_aggregate_time_grain))
-            self.trace_append(' cols: %s' %df.columns)
 
         return df   
 
