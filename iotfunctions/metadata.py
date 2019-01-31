@@ -449,6 +449,36 @@ class EntityType(object):
             self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema)       
         return df
     
+    
+    def generate_dimension_data(self,entities,write=True):
+        
+        (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
+                                                self._dimension_table_name,
+                                                self._db_schema,exclude_cols = [self._entity_id])
+        
+        rows = len(entities)
+        data = {}
+        
+        for m in metrics:
+            data[m] = MetricGenerator(m).get_data(rows=rows)
+
+        for c in categoricals:
+            data[c] = CategoricalGenerator(c).get_data(rows=rows)            
+            
+        data[self._entity_id] = entities
+            
+        df = pd.DataFrame(data = data)
+        
+        for d in dates:
+            df[d] = DateGenerator(d).get_data(rows=rows)
+            df[d] = pd.to_datetime(df[d])
+            
+        if write:
+            self.db.write_frame(df,
+                                table_name = self._dimension_table_name,
+                                if_exists = 'replace',
+                                schema = self._db_schema)
+    
     def get_last_checkpoint(self):
         '''
         Get the last checkpoint recorded for entity type
@@ -600,35 +630,13 @@ class EntityType(object):
         #logger.debug(msg)
         return response
     
-            
-    def generate_dimension_data(self,entities,write=True):
+    def trace_append(self,msg):
+        '''
+        Appenda string to the trace message that records status of pipeline execution
+        '''
+        self._trace_msg = self._trace_msg + ' ' + msg
         
-        (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
-                                                self._dimension_table_name,
-                                                self._db_schema,exclude_cols = [self._entity_id])
-        
-        rows = len(entities)
-        data = {}
-        
-        for m in metrics:
-            data[m] = MetricGenerator(m).get_data(rows=rows)
-
-        for c in categoricals:
-            data[c] = CategoricalGenerator(c).get_data(rows=rows)            
-            
-        data[self._entity_id] = entities
-            
-        df = pd.DataFrame(data = data)
-        
-        for d in dates:
-            df[d] = DateGenerator(d).get_data(rows=rows)
-            df[d] = pd.to_datetime(df[d])
-            
-        if write:
-            self.db.write_frame(df,
-                                table_name = self._dimension_table_name,
-                                if_exists = 'replace',
-                                schema = self._db_schema)
+    
             
     def set_custom_calendar(self,custom_calendar):
         '''

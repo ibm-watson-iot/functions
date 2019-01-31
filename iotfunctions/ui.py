@@ -254,28 +254,31 @@ class UIMultiItem(BaseUIControl):
 
     def to_output_metadata(self):
         
-        if not self.output_datatype is None:
-            datatype = [self.output_datatype]
-        else:
-            datatype= None
+        if self.output_item is not None:        
+            if not self.output_datatype is None:
+                datatype = [self.output_datatype]
+            else:
+                datatype= None
+                        
+            meta = {
+                    'name' : self.output_item,
+                    'cardinalityFrom' : self.name,
+                    'dataTypeForArray' : datatype,
+                    'description' : self.description,
+                    'tags' : self.tags,
+                    'jsonSchema' : {
+                                    "$schema" : "http://json-schema.org/draft-07/schema#",
+                                    "type" : "array",
+                                    "items" : {"type": "string"}
+                                    }
+                    }
                     
-        meta = {
-                'name' : self.output_item,
-                'cardinalityFrom' : self.name,
-                'dataTypeForArray' : datatype,
-                'description' : self.description,
-                'tags' : self.tags,
-                'jsonSchema' : {
-                                "$schema" : "http://json-schema.org/draft-07/schema#",
-                                "type" : "array",
-                                "items" : {"type": "string"}
-                                }
-                }
-                
-        if self.is_datatype_derived:
-            meta['is_output_datatype_derived'] = self.name
-                
-        return meta        
+            if self.is_output_datatype_derived:
+                meta['dataTypeFrom'] = self.name
+                            
+            return meta        
+        else:
+            return None
 
 
 class UIMulti(BaseUIControl):
@@ -302,7 +305,10 @@ class UIMulti(BaseUIControl):
         Values to display in UI picklist        
     '''
     def __init__(self,name, datatype, description=None, required = True,
-                 min_items = None, max_items = None, tags = None, values = None):
+                 min_items = None, max_items = None, tags = None, values = None,
+                 output_item = None,
+                 is_output_datatype_derived = False,
+                 output_datatype = None):
         
         self.name = name
         self.datatype = datatype
@@ -321,11 +327,18 @@ class UIMulti(BaseUIControl):
             tags = []
         self.tags = tags
         self.values = values
+        #the following metadata is optional
+        #used to create an array output for this input
+        self.output_item = output_item
+        self.is_output_datatype_derived = is_output_datatype_derived
+        self.output_datatype = output_datatype
+        
         
     def to_metadata(self):
         
         if self.datatype is None:
-            datatype = None
+            msg = 'Datatype is required for multi constant array input %s' %self.name
+            raise ValueError(msg)
         else:
             datatype = [self.convert_datatype(self.datatype)]
         
@@ -347,6 +360,34 @@ class UIMulti(BaseUIControl):
                                 }
                 }
         return meta 
+    
+    def to_output_metadata(self):
+        
+        if self.output_item is not None:        
+            if self.output_datatype is not None:
+                datatype = [self.convert_datatype(self.output_datatype)]
+            else:
+                datatype= None
+                        
+            meta = {
+                    'name' : self.output_item,
+                    'cardinalityFrom' : self.name,
+                    'dataTypeForArray' : datatype,
+                    'description' : self.description,
+                    'tags' : self.tags,
+                    'jsonSchema' : {
+                                    "$schema" : "http://json-schema.org/draft-07/schema#",
+                                    "type" : "array",
+                                    "items" : {"type": "string"}
+                                    }
+                    }
+                    
+            if self.is_output_datatype_derived:
+                meta['dataTypeFrom'] = self.name
+                            
+            return meta        
+        else:
+            return None    
     
 class UISingle(BaseUIControl):
     '''

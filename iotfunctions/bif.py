@@ -340,6 +340,14 @@ class IoTCalcSettings(BaseMetadataProvider):
                         output_item = 'sum_outputs',
                         is_output_datatype_derived = True
                 ))
+        inputs.append(UIMultiItem(
+                        name = 'mean_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that should be averaged when aggregating',
+                        output_item = 'mean_outputs',
+                        is_output_datatype_derived = True
+                ))        
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_item',
@@ -765,23 +773,48 @@ class IoTRaiseError(BaseTransformer):
     
 class IoTPackageInfo(BaseTransformer):
     """
-    Show the version number 
+    Show the version of a list of installed packages. Optionally install packages that are not installed.
     """
     
-    def __init__ (self, dummy_item, package_url = 'package_url', module = 'module', version = 'version'):
+    def __init__ (self, package_names,add_to_trace=True, install_missing = True, version_output = None):
         
-        self.dummy_item = dummy_item
-        self.package_url = package_url
-        self.module = module
-        self.version = version
+        self.package_names = package_names
+        self.add_to_trace = add_to_trace
+        self.install_missing = install_missing
+        if version_output is None:
+            version_output = ['%s_version' %x for x in package_names]
+        self.version_output = version_output
         super().__init__()
         
     def execute(self,df):
-        
+        import importlib
+        entity_type = self.get_entity_type()
         df = df.copy()
-        df[self.package_url] = self.url
-        df[self.module] = self.__module__
-        df[self.version] = iotf.__version__
+        for i,p in enumerate(self.package_names):
+            ver = ''
+            try:
+                installed_package = importlib.import_module(p)
+            except (ImportError,ModuleNotFoundError):
+                if self.install_missing:
+                    entity_type.db.install_package(p)
+                    try:
+                        installed_package = importlib.import_module(p)
+                    except (ImportError,ModuleNotFoundError):
+                        ver = 'Package could not be installed'
+                    else:
+                        try:
+                            ver = 'installed %s' %installed_package.__version__
+                        except AttributeError:
+                            ver = 'Package has no __version__ attribute'
+            else:
+                try:
+                    ver = installed_package.__version__
+                except AttributeError:
+                    ver = 'Package has no __version__ attribute'
+            df[self.version_output[i]] = ver
+            if self.add_to_trace:
+                msg = '( %s : %s)' %(p, ver)
+                entity_type.trace_append(msg)
         
         return df
     
@@ -789,15 +822,17 @@ class IoTPackageInfo(BaseTransformer):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name = 'halt_after',
-                                              datatype=None,
-                                              description = 'Raise error after calculating items'
+        inputs.append(UIMulti(name = 'package_names',
+                              datatype=str,
+                              description = 'Comma separate list of python package names',
+                              output_item = 'version_output',
+                              is_output_datatype_derived = False,
+                              output_datatype = str
                                               ))
+        inputs.append(UISingle(name='install_missing',datatype=bool))
+        inputs.append(UISingle(name='add_to_trace',datatype=bool))
         #define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'package_url', datatype = str))
-        outputs.append(UIFunctionOutSingle(name = 'module', datatype = str))
-        outputs.append(UIFunctionOutSingle(name = 'version', datatype = str))
     
         return (inputs,outputs)     
     

@@ -1064,7 +1064,7 @@ class BaseFunction(object):
             (metadata_input,metadata_output) = self.build_ui()
         except AttributeError:
             (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
-        
+                    
         (input_list, output_list) = self._transform_metadata(metadata_input,metadata_output)
 
         module_and_target = '%s.%s' %(module,self.__class__.__name__)
@@ -1211,7 +1211,7 @@ class BaseFunction(object):
         '''
         legacy metadata structure is a dict containing a metadata dict
         new metadata structure is a list containing ui objects
-        convert to a list containing a metadata dict
+        convert to a list containing a metadata dict to use legacy code
         '''
         
         if not isinstance(metadata_input,list):
@@ -1219,23 +1219,26 @@ class BaseFunction(object):
         if not isinstance(metadata_output,list):
             metadata_output = list(metadata_output.values())
         output_list= []
+        input_list= []
         for m in metadata_output:
             try:
                 output_list.append(m.to_metadata())
             except AttributeError:
-                output_list.append(m)   
-        input_list= []
+                output_list.append(m) 
         for m in metadata_input:
             try:
                 input_list.append(m.to_metadata())
             except AttributeError:
                 input_list.append(m)
+            #some inputs can create outputs automatically
+            try:
+                output_metadata = m.to_output_metadata()
+            except AttributeError:
+                pass
             else:
-                #some inputs can create outputs automatically
-                try:
-                    output_list.append(m.to_output_metadata())
-                except AttributeError:
-                    pass
+                if output_metadata is not None:
+                    output_list.append(output_metadata)
+
         for i in input_list:
             msg = 'Looking for item values for %s' %i
             logger.debug(msg)
