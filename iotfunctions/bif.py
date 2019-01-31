@@ -332,6 +332,14 @@ class IoTCalcSettings(BaseMetadataProvider):
                         description = 'By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
                         values = ['1min','5min','15min','30min','1H','2H','4H','8H','12H','day','week','month','year']
                                               ))
+        inputs.append(UIMultiItem(
+                        name = 'sum_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that should be added when aggregating',
+                        output_item = 'sum_outputs',
+                        is_output_datatype_derived = True
+                ))
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_item',
