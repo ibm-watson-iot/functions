@@ -187,7 +187,6 @@ class CalcPipeline:
                 to_csv = to_csv,
                 dropna = dropna,
                 abort_on_fail = True)
-        self.append_trace('<sds:')
             
         #execute custom calendar
         self.append_trace('>lu:')
@@ -203,8 +202,7 @@ class CalcPipeline:
                 register = register,
                 to_csv = to_csv,
                 dropna = dropna,
-                abort_on_fail = True)
-        self.append_trace('<lu:')    
+                abort_on_fail = True)    
         
         return(df,remaining_stages)    
             

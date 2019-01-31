@@ -268,7 +268,7 @@ class EntityType(object):
                     entities = entities,
                     dimension = self._dimension_table_name
                     ) 
-            self._trace_msg = self._trace_msg + ' Read all input data start %s' %start_ts
+            self._trace_msg = self._trace_msg + ' Read start_ts %s' %start_ts
             
         else:
             (metrics,dates,categoricals,others) = self.db.get_column_lists_by_type(self.name,self._db_schema)
@@ -314,7 +314,8 @@ class EntityType(object):
                     dimension = self._dimension_table_name                    
                     )
 
-            self._trace_msg = self._trace_msg + ' Read input data start %s aggregated to %s'  %(start_ts,self._pre_aggregate_time_grain)
+            self.trace_append(' Read input data start %s aggregated to %s'  %(start_ts,self._pre_aggregate_time_grain))
+            self.trace_append(' cols: %s' %df.columns)
 
         return df   
 
