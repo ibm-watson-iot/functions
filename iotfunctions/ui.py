@@ -89,7 +89,8 @@ class UIFunctionOutMulti(BaseUIControl):
                  is_datatype_derived = False,
                  datatype = None,
                  description=None,
-                 tags = None):
+                 tags = None,
+                 output_item = None):
         
         self.name = name
         self.cardinality_from = cardinality_from
@@ -198,7 +199,11 @@ class UIMultiItem(BaseUIControl):
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT'] 
     '''
     def __init__(self,name, datatype=None, description=None, required = True,
-                 min_items = None, max_items = None, tags = None):
+                 min_items = None, max_items = None, tags = None,
+                 output_item = None,
+                 is_output_datatype_derived = False,
+                 output_datatype = None
+                 ):
         
         self.name = name
         self.datatype = datatype
@@ -216,6 +221,11 @@ class UIMultiItem(BaseUIControl):
         if tags is None:
             tags = []
         self.tags = tags
+        #the following metadata is optional
+        #used to create an array output for this input
+        self.output_item = output_item
+        self.is_output_datatype_derived = is_output_datatype_derived
+        self.output_datatype = output_datatype
         
     def to_metadata(self):
         
@@ -240,7 +250,32 @@ class UIMultiItem(BaseUIControl):
                                 "items" : {"type": "string"}
                                 }
                 }
-        return meta          
+        return meta
+
+    def to_output_metadata(self):
+        
+        if not self.output_datatype is None:
+            datatype = [self.output_datatype]
+        else:
+            datatype= None
+                    
+        meta = {
+                'name' : self.output_item,
+                'cardinalityFrom' : self.name,
+                'dataTypeForArray' : datatype,
+                'description' : self.description,
+                'tags' : self.tags,
+                'jsonSchema' : {
+                                "$schema" : "http://json-schema.org/draft-07/schema#",
+                                "type" : "array",
+                                "items" : {"type": "string"}
+                                }
+                }
+                
+        if self.is_datatype_derived:
+            meta['is_output_datatype_derived'] = self.name
+                
+        return meta        
 
 
 class UIMulti(BaseUIControl):

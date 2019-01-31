@@ -1216,12 +1216,6 @@ class BaseFunction(object):
         
         if not isinstance(metadata_input,list):
             metadata_input = list(metadata_input.values())
-        input_list= []
-        for m in metadata_input:
-            try:
-                input_list.append(m.to_metadata())
-            except AttributeError:
-                input_list.append(m)
         if not isinstance(metadata_output,list):
             metadata_output = list(metadata_output.values())
         output_list= []
@@ -1229,8 +1223,22 @@ class BaseFunction(object):
             try:
                 output_list.append(m.to_metadata())
             except AttributeError:
-                output_list.append(m)
+                output_list.append(m)   
+        input_list= []
+        for m in metadata_input:
+            try:
+                input_list.append(m.to_metadata())
+            except AttributeError:
+                input_list.append(m)
+            else:
+                #some inputs can create outputs automatically
+                try:
+                    output_list.append(m.to_output_metadata())
+                except AttributeError:
+                    pass
         for i in input_list:
+            msg = 'Looking for item values for %s' %i
+            logger.debug(msg)
             try:    
                 item_values = cls.get_item_values(arg=i)
             except (AttributeError,NotImplementedError,TypeError):
@@ -1242,8 +1250,8 @@ class BaseFunction(object):
                 except KeyError:
                     pass
                 if metadata_values is None:
-                    i['values'] = item_values
-                
+                    i['values'] = item_values 
+
         return(input_list,output_list)
         
     
