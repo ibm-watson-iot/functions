@@ -111,7 +111,7 @@ class CalcPipeline:
                                 end_ts=None,
                                 entities=None,
                                 to_csv=False,
-                                trace_history ='',
+                                trace_history = self.get_trace_history(),
                                 register=False,
                                 dropna = False):
         '''
@@ -244,7 +244,7 @@ class CalcPipeline:
                                                 to_csv = to_csv,
                                                 register = register,
                                                 dropna =  dropna,
-                                                trace_history = 'custom source>'
+                                                trace_history = self.get_trace_history()'
                                                 )
                           
         else:
