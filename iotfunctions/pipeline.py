@@ -312,7 +312,7 @@ class CalcPipeline:
         except KeyError as e:
             msg = self.log_df_info(df,'conform_index')
             msg = 'KeyError while conforming index (%s) ' %msg
-            self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)               
+            self._raise_error(exception = e,msg = msg, abort_on_fail = abort_on_fail)               
         msg = ' Dataframe at start of %s: ' %stage.__class__.__name__
         self.log_df_info(df,msg)
         try:
