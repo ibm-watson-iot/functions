@@ -244,7 +244,7 @@ class CalcPipeline:
                                                 to_csv = to_csv,
                                                 register = register,
                                                 dropna =  dropna,
-                                                trace_history = self.get_trace_history()'
+                                                trace_history = self.get_trace_history()
                                                 )
                           
         else:
