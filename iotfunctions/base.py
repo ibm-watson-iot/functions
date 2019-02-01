@@ -2097,6 +2097,8 @@ class BaseSCDLookup(BaseTransformer):
         df = self.conform_index(df)        
         msg = 'after scd lookup of %s from table %s' %(scd_property,self.table_name)
         self.log_df_info(df,msg) 
+        self.trace_append(msg)
+        
         return df
     
     @classmethod
@@ -2104,8 +2106,8 @@ class BaseSCDLookup(BaseTransformer):
         #define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingle(name = 'table_name',
-                                              datatype=str,
-                                              description = 'Table name to use as source for lookup'
+                               datatype=str,
+                               description = 'Table name to use as source for lookup'
                                               ))
         #define arguments that behave as function outputs
         outputs = []
