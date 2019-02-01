@@ -21,6 +21,7 @@ from ibm_db_sa.base import DOUBLE
 from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
+from .util import log_df_info
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +316,9 @@ class EntityType(object):
                     )
 
             self.trace_append(' Read input data start %s aggregated to %s'  %(start_ts,self._pre_aggregate_time_grain))
+            
+        msg = log_df_info(df,'after read source')
+        self.trace_append(msg)
 
         return df   
 

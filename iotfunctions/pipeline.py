@@ -301,6 +301,7 @@ class CalcPipeline:
     
     def _execute_stage(self,stage,df,start_ts,end_ts,entities,trace_history,register,to_csv,dropna, abort_on_fail): 
         #check to see if incoming data has a conformed index, conform if needed
+        trace = trace_history + ' pipeline failed during execution of stage %s. ' %stage.__class__.__name__  
         try:
             abort_on_fail = stage._abort_on_fail
         except AttributeError:
@@ -312,14 +313,14 @@ class CalcPipeline:
         except KeyError as e:
             msg = self.log_df_info(df,'conform_index')
             msg = 'KeyError while conforming index (%s) ' %msg
-            self._raise_error(exception = e,msg = msg, abort_on_fail = abort_on_fail)               
+            trace = trace + msg
+            self._raise_error(exception = e,msg = trace, abort_on_fail = abort_on_fail)               
         msg = ' Dataframe at start of %s: ' %stage.__class__.__name__
         self.log_df_info(df,msg)
         try:
             last_msg = stage.log_df_info(df,msg)
         except Exception:
             last_msg = self.log_df_info(df,msg)
-        trace = trace_history + ' pipeline failed during execution of stage %s. ' %stage.__class__.__name__  
         #there are two signatures for the execute method
         try:
             try:
