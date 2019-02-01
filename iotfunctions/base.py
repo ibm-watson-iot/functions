@@ -2070,8 +2070,15 @@ class BaseSCDLookup(BaseTransformer):
         
     def execute(self,df):
         
+        msg = 'starting scd lookup of %s from table %s' %(self.output_item,self.table_name)
+        msg = self.log_df_info(df,msg) 
+        self.trace_append(msg)
+        
         (start_ts, end_ts, entities) = self._get_data_scope(df)
         resource_df = self.get_scd_data(table_name = self.table_name, start_ts = start_ts, end_ts=end_ts, entities=entities)
+        msg = 'df for resource lookup' 
+        msg = self.log_df_info(resource_df,msg) 
+        self.trace_append(msg)       
         system_cols = [self._start_date,self._end_date,self._entity_type._entity_id]
         try:
             scd_property = [x for x in resource_df.columns if x not in system_cols][0]
@@ -2094,10 +2101,10 @@ class BaseSCDLookup(BaseTransformer):
                 df = df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
                 df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
         
-        df = self.conform_index(df)        
         msg = 'after scd lookup of %s from table %s' %(scd_property,self.table_name)
-        self.log_df_info(df,msg) 
+        msg = self.log_df_info(df,msg) 
         self.trace_append(msg)
+        df = self.conform_index(df)  
         
         return df
     
