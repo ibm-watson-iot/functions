@@ -10,10 +10,11 @@
 
 import logging
 import datetime as dt
+import sys
 import numpy as np
 import json
-import urllib3
 import pandas as pd
+from collections import OrderedDict
 from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
@@ -147,7 +148,7 @@ class EntityType(object):
         self._scd_stages = []
         self._custom_calendar = None
         self._is_initial_transform = True
-        self._trace_msg = ''
+        self._trace = Trace(self)
         self._is_preload_complete = False
         #initialize
         self.set_params(**kwargs)
@@ -269,7 +270,7 @@ class EntityType(object):
                     entities = entities,
                     dimension = self._dimension_table_name
                     ) 
-            self._trace_msg = self._trace_msg + ' Read start_ts %s' %start_ts
+            self.trace_append(' Read source data from date: %s' %start_ts)
             
         else:
             (metrics,dates,categoricals,others) = self.db.get_column_lists_by_type(self.name,self._db_schema)
@@ -315,10 +316,11 @@ class EntityType(object):
                     dimension = self._dimension_table_name                    
                     )
 
-            self.trace_append(' Read input data start %s aggregated to %s'  %(start_ts,self._pre_aggregate_time_grain))
+            msg = ' Read input data start %s aggregated to %s'  %(start_ts,self._pre_aggregate_time_grain)
+            self.trace_append(self,'Get time series data',msg=msg)
             
         msg = log_df_info(df,'after read source')
-        self.trace_append(msg)
+        self.trace_append(self,'Get time series data',msg=msg)
 
         return df   
 
@@ -567,7 +569,27 @@ class EntityType(object):
             self._dimension_table = dim.table
             dim.create()
             msg = 'Creates dimension table %s' %self._dimension_table_name
-            logger.debug(msg)     
+            logger.debug(msg)
+            
+            
+    def raise_error(self,exception,msg='',abort_on_fail=False):
+        '''
+        Raise an exception. Append a message and the current trace to the stacktrace.
+        '''
+        msg = msg + '. ' + str(self._trace)
+        
+        msg = '%s - %s : ' %(str(exception),msg)
+        if abort_on_fail:
+            try:
+                tb = sys.exc_info()[2]
+            except TypeError:
+                raise type(exception)(msg)
+            else:
+                raise type(exception)(msg).with_traceback(tb)
+        else:
+            logger.warn(msg)
+            msg = 'An exception occured during execution of a pipeline stage. The stage is configured to continue after an execution failure'
+            logger.warn(msg)
     
     def register(self):
         '''
@@ -634,13 +656,17 @@ class EntityType(object):
         #logger.debug(msg)
         return response
     
-    def trace_append(self,msg):
-        '''
-        Appenda string to the trace message that records status of pipeline execution
-        '''
-        self._trace_msg = self._trace_msg + ' ' + msg
         
-    
+    def trace_append(self,created_by,title,msg,log_method=None,**kwargs):
+        '''
+        Write to entity type trace
+        '''
+        self._trace.write(created_by = created_by,
+                          title = title,
+                          log_method = log_method,
+                          text = msg,
+                          **kwargs)
+        
             
     def set_custom_calendar(self,custom_calendar):
         '''
@@ -655,6 +681,10 @@ class EntityType(object):
         df['end_date'] = df['end_date'] - pd.Timedelta(seconds = 1)
         df['end_date'] = df['end_date'].fillna(pd.Timestamp.max)
         return df
+    
+    def __str__(self):
+        out = self.name
+        return out
     
     def exec_pipeline(self, *args, to_csv = False, register = False, start_ts = None, publish = False):
         '''
@@ -677,18 +707,59 @@ class EntityType(object):
         return self
 
 
-
-
-class Job(EntityType):
+class Trace(object)    :
     '''
-    EntityType with execution logic tweaked for job processing. 
-    '''
-    def __init__ (self,name,db, *args, **kwargs):
-        args.append(Column('status'))        
-        args.append(Column('start_date'))
-        args.append(Column('end_date'))
-        super().init(name = name, db=db, *args, **kwargs)
+    Gather status and diagnostic information to report back in the UI
+    '''    
+    def __init__(self,parent=None):
+        self.parent = parent
+        self.data = OrderedDict()
         
+    def write(self,created_by,title,text,log_method=None,**kwargs):
+
+        entry = { 'timestamp' : str(dt.datetime.utcnow()),
+                  'created_by' : str(created_by),
+                  'text': str(text)
+                }
+        for key,value in list(kwargs.values()):
+            if isinstance(value,pd.DataFrame):
+                kwargs[key] = self._df_as_dict(value)
+            elif not isinstance(value,str):
+                kwargs[key] = str(value)
+        entry = {**entry,**kwargs}
+        
+        try:
+            self.data[title].append(entry)
+        except KeyError:
+            self.data[title] = [entry]
+            
+        if log_method is not None:
+            log_method(text)
+            
+    def _df_as_dict(self,df):
+        
+        data = {}
+        data['df_count'] = len(df.index)
+        data['df_index'] = list(df.index.names)
+        data['df_columns'] = list(df.columns)
+        return(data)
+        
+    def as_json(self):
+        
+        return json.dumps(self.data)
+    
+    def __str__(self):
+        
+        out = ''
+        for title,values in list(self.data.items()):
+            out = out + title + '>'
+            for v in values:
+                out = out + v['text'] + '; '
+            out = out + ' |'
+            
+        return out
+                
+    
 
 
 class Model(object):

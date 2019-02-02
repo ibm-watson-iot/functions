@@ -139,8 +139,6 @@ class BaseFunction(object):
         if self._entity_scd_dict is None:
             self._entity_scd_dict= {}
 
-        self._trace_msg = ''                
-
         #if cos credentials are not explicitly  provided use environment variable
         if self.bucket is None:
             if not self.cos_credentials is None:
@@ -1062,7 +1060,7 @@ class BaseFunction(object):
         
         try:
             (metadata_input,metadata_output) = self.build_ui()
-        except AttributeError:
+        except (AttributeError,NotImplementedError):
             (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
                     
         (input_list, output_list) = self._transform_metadata(metadata_input,metadata_output)
@@ -1180,31 +1178,29 @@ class BaseFunction(object):
         for key,value in list(params.items()):
             setattr(self, key, value)
         return self
+    
+    def __str__(self):
+        
+        return self.name
  
 
-    def trace_append(self,msg):
+    def trace_append(self,msg, title=None,log_method=None,**kwargs):
         '''
-        Add a string to the trace. This trace will be displayed if the function fails during execution.
+        Add to the trace info collected during function execution
         '''
-        try:
-            self._trace = self._trace + ' ' + msg
-        except AttributeError:
-            self._trace = msg
-            
-    def trace_get(self):
-        '''
-        Get trace information that was provided by the function author
-        '''
-        try:
-            return(self._trace)    
-        except AttributeError:
-            return None
-
-    def trace_replace(self,msg):
-        '''
-        Replace the trace string. This trace will be displayed if the function fails during execution.
-        '''
-        self._trace = msg
+        if title is None:
+            try:
+                title = self.name
+            except AttributeError:
+                title = self.__class__.__name__
+                
+        et = self.get_entity_type()
+        et.trace_append(created_by = self,
+                        title=title,
+                        msg=msg,
+                        log_method=log_method,
+                        **kwargs)
+        
 
     @classmethod        
     def _transform_metadata(cls,metadata_input,metadata_output):

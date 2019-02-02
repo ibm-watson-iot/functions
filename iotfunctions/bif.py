@@ -625,7 +625,7 @@ class IoTExpression(BaseTransformer):
     def execute(self, df):
         df = df.copy()
         requested = list(self.get_input_items())
-        msg = ' | function requested items %s using get_input_data. ' %','.join(requested)
+        msg = '  Function requested items %s using get_input_data. ' %','.join(requested)
         self.trace_append(msg)
         df[self.output_name] = eval(self.expression)
         return df
@@ -741,11 +741,7 @@ class IoTRaiseError(BaseTransformer):
         
         msg = self.log_df_info(df,'Prior to raising error')
         self.trace_append(msg)
-        msg = 'Entity type metadata: %s' %self._entity_type.__dict__
-        self.trace_append(msg)
-        msg = 'Function metadata: %s' %self.__dict__
-        self.trace_append(msg)
-        msg = 'Calculation was halted deliberately by the inclusion of a function that raised an exception in the configuration of the pipeline'
+        msg = 'The calculation was halted deliberately by the IoTRaiseError function. Remove the IoTRaiseError function or disable "abort_execution" in the function configuration. '
         if self.abort_execution:
             raise RuntimeError(msg)
         
@@ -814,7 +810,7 @@ class IoTPackageInfo(BaseTransformer):
             df[self.version_output[i]] = ver
             if self.add_to_trace:
                 msg = '( %s : %s)' %(p, ver)
-                entity_type.trace_append(msg)
+                self.trace_append(msg)
         
         return df
     

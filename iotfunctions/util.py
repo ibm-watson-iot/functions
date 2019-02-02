@@ -277,13 +277,13 @@ def log_df_info(df,msg,include_data=False):
     Log a debugging entry showing first row and index structure
     '''
     try:
-        msg = msg + ' | df count: %s ' %(len(df.index))
+        msg = msg + ' df count: %s ' %(len(df.index))
         if df.index.names != [None]:
-            msg = msg + ' | df index: %s ' %(','.join(df.index.names))
+            msg = msg + ' ; index: %s ' %(','.join(df.index.names))
         else:
-            msg = msg + ' | df index is unnamed'
+            msg = msg + ' ; index is unnamed'
         if include_data:
-            msg = msg + ' | 1st row: '
+            msg = msg + ' ; 1st row: '
             try:
                 cols = df.head(1).squeeze().to_dict()    
                 for key,value in list(cols.items()):
@@ -291,7 +291,7 @@ def log_df_info(df,msg,include_data=False):
             except AttributeError:
                 msg = msg + str(df.head(1))
         else:
-            msg = msg + ' | columns: %s' %(','.join(list(df.columns)))
+            msg = msg + ' ; columns: %s' %(','.join(list(df.columns)))
         logger.debug(msg)
         return msg
     except Exception:
