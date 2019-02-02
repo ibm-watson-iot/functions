@@ -304,7 +304,7 @@ class CalcPipeline:
             msg = self.log_df_info(df,'conform_index')
             msg = 'KeyError while conforming index (%s) ' %msg
             self.trace_append(msg)
-            self._entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
+            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         msg = ' Dataframe at start of %s: ' %stage.__class__.__name__
         self.log_df_info(df,msg)
         try:
