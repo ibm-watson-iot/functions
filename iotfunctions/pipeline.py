@@ -80,20 +80,18 @@ class CalcPipeline:
         for p in preload_stages:
             if not self.entity_type._is_preload_complete:
                 status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
+                msg = 'Execute preload function %s complete.' %p.__class__.__name__
+                self.trace_append(msg)
                 if register:
                     p.register(df=None)
-                self.trace_append(' preloaded %s ->' %p.__class__.__name__)
                 try:
                     preload_item_names.append(p.output_item)
                 except AttributeError:
                     msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
                     raise AttributeError (msg)
-                if status:
-                    msg = 'Successfully executed preload stage %s' %p.__class__.__name__
-                    logger.debug(msg)
-                else:
-                    msg = 'Preload stage %s returned continue pipeline value of False. Aborting execution.' %p.__class__.__name__
-                    logger.debug(msg)
+                if not status:
+                    msg = 'Preload stage %s returned with status of False. Aborting execution.' %p.__class__.__name__
+                    self.trace_append(msg)
                     stages = []
                     break
         self.entity_type._is_preload_complete = True
@@ -208,16 +206,16 @@ class CalcPipeline:
         #preload may  have already taken place. if so pass the names of the items produced by stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
-        msg = 'Running pipeline with start timestamp %s' %start_ts
-        logger.debug(msg)
+        msg = 'Executing pipeline with %s stages' % len(self.stages)
+        self.trace_append(msg,created_by = self, title = None, log_method = logger.debug)            
         is_initial_transform = self.get_initial_transform_status()
         # A single execution can contain multiple CalcPipeline executions
         # An initial transform and one or more aggregation executions and post aggregation transforms
         # Behavior is different during initial transform
         if is_initial_transform:
             if not start_ts is None:
-                msg = 'start ts %s :' %start_ts
-                self.trace_append(msg)
+                msg = 'Start timestamp specified: %s.' % start_ts
+                self.trace_append(msg,created_by = self, title = None, log_method = debug)
             #process preload stages first if there are any
             (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities,register=register)
             preloaded_item_names.extend(preload_item_names)
@@ -291,26 +289,23 @@ class CalcPipeline:
     
     
     def _execute_stage(self,stage,df,start_ts,end_ts,entities,register,to_csv,dropna, abort_on_fail): 
-        #check to see if incoming data has a conformed index, conform if needed
         try:
             abort_on_fail = stage._abort_on_fail
         except AttributeError:
             abort_on_fail = abort_on_fail
         try:
+            name = stage.name
+        except AttributeError:
+            name = stage.__class__.__name__
+        #check to see if incoming data has a conformed index, conform if needed
+        try:
             df = stage.conform_index(df=df)
         except AttributeError:
             pass
         except KeyError as e:
-            msg = self.log_df_info(df,'conform_index')
-            msg = 'KeyError while conforming index (%s) ' %msg
-            self.trace_append(msg)
+            msg = 'KeyError while conforming index prior to execution' %name
+            self.trace_append(msg,created_by = stage, df = df)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
-        msg = ' Dataframe at start of %s: ' %stage.__class__.__name__
-        self.log_df_info(df,msg)
-        try:
-            last_msg = stage.log_df_info(df,msg)
-        except Exception:
-            last_msg = self.log_df_info(df,msg)
         #there are two signatures for the execute method
         try:
             try:
@@ -318,31 +313,35 @@ class CalcPipeline:
             except TypeError:
                 newdf = stage.execute(df=df)
         except AttributeError as e:
-            self.trace_append(' The function makes a reference to an object property that does not exist')
+            self.trace_append(' The function %s makes a reference to an object property that does not exist' %name,
+                              created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         except SyntaxError as e:
-            self.trace_append(' The function contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct')
+            self.trace_append(' The function %s contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct' %name,
+                              created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         except (ValueError,TypeError) as e:
-            self.trace_append('The function is operating on data that has an unexpected value or data type')
-            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
+            self.trace_append('The function %s is operating on data that has an unexpected value or data type' %name,
+                              created_by = stage)
+            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,)
         except NameError as e:
-            self.trace_append(' The function referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ')
+            self.trace_append(' The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' %name,
+                              created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         except Exception as e:
-            self.trace_append(' The function failed to execute ')
+            self.trace_append(' The function %s failed to execute ' %name, created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         #validate that stage has not violated any pipeline processing rules
         try:
             stage.validate_df(df,newdf)
         except AttributeError:
-            msg = 'Function has no validate_df method. Skipping validation of the dataframe'
+            msg = 'Function has %s no validate_df method. Skipping validation of the dataframe' %name
             logger.debug(msg)
         if register:
             try:
                 stage.register(df=df,new_df= newdf)
             except AttributeError as e:
-                msg = 'Could not export %s as it has no register() method or because an AttributeError was raised during execution' %stage.__class__.__name__
+                msg = 'Could not export %s as it has no register() method or because an AttributeError was raised during execution' %name
                 logger.warning(msg)
                 logger.warning(str(e))
         if dropna:
@@ -350,12 +349,8 @@ class CalcPipeline:
             newdf = newdf.dropna()
         if to_csv:
             newdf.to_csv('debugPipelineOut_%s.csv' %stage.__class__.__name__)
-        try:
-            msg = 'Completed stage %s. Output dataframe.' %stage.__class__.__name__
-            last_msg = stage.log_df_info(newdf,msg)
-        except Exception:
-            last_msg = self.log_df_info(newdf,msg)
-        self.trace_append(' completed %s ->' %stage.__class__.__name__)            
+        msg = 'Completed stage %s.' %name
+        self.trace_append(msg,created_by=stage)            
         return newdf
     
     def get_custom_calendar(self):

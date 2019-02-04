@@ -1184,7 +1184,7 @@ class BaseFunction(object):
         return self.name
  
 
-    def trace_append(self,msg, title=None,log_method=None,**kwargs):
+    def trace_append(self,msg, title=None,log_method=None,df=None,**kwargs):
         '''
         Add to the trace info collected during function execution
         '''
@@ -1193,6 +1193,10 @@ class BaseFunction(object):
                 title = self.name
             except AttributeError:
                 title = self.__class__.__name__
+        
+        if df is not None:
+            kws = {'df':df}
+            kwargs = {**kwargs,**kws}
                 
         et = self.get_entity_type()
         et.trace_append(created_by = self,

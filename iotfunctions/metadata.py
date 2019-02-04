@@ -317,10 +317,7 @@ class EntityType(object):
                     )
 
             msg = ' Read input data start %s aggregated to %s'  %(start_ts,self._pre_aggregate_time_grain)
-            self.trace_append(self,'Get time series data',msg=msg)
-            
-        msg = log_df_info(df,'after read source')
-        self.trace_append(self,'Get time series data',msg=msg)
+            self.trace_append(self,'Get time series data',msg=msg,df=df)
 
         return df   
 
@@ -710,24 +707,32 @@ class EntityType(object):
 class Trace(object)    :
     '''
     Gather status and diagnostic information to report back in the UI
-    '''    
+    '''
+    
+    primary_df = 'df'
     def __init__(self,parent=None):
         self.parent = parent
         self.data = OrderedDict()
+        self.df_cols = set()
+        self.df_index = set()
+        self.df_count = 0
         
     def write(self,created_by,title,text,log_method=None,**kwargs):
 
+        text = str(text)
+        try:
+            (kwargs[self.primary_df],msg) = self._df_as_dict(kwargs[self.primary_df],prefix=self.primary_df)
+        except KeyError:
+            msg = ''   
+        text = text + msg
         entry = { 'timestamp' : str(dt.datetime.utcnow()),
-                  'created_by' : str(created_by),
-                  'text': str(text)
-                }
-        for key,value in list(kwargs.values()):
-            if isinstance(value,pd.DataFrame):
-                kwargs[key] = self._df_as_dict(value)
-            elif not isinstance(value,str):
+          'created_by' : str(created_by),
+          'text': text
+        }
+        for key,value in list(kwargs.items()):            
+            if not isinstance(value,str):
                 kwargs[key] = str(value)
         entry = {**entry,**kwargs}
-        
         try:
             self.data[title].append(entry)
         except KeyError:
@@ -736,13 +741,37 @@ class Trace(object)    :
         if log_method is not None:
             log_method(text)
             
-    def _df_as_dict(self,df):
-        
+    def _df_as_dict(self,df,prefix):
+        msg = ''
         data = {}
-        data['df_count'] = len(df.index)
-        data['df_index'] = list(df.index.names)
-        data['df_columns'] = list(df.columns)
-        return(data)
+        prev_count = self.df_count
+        prev_index = self.df_index
+        prev_cols = self.df_cols
+        self.df_count = len(df.index)
+        if df.index.names is None:
+            self.df_index = {}
+        else:
+            self.df_index = set(df.index.names)
+        self.df_cols = set(df.columns)
+        #formulate message based on changes
+        if self.df_count > prev_count:
+            msg = '%s added %s rows ' %(msg,self.df_count - prev_count)
+        if self.df_count < prev_count:
+            msg = '%s removed %s rows ' %(msg,self.df_count - prev_count)            
+        if len(self.df_index-prev_index)>0:
+            msg = '%s added to index %s ' %(msg,self.df_index-prev_index)
+        if len(prev_index-self.df_index)>0:
+            msg = '%s removed from index %s index ' %(msg,prev_index-self.df_index)
+        if len(self.df_cols-prev_cols)>0:
+            msg = '%s added columns %s ' %(msg,self.df_cols-prev_cols)
+        if len(prev_cols-self.df_cols)>0:
+            msg = '%s removed columns %s ' %(msg,prev_cols-self.df_cols)            
+        #also include a dict with actual stats
+        data['%s_count' %prefix] = self.df_count
+        data['%s_index' %prefix] = self.df_index
+        data['%s_columns' %prefix] = self.df_cols
+    
+        return(data,msg)
         
     def as_json(self):
         
