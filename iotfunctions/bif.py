@@ -14,6 +14,7 @@ you may register and use.
 '''
 
 import datetime as dt
+import time
 from collections import OrderedDict
 import numpy as np
 import re
@@ -51,10 +52,10 @@ class IoTAlertExpression(BaseEvent):
         df = df.copy()
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
-            msg = 'expression converted to %s' %expr
+            msg = 'Expression converted to %s. ' %expr
         else:
             expr = self.expression
-            msg = 'expression (%s)' %expr
+            msg = 'Expression (%s). ' %expr
         self.trace_append(msg)
         df[self.alert_name] = np.where(eval(expr), True, np.nan)
         return df
@@ -625,7 +626,9 @@ class IoTExpression(BaseTransformer):
     def execute(self, df):
         df = df.copy()
         requested = list(self.get_input_items())
-        msg = '  Function requested items %s using get_input_data. ' %','.join(requested)
+        msg = self.expression + ' .'
+        self.trace_append(msg)
+        msg = 'Function requested items: %s . ' %','.join(requested)
         self.trace_append(msg)
         df[self.output_name] = eval(self.expression)
         return df
@@ -932,6 +935,45 @@ class IoTShiftCalendar(BaseTransformer):
     
         return (inputs,outputs)        
     
-
+class IoTSleep(BaseTransformer):
+    
+    """
+    Wait for the designated number of seconds
+    """
+    def __init__(self,sleep_after, 
+                 sleep_duration_seconds = 30,
+                 output_item = 'sleep_status'):
+                 
+        super().__init__()
+        self.sleep_after = sleep_after
+        self.sleep_duration_seconds = sleep_duration_seconds
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        msg = 'Sleep duration: %s. ' %self.sleep_duration_seconds
+        self.trace_append(msg)
+        time.sleep(self.sleep_duration_seconds)
+        df[self.output_item] = True
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name = 'sleep_after',
+                                              datatype=None,
+                                              required = False,
+                                              description = 'Sleep after calculating items'
+                                              ))
+        inputs.append(UISingle(name = 'sleep_duration_seconds', datatype = float))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                                     datatype=bool,
+                                                     description='Dummy function output'
+                                                     ))
+    
+        return (inputs,outputs)         
    
     

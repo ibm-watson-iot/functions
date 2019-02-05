@@ -154,7 +154,7 @@ class EntityDataGenerator(BasePreload):
             seconds = pd.to_timedelta(self.freq).total_seconds()
         
         df = self._entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)        
-        self.trace_append(msg='generated data',df=df)
+        self.trace_append(msg='%s Generated data. ' %self.__class__.__name__,df=df)
         
         return True  
     

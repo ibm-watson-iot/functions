@@ -270,7 +270,7 @@ class EntityType(object):
                     entities = entities,
                     dimension = self._dimension_table_name
                     ) 
-            self.trace_append(' Read source data from date: %s' %start_ts)
+            self.trace_append(self,'Read source data',df=df)
             
         else:
             (metrics,dates,categoricals,others) = self.db.get_column_lists_by_type(self.name,self._db_schema)
@@ -316,8 +316,11 @@ class EntityType(object):
                     dimension = self._dimension_table_name                    
                     )
 
-            msg = ' Read input data start %s aggregated to %s'  %(start_ts,self._pre_aggregate_time_grain)
-            self.trace_append(self,'Get time series data',msg=msg,df=df)
+            msg = 'Read input data aggregated to %s. '  %(self._pre_aggregate_time_grain)
+            self.trace_append(self,msg=msg,df=df)
+            
+        if start_ts is not None:
+            msg = 'Data retrieved after timestamp: %s. ' %start_ts
 
         return df   
 
@@ -573,7 +576,7 @@ class EntityType(object):
         '''
         Raise an exception. Append a message and the current trace to the stacktrace.
         '''
-        msg = msg + '. ' + str(self._trace)
+        msg = msg + 'Trace follows: ' + str(self._trace)
         
         msg = '%s - %s : ' %(str(exception),msg)
         if abort_on_fail:
@@ -654,12 +657,11 @@ class EntityType(object):
         return response
     
         
-    def trace_append(self,created_by,title,msg,log_method=None,**kwargs):
+    def trace_append(self,created_by,msg,log_method=None,**kwargs):
         '''
         Write to entity type trace
         '''
         self._trace.write(created_by = created_by,
-                          title = title,
                           log_method = log_method,
                           text = msg,
                           **kwargs)
@@ -708,35 +710,42 @@ class Trace(object)    :
     '''
     Gather status and diagnostic information to report back in the UI
     '''
-    
+    elapsed_threshold_sec = 2 #threshold for wring elapsed time to the trace
     primary_df = 'df'
     def __init__(self,parent=None):
+        if parent is None:
+            parent = self
         self.parent = parent
-        self.data = OrderedDict()
+        self.data = []
         self.df_cols = set()
         self.df_index = set()
         self.df_count = 0
+        self.prev_ts = dt.datetime.utcnow()
+        self.write(created_by=parent,text='Trace started. ')
         
-    def write(self,created_by,title,text,log_method=None,**kwargs):
-
+    def write(self,created_by,text,log_method=None,**kwargs):
+        ts = dt.datetime.utcnow()
         text = str(text)
         try:
             (kwargs[self.primary_df],msg) = self._df_as_dict(kwargs[self.primary_df],prefix=self.primary_df)
         except KeyError:
             msg = ''   
         text = text + msg
-        entry = { 'timestamp' : str(dt.datetime.utcnow()),
+        elapsed = (ts - self.prev_ts).total_seconds()
+        self.prev_ts = ts
+        if elapsed >= self.elapsed_threshold_sec:
+            msg = 'Time since last trace entry: %s sec. ' %elapsed
+            text = text + msg
+        entry = { 'timestamp' : str(ts),
           'created_by' : str(created_by),
-          'text': text
+          'text': text,
+          'elapsed_time' : elapsed
         }
         for key,value in list(kwargs.items()):            
             if not isinstance(value,str):
                 kwargs[key] = str(value)
         entry = {**entry,**kwargs}
-        try:
-            self.data[title].append(entry)
-        except KeyError:
-            self.data[title] = [entry]
+        self.data.append(entry)
             
         if log_method is not None:
             log_method(text)
@@ -755,17 +764,17 @@ class Trace(object)    :
         self.df_cols = set(df.columns)
         #formulate message based on changes
         if self.df_count > prev_count:
-            msg = '%s added %s rows ' %(msg,self.df_count - prev_count)
+            msg = '%s Added %s rows. ' %(msg,self.df_count - prev_count)
         if self.df_count < prev_count:
-            msg = '%s removed %s rows ' %(msg,self.df_count - prev_count)            
+            msg = '%s Removed %s rows. ' %(msg,self.df_count - prev_count)            
         if len(self.df_index-prev_index)>0:
-            msg = '%s added to index %s ' %(msg,self.df_index-prev_index)
+            msg = '%s Added to index %s. ' %(msg,self.df_index-prev_index)
         if len(prev_index-self.df_index)>0:
-            msg = '%s removed from index %s index ' %(msg,prev_index-self.df_index)
+            msg = '%s Removed from index %s ' %(msg,prev_index-self.df_index)
         if len(self.df_cols-prev_cols)>0:
-            msg = '%s added columns %s ' %(msg,self.df_cols-prev_cols)
+            msg = '%s Added columns %s. ' %(msg,self.df_cols-prev_cols)
         if len(prev_cols-self.df_cols)>0:
-            msg = '%s removed columns %s ' %(msg,prev_cols-self.df_cols)            
+            msg = '%s Removed columns %s.  ' %(msg,prev_cols-self.df_cols)            
         #also include a dict with actual stats
         data['%s_count' %prefix] = self.df_count
         data['%s_index' %prefix] = self.df_index
@@ -780,11 +789,8 @@ class Trace(object)    :
     def __str__(self):
         
         out = ''
-        for title,values in list(self.data.items()):
-            out = out + title + '>'
-            for v in values:
-                out = out + v['text'] + '; '
-            out = out + ' |'
+        for entry in self.data:
+            out = out + entry['text'] 
             
         return out
                 

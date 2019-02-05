@@ -79,8 +79,9 @@ class CalcPipeline:
         #if no dataframe provided, querying the source entity to get one
         for p in preload_stages:
             if not self.entity_type._is_preload_complete:
+                msg = 'Stage %s :' %p.__class__.__name__
                 status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
-                msg = 'Execute preload function %s complete.' %p.__class__.__name__
+                msg = '%s completed as pre-load. ' %p.__class__.__name__
                 self.trace_append(msg)
                 if register:
                     p.register(df=None)
@@ -90,7 +91,7 @@ class CalcPipeline:
                     msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
                     raise AttributeError (msg)
                 if not status:
-                    msg = 'Preload stage %s returned with status of False. Aborting execution.' %p.__class__.__name__
+                    msg = 'Preload stage %s returned with status of False. Aborting execution. ' %p.__class__.__name__
                     self.trace_append(msg)
                     stages = []
                     break
@@ -137,7 +138,6 @@ class CalcPipeline:
                 self.entity_type.set_custom_calendar(s)
                   
             if is_data_source and merge_method == 'replace':
-                self.trace_append(' replace data ')
                 df = self._execute_stage(stage=s,
                     df = df,
                     start_ts = start_ts,
@@ -147,8 +147,8 @@ class CalcPipeline:
                     to_csv = to_csv,
                     dropna = dropna,
                     abort_on_fail = True)
-                msg = 'replaced incoming dataframe with custom data source %s' %s.__class__.__name__
-                logger.debug(msg)
+                msg = 'Replaced incoming dataframe with custom data source %s. ' %s.__class__.__name__
+                self.trace_append(msg, df = df)
                 
             elif is_data_source and merge_method == 'outer':
                 '''
@@ -165,10 +165,9 @@ class CalcPipeline:
         
         #execute secondary data sources
         if len(secondary_sources) > 0:
-            self.trace_append('>secondary data sources:')
             for s in secondary_sources:
-                msg = 'processing secondary data source %s' %s.__class__.__name__
-                logger.debug(msg)
+                msg = 'Processing secondary data source %s. ' %s.__class__.__name__
+                self._trace_append(msg)
                 df = self._execute_stage(stage=s,
                     df = df,
                     start_ts = start_ts,
@@ -181,10 +180,9 @@ class CalcPipeline:
             
         #execute custom calendar
         if len(special_lookup_stages) > 0:
-            self.trace_append('>special lookup stages:')
             for s in special_lookup_stages:
-                msg = 'processing special lookup stage %s' %s.__class__.__name__
-                logger.debug(msg)
+                msg = 'Processing special lookup stage %s. ' %s.__class__.__name__
+                self._trace_append(msg)
                 df = self._execute_stage(stage=s,
                     df = df,
                     start_ts = start_ts,
@@ -206,8 +204,8 @@ class CalcPipeline:
         #preload may  have already taken place. if so pass the names of the items produced by stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
-        msg = 'Executing pipeline with %s stages' % len(self.stages)
-        self.trace_append(msg,created_by = self, title = None, log_method = logger.debug)            
+        msg = 'Executing pipeline with %s stages.' % len(self.stages)
+        logger.debug(msg)            
         is_initial_transform = self.get_initial_transform_status()
         # A single execution can contain multiple CalcPipeline executions
         # An initial transform and one or more aggregation executions and post aggregation transforms
@@ -215,7 +213,7 @@ class CalcPipeline:
         if is_initial_transform:
             if not start_ts is None:
                 msg = 'Start timestamp specified: %s.' % start_ts
-                self.trace_append(msg,created_by = self, title = None, log_method = debug)
+                self.trace_append(msg,log_method = debug)
             #process preload stages first if there are any
             (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities,register=register)
             preloaded_item_names.extend(preload_item_names)
@@ -303,33 +301,35 @@ class CalcPipeline:
         except AttributeError:
             pass
         except KeyError as e:
-            msg = 'KeyError while conforming index prior to execution' %name
+            msg = 'KeyError while conforming index prior to execution. ' %name
             self.trace_append(msg,created_by = stage, df = df)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         #there are two signatures for the execute method
+        msg = 'Stage %s :' % name
+        self.trace_append(msg=msg,df=df)
         try:
             try:
                 newdf = stage.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
             except TypeError:
                 newdf = stage.execute(df=df)
         except AttributeError as e:
-            self.trace_append(' The function %s makes a reference to an object property that does not exist' %name,
+            self.trace_append('The function %s makes a reference to an object property that does not exist. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         except SyntaxError as e:
-            self.trace_append(' The function %s contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct' %name,
+            self.trace_append('The function %s contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         except (ValueError,TypeError) as e:
-            self.trace_append('The function %s is operating on data that has an unexpected value or data type' %name,
+            self.trace_append('The function %s is operating on data that has an unexpected value or data type. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,)
         except NameError as e:
-            self.trace_append(' The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' %name,
+            self.trace_append('The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         except Exception as e:
-            self.trace_append(' The function %s failed to execute ' %name, created_by = stage)
+            self.trace_append('The function %s failed to execute. ' %name, created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         #validate that stage has not violated any pipeline processing rules
         try:
@@ -349,8 +349,8 @@ class CalcPipeline:
             newdf = newdf.dropna()
         if to_csv:
             newdf.to_csv('debugPipelineOut_%s.csv' %stage.__class__.__name__)
-        msg = 'Completed stage %s.' %name
-        self.trace_append(msg,created_by=stage)            
+        msg = 'Completed stage %s. ' %name
+        self.trace_append(msg,created_by=stage, df = newdf)            
         return newdf
     
     def get_custom_calendar(self):
@@ -462,18 +462,14 @@ class CalcPipeline:
         
         return self.__class__.__name__
             
-    def trace_append(self,msg,created_by = None, title = None, log_method = None, **kwargs):
+    def trace_append(self,msg,created_by = None, log_method = None, **kwargs):
         '''
         Append to the trace information collected the entity type
         '''
         if created_by is None:
             created_by = self
-            
-        if title is None:
-            title = 'CalcPipeline execution'
         
         self.entity_type.trace_append(created_by=created_by,
-                                      title = title,
                                       msg = msg,
                                       log_method=log_method,
                                       **kwargs)     
@@ -503,7 +499,7 @@ class PipelineExpression(object):
             raise SyntaxError (msg)
         else:
             msg = 'Evaluated expression %s' %expr
-            self.get_entity_type().trace_append(msg)
+            self.get_entity_type().trace_append(msg,df=df)
         return df
 
     def get_input_items(self):

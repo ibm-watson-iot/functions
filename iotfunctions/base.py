@@ -973,7 +973,8 @@ class BaseFunction(object):
         else:
             expr = expression
             msg = 'expression (%s)' %expr
-        self.trace_append(msg)
+            
+        logger.debug(msg)
 
         return expr
 
@@ -1184,23 +1185,13 @@ class BaseFunction(object):
         return self.name
  
 
-    def trace_append(self,msg, title=None,log_method=None,df=None,**kwargs):
+    def trace_append(self,msg,log_method=None,df=None,**kwargs):
         '''
         Add to the trace info collected during function execution
-        '''
-        if title is None:
-            try:
-                title = self.name
-            except AttributeError:
-                title = self.__class__.__name__
-        
-        if df is not None:
-            kws = {'df':df}
-            kwargs = {**kwargs,**kws}
+        '''        
                 
         et = self.get_entity_type()
         et.trace_append(created_by = self,
-                        title=title,
                         msg=msg,
                         log_method=log_method,
                         **kwargs)
@@ -1682,13 +1673,13 @@ class BaseDatabaseLookup(BaseTransformer):
                                                       schema = self._entity_type._db_schema)
             self.sql = query.statement
 
-        msg = ' function attempted to excecute sql %s' %self.sql
+        msg = ' function attempted to excecute sql %s. ' %self.sql
         self.trace_append(msg)
         df_sql = pd.read_sql(self.sql, 
                              self.db.connection,
                              index_col=self.lookup_keys,
                              parse_dates=self.parse_dates)
-        msg = ' lookup returned columns %s' %','.join(list(df_sql.columns))
+        msg = 'Lookup returned columns %s. ' %','.join(list(df_sql.columns))
         self.trace_append(msg)
         
         df_sql = df_sql[self.lookup_items]
@@ -2070,14 +2061,14 @@ class BaseSCDLookup(BaseTransformer):
         
     def execute(self,df):
         
-        msg = 'starting scd lookup of %s from table %s' %(self.output_item,self.table_name)
+        msg = 'Starting scd lookup of %s from table %s. ' %(self.output_item,self.table_name)
         msg = self.log_df_info(df,msg) 
         self.trace_append(msg)
         
         (start_ts, end_ts, entities) = self._get_data_scope(df)
         resource_df = self.get_scd_data(table_name = self.table_name, start_ts = start_ts, end_ts=end_ts, entities=entities)
         msg = 'df for resource lookup' 
-        msg = self.log_df_info(resource_df,msg) 
+        msg = self.log_df_info(resource_df,msg) + '. '
         self.trace_append(msg)       
         system_cols = [self._start_date,self._end_date,self._entity_type._entity_id]
         try:
@@ -2101,9 +2092,8 @@ class BaseSCDLookup(BaseTransformer):
                 df = df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
                 df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
         
-        msg = 'after scd lookup of %s from table %s' %(scd_property,self.table_name)
-        msg = self.log_df_info(df,msg) 
-        self.trace_append(msg)
+        msg = 'After scd lookup of %s from table %s. ' %(scd_property,self.table_name)
+        self.trace_append(msg, df = df)
         df = self.conform_index(df)  
         
         return df
