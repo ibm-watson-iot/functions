@@ -634,6 +634,7 @@ class Database(object):
                    schema,
                    parse_dates = None,
                    columns = None,
+                   timestamp_col = None,
                    start_ts = None,
                    end_ts = None,
                    entities = None,
@@ -668,6 +669,7 @@ class Database(object):
         q,table = self.query(table_name,
                              schema=schema,
                              column_names = columns,
+                             timestamp_col = timestamp_col,
                              start_ts = start_ts,
                              end_ts = end_ts,
                              entities = entities,
@@ -905,8 +907,14 @@ class Database(object):
             query = query.join(dim, dim.c.deviceid == table.c.deviceid)
         
         if not start_ts is None:
-            query = query.filter(table.c[timestamp_col] >= start_ts)
+            if timestamp_col is None:
+                msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
+                raise ValueError(msg)
+            query = query.filter(table.c[timestamp_col] >= start_ts)            
         if not end_ts is None:
+            if timestamp_col is None:
+                msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
+                raise ValueError(msg)            
             query = query.filter(table.c[timestamp_col] < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
