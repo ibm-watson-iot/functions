@@ -6,4 +6,5 @@ install:
   - pip install nose pylint
 # command to run tests
 script:
-  - nosetests && pylint
+  - nosetests
+  - find . -iname "*.py" | xargs pylint 
