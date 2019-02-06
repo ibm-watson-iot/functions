@@ -747,9 +747,13 @@ class Trace(object)    :
                 kwargs[key] = str(value)
         entry = {**entry,**kwargs}
         self.data.append(entry)
-            
-        if log_method is not None:
-            log_method(text)
+         
+        try:
+            if log_method is not None:
+                log_method(text)
+        except TypeError:
+            msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' %text
+            logger.warning(msg)
             
     def _df_as_dict(self,df,prefix):
         msg = ''

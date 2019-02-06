@@ -167,7 +167,7 @@ class CalcPipeline:
         if len(secondary_sources) > 0:
             for s in secondary_sources:
                 msg = 'Processing secondary data source %s. ' %s.__class__.__name__
-                self._trace_append(msg)
+                self.trace_append(msg)
                 df = self._execute_stage(stage=s,
                     df = df,
                     start_ts = start_ts,
@@ -182,7 +182,7 @@ class CalcPipeline:
         if len(special_lookup_stages) > 0:
             for s in special_lookup_stages:
                 msg = 'Processing special lookup stage %s. ' %s.__class__.__name__
-                self._trace_append(msg)
+                self.trace_append(msg)
                 df = self._execute_stage(stage=s,
                     df = df,
                     start_ts = start_ts,
