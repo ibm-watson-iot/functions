@@ -213,7 +213,7 @@ class CalcPipeline:
         if is_initial_transform:
             if not start_ts is None:
                 msg = 'Start timestamp specified: %s.' % start_ts
-                self.trace_append(msg,log_method = debug)
+                self.trace_append(msg)
             #process preload stages first if there are any
             (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities,register=register)
             preloaded_item_names.extend(preload_item_names)
