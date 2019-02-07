@@ -263,7 +263,7 @@ class EntityType(object):
             df = self.db.read_table(
                     table_name = self.name,
                     schema = self._db_schema,
-                    timestamp = self._timestamp,
+                    timestamp_col = self._timestamp,
                     parse_dates = None,
                     columns = columns,
                     start_ts = start_ts,
