@@ -7,4 +7,4 @@ install:
 # command to run tests
 script:
   - nosetests
-  - find . -iname "*.py" | xargs pylint 
+  - find . -name "*.py" -exec pylint -E '{}' +
