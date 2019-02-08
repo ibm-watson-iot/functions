@@ -2214,7 +2214,8 @@ class BaseEstimatorFunction(BaseTransformer):
         '''
         Add a new pre-processor stage using an expression
         '''
-        stage = PipelineExpression(name=name,expression=expression)
+        stage = PipelineExpression(name=name,expression=expression,
+                                   entity_type = self.get_entity_type())
         self.add_preprocessor(stage)
         
     def get_models_for_training(self, db, df, bucket=None):

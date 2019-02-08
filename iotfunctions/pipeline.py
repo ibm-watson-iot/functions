@@ -32,7 +32,8 @@ class CalcPipeline:
         '''
         Add a new stage using an expression
         '''
-        stage = PipelineExpression(name=name,expression=expression)
+        stage = PipelineExpression(name=name,expression=expression,
+                                   entity_type=self.entity_type)
         self.add_stage(stage)
         
     def add_stage(self,stage):
@@ -487,11 +488,12 @@ class PipelineExpression(object):
     '''
     Create a new item from an expression involving other items
     '''
-    def __init__(self, expression , name):
+    def __init__(self, expression , name, entity_type):
         self.expression = expression
         self.name = name
         super().__init__()
         self.input_items = []
+        self.entity_type = entity_type
                 
     def execute(self, df):
         df = df.copy()

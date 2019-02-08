@@ -465,10 +465,7 @@ class Database(object):
         timestamp = metadata['metricTimestampColumn']
         schema = metadata['schemaName']
         dim_table = metadata['dimensionTableName']
-        try:
-            entity_type_id = metadata['entityTypeId']   
-        except KeyError:
-            entity_type_id = None   
+        entity_type_id = metadata.get('entityTypeId', None) 
 
         entity = md.EntityType( name = name,
                              db = self,
