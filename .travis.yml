@@ -7,7 +7,7 @@ install:
 # command to run tests
 script:
   - nosetests
-  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
+#  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:
   only:
   - master
