@@ -19,10 +19,13 @@ from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
-from .db import Database, TimeSeriesTable, ActivityTable, SlowlyChangingDimension, Dimension
+from . import db as db_module
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
 from .util import log_df_info
+
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +106,8 @@ class EntityType(object):
         _timestamp: str
             Overide the timestamp column name from the default of 'evt_timestamp'
     '''    
-            
+    
+    auto_create_table = True        
     log_table = 'KPI_LOGGING'
     checkpoint_table = 'KPI_CHECKPOINT'
     # These two columns will be available in the dataframe of a pipeline
@@ -111,6 +115,8 @@ class EntityType(object):
     _timestamp_col = '_timestamp' #copy of the event timestamp from the index
     # This column will identify an instance in the index
     _df_index_entity_id = 'id'
+    # when automatically creating a new dimension, use this suffix
+    _auto_dim_suffix = '_auto_dim'
     # generator
     _scd_frequency = '2D'
     _activity_frequency = '3D'
@@ -161,11 +167,15 @@ class EntityType(object):
             try:
                 self.table = self.db.get_table(self.name,self._db_schema)
             except KeyError:
-                ts = TimeSeriesTable(self.name ,self.db, *args, **kwargs)
-                self.table = ts.table
-                self.db.create()
-                msg = 'Create table %s' %self.name
-                logger.debug(msg)
+                if self.auto_create_table:
+                    ts = db_module.TimeSeriesTable(self.name ,self.db, *args, **kwargs)
+                    self.table = ts.table
+                    self.db.create()
+                    msg = 'Create table %s' %self.name
+                    logger.info(msg)
+                else:
+                    msg = 'Database table %s not found. Unable to create entity type instance. Provide a valid table name or use the auto_create_table = True keyword arg to create a table. ' %(name)
+                    raise ValueError (msg)
         else:
             msg = 'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'
             logger.debug(msg)
@@ -186,7 +196,7 @@ class EntityType(object):
         kwargs['_activities'] = activities
         kwargs['schema'] = self._db_schema
         name = name.lower()
-        table = ActivityTable(name, self.db,*args, **kwargs)
+        table = db_module.ActivityTable(name, self.db,*args, **kwargs)
         try:
             sqltable = self.db.get_table(name, self._db_schema)
         except KeyError:
@@ -208,7 +218,7 @@ class EntityType(object):
         
         name= '%s_scd_%s' %(self.name,property_name)
         kwargs['schema'] = self._db_schema        
-        table = SlowlyChangingDimension(name = name,
+        table = db_module.SlowlyChangingDimension(name = name,
                                    database=self.db,
                                    property_name = property_name,
                                    datatype = datatype,
@@ -562,7 +572,7 @@ class EntityType(object):
         try:
             self._dimension_table = self.db.get_table(name,self._db_schema)
         except KeyError:
-            dim = Dimension(
+            dim = db_module.Dimension(
                 self._dimension_table_name, self.db,
                 *args,
                 **kw
@@ -705,6 +715,29 @@ class EntityType(object):
         for key,value in list(params.items()):
             setattr(self, key, value)
         return self
+    
+    def write_unmatched_members(self,df):
+        '''
+        Write a row to the dimension table for every entity instance in the dataframe supplied
+        '''
+        # add a dimension table if there is none
+        if self._dimension_table_name is None:
+            new_dim_name = '%s%s' %(self.name, self._auto_dim_suffix)
+            self.make_dimension(name=new_dim_name)
+            self.register()
+        #get existing dimension keys
+        ef = self.db.read_table(self._dimension_table_name, schema = self._db_schema, columns = [self._entity_id])
+        ids = set(ef[self._entity_id].unique())
+        #get new members from the dataframe supplied
+        new_ids = set(df[self._entity_id].unique()) - ids
+        #write
+        self.db.start_session()
+        table = self.db.get_table(self._dimension_table_name, self._db_schema)
+        for i in new_ids:
+            stmt = table.insert().values({self._entity_id:i})
+            self.db.connection.execute(stmt)
+        self.db.commit()
+        return new_ids
 
 
 class Trace(object)    :

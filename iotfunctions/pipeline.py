@@ -32,7 +32,8 @@ class CalcPipeline:
         '''
         Add a new stage using an expression
         '''
-        stage = PipelineExpression(name=name,expression=expression)
+        stage = PipelineExpression(name=name,expression=expression,
+                                   entity_type=self.entity_type)
         self.add_stage(stage)
         
     def add_stage(self,stage):
@@ -282,7 +283,14 @@ class CalcPipeline:
                                 to_csv = to_csv,
                                 dropna = dropna,
                                 abort_on_fail = True)
-        self.mark_initial_transform_complete()
+        if is_initial_transform:
+            try:
+                self.entity_type.write_unmatched_members(df)
+            except Exception as e:
+                msg = 'Error while writing unmatched members to dimension. See log.' 
+                self.trace_append(msg,created_by = self)
+                self.entity_type.raise_error(exception = e,abort_on_fail = False)
+            self.mark_initial_transform_complete()
         return df
     
     
@@ -430,13 +438,14 @@ class CalcPipeline:
                                         object_name = source_name,
                                         request = 'POST',
                                         payload = export)    
-        return response    
+        return response
+            
     
     
     def _raise_error(self,exception,msg, abort_on_fail = False):
         #kept this method to preserve compatibility when
         #moving raise_error to the EntityType
-        self.get_entity_type().raise_error(
+        self.entity_type().raise_error(
                 exception = exception,
                 msg = msg,
                 abort_on_fail = abort_on_fail
@@ -479,11 +488,12 @@ class PipelineExpression(object):
     '''
     Create a new item from an expression involving other items
     '''
-    def __init__(self, expression , name):
+    def __init__(self, expression , name, entity_type):
         self.expression = expression
         self.name = name
         super().__init__()
         self.input_items = []
+        self.entity_type = entity_type
                 
     def execute(self, df):
         df = df.copy()
@@ -499,7 +509,7 @@ class PipelineExpression(object):
             raise SyntaxError (msg)
         else:
             msg = 'Evaluated expression %s' %expr
-            self.get_entity_type().trace_append(msg,df=df)
+            self.entity_type.trace_append(msg,df=df)
         return df
 
     def get_input_items(self):

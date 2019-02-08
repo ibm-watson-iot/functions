@@ -21,6 +21,7 @@ import re
 import pandas as pd
 import logging
 import iotfunctions as iotf
+from .metadata import EntityType
 from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
 
@@ -361,7 +362,8 @@ class IoTCalcSettings(BaseMetadataProvider):
 
 class IoTConditionalItems(BaseTransformer):
     """
-    Set the value of a data item based on the value of a conditional expression eg. if df["sensor_is_valid"]==True then df["temp"] and df["pressure"] are valid else null
+    Set the value of a data item based on the value of a conditional expression 
+    eg. if df["sensor_is_valid"]==True then df["temp"] and df["pressure"] are valid else null
     """
     def __init__(self,conditional_expression, conditional_items, output_items = None):
         
@@ -402,7 +404,7 @@ class IoTConditionalItems(BaseTransformer):
         return (inputs,outputs)
     
     def get_input_items(self):
-        items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
+        items = self.get_expression_items(self.conditional_expression)
         return items  
 
 class IoTCosFunction(BaseTransformer):
@@ -657,21 +659,34 @@ class IoTExpression(BaseTransformer):
     
 class IoTGetEntityData(BaseDataSource):
     """
-    Get time series data from an entity type
+    Get time series data from an entity type. Provide the table name for the entity type and
+    specify the key column to use for mapping the source entity type to the destination. 
+    e.g. Add temperature sensor data to a location entity type by selecting a location_id
+    as the mapping key on the source entity type'
     """
+    
     merge_method = 'outer'
     
-    def __init__(self,entity_type_name, key_column, input_items,
+    def __init__(self,source_entity_type_name, key_map_column, input_items,
                  output_items = None):
-        self.source_table_name = entity_type_name
-        self.source_entity_id = key_column
-        self.entity_type_name = entity_type_name
-        self.key_column = key_column
+        self.source_entity_type_name = source_entity_type_name
+        self.key_map_column = key_map_column
         super().__init__(input_items = input_items, output_items = output_items)
 
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
-        raise NotImplementedError('stay tuned')
+        db = self.get_db()
+        target = self.get_entity_type()
+        #get entity type metadata from the AS API
+        source = db.get_entity_type(self.source_entity_type_name)
+        cols = [self.key_map_column, source._timestamp]
+        cols.extend(self.input_items)
+        renamed_cols = [target._entity_id, target._timestamp]
+        renamed_cols.extend(self.output_items)
+        df = source.get_data(start_ts=start_ts,end_ts = end_ts, entities=entities, columns = cols)
+        df = self.rename_cols(df,cols,renamed_cols)
+        
+        df.to_csv('ed.csv')
         
         return df               
     
