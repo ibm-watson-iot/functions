@@ -8,3 +8,6 @@ install:
 script:
   - nosetests
   - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
+branches:
+  only:
+  - master
