@@ -22,6 +22,7 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 from .util import CosClient, resample
+from . import metadata as md
 
 logger = logging.getLogger(__name__)
 DB2_INSTALLED = True
@@ -224,6 +225,17 @@ class Database(object):
             msg = 'created a CosClient object'
             logger.debug(msg)
             
+        #cache entity types
+        self.entity_type_metadata = {}
+        metadata = self.http_request(object_type='allEntityTypes',
+                           object_name='',
+                           request = 'GET',
+                           payload = {},
+                           object_name_2='')
+        metadata = json.loads(metadata)
+        for m in metadata:
+            self.entity_type_metadata[m['name']] = m
+            
     def _aggregate_item(self,table,column_name,aggregate,alias_column=None, dimension_table = None):
         
         if alias_column is None:
@@ -286,6 +298,7 @@ class Database(object):
         
         self.url[('dataItem','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2]) 
         
+        self.url[('allEntityTypes','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,'entityType'])
         self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])
         self.url[('entityType','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type,object_name])
         
@@ -429,7 +442,47 @@ class Database(object):
             msg = 'Dropped table name %s' %table.name
             self.session.commit()
         logger.debug(msg)
-               
+        
+    def get_entity_type(self,name):
+        '''
+        Get an EntityType instance by name. Name may be the logical name shown in the UI or the table name.'
+        
+        '''
+        metadata = None
+        try:
+            metadata = self.entity_type_metadata[name]
+        except KeyError:
+            for m in list(self.entity_type_metadata.values()):
+                if m['metricTableName'] == name:
+                    metadata = m
+                    break
+            msg = 'No entity called % in the cached metadata.' %name
+            raise ValueError(msg)
+            
+        print (metadata)
+        raise
+                
+        timestamp = metadata['metricTimestampColumn']
+        schema = metadata['schemaName']
+        dim_table = metadata['dimensionTableName']
+        try:
+            entity_type_id = metadata['entityTypeId']   
+        except KeyError:
+            entity_type_id = None   
+
+        entity = md.EntityType( name = name,
+                             db = self,
+                             **{
+                            'auto_create_table' : False,
+                            '_timestamp' : timestamp,
+                            '_db_schema' : schema,
+                            '_entity_type_id' : entity_type_id,
+                            '_dimension_table_name' : dim_table
+                             }
+                             )
+        
+        return entity
+        
         
     def get_table(self,table_name, schema = None):
         '''
@@ -898,7 +951,7 @@ class Database(object):
                     try:
                        query_args.append(dim.c[c])     
                     except KeyError:
-                        msg = 'Unable to find column %s in table or dimension' %c
+                        msg = 'Unable to find column %s in table or dimension for entity type %s' %(c,table_name)
                         raise KeyError(msg)
     
         query = self.session.query(*query_args)

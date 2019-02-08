@@ -374,7 +374,7 @@ class BaseFunction(object):
             all_items |= set([x for x in possible_items if 'df["%s"]'%x in e])
             
         if len(all_items) == 0:
-            msg = 'The expression %s does not contain any input items or the function has not been executed to obtain them.' %self.expression
+            msg = 'Expression in function %s does not contain input items' %self.__class__.__name__
             logger.debug(msg)
         return all_items
     

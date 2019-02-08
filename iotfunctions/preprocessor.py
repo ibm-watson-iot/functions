@@ -738,8 +738,9 @@ class SampleActivityMerge(BaseDBActivityMerge):
         self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
         self.activities_custom_query_metadata = {}
         #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from some_custom_activity_table'
-        self.add_scd(scd_property = 'status', table_name = 'widgets_dec12b_scd_status')
-        self.add_scd(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')
+        et = self.get_entity_type()
+        et.add_slowly_changing_dimension(scd_property = 'status', table_name = 'widgets_dec12b_scd_status')
+        et.add_slowly_changing_dimension(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')
         
 
 class SampleActivityDuration(BaseDBActivityMerge):
