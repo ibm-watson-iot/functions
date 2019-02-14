@@ -527,6 +527,8 @@ class IoTDatabaseLookup(BaseDatabaseLookup):
     
     def get_item_values(self,arg):
         raise NotImplementedError('No items values available for generic database lookup function. Implement a specific one for each table to define item values. ')
+        
+
     
 class IoTDeleteInputData(BasePreload):
     '''
@@ -610,11 +612,43 @@ class IoTDropNull(BaseMetadataProvider):
                 
         return (inputs,outputs)            
 
+class IoTEntityFilter(BaseMetadataProvider):
+    '''
+    Filter data source results on a list of entity ids
+    '''
+    
+    def __init__(self, entity_list, output_item= 'is_filter_set'):
+        
+        dummy_items = ['deviceid']
+        kwargs = { '_entity_filter_list' : entity_list
+                 }
+        super().__init__(dummy_items, output_item = 'is_parameters_set', **kwargs)
+        
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMulti(name = 'entity_list',
+                                              datatype=str,
+                                              description = 'comma separated list of entity ids'
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype=bool,
+                                           description='Returns a status flag of True when executed'))
+        
+        return (inputs,outputs) 
+
     
 class IoTExpression(BaseTransformer):
     '''
     Create a new item from an expression involving other items
     '''
+    
     def __init__(self, expression , output_name):
         self.output_name = output_name
         super().__init__()
@@ -679,14 +713,16 @@ class IoTGetEntityData(BaseDataSource):
         target = self.get_entity_type()
         #get entity type metadata from the AS API
         source = db.get_entity_type(self.source_entity_type_name)
+        source._checkpoint_by_entity = False
+        source._pre_aggregate_time_grain = target._pre_aggregate_time_grain
+        source._pre_agg_rules = target._pre_agg_rules
+        source._pre_agg_outputs = target._pre_agg_outputs
         cols = [self.key_map_column, source._timestamp]
         cols.extend(self.input_items)
         renamed_cols = [target._entity_id, target._timestamp]
         renamed_cols.extend(self.output_items)
         df = source.get_data(start_ts=start_ts,end_ts = end_ts, entities=entities, columns = cols)
         df = self.rename_cols(df,cols,renamed_cols)
-        
-        df.to_csv('ed.csv')
         
         return df               
     
