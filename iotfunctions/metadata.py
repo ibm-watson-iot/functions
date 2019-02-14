@@ -132,6 +132,8 @@ class EntityType(object):
     _data_items = None
     tenant_id = None
     _entity_filter_list = None
+    _start_ts_override = None
+    _end_ts_override = None
     # processing defaults
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     _pre_aggregate_time_grain = None # aggregate incoming data before processing
@@ -375,6 +377,14 @@ class EntityType(object):
     def get_param(self,param):
         
         return getattr(self, param)
+
+    def get_end_ts_override(self):
+        
+        return self._end_ts_override
+    
+    def get_start_ts_override(self):
+        
+        return self._start_ts_override
         
     
     def generate_data(self, entities = None, days=0, seconds = 300, 

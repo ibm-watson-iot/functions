@@ -358,6 +358,43 @@ class IoTCalcSettings(BaseMetadataProvider):
                                                      ))
     
         return (inputs,outputs)  
+    
+    
+class IoTCheckpointOverride(BaseMetadataProvider):
+    '''
+    Filter data source results on a list of entity ids
+    '''
+    
+    def __init__(self, start_date, end_date, output_item= 'is_override_set'):
+        
+        dummy_items = ['deviceid']
+        kwargs = { '_start_ts_override' : start_date,
+                   '_end_ts_override' : end_date,
+                 }
+        super().__init__(dummy_items, output_item = 'is_parameters_set', **kwargs)
+        
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMulti(name = 'start_date',
+                              datatype=dt.datetime,
+                              description = 'Retrieve from timestamp'
+                              ))
+        inputs.append(UIMulti(name = 'end_date',
+                              datatype=dt.datetime,
+                              description = 'Retrieve until this timestamp'
+                              ))        
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype=bool,
+                                           description='Returns a status flag of True when executed'))
+        
+        return (inputs,outputs)     
 
 
 class IoTConditionalItems(BaseTransformer):
@@ -642,7 +679,7 @@ class IoTEntityFilter(BaseMetadataProvider):
                                            description='Returns a status flag of True when executed'))
         
         return (inputs,outputs) 
-
+    
     
 class IoTExpression(BaseTransformer):
     '''
