@@ -211,6 +211,8 @@ class CalcPipeline:
         # A single execution can contain multiple CalcPipeline executions
         # An initial transform and one or more aggregation executions and post aggregation transforms
         # Behavior is different during initial transform
+        if entities is None:
+            entities = self.entity_type.get_entity_filter()
         if is_initial_transform:
             if not start_ts is None:
                 msg = 'Start timestamp specified: %s.' % start_ts

@@ -17,8 +17,9 @@ import inspect
 import pandas as pd
 import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float, func
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float, func, and_, or_
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
+from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 from .util import CosClient, resample
@@ -232,14 +233,27 @@ class Database(object):
                            request = 'GET',
                            payload = {},
                            object_name_2='')
-        metadata = json.loads(metadata)
+        if metadata is None:
+            metadata = json.loads(metadata)
+        else:
+            msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
+            logger.warning(msg)
+            metadata = []
         for m in metadata:
             self.entity_type_metadata[m['name']] = m
             
-    def _aggregate_item(self,table,column_name,aggregate,alias_column=None, dimension_table = None):
+    def _aggregate_item(self,table,column_name,aggregate,alias_column=None, dimension_table = None, timestamp_col = None):
         
         if alias_column is None:
-            alias_column = column_name
+            if column_name == timestamp_col:
+                if aggregate == 'min':
+                    alias_column = 'first_%s' %timestamp_col
+                elif aggregate == 'max':
+                    alias_column = 'last_%s' %timestamp_col              
+                else:
+                    alias_column = '%s_%s' %(alias_column,timestamp_col)
+            else:
+                alias_column = column_name
             
         agg_map = {
                 'count': func.count,
@@ -266,6 +280,20 @@ class Database(object):
                 raise KeyError(msg)
                 
         return col
+    
+    def _is_not_null(self, table, dimension_table, column):
+        '''
+        build an is not null condition for the column pointing to the table or dimension table
+        '''
+        
+        try:
+            return table.c[column].isnot(None)
+        except KeyError:
+            try:
+                return dimension_table.c[column].isnot(None)
+            except (KeyError,AttributeError):
+                msg = 'Column %s not found on time series or dimension table.' %column
+                raise ValueError(msg)
         
     def http_request(self, object_type,object_name, request, payload, object_name_2=''):
         '''
@@ -636,6 +664,37 @@ class Database(object):
                 msg = 'Unregistered invalid function %s' %name
                 logger.info(msg)
         return result
+    
+    
+    def subquery_join(self,left_query,right_query,*args,**kwargs):
+        '''
+        Perform an equijoin between two sql alchemy query objects, filtering the left query by the keys in the right query
+        args are the names of the keys to join on, e.g 'deviceid', 'timestamp'. 
+        Use string args for joins on common names. Use tuples like ('timestamp','evt_timestamp') for joins on different column names.
+        By default the join acts as a filter. It does not return columns from the right query. To return columns from the right
+        query specify **kwargs as a dict containing column names and alais names.
+        '''
+        left_query = left_query.subquery('a')
+        right_query = right_query.subquery('b')
+        joins = []
+        for col in args:
+            if isinstance(col,str):
+                joins.append(left_query.c[col]==right_query.c[col])
+            else:
+                joins.append(left_query.c[col[0]]==right_query.c[col[1]])
+        projection_list = []
+        covered_columns = set()
+        for (col,alias) in list(kwargs.items()):
+            projection_list.append(right_query.c[col].label(alias))
+            covered_columns.add(alias)
+        #add left hand cols to project list if not already added from right
+        for col_obj in list(left_query.c.values()):
+            if col_obj.name not in covered_columns:
+                projection_list.append(col_obj)
+        join_condition = and_(*joins)
+        join = left_query.join(right_query, join_condition)
+        result_query = select(projection_list).select_from(join)
+        return result_query
 
     def set_isolation_level(self, conn):
         if DB2_INSTALLED:
@@ -738,7 +797,13 @@ class Database(object):
         '''
         Read whole table and return as dataframe
         '''
-        df = pd.read_sql(query.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
+        
+        try:
+            query = query.statement
+        except AttributeError:
+            pass
+        
+        df = pd.read_sql(query,con=self.connection,parse_dates=parse_dates,columns=columns)
         return(df)
         
     def read_agg(self, table_name, schema, agg_dict,
@@ -1003,20 +1068,24 @@ class Database(object):
         entities: list of strs
             Retrieve data for a list of deviceids
         dimension: str
-            Table name for dimension table. Dimension table will be joined on deviceid.        
+            Table name for dimension table. Dimension table will be joined on deviceid.
         '''        
         
         table = self.get_table(table_name,schema)
         dim = None
         if dimension is not None:
             dim = self.get_table(table_name=dimension,schema=schema)
-        # assemble list as a set of aggregates to project        
+        # assemble list as a set of aggregates to project 
+        
+        if isinstance(groupby,str):
+            groupby = [groupby]
         
         args = []
+        metric_filter = []
         # aggregate dict is keyed on column - may contain a single aggregate function or a list of aggregation functions
         for col,aggs in agg_dict.items():
             if isinstance(aggs,str):
-                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=None, dimension_table = dim))
+                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=None, dimension_table = dim, timestamp_col = timestamp))
             elif isinstance(aggs,list):
                 for i,agg in enumerate(aggs):
                     try:
@@ -1027,10 +1096,11 @@ class Database(object):
                         logger.warning(msg)
                     else:
                         pass
-                    args.append(self._aggregate_item(table=table,column_name=col,aggregate=agg,alias_column=output,dimension_table = dim))
+                    args.append(self._aggregate_item(table=table,column_name=col,aggregate=agg,alias_column=output,dimension_table = dim, timestamp_col = timestamp))
             else:
                 msg = 'Aggregate dictionary is not in the correct form. Supply a single aggregate function as a string or a list of strings.'
                 raise ValueError(msg)
+            metric_filter.append(self._is_not_null(table=table, dimension_table = dim ,column = col))
         #assemble group by
         grp = []
         #attempt to push aggregates down to sql
@@ -1069,7 +1139,7 @@ class Database(object):
                         grp.append(dim.c[g])
                     except KeyError:
                         msg = 'group by column %s not found in main table or dimension table' %g  
-                        raise (msg)
+                        raise ValueError(msg)
                 else:
                     msg = 'group by column %s not found in main table and no dimension table specified' %g  
                     raise KeyError(msg)
@@ -1079,7 +1149,7 @@ class Database(object):
         if pandas_aggregate is None:
             query = self.session.query(*args).group_by(*grp)
             if dimension is not None:
-                query = query.join(dim, dim.c.deviceid == table.c.deviceid)            
+                query = query.join(dim, dim.c.deviceid == table.c.deviceid)
         else:
             (query,table) = self.query(
                         table_name = table_name,
@@ -1090,6 +1160,10 @@ class Database(object):
                         entities = entities,
                         dimension = dimension
                     )
+        #filter out rows where all of the metrics are null
+        #reduces volumes when dealing with sparse datasets
+        #also essential when doing a query to get the first or last values as null values must be ignored
+        query = query.filter(or_(*metric_filter))
             
         return (query,table,dim,pandas_aggregate,agg_dict)
     
@@ -1134,7 +1208,78 @@ class Database(object):
                     entities = entities
                 )
         
-        return (query,table)    
+        return (query,table)
+    
+    def query_time_agg(self,
+               table_name,
+               schema,
+               column,
+               regular_agg,
+               time_agg,
+               groupby = None,
+               timestamp = None,
+               time_grain = None,
+               dimension = None,
+               start_ts = None,
+               end_ts = None,
+               entities = None,
+               output_item = None):
+        '''
+        Build a query with separate aggregation functions for regular rollup and timestate rollup.
+        '''
+        
+        if isinstance(groupby,str):
+            groupby = [groupby]
+        
+        agg_dict = { column: regular_agg }
+        
+        #build query a aggregated on the regular dimension 
+        (query_a,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+                    agg_dict = agg_dict,
+                    table_name = table_name,
+                    schema = schema,
+                    groupby = groupby,
+                    time_grain = timestamp,
+                    timestamp = timestamp,
+                    dimension = dimension,
+                    start_ts = start_ts,
+                    end_ts = end_ts,
+                    entities = entities
+                )
+        
+        if pandas_aggregate:
+            raise ValueError('Attempting to db time aggregation on a query cannot be pushed to the database. Perform the time aggregation in Pandas.')
+        
+        if time_agg == 'first':
+            time_agg_dict =  { timestamp: "min" }
+        elif time_agg == 'last':
+            time_agg_dict =  { timestamp: "max" }
+        else:
+            msg = 'Invalid time aggregate %s. Use "first" or "last"' %time_agg
+            raise ValueError(msg)
+        
+        #build query b aggregated
+        (query_b,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+                    agg_dict = time_agg_dict,
+                    table_name = table_name,
+                    schema = schema,
+                    groupby = groupby,
+                    time_grain = time_grain,
+                    timestamp = timestamp,
+                    dimension = None,
+                    start_ts = start_ts,
+                    end_ts = end_ts,
+                    entities = entities
+                )
+        
+        right_timestamp = '%s_%s' %(time_agg,timestamp)
+        keys = [(timestamp,right_timestamp)]
+        keys.extend(groupby)
+        right_cols = { right_timestamp: right_timestamp,
+                       timestamp : timestamp }
+        query = self.subquery_join(query_a,query_b,*keys,**right_cols)
+        
+        return(query,table)
     
     
     def unregister_functions(self,function_names):

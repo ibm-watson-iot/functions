@@ -131,6 +131,7 @@ class EntityType(object):
     _db_schema = None
     _data_items = None
     tenant_id = None
+    _entity_filter_list = None
     # processing defaults
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     _pre_aggregate_time_grain = None # aggregate incoming data before processing
@@ -268,6 +269,15 @@ class EntityType(object):
         '''
         Retrieve entity data at input grain or preaggregated
         '''
+        
+        if entities is None:
+            e_count = 'all'
+            e_preview = ''
+        else:
+            e_count = len(entities)
+            e_preview = '[%s..]' %entities[0]
+        msg = 'Getting entity type data for %s entities %s' %(e_count,e_preview)
+        self.trace_append(self,msg)
         
         if self._pre_aggregate_time_grain is None:    
             df = self.db.read_table(
@@ -495,6 +505,14 @@ class EntityType(object):
                                 table_name = self._dimension_table_name,
                                 if_exists = 'replace',
                                 schema = self._db_schema)
+            
+    def get_entity_filter(self):
+        '''
+        Get the list of entity ids that are valid for pipeline processing. 
+        '''
+        
+        return self._entity_filter_list
+        
     
     def get_last_checkpoint(self):
         '''
