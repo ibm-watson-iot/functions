@@ -362,7 +362,7 @@ class IoTCalcSettings(BaseMetadataProvider):
     
 class IoTCheckpointOverride(BaseMetadataProvider):
     '''
-    Filter data source results on a list of entity ids
+    Allows customization of start and end date of initial load data
     '''
     
     def __init__(self, start_date, end_date, output_item= 'is_override_set'):
@@ -382,11 +382,11 @@ class IoTCheckpointOverride(BaseMetadataProvider):
         inputs = []
         inputs.append(UIMulti(name = 'start_date',
                               datatype=dt.datetime,
-                              description = 'Retrieve from timestamp'
+                              description = 'Retrieve from timestamp \n Ex: 2018-10-12 03:30:00'
                               ))
         inputs.append(UIMulti(name = 'end_date',
                               datatype=dt.datetime,
-                              description = 'Retrieve until this timestamp'
+                              description = 'Retrieve until this timestamp \n Ex: 2018-10-12 03:30:00'
                               ))        
         #define arguments that behave as function outputs
         outputs = []

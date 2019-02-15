@@ -379,12 +379,16 @@ class EntityType(object):
         return getattr(self, param)
 
     def get_end_ts_override(self):
-        
-        return self._end_ts_override
+        if self._end_ts_override is not None:
+            date_time_obj = dt.datetime.strptime(self._end_ts_override[0], '%Y-%m-%d %H:%M:%S')
+            return date_time_obj
+        return None
     
     def get_start_ts_override(self):
-        
-        return self._start_ts_override
+        if self._start_ts_override is not None:
+            date_time_obj = dt.datetime.strptime(self._start_ts_override[0], '%Y-%m-%d %H:%M:%S')
+            return date_time_obj
+        return None
         
     
     def generate_data(self, entities = None, days=0, seconds = 300, 
