@@ -172,7 +172,7 @@ class BaseFunction(object):
         
     def _coallesce_columns(self,df,cols,rsuffix='_new_'):
         '''
-        combine two columns into a single if there are two
+        Coallesce 2 columns into a single by replacing cols with a suffixed version of themselves when null
         '''
         done = []
         for i,o in enumerate(cols):
