@@ -418,7 +418,36 @@ class IoTCheckpointOverride(BaseMetadataProvider):
                                            datatype=bool,
                                            description='Returns a status flag of True when executed'))
         
-        return (inputs,outputs)     
+        return (inputs,outputs)   
+    
+class IoTCoalesceDimension(BaseTransformer):
+    """
+    Return first non-null value from a list of data items.
+    """
+    def __init__(self,data_items, output_item = 'output_item'):
+        
+        super().__init__()
+        self.data_items = data_items
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        df[self.output_item] = df[self.data_items].bfill(axis=1).iloc[:, 0]
+        
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem('input_items'))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle('output_item', tags = ['DIMENSION']))
+
+        return (inputs,outputs)
+    
+    
 
 
 class IoTConditionalItems(BaseTransformer):
@@ -957,7 +986,7 @@ class IoTRandomNormal(BaseTransformer):
         return (inputs,outputs)   
         
 
-class IoTRandomChoice (BaseTransformer):
+class IoTRandomChoice(BaseTransformer):
     """
     Generate a random categorical value.
     """
@@ -978,12 +1007,13 @@ class IoTRandomChoice (BaseTransformer):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMulti(name='domain_of_values',datatype=str,tags= ['DIMENSION']))
+        inputs.append(UIMulti(name='domain_of_values',datatype=str))
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_item',
                                              datatype=str,
-                                             description='Random output'
+                                             description='Random output',
+                                             tags= ['DIMENSION']
                                              ))
     
         return (inputs,outputs)   
