@@ -350,6 +350,30 @@ class IoTCalcSettings(BaseMetadataProvider):
                         output_item = 'mean_outputs',
                         is_output_datatype_derived = True
                 ))        
+        inputs.append(UIMultiItem(
+                        name = 'min_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that the system should choose the smallest value when aggregating',
+                        output_item = 'mean_outputs',
+                        is_output_datatype_derived = True
+                ))  
+        inputs.append(UIMultiItem(
+                        name = 'max_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that the system should choose the smallest value when aggregating',
+                        output_item = 'mean_outputs',
+                        is_output_datatype_derived = True
+                ))   
+        inputs.append(UIMultiItem(
+                        name = 'count_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that the system should choose the smallest value when aggregating',
+                        output_item = 'mean_outputs',
+                        is_output_datatype_derived = True
+                ))         
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_item',
@@ -896,8 +920,74 @@ class IoTRaiseError(BaseTransformer):
                                                      description='Dummy function output'
                                                      ))
     
-        return (inputs,outputs)     
+        return (inputs,outputs)
+    
+    
+class IoTRandomNormal(BaseTransformer):
+    """
+    Generate a normally distributed random number.
+    """
+    
+    def __init__ (self, mean, standard_deviation, output_item = 'output_item'):
         
+        super().__init__()
+        self.mean = mean
+        self.standard_deviation = standard_deviation
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        df[self.output_item] = np.random.normal(self.mean,self.standard_deviation,len(df.index))
+        
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name='mean',datatype=float))
+        inputs.append(UISingle(name='standard_deviation',datatype=float))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                             datatype=float,
+                                             description='Random output'
+                                             ))
+    
+        return (inputs,outputs)   
+        
+
+class IoTRandomChoice (BaseTransformer):
+    """
+    Generate a random categorical value.
+    """
+    
+    def __init__ (self, domain_of_values, output_item = 'output_item'):
+        
+        super().__init__()
+        self.domain_of_values = domain_of_values
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        df[self.output_item] = np.random.choice(self.domain_of_values,len(df.index))
+        
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMulti(name='domain_of_values',datatype=str,tags= ['DIMENSION']))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                             datatype=str,
+                                             description='Random output'
+                                             ))
+    
+        return (inputs,outputs)   
+
         
     
 class IoTPackageInfo(BaseTransformer):
