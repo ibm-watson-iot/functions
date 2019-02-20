@@ -348,7 +348,7 @@ class CalcPipeline:
             self.trace_append('The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
-        except Exception as e:
+        except BaseException as e:
             self.trace_append('The function %s failed to execute. ' %name, created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         #validate that stage has not violated any pipeline processing rules
