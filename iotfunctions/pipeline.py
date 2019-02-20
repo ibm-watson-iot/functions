@@ -13,7 +13,7 @@ import json
 import re
 import numpy as np
 import sys
-from .util import log_df_info
+from .util import log_df_info, MemoryOptimizer
 #from .bif import IoTExpression
 logger = logging.getLogger(__name__)
 
@@ -302,6 +302,7 @@ class CalcPipeline:
                 self.trace_append(msg,created_by = self)
                 self.entity_type.raise_error(exception = e,abort_on_fail = False)
             self.mark_initial_transform_complete()
+
         return df
     
     
@@ -368,8 +369,9 @@ class CalcPipeline:
             newdf = newdf.dropna()
         if to_csv:
             newdf.to_csv('debugPipelineOut_%s.csv' %stage.__class__.__name__)
+
         msg = 'Completed stage %s. ' %name
-        self.trace_append(msg,created_by=stage, df = newdf)            
+        self.trace_append(msg,created_by=stage, df = newdf)
         return newdf
     
     def get_custom_calendar(self):

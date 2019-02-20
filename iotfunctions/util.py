@@ -344,5 +344,94 @@ def resample(df,time_frequency,timestamp,dimensions=None,agg=None, default_aggre
     
     return df
     
-    
-    
+class MemoryOptimizer:
+    '''
+    Util class used to optimize the pipeline memory consumption using native Pandas downcasting
+    '''
+
+    def printCurrentMemoryConsumption(self, df):
+        logger.info('Memory consumed by the data frame: \n %s' % df.info(memory_usage='deep'))
+
+    def printUsagePerType(self, df):
+        for dtype in ['float', 'int', 'object']:
+            selected_dtype = df.select_dtypes(include=[dtype])
+            mean_usage_b = selected_dtype.memory_usage(deep=True).mean()
+            mean_usage_mb = mean_usage_b / 1024 ** 2
+            logger.info("Average memory usage for {} columns: {:03.2f} MB".format(dtype, mean_usage_mb))
+
+    def downcastInteger(self, df):
+        df_new = df.copy()
+
+        logger.info('Applying downcast to Integer columns.')
+
+        try:
+            df_int = df_new.select_dtypes(include=['int'])
+            converted_int = df_int.apply(pd.to_numeric, downcast='unsigned')
+        except:
+            logger.warning('Not able to downcast Integer')
+            return df
+
+        return converted_int
+
+
+    def downcastFloat(self, df, precison='float'):
+        df_new = df.copy()
+
+        logger.info('Applying downcast to Float columns.')
+
+        try:
+            df_float = df_new.select_dtypes(include=['float'])
+            converted_float = df_float.apply(pd.to_numeric, downcast=precison)
+        except:
+            logger.warning('Not able to downcast Float types')
+            return df
+
+        return converted_float
+
+
+    def getColumnsForCategorization(self, df, threshold=0.5):
+        '''
+        It generates a list of columns that are elegible to be categorized.
+        The column name is printed if the number of unique values is proportionally greater than 50% of the total number of rows.
+        Threshold is customized.
+        '''
+
+        df_new = df.select_dtypes(include=['object']).copy()
+
+        lst_columns = []
+        for col in df_new.columns:
+            num_unique_values = len(df_new[col].unique())
+            num_total_values = len(df_new[col])
+            if num_unique_values / num_total_values < threshold:
+                logger.info('Column elegible for categorization: %s' % col)
+                lst_columns.append(col)
+
+        return lst_columns
+
+
+    def downcastString(self, df, lst_columns):
+        '''
+        It converts a data frame column type object into a categorical type
+        '''
+
+        logger.info('Applying downcast to String columns. %s' % str(lst_columns))
+
+        df_new = df.select_dtypes(include=['object']).copy()
+
+        try:
+            for col in lst_columns:
+                df_new.loc[:, col] = df_new[col].astype('category')
+        except:
+            logger.warning('Not able to downcast String to category')
+            return df
+
+        return df_new
+
+
+    def downcastNumeric(self, df):
+
+        df_new = self.downcastInteger(df)
+        df_new = self.downcastFloat(df_new)
+
+        return df_new
+
