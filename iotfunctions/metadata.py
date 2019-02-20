@@ -22,7 +22,7 @@ from ibm_db_sa.base import DOUBLE
 from . import db as db_module
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
-from .util import log_df_info
+from .util import MemoryOptimizer
 
 
 
@@ -344,6 +344,14 @@ class EntityType(object):
             
         if start_ts is not None:
             msg = 'Data retrieved after timestamp: %s. ' %start_ts
+
+        # Optimizing the data frame size using downcasting
+        memo = MemoryOptimizer()
+        logger.info('Optimizing memory. Applying downcast.')
+        memo.printUsagePerType(df)
+        memo.printCurrentMemoryConsumption(df)
+        df = memo.downcastNumeric(df)
+        memo.printCurrentMemoryConsumption(df)
 
         return df   
 
