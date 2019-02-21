@@ -350,8 +350,8 @@ class EntityType(object):
         logger.info('Optimizing memory. Applying downcast.')
         memo.printUsagePerType(df)
         memo.printCurrentMemoryConsumption(df)
-        df = memo.downcastNumeric(df)
-        memo.printCurrentMemoryConsumption(df)
+        #df = memo.downcastNumeric(df)
+        #memo.printCurrentMemoryConsumption(df)
 
         return df   
 
