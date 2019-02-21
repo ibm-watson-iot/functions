@@ -368,8 +368,9 @@ class MemoryOptimizer:
             df_int = df_new.select_dtypes(include=['int'])
 
             if not df_int.empty:
-                df_new = df_int.apply(pd.to_numeric, downcast='unsigned')
-                #df_new = pd.concat([df_int.dtypes, converted_int.dtypes], axis=1)
+                df_converted = df_int.apply(pd.to_numeric, downcast='unsigned')
+                for col in df_converted.columns:
+                    df_new[col] = df_converted[col]
         except:
             logger.warning('Not able to downcast Integer')
             return df_new
@@ -386,8 +387,9 @@ class MemoryOptimizer:
             df_float = df_new.select_dtypes(include=['float'])
 
             if not df_float.empty:
-                df_new = df_float.apply(pd.to_numeric, downcast=precison)
-                #df_new = pd.concat([df_float.dtypes, converted_float.dtypes], axis=1)
+                df_converted = df_float.apply(pd.to_numeric, downcast=precison)
+                for col in df_converted.columns:
+                    df_new[col] = df_converted[col]
         except:
             logger.warning('Not able to downcast Float types')
             return df_new
@@ -436,8 +438,16 @@ class MemoryOptimizer:
 
     def downcastNumeric(self, df):
 
+        logger.info('Optimizing memory. Before applying downcast.')
+        self.printUsagePerType(df)
+        self.printCurrentMemoryConsumption(df)
+
         df_new = self.downcastInteger(df)
         df_new = self.downcastFloat(df_new)
+
+        logger.info('Optimizing memory. After applying downcast.')
+        self.printUsagePerType(df_new)
+        self.printCurrentMemoryConsumption(df_new)
 
         return df_new
 
