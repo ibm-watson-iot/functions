@@ -944,21 +944,3 @@ class Model(object):
         if out['expiry_date'] is not None:
             out['expiry_date'] = out['expiry_date'].isoformat()
         return json.dumps(out,indent=1)
-            
-        
-        
-    
-
-        
-
-        
-        
-        
-        
-
-        
-            
-            
-    
-    
-    
