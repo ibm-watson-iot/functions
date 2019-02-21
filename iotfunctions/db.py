@@ -233,7 +233,7 @@ class Database(object):
                            request = 'GET',
                            payload = {},
                            object_name_2='')
-        if metadata is None:
+        if metadata is not None:
             metadata = json.loads(metadata)
         else:
             msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
