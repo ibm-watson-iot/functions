@@ -350,7 +350,7 @@ class MemoryOptimizer:
     '''
 
     def printCurrentMemoryConsumption(self, df):
-        logger.info('Memory consumed by the data frame: \n %s' % df.info(memory_usage='deep'))
+        logger.info('Memory consumed by the data frame: \n %s' % df.memory_usage(deep=True))
 
     def printUsagePerType(self, df):
         for dtype in ['float', 'int', 'object']:
@@ -366,12 +366,15 @@ class MemoryOptimizer:
 
         try:
             df_int = df_new.select_dtypes(include=['int'])
-            converted_int = df_int.apply(pd.to_numeric, downcast='unsigned')
+
+            if not df_int.empty:
+                df_new = df_int.apply(pd.to_numeric, downcast='unsigned')
+                #df_new = pd.concat([df_int.dtypes, converted_int.dtypes], axis=1)
         except:
             logger.warning('Not able to downcast Integer')
-            return df
+            return df_new
 
-        return converted_int
+        return df_new
 
 
     def downcastFloat(self, df, precison='float'):
@@ -381,12 +384,15 @@ class MemoryOptimizer:
 
         try:
             df_float = df_new.select_dtypes(include=['float'])
-            converted_float = df_float.apply(pd.to_numeric, downcast=precison)
+
+            if not df_float.empty:
+                df_new = df_float.apply(pd.to_numeric, downcast=precison)
+                #df_new = pd.concat([df_float.dtypes, converted_float.dtypes], axis=1)
         except:
             logger.warning('Not able to downcast Float types')
-            return df
+            return df_new
 
-        return converted_float
+        return df_new
 
 
     def getColumnsForCategorization(self, df, threshold=0.5):

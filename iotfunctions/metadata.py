@@ -347,10 +347,12 @@ class EntityType(object):
 
         # Optimizing the data frame size using downcasting
         memo = MemoryOptimizer()
-        logger.info('Optimizing memory. Applying downcast.')
+        logger.info('Optimizing memory. Before applying downcast.')
         memo.printUsagePerType(df)
         memo.printCurrentMemoryConsumption(df)
         df = memo.downcastNumeric(df)
+        logger.info('Optimizing memory. After applying downcast.')
+        memo.printUsagePerType(df)
         memo.printCurrentMemoryConsumption(df)
 
         return df   
