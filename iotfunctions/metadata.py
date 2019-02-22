@@ -347,11 +347,8 @@ class EntityType(object):
 
         # Optimizing the data frame size using downcasting
         memo = MemoryOptimizer()
-        logger.info('Optimizing memory. Applying downcast.')
-        memo.printUsagePerType(df)
-        memo.printCurrentMemoryConsumption(df)
-        #df = memo.downcastNumeric(df)
-        #memo.printCurrentMemoryConsumption(df)
+        #df = memo.downcastNumeric(df)              #uncomment only after testing better
+        memo.downcastNumeric(df)
 
         return df   
 
@@ -947,21 +944,3 @@ class Model(object):
         if out['expiry_date'] is not None:
             out['expiry_date'] = out['expiry_date'].isoformat()
         return json.dumps(out,indent=1)
-            
-        
-        
-    
-
-        
-
-        
-        
-        
-        
-
-        
-            
-            
-    
-    
-    

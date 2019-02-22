@@ -350,7 +350,7 @@ class MemoryOptimizer:
     '''
 
     def printCurrentMemoryConsumption(self, df):
-        logger.info('Memory consumed by the data frame: \n %s' % df.info(memory_usage='deep'))
+        logger.info('Memory consumed by the data frame: \n %s' % df.memory_usage(deep=True))
 
     def printUsagePerType(self, df):
         for dtype in ['float', 'int', 'object']:
@@ -366,12 +366,16 @@ class MemoryOptimizer:
 
         try:
             df_int = df_new.select_dtypes(include=['int'])
-            converted_int = df_int.apply(pd.to_numeric, downcast='unsigned')
+
+            if not df_int.empty:
+                df_converted = df_int.apply(pd.to_numeric, downcast='unsigned')
+                for col in df_converted.columns:
+                    df_new[col] = df_converted[col]
         except:
             logger.warning('Not able to downcast Integer')
-            return df
+            return df_new
 
-        return converted_int
+        return df_new
 
 
     def downcastFloat(self, df, precison='float'):
@@ -381,12 +385,16 @@ class MemoryOptimizer:
 
         try:
             df_float = df_new.select_dtypes(include=['float'])
-            converted_float = df_float.apply(pd.to_numeric, downcast=precison)
+
+            if not df_float.empty:
+                df_converted = df_float.apply(pd.to_numeric, downcast=precison)
+                for col in df_converted.columns:
+                    df_new[col] = df_converted[col]
         except:
             logger.warning('Not able to downcast Float types')
-            return df
+            return df_new
 
-        return converted_float
+        return df_new
 
 
     def getColumnsForCategorization(self, df, threshold=0.5):
@@ -430,8 +438,16 @@ class MemoryOptimizer:
 
     def downcastNumeric(self, df):
 
+        logger.info('Optimizing memory. Before applying downcast.')
+        self.printUsagePerType(df)
+        self.printCurrentMemoryConsumption(df)
+
         df_new = self.downcastInteger(df)
         df_new = self.downcastFloat(df_new)
+
+        logger.info('Optimizing memory. After applying downcast.')
+        self.printUsagePerType(df_new)
+        self.printCurrentMemoryConsumption(df_new)
 
         return df_new
 

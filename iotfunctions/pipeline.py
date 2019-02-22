@@ -13,8 +13,10 @@ import json
 import re
 import numpy as np
 import sys
-from .util import log_df_info, MemoryOptimizer
-#from .bif import IoTExpression
+from .util import log_df_info
+import pandas as pd
+from pandas.api.types import is_bool_dtype, is_numeric_dtype, is_string_dtype, is_datetime64_any_dtype
+
 logger = logging.getLogger(__name__)
 
 
@@ -353,7 +355,7 @@ class CalcPipeline:
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
         #validate that stage has not violated any pipeline processing rules
         try:
-            stage.validate_df(df,newdf)
+            self.validate_df(df,newdf)
         except AttributeError:
             msg = 'Function has %s no validate_df method. Skipping validation of the dataframe' %name
             logger.debug(msg)
@@ -494,7 +496,156 @@ class CalcPipeline:
         self.entity_type.trace_append(created_by=created_by,
                                       msg = msg,
                                       log_method=log_method,
-                                      **kwargs)     
+                                      **kwargs)
+
+    def validate_df(self, input_df, output_df):
+
+        validation_result = {}
+        validation_types = {}
+        for (df, df_name) in [(input_df, 'input'), (output_df, 'output')]:
+            validation_types[df_name] = {}
+            for c in list(df.columns):
+                try:
+                    validation_types[df_name][df[c].dtype].add(c)
+                except KeyError:
+                    validation_types[df_name][df[c].dtype] = {c}
+
+            validation_result[df_name] = {}
+            validation_result[df_name]['row_count'] = len(df.index)
+            validation_result[df_name]['columns'] = set(df.columns)
+            is_str_0 = False
+            try:
+                if is_string_dtype(df.index.get_level_values(self.entity_type._df_index_entity_id)):
+                    is_str_0 = True
+            except KeyError:
+                pass
+            is_dt_1 = False
+            try:
+                if is_datetime64_any_dtype(df.index.get_level_values(self.entity_type._timestamp)):
+                    is_dt_1 = True
+            except KeyError:
+                pass
+            validation_result[df_name]['is_index_0_str'] = is_str_0
+            validation_result[df_name]['is_index_1_datetime'] = is_dt_1
+
+        if validation_result['input']['row_count'] == 0:
+            logger.warning('Input dataframe has no rows of data')
+        elif validation_result['output']['row_count'] == 0:
+            logger.warning('Output dataframe has no rows of data')
+
+        if not validation_result['input']['is_index_0_str']:
+            logger.warning(
+                'Input dataframe index does not conform. First part not a string called %s' % self.entity_type._df_index_entity_id)
+        if not validation_result['output']['is_index_0_str']:
+            logger.warning(
+                'Output dataframe index does not conform. First part not a string called %s' % self.entity_type._df_index_entity_id)
+
+        if not validation_result['input']['is_index_1_datetime']:
+            logger.warning(
+                'Input dataframe index does not conform. Second part not a string called %s' % self.entity_type._timestamp)
+        if not validation_result['output']['is_index_1_datetime']:
+            logger.warning(
+                'Output dataframe index does not conform. Second part not a string called %s' % self.entity_type._timestamp)
+
+        mismatched_type = False
+        for dtype, cols in list(validation_types['input'].items()):
+            try:
+                missing = cols - validation_types['output'][dtype]
+            except KeyError:
+                mismatched_type = True
+                msg = 'Output dataframe has no columns of type %s. Type has changed or column was dropped.' % dtype
+            else:
+                if len(missing) != 0:
+                    msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' % (
+                    missing, dtype)
+                    mismatched_type = True
+            if mismatched_type:
+                logger.warning(msg)
+
+        self.check_data_items_type(df=output_df, items=self.entity_type.get_data_items())
+
+        return (validation_result, validation_types)
+
+    def check_data_items_type(self, df, items):
+        '''
+        Check if dataframe columns type is equivalent to the data item that is defined in the metadata
+        It checks the entire list of data items. Thus, depending where this code is executed, the dataframe might not be completed.
+        An exception is generated if there are not incompatible types of matching items AND and flag throw_error is set to TRUE
+        '''
+
+        invalid_data_items = list()
+
+        if df is not None:
+            #logger.info('Dataframe types before type conciliation: \n')
+            #logger.info(df.dtypes)
+
+            for item in list(items.data_items):  # transform in list to iterate over it
+                df_column = {}
+                try:
+                    data_item = items.get(item)  # back to the original dict to retrieve item object
+                    df_column = df[data_item['name']]
+                except KeyError:
+                    #logger.debug('Data item %s is not part of the dataframe yet.' % item)
+                    continue
+
+                # check if it is Number
+                if data_item['columnType'] == 'NUMBER':
+                    if not is_numeric_dtype(df_column.values) or is_bool_dtype(df_column.dtype):
+                        logger.info(
+                            'Type is not consistent %s: df type is %s and data type is %s' % (
+                                item, df_column.dtype.name, data_item['columnType']))
+
+                        try:
+                            df[data_item['name']] = df_column.astype('float64')  # try to convert to numeric
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
+
+                # check if it is String
+                if data_item['columnType'] == 'LITERAL':
+                    if not is_string_dtype(df_column.dtype):
+                        logger.info(
+                            'Type is not consistent %s: df type is %s and data type is %s' % (
+                                item, df_column.dtype.name, data_item['columnType']))
+                        try:
+                            df[data_item['name']] = df_column.astype('str')  # try to convert to string
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
+
+                # check if it is Timestamp
+                if data_item['columnType'] == 'TIMESTAMP':
+                    if not is_datetime64_any_dtype(df_column.dtype):
+                        logger.info(
+                            'Type is not consistent %s: df type is %s and data type is %s' % (
+                                item, df_column.dtype.name, data_item['columnType']))
+                        try:
+                            df[data_item['name']] = pd.to_datetime(df_column)  # try to convert to timestamp
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
+
+                # check if it is Boolean
+                if data_item['columnType'] == 'BOOLEAN':
+                    if not is_bool_dtype(df_column.dtype):
+                        logger.info(
+                            'Type is not consistent %s: df type is %s and data type is %s' % (
+                                item, df_column.dtype.name, data_item['columnType']))
+                        try:
+                            df[data_item['name']] = df_column.astype('bool')
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
+
+        else:
+            logger.info('Not possible to retrieve information from the data frame')
+
+        if len(invalid_data_items) > 0:
+            msg = 'Some data items could not have its type conciliated:'
+            for item, df_type, data_type in invalid_data_items:
+                msg += ('\n %s: df type is %s and data type is %s' % (item, df_type, data_type))
+            logger.error(msg)
+            raise Exception(msg)
 
 
 class PipelineExpression(object):
