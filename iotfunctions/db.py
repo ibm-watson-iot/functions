@@ -582,14 +582,21 @@ class Database(object):
         
         return True
         
-    def install_package(self,url):
+    def install_package(self, url):
         '''
         Install python package located at URL
         '''
-        
-        subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url])
+
         msg = 'running pip install for url %s' %url
         logger.debug(msg)
+       
+        completedProcess = subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url],
+                               stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True)
+
+        if completedProcess.returncode == 0:
+            logger.info('pip install for url %s was successful: \n %s' % (url, completedProcess.stdout))
+        else:
+            logger.error('pip install for url %s failed: \n %s' % (url, completedProcess.stdout))
          
     def import_target(self,package,module,target,url=None):
         '''
