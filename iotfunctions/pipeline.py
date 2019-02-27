@@ -180,9 +180,9 @@ class CalcPipeline:
                     to_csv = to_csv,
                     dropna = dropna,
                     abort_on_fail = True)
-            
-        #execute custom calendar
-        if len(special_lookup_stages) > 0:
+        
+        #exceute special lookup stages
+        if not df.empty and len(special_lookup_stages) > 0:                
             for s in special_lookup_stages:
                 msg = 'Processing special lookup stage %s. ' %s.__class__.__name__
                 self.trace_append(msg)
@@ -194,7 +194,7 @@ class CalcPipeline:
                     register = register,
                     to_csv = to_csv,
                     dropna = dropna,
-                    abort_on_fail = True)    
+                    abort_on_fail = True) 
             
         return(df,remaining_stages)    
             
