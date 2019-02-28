@@ -591,7 +591,7 @@ class Database(object):
         logger.debug(msg)
        
         completedProcess = subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url],
-                               stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True)
+                               stderr=subprocess.STDOUT, stdout=subprocess.PIPE, universal_newlines=True)
 
         if completedProcess.returncode == 0:
             logger.info('pip install for url %s was successful: \n %s' % (url, completedProcess.stdout))
