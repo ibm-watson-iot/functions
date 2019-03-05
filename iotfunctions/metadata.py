@@ -22,7 +22,7 @@ from ibm_db_sa.base import DOUBLE
 from . import db as db_module
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline
-from .util import MemoryOptimizer
+from .util import MemoryOptimizer, StageException
 
 
 
@@ -618,27 +618,26 @@ class EntityType(object):
             dim.create()
             msg = 'Creates dimension table %s' %self._dimension_table_name
             logger.debug(msg)
-            
-            
-    def raise_error(self,exception,msg='',abort_on_fail=False):
+
+    def raise_error(self,exception,msg='',abort_on_fail=False,stageName=None):
         '''
         Raise an exception. Append a message and the current trace to the stacktrace.
         '''
-        msg = msg + 'Trace follows: ' + str(self._trace)
-        
-        msg = '%s - %s : ' %(str(exception),msg)
+        msg = msg + ' Trace follows: ' + str(self._trace)
+         
+        msg = 'Execution of stage %s failed because of %s: %s - %s ' %(stageName,type(exception).__name__,str(exception),msg)
         if abort_on_fail:
             try:
                 tb = sys.exc_info()[2]
             except TypeError:
-                raise type(exception)(msg)
+                raise StageException(msg, stageName)
             else:
-                raise type(exception)(msg).with_traceback(tb)
+                raise StageException(msg, stageName).with_traceback(tb)
         else:
             logger.warn(msg)
-            msg = 'An exception occured during execution of a pipeline stage. The stage is configured to continue after an execution failure'
+            msg = 'An exception occurred during execution of the pipeline stage %s. The stage is configured to continue after an execution failure' % (stageName)
             logger.warn(msg)
-    
+
     def register(self):
         '''
         Register entity type so that it appears in the UI. Create a table for input data.

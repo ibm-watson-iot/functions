@@ -451,3 +451,11 @@ class MemoryOptimizer:
 
         return df_new
 
+class StageException(Exception):
+    EXTENSION_DICT = 'extensionDict'
+    STAGENAME = 'stageName'
+    STAGEINFO = 'stageInfo'
+    def __init__(self, msg, stageName=None, stageInfo=None):
+        super().__init__(msg)
+        setattr(self, EXTENSION_DICT, {STAGENAME: stageName, STAGEINFO: stageInfo})
+           
