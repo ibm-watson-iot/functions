@@ -1551,14 +1551,15 @@ class TimeSeriesTable(BaseTable):
     """
     def __init__ (self,name,database,*args, **kw):        
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id,String(50))
+        self.id_col = Column(self._entity_id,String(256))
         self.evt_timestamp = Column(self._timestamp,DateTime)
-        self.device_type = Column('devicetype',String(50))
+        self.device_type = Column('devicetype',String(64))
         self.logical_interface = Column('logicalinterface_id',String(64))
-        self.format = Column('format',String(64))
+        self.event_type = Column('eventtype',String(64))
+        self.format = Column('format',String(32))
         self.updated_timestamp = Column('updated_utc',DateTime)
         super().__init__(name,database,self.id_col,self.evt_timestamp,
-                 self.device_type, self.logical_interface, self.format , 
+                 self.device_type, self.logical_interface, self.event_type, self.format, 
                  self.updated_timestamp,
                  *args, **kw)
         
