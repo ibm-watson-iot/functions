@@ -168,28 +168,32 @@ class Database(object):
                                                                      self.credentials['db2']['host'],
                                                                      self.credentials['db2']['port'],
                                                                      self.credentials['db2']['database'])
+                    if 'security' in self.credentials['db2']:
+                        connection_string += 'SECURITY=%s' % self.credentials['db2']['security']
                 except KeyError:
                     # look for environment variable for the ICS DB2
                     try:
-                       msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
-                       connection_string = os.environ.get('DB_CONNECTION_STRING')
+                        msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
+                        connection_string = os.environ.get('DB_CONNECTION_STRING')
                     except KeyError:
                         raise ValueError(msg)
                     else:
-                       if not connection_string is None:
-                           if connection_string.endswith(';'):
-                               connection_string = connection_string[:-1]
-                           ev = dict(item.split("=") for item in connection_string.split(";"))
-                           connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
-                           self.credentials['db2'] =  {
-                                            "username": ev['UID'],
-                                            "password": ev['PWD'],
-                                            "database": ev['DATABASE'] ,
-                                            "port": ev['PORT'],
-                                            "host": ev['HOSTNAME'] 
-                                    }
-                       else:
-                           raise ValueError(msg)
+                        if not connection_string is None:
+                            if connection_string.endswith(';'):
+                                connection_string = connection_string[:-1]
+                            ev = dict(item.split("=") for item in connection_string.split(";"))
+                            connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
+                            if 'SECURITY' in ev:
+                                connection_string += 'SECURITY=%s' % ev['SECURITY']
+                            self.credentials['db2'] =  {
+                                "username": ev['UID'],
+                                "password": ev['PWD'],
+                                "database": ev['DATABASE'],
+                                "port": ev['PORT'],
+                                "host": ev['HOSTNAME'] 
+                            }
+                        else:
+                            raise ValueError(msg)
             else:
                 self.credentials['sqlite'] = connection_string
                 connection_kwargs = {} 
