@@ -815,6 +815,28 @@ class IoTGetEntityData(BaseDataSource):
         df = self.rename_cols(df,cols,renamed_cols)
         
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name = 'source_entity_type_name',
+                               datatype=str,
+                               description = "Enter the name of the entity type that you would like to retrieve data from")
+                      )
+        inputs.append(UISingle(name = 'key_map_column',
+                               datatype=str,
+                               description = "Enter the name of the column on the source entity type that represents the map to the device id of this entity type")
+                      )        
+        inputs.append(UIMulti(name = 'input_items',
+                               datatype=str,
+                               description = "Comma separated list of data item names to retrieve from the source entity type",
+                               output_item = 'output_items',
+                               is_output_datatype_derived = True)
+                      )
+        outputs = []
+    
+        return (inputs,outputs)  
 
 class IoTEntityId(BaseTransformer):
     """
