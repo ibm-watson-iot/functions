@@ -168,28 +168,32 @@ class Database(object):
                                                                      self.credentials['db2']['host'],
                                                                      self.credentials['db2']['port'],
                                                                      self.credentials['db2']['database'])
+                    if 'security' in self.credentials['db2']:
+                        connection_string += 'SECURITY=%s' % self.credentials['db2']['security']
                 except KeyError:
                     # look for environment variable for the ICS DB2
                     try:
-                       msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
-                       connection_string = os.environ.get('DB_CONNECTION_STRING')
+                        msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
+                        connection_string = os.environ.get('DB_CONNECTION_STRING')
                     except KeyError:
                         raise ValueError(msg)
                     else:
-                       if not connection_string is None:
-                           if connection_string.endswith(';'):
-                               connection_string = connection_string[:-1]
-                           ev = dict(item.split("=") for item in connection_string.split(";"))
-                           connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
-                           self.credentials['db2'] =  {
-                                            "username": ev['UID'],
-                                            "password": ev['PWD'],
-                                            "database": ev['DATABASE'] ,
-                                            "port": ev['PORT'],
-                                            "host": ev['HOSTNAME'] 
-                                    }
-                       else:
-                           raise ValueError(msg)
+                        if not connection_string is None:
+                            if connection_string.endswith(';'):
+                                connection_string = connection_string[:-1]
+                            ev = dict(item.split("=") for item in connection_string.split(";"))
+                            connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
+                            if 'SECURITY' in ev:
+                                connection_string += 'SECURITY=%s' % ev['SECURITY']
+                            self.credentials['db2'] =  {
+                                "username": ev['UID'],
+                                "password": ev['PWD'],
+                                "database": ev['DATABASE'],
+                                "port": ev['PORT'],
+                                "host": ev['HOSTNAME'] 
+                            }
+                        else:
+                            raise ValueError(msg)
             else:
                 self.credentials['sqlite'] = connection_string
                 connection_kwargs = {} 
@@ -1551,14 +1555,15 @@ class TimeSeriesTable(BaseTable):
     """
     def __init__ (self,name,database,*args, **kw):        
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id,String(50))
+        self.id_col = Column(self._entity_id,String(256))
         self.evt_timestamp = Column(self._timestamp,DateTime)
-        self.device_type = Column('devicetype',String(50))
+        self.device_type = Column('devicetype',String(64))
         self.logical_interface = Column('logicalinterface_id',String(64))
-        self.format = Column('format',String(64))
+        self.event_type = Column('eventtype',String(64))
+        self.format = Column('format',String(32))
         self.updated_timestamp = Column('updated_utc',DateTime)
         super().__init__(name,database,self.id_col,self.evt_timestamp,
-                 self.device_type, self.logical_interface, self.format , 
+                 self.device_type, self.logical_interface, self.event_type, self.format, 
                  self.updated_timestamp,
                  *args, **kw)
         
