@@ -457,5 +457,5 @@ class StageException(Exception):
     STAGEINFO = 'stageInfo'
     def __init__(self, msg, stageName=None, stageInfo=None):
         super().__init__(msg)
-        setattr(self, EXTENSION_DICT, {STAGENAME: stageName, STAGEINFO: stageInfo})
+        setattr(self, StageException.EXTENSION_DICT, {StageException.STAGENAME: stageName, StageException.STAGEINFO: stageInfo})
            
