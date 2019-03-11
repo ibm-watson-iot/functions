@@ -163,7 +163,7 @@ class EntityType(object):
         self.set_params(**kwargs)
         if self._db_schema is None:
             msg = 'No _db_schema specified in **kwargs. Using default database schema.'
-            logger.warn(msg)
+            logger.warning(msg)
         if self.logical_name is None:
             self.logical_name = self.name         
         if name is not None and db is not None:            
@@ -634,9 +634,9 @@ class EntityType(object):
             else:
                 raise StageException(msg, stageName).with_traceback(tb)
         else:
-            logger.warn(msg)
+            logger.warning(msg)
             msg = 'An exception occurred during execution of the pipeline stage %s. The stage is configured to continue after an execution failure' % (stageName)
-            logger.warn(msg)
+            logger.warning(msg)
 
     def register(self):
         '''
