@@ -295,7 +295,7 @@ def log_df_info(df,msg,include_data=False):
         logger.debug(msg)
         return msg
     except Exception:
-        logger.warn('dataframe contents not logged due to an unknown logging error')
+        logger.warning('dataframe contents not logged due to an unknown logging error')
         return ''
     
 def resample(df,time_frequency,timestamp,dimensions=None,agg=None, default_aggregate = 'last'):
@@ -451,3 +451,11 @@ class MemoryOptimizer:
 
         return df_new
 
+class StageException(Exception):
+    EXTENSION_DICT = 'extensionDict'
+    STAGENAME = 'stageName'
+    STAGEINFO = 'stageInfo'
+    def __init__(self, msg, stageName=None, stageInfo=None):
+        super().__init__(msg)
+        setattr(self, StageException.EXTENSION_DICT, {StageException.STAGENAME: stageName, StageException.STAGEINFO: stageInfo})
+           

@@ -122,7 +122,7 @@ class Database(object):
             self.credentials['config']['bos_runtime_bucket']
         except KeyError:
             msg = 'Missing objectStorage credentials. Database object created, but it will not be able interact with object storage'
-            logger.warn(msg)
+            logger.warning(msg)
         
         try:
             as_api_host = credentials['as_api_host']
@@ -1422,7 +1422,7 @@ class BaseTable(object):
                 kw['schema'] = kw['_db_schema']
             except KeyError:
                 msg = 'No schema specified as **kw, using default for table %s' %self.name
-                logger.warn(msg)
+                logger.warning(msg)
         else:
             if kwschema is None:
                 msg = 'Schema passed as None, using default schema'
