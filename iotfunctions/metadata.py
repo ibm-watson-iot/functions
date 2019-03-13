@@ -24,9 +24,6 @@ from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, Cat
 from .pipeline import CalcPipeline
 from .util import MemoryOptimizer, StageException
 
-
-
-
 logger = logging.getLogger(__name__)
 
 def make_sample_entity(db,schema=None,
@@ -140,6 +137,7 @@ class EntityType(object):
     _auto_read_from_ts_table = True # read new data from designated time series table for the entity
     _pre_agg_rules = None # pandas agg dictionary containing list of aggregates to apply for each item
     _pre_agg_outputs = None #dictionary containing list of output items names for each item
+    
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name.lower()
         self.activity_tables = {}
@@ -149,7 +147,14 @@ class EntityType(object):
             self.tenant_id = self.db.tenant_id
         self._system_columns = [self._entity_id,self._timestamp_col,'logicalinterface_id',
                                 'devicetype','format','updated_utc', self._timestamp]
-        #pipeline processing options
+        #TBD replace with API call
+        self._grain_frequency_lookup = {
+                'Hourly' : '1H',
+                'Daily' : '1D',
+                'Weekly' : '1W',
+                'Monthly' : '1M',
+                'Yearly' : '1Y'
+                }
         self._custom_exclude_col_from_auto_drop_nulls = []
         self._drop_all_null_rows = True
         #pipeline work variables stages
@@ -161,6 +166,7 @@ class EntityType(object):
         self._is_preload_complete = False
         #initialize
         self.set_params(**kwargs)
+        self.get_server_params()
         if self._db_schema is None:
             msg = 'No _db_schema specified in **kwargs. Using default database schema.'
             logger.warning(msg)
@@ -243,7 +249,27 @@ class EntityType(object):
         name = ['entity_type', self.name]
         name = '.'.join(name)
         self.db.cos_save(self, name)
-                
+        
+    
+    def convert_granularity_to_grouper(self,granularity=None,time_frequency=None):
+        '''
+        Convert an AS granularity tuple to a pandas grouper that can be used
+        to aggregate by the granularity
+        '''
+        
+        if time_frequency is None:
+            #attempt to extract from the granularity tuple
+            for key,value in list(self._grain_freq_lookup.items()):
+                if key in granularity:
+                    time_frequency = value
+                    granularity.remove(key)
+                    
+            if time_frequency is not None:
+                grouper = [pd.Grouper(key = timestamp, freq = time_frequency)]
+            for d in dimensions:
+                grouper.append(pd.Grouper(key = d))
+             
+        return grouper           
         
     def drop_child_tables(self):
         '''
@@ -255,7 +281,19 @@ class EntityType(object):
         [self.db.drop_table(x,self._db_schema) for x in tables]
         msg = 'dropped tables %s' %tables
         logger.info(msg)
-                
+        
+    def exec_pipeline(self, *args, to_csv = False, register = False,
+                      start_ts = None, publish = False):
+        '''
+        Test an AS function instance using entity data.
+        Provide one or more functions as args.
+        '''
+        stages = list(args)
+        pl = self.get_calc_pipeline(stages=stages)
+        df = pl.execute(to_csv = to_csv, register = register, start_ts = start_ts)
+        if publish:
+            pl.publish()
+        return df
     
     def get_calc_pipeline(self,stages=None):
         '''
@@ -265,6 +303,10 @@ class EntityType(object):
         self._custom_calendar = None
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
+    
+    def get_custom_calendar(self):
+        
+        return self._custom_calendar
         
         
     def get_data(self,start_ts =None,end_ts=None,entities=None,columns=None):
@@ -350,7 +392,8 @@ class EntityType(object):
         #df = memo.downcastNumeric(df)              #uncomment only after testing better
         memo.downcastNumeric(df)
 
-        return df   
+        return df
+            
 
     def get_data_items(self):
         '''
@@ -720,6 +763,33 @@ class EntityType(object):
         '''
         if custom_calendar is not None:
             self._custom_calendar = custom_calendar
+            
+    def get_server_params(self):
+        '''
+        Retrieve the set of properties assigned through the UI
+        Assign to instance variables        
+        '''
+        meta = self.db.http_request(object_type = 'constants',
+                                    object_name = self.logical_name,
+                                   request= 'GET')
+        try:
+            meta = json.loads(meta)
+        except (TypeError, json.JSONDecodeError):
+            params = {}
+            logger.debug('API call to server did not retrieve valid entity type properties. No properties set.')
+        else:
+            params = {}
+            for p in meta:
+                key = p['name']
+                if isinstance(p['value'],dict):
+                    params[key] = p['value'].get('value',p['value'])
+                else:
+                    params[key] = p['value']
+                logger.debug('Adding server property %s with value %s to entity type',key,params[key])
+            self.set_params(**params)
+        
+        return params
+            
      
     def _set_end_date(self,df):
         
@@ -732,17 +802,7 @@ class EntityType(object):
         out = self.name
         return out
     
-    def exec_pipeline(self, *args, to_csv = False, register = False, start_ts = None, publish = False):
-        '''
-        Test an AS function instance using entity data. Provide one or more functions as args.
-        '''
-        stages = list(args)
-        pl = self.get_calc_pipeline(stages=stages)
-        df = pl.execute(to_csv = to_csv, register = register, start_ts = start_ts)
-        if publish:
-            pl.publish()
-        return df
-        
+
     
     def set_params(self, **params):
         '''

@@ -246,6 +246,7 @@ class Database(object):
         for m in metadata:
             self.entity_type_metadata[m['name']] = m
             
+            
     def _aggregate_item(self,table,column_name,aggregate,alias_column=None, dimension_table = None, timestamp_col = None):
         
         if alias_column is None:
@@ -297,81 +298,7 @@ class Database(object):
                 return dimension_table.c[column].isnot(None)
             except (KeyError,AttributeError):
                 msg = 'Column %s not found on time series or dimension table.' %column
-                raise ValueError(msg)
-        
-    def http_request(self, object_type,object_name, request, payload, object_name_2=''):
-        '''
-        Make an api call to AS
-        
-        Parameters
-        ----------
-        object_type : str 
-            function,allFunctions, entityType, kpiFunctions
-        object_name : str
-            name of object
-        request : str
-            GET, POST, DELETE, PUT
-        payload : dict
-            Dictionary will be encoded as JSON
-        
-        '''
-        if object_name is None:
-            object_name = ''
-        if payload is None:
-            payload = ''            
-        
-        if self.tenant_id is None:
-            msg = 'tenant_id instance variable is not set. database object was not initialized with valid credentials'
-            raise ValueError(msg)
-        
-        base_url = 'http://%s/api' %(self.credentials['as']['host'])
-        self.url = {}
-        self.url[('allFunctions','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,'function?customFunctionsOnly=false'])
-        
-        self.url[('dataItem','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2]) 
-        
-        self.url[('allEntityTypes','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,'entityType'])
-        self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])
-        self.url[('entityType','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type,object_name])
-        
-        self.url[('engineInput','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_type])
-        
-        self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
-        self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
-        self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
-        
-        self.url[('granularitySet','POST')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
-        self.url[('granularitySet','DELETE')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
-        self.url[('granularitySet','GET')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
-
-        self.url[('kpiFunctions','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,'import'])            
-
-        self.url[('kpiFunction','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type]) 
-        self.url[('kpiFunction','DELETE')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2]) 
-        self.url[('kpiFunction','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])         
-        self.url[('kpiFunction','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
-        
-        encoded_payload = json.dumps(payload).encode('utf-8')        
-        headers = {
-            'Content-Type': "application/json",
-            'X-api-key' : self.credentials['as']['api_key'],
-            'X-api-token' : self.credentials['as']['api_token'],
-            'Cache-Control': "no-cache",
-        }        
-        try:
-            url =self.url[(object_type,request)]
-        except KeyError:
-            raise ValueError ('This combination  of request_type and object_type is not supported by the python api')            
-            
-        logger.debug(url)
-        logger.debug(encoded_payload)
-        r = self.http.request(request,url, body = encoded_payload, headers=headers)
-        response = r.read().decode('utf-8')
-        logger.debug(response)
-        response= r.data.decode('utf-8')
-        logger.debug(response)
-        
-        return response
+                raise ValueError(msg)        
 
     def cos_load(self, filename, bucket=None, binary=False):
         if bucket is None:
@@ -574,6 +501,91 @@ class Database(object):
             table = self.get_table(table, schema)
         
         return [column.key for column in table.columns]
+    
+    
+    def http_request(self, object_type,object_name, request, payload=None, object_name_2=''):
+        '''
+        Make an api call to AS
+        
+        Parameters
+        ----------
+        object_type : str 
+            function,allFunctions, entityType, kpiFunctions
+        object_name : str
+            name of object
+        request : str
+            GET, POST, DELETE, PUT
+        payload : dict
+            Dictionary will be encoded as JSON
+        
+        '''
+        if object_name is None:
+            object_name = ''
+        if payload is None:
+            payload = ''            
+        
+        if self.tenant_id is None:
+            msg = 'tenant_id instance variable is not set. database object was not initialized with valid credentials'
+            raise ValueError(msg)
+        
+        base_url = 'http://%s/api' %(self.credentials['as']['host'])
+        self.url = {}
+        self.url[('allFunctions','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,'function?customFunctionsOnly=false'])
+        
+        self.url[('constants','GET')] = '/'.join([base_url,'constants','v1','%s?entityType=%s'%(self.tenant_id,object_name)])
+        self.url[('constants','PUT')] = '/'.join([base_url,'constants','v1'])
+        self.url[('constants','POST')] = '/'.join([base_url,'constants','v1'])
+        
+        self.url[('defaultConstants','GET')] = '/'.join([base_url,'constants','v1',self.tenant_id])
+        self.url[('defaultConstants','POST')] = '/'.join([base_url,'constants','v1',self.tenant_id])
+        self.url[('defaultConstants','PUT')] = '/'.join([base_url,'constants','v1',self.tenant_id])
+        self.url[('defaultConstants','DELETE')] = '/'.join([base_url,'constants','v1',self.tenant_id])
+        
+        self.url[('dataItem','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2]) 
+        
+        self.url[('allEntityTypes','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,'entityType'])
+        self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])
+        self.url[('entityType','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type,object_name])
+        
+        self.url[('engineInput','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_type])
+        
+        self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
+        self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
+        self.url[('function','PUT')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
+        
+        self.url[('granularitySet','POST')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
+        self.url[('granularitySet','DELETE')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
+        self.url[('granularitySet','GET')] = '/'.join([base_url,'granularity','v1',self.tenant_id,'entityType',object_name,object_type])
+
+        self.url[('kpiFunctions','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,'import'])            
+
+        self.url[('kpiFunction','POST')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type]) 
+        self.url[('kpiFunction','DELETE')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2]) 
+        self.url[('kpiFunction','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])         
+        self.url[('kpiFunction','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
+        
+        encoded_payload = json.dumps(payload).encode('utf-8')        
+        headers = {
+            'Content-Type': "application/json",
+            'X-api-key' : self.credentials['as']['api_key'],
+            'X-api-token' : self.credentials['as']['api_token'],
+            'Cache-Control': "no-cache",
+        }        
+        try:
+            url =self.url[(object_type,request)]
+        except KeyError:
+            raise ValueError ('This combination  of request_type and object_type is not supported by the python api')            
+            
+        logger.debug(url)
+        logger.debug(encoded_payload)
+        r = self.http.request(request,url, body = encoded_payload, headers=headers)
+        response = r.read().decode('utf-8')
+        logger.debug(response)
+        response= r.data.decode('utf-8')
+        logger.debug(response)
+        
+        return response
+    
         
     def if_exists(self,table_name, schema=None):
         '''
@@ -871,7 +883,34 @@ class Database(object):
         if pandas_aggregate is not None:
             df = resample(df=df,time_frequency=pandas_aggregate,timestamp=timestamp,dimensions=groupby,agg=agg_dict)
         return df
+    
+    def register_constants(self,constants):
+        '''
+        Register one or more server properties that can be used as entity type 
+        properties in the AS UI
         
+        Constants are UI objects.
+        '''
+        
+        if not isinstance(constants,list):
+            constants = [constants]
+        payload = []
+        for c in constants:
+            meta = c.to_metadata()
+            name = meta['name']
+            default = meta.get('value',None)
+            del meta['name']
+            try:
+                del meta['value']
+            except KeyError:
+                pass
+            payload.append( {'name' : name,
+                       'entityType' : None,
+                       'enabled' : True,
+                       'value' : default,
+                       'metadata': meta})
+        self.http_request(object_type='defaultConstants',object_name=None, request = "POST", payload=payload)
+            
 
     def register_functions(self,functions,url=None):
         '''
@@ -1310,6 +1349,30 @@ class Database(object):
             except AttributeError:
                 msg = 'Function registration deletion status: %s' %r
             logger.info(msg) 
+            
+    def unregister_constants(self,constant_names):
+        '''
+        Unregister constants by name.
+        '''
+
+        if not isinstance(constant_names,list):
+            constant_names = [constant_names]
+        payload = []
+    
+        for f in constant_names:
+            payload.append( {
+                'name' : f,
+                'entityType' : None
+                }
+            )
+            
+        r = self.http_request(object_type='defaultConstants',object_name=f, request = 'DELETE', payload=payload)
+        try:
+            msg = 'Constants deletion status: %s' %(r.data.decode('utf-8'))
+        except AttributeError:
+            msg = 'Constants deletion status: %s' %r
+        logger.info(msg) 
+        
     
     def write_frame(self,df,
                     table_name, 

@@ -755,7 +755,7 @@ class BaseFunction(object):
     
     def get_scd_data(self,table_name,start_ts, end_ts, entities):
         '''
-        Retrieve an slowly changing dimension property as a dataframe
+        Retrieve a slowly changing dimension property as a dataframe
         '''       
         (query,table) = self._entity_type.db.query(table_name,schema = self._entity_type._db_schema)
         if not start_ts is None:

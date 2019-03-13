@@ -409,7 +409,7 @@ class UISingle(BaseUIControl):
         Values to display in UI picklist        
     '''    
     def __init__(self,name, datatype=None, description=None, tags = None,
-                 required = True, values = None):
+                 required = True, values = None, default = None):
         
         self.name = name
         self.datatype = datatype
@@ -421,6 +421,7 @@ class UISingle(BaseUIControl):
         self.tags = tags
         self.required = required
         self.values = values
+        self.default = default
         
     def to_metadata(self):
         meta = {
@@ -432,6 +433,13 @@ class UISingle(BaseUIControl):
                 'required' : self.required,
                 'values' : self.values
                 }
+        
+        if self.default is not None:
+            if isinstance(self.default,dict):
+                meta['value'] = self.default
+            else:
+                meta['value'] = {'value':self.default}
+        
         return meta
     
 
