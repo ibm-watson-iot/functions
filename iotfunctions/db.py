@@ -529,8 +529,8 @@ class Database(object):
         self.url[('allFunctions','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,'function?customFunctionsOnly=false'])
         
         self.url[('constants','GET')] = '/'.join([base_url,'constants','v1','%s?entityType=%s'%(self.tenant_id,object_name)])
-        self.url[('constants','PUT')] = '/'.join([base_url,'constants','v1','%s?entityType=%s'%(self.tenant_id,object_name)])
-        self.url[('constants','POST')] = '/'.join([base_url,'constants','v1','%s?entityType=%s'%(self.tenant_id,object_name)])
+        self.url[('constants','PUT')] = '/'.join([base_url,'constants','v1'])
+        self.url[('constants','POST')] = '/'.join([base_url,'constants','v1'])
         
         self.url[('defaultConstants','GET')] = '/'.join([base_url,'constants','v1',self.tenant_id])
         self.url[('defaultConstants','POST')] = '/'.join([base_url,'constants','v1',self.tenant_id])
@@ -894,9 +894,12 @@ class Database(object):
         for c in constants:
             meta = c.to_metadata()
             name = meta['name']
-            default = meta['value']
+            default = meta.get('value',None)
             del meta['name']
-            del meta['value']
+            try:
+                del meta['value']
+            except KeyError:
+                pass
             payload.append( {'name' : name,
                        'entityType' : None,
                        'enabled' : True,
@@ -1342,6 +1345,30 @@ class Database(object):
             except AttributeError:
                 msg = 'Function registration deletion status: %s' %r
             logger.info(msg) 
+            
+    def unregister_constants(self,constant_names):
+        '''
+        Unregister constants by name.
+        '''
+
+        if not isinstance(constant_names,list):
+            constant_names = [constant_names]
+        payload = []
+    
+        for f in constant_names:
+            payload.append( {
+                'name' : f,
+                'entityType' : None
+                }
+            )
+            
+        r = self.http_request(object_type='defaultConstants',object_name=f, request = 'DELETE', payload=payload)
+        try:
+            msg = 'Constants deletion status: %s' %(r.data.decode('utf-8'))
+        except AttributeError:
+            msg = 'Constants deletion status: %s' %r
+        logger.info(msg) 
+        
     
     def write_frame(self,df,
                     table_name, 

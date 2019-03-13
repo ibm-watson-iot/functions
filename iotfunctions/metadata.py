@@ -166,7 +166,7 @@ class EntityType(object):
         self._is_preload_complete = False
         #initialize
         self.set_params(**kwargs)
-        self.set_server_properties()
+        self.get_server_params()
         if self._db_schema is None:
             msg = 'No _db_schema specified in **kwargs. Using default database schema.'
             logger.warn(msg)
@@ -281,7 +281,19 @@ class EntityType(object):
         [self.db.drop_table(x,self._db_schema) for x in tables]
         msg = 'dropped tables %s' %tables
         logger.info(msg)
-                
+        
+    def exec_pipeline(self, *args, to_csv = False, register = False,
+                      start_ts = None, publish = False):
+        '''
+        Test an AS function instance using entity data.
+        Provide one or more functions as args.
+        '''
+        stages = list(args)
+        pl = self.get_calc_pipeline(stages=stages)
+        df = pl.execute(to_csv = to_csv, register = register, start_ts = start_ts)
+        if publish:
+            pl.publish()
+        return df
     
     def get_calc_pipeline(self,stages=None):
         '''
@@ -753,7 +765,7 @@ class EntityType(object):
         if custom_calendar is not None:
             self._custom_calendar = custom_calendar
             
-    def set_server_properties(self):
+    def get_server_params(self):
         '''
         Retrieve the set of properties assigned through the UI
         Assign to instance variables        
@@ -769,12 +781,12 @@ class EntityType(object):
         else:
             params = {}
             for p in meta:
-                params['key'] = p['name']
+                key = p['name']
                 if isinstance(p['value'],dict):
-                    params['value'] = p['value'].get('value',p['value'])
+                    params[key] = p['value'].get('value',p['value'])
                 else:
-                    params['value'] = p['value']
-                logger.debug('Adding server property %s with value %s to entity type',params['key'],params['value'])
+                    params[key] = p['value']
+                logger.debug('Adding server property %s with value %s to entity type',key,params[key])
             self.set_params(**params)
         
         return params
@@ -791,17 +803,7 @@ class EntityType(object):
         out = self.name
         return out
     
-    def exec_pipeline(self, *args, to_csv = False, register = False, start_ts = None, publish = False):
-        '''
-        Test an AS function instance using entity data. Provide one or more functions as args.
-        '''
-        stages = list(args)
-        pl = self.get_calc_pipeline(stages=stages)
-        df = pl.execute(to_csv = to_csv, register = register, start_ts = start_ts)
-        if publish:
-            pl.publish()
-        return df
-        
+
     
     def set_params(self, **params):
         '''
