@@ -148,9 +148,7 @@ def retrieve_entity_type_metadata(**kwargs):
     '''
     Get server metadata for entity type
     '''
-    db = kwargs['_db']    
-    #cahe function catalog metadata in the db object
-    db.load_catalog(install_missing=False)
+    db = kwargs['_db']
     # get kpi functions metadata
     meta = db.http_request(object_type = 'engineInput',
                                 object_name = kwargs['logical_name'],
@@ -158,13 +156,17 @@ def retrieve_entity_type_metadata(**kwargs):
     try:
         meta = json.loads(meta)
     except (TypeError, json.JSONDecodeError):
-        meta = None
-    
+        meta = None        
     if meta is None or 'exception' in meta:
         raise RuntimeError((
                 'API call to server did not retrieve valid entity '
                 ' type properties for %s.' %kwargs['logical_name']))
-            
+        
+    #cache function catalog metadata in the db object
+    function_list = [x['functionName'] for x in meta['kpiDeclarations']] 
+    db.load_catalog(install_missing=True, function_list=function_list)
+    
+    #map server properties
     params = {}
     params['_entity_type_id']  =meta['entityTypeId']
     params['_db_schema'] = meta['schemaName']

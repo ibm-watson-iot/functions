@@ -630,17 +630,28 @@ class Database(object):
         '''
         Install python package located at URL
         '''
-
         msg = 'running pip install for url %s' %url
         logger.debug(msg)
-       
-        completedProcess = subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url],
-                               stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True)
-
+        try:
+            completedProcess = subprocess.run(
+                    ['pip', 'install', 
+                     '--process-dependency-links',
+                     '--upgrade', url],
+                     stderr=subprocess.STDOUT,
+                     stdout=subprocess.PIPE,
+                     text=True)
+        except Exception as e:
+            raise ImportError('pip install for url %s failed: \n%s',
+                           url, str(e)) 
+            
         if completedProcess.returncode == 0:
-            logger.info('pip install for url %s was successful: \n %s' % (url, completedProcess.stdout))
+            logger.debug('pip install for url %s was successful: \n %s',
+                         url, completedProcess.stdout)
+            
         else:
-            logger.error('pip install for url %s failed: \n %s' % (url, completedProcess.stdout))
+            raise ImportError('pip install for url %s failed: \n %s.',
+                           url, completedProcess.stdout)
+        
          
     def import_target(self,package,module,target,url=None):
         '''
@@ -657,8 +668,12 @@ class Database(object):
             exec(impstr)
         except ModuleNotFoundError:
             if url is not None:
-                self.install_package(url)
-                return self.import_target(package=package,module=module,target=target)
+                try:
+                    self.install_package(url)
+                except ImportError:
+                    return (None,'package_error')  
+                else:
+                    return self.import_target(package=package,module=module,target=target)
             else:
                 return (None,'package_error')
         except ImportError:
@@ -666,7 +681,9 @@ class Database(object):
         else:
             return (target,'ok')
     
-    def load_catalog(self,install_missing=True, unregister_invalid_target=False):
+    def load_catalog(self,install_missing=True,
+                     unregister_invalid_target=False,
+                     function_list = None):
         '''
         Import all functions from the AS function catalog.
         
@@ -678,7 +695,10 @@ class Database(object):
         
         imported = {}
         result = {}
-        fns = json.loads(self.http_request('allFunctions',object_name = None, request = 'GET', payload = None))
+        fns = json.loads(self.http_request('allFunctions',
+                                           object_name = None,
+                                           request = 'GET',
+                                           payload = None))
         for fn in fns:
             msg = 'identifying path from module and target %s' %fn["moduleAndTargetName"]
             logger.debug(msg)
@@ -691,6 +711,10 @@ class Database(object):
                 status = 'metadata_error'
             else:
                 (package,module,target) = (path[0],path[1],path[2])
+                if (function_list is not None) and (target not in function_list):
+                    logger.debug(('Skipping function %s as it is not in the' 
+                                  ' function list'), target)
+                    continue                
                 if install_missing:
                     url = fn['url']
                 else:
