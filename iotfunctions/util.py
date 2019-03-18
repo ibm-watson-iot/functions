@@ -295,7 +295,7 @@ def log_df_info(df,msg,include_data=False):
         logger.debug(msg)
         return msg
     except Exception:
-        logger.warn('dataframe contents not logged due to an unknown logging error')
+        logger.warning('dataframe contents not logged due to an unknown logging error')
         return ''
     
 def resample(df,time_frequency,timestamp,dimensions=None,agg=None, default_aggregate = 'last'):
