@@ -24,6 +24,7 @@ from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 from .util import CosClient, resample
 from . import metadata as md
+from . import pipeline as pp
 
 logger = logging.getLogger(__name__)
 DB2_INSTALLED = True
@@ -50,6 +51,9 @@ class Database(object):
         Output sql to log
     '''
     def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
+        
+        
+        self.function_catalog = {} #metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}
         try:
@@ -122,7 +126,7 @@ class Database(object):
             self.credentials['config']['bos_runtime_bucket']
         except KeyError:
             msg = 'Missing objectStorage credentials. Database object created, but it will not be able interact with object storage'
-            logger.warning(msg)
+            logger.warn(msg)
         
         try:
             as_api_host = credentials['as_api_host']
@@ -168,32 +172,28 @@ class Database(object):
                                                                      self.credentials['db2']['host'],
                                                                      self.credentials['db2']['port'],
                                                                      self.credentials['db2']['database'])
-                    if 'security' in self.credentials['db2']:
-                        connection_string += 'SECURITY=%s' % self.credentials['db2']['security']
                 except KeyError:
                     # look for environment variable for the ICS DB2
                     try:
-                        msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
-                        connection_string = os.environ.get('DB_CONNECTION_STRING')
+                       msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
+                       connection_string = os.environ.get('DB_CONNECTION_STRING')
                     except KeyError:
                         raise ValueError(msg)
                     else:
-                        if not connection_string is None:
-                            if connection_string.endswith(';'):
-                                connection_string = connection_string[:-1]
-                            ev = dict(item.split("=") for item in connection_string.split(";"))
-                            connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
-                            if 'SECURITY' in ev:
-                                connection_string += 'SECURITY=%s' % ev['SECURITY']
-                            self.credentials['db2'] =  {
-                                "username": ev['UID'],
-                                "password": ev['PWD'],
-                                "database": ev['DATABASE'],
-                                "port": ev['PORT'],
-                                "host": ev['HOSTNAME'] 
-                            }
-                        else:
-                            raise ValueError(msg)
+                       if not connection_string is None:
+                           if connection_string.endswith(';'):
+                               connection_string = connection_string[:-1]
+                           ev = dict(item.split("=") for item in connection_string.split(";"))
+                           connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
+                           self.credentials['db2'] =  {
+                                            "username": ev['UID'],
+                                            "password": ev['PWD'],
+                                            "database": ev['DATABASE'] ,
+                                            "port": ev['PORT'],
+                                            "host": ev['HOSTNAME'] 
+                                    }
+                       else:
+                           raise ValueError(msg)
             else:
                 self.credentials['sqlite'] = connection_string
                 connection_kwargs = {} 
@@ -402,6 +402,22 @@ class Database(object):
             self.session.commit()
         logger.debug(msg)
         
+    def execute_job(self,entity_type_logical_name,schema=None,**kwargs):
+        
+        entity_type = self.load_entity_type(entity_type_logical_name,
+                                            schema = schema)
+        
+        job = pp.JobController(payload=entity_type,**kwargs)
+        job.execute()
+        
+        
+    def get_catalog_module(self,class_name):
+        
+        package = self.function_catalog[class_name]['package']
+        module = self.function_catalog[class_name]['module']
+        
+        return (package,module)
+        
     def get_entity_type(self,name):
         '''
         Get an EntityType instance by name. Name may be the logical name shown in the UI or the table name.'
@@ -502,6 +518,18 @@ class Database(object):
         
         return [column.key for column in table.columns]
     
+    def load_entity_type(self,logical_name,schema=None):
+        
+        params = {}
+        params['_db'] = self
+        params['_schema'] = schema
+        params['logical_name'] = logical_name
+        (params,meta) = md.retrieve_entity_type_metadata(**params)
+        et = md.EntityType(db=self,**params)
+        et.load_entity_type_functions()
+        
+        return et    
+    
     
     def http_request(self, object_type,object_name, request, payload=None, object_name_2=''):
         '''
@@ -547,7 +575,7 @@ class Database(object):
         self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])
         self.url[('entityType','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type,object_name])
         
-        self.url[('engineInput','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_type])
+        self.url[('engineInput','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])
         
         self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
@@ -638,13 +666,13 @@ class Database(object):
         else:
             return (target,'ok')
     
-    def import_all_functions(self,install_missing=True, unregister_invalid_target=False):
+    def load_catalog(self,install_missing=True, unregister_invalid_target=False):
         '''
         Import all functions from the AS function catalog.
         
         Returns: 
         --------
-        dict containing target names and an import status
+        dict keyed on function name
         
         '''
         
@@ -652,7 +680,7 @@ class Database(object):
         result = {}
         fns = json.loads(self.http_request('allFunctions',object_name = None, request = 'GET', payload = None))
         for fn in fns:
-            msg = 'identifying path from modelule and target %s' %fn["moduleAndTargetName"]
+            msg = 'identifying path from module and target %s' %fn["moduleAndTargetName"]
             logger.debug(msg)
             path = fn["moduleAndTargetName"].split('.')
             name = fn["moduleAndTargetName"]
@@ -674,18 +702,26 @@ class Database(object):
                     logger.exception(msg)
                     raise e
             try:
-                (epackage,emodule,etarget) = imported[name]
+                (epackage,emodule) = imported[target]
             except KeyError:
-                result[name] = status
-                imported[name] = (package,module,target)
+                result[target] = {
+                        'package':package,
+                        'module':module,
+                        'status':status,
+                        'meta' :fn
+                        }
+                imported[target] = (package,module)
             else:
-                if (package,module,target) != (epackage,emodule,etarget):
+                if (package,module) != (epackage,emodule):
                     msg = 'Duplicate class name encountered on import of %s. Ignored %s.%s' %(name,package,module)
                     logger.warning(msg)
             if status == 'target_error' and unregister_invalid_target:
                 self.unregister_functions([name])
                 msg = 'Unregistered invalid function %s' %name
                 logger.info(msg)
+        
+        self.function_catalog = result
+                
         return result
     
     
@@ -1618,15 +1654,14 @@ class TimeSeriesTable(BaseTable):
     """
     def __init__ (self,name,database,*args, **kw):        
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id,String(256))
+        self.id_col = Column(self._entity_id,String(50))
         self.evt_timestamp = Column(self._timestamp,DateTime)
-        self.device_type = Column('devicetype',String(64))
+        self.device_type = Column('devicetype',String(50))
         self.logical_interface = Column('logicalinterface_id',String(64))
-        self.event_type = Column('eventtype',String(64))
-        self.format = Column('format',String(32))
+        self.format = Column('format',String(64))
         self.updated_timestamp = Column('updated_utc',DateTime)
         super().__init__(name,database,self.id_col,self.evt_timestamp,
-                 self.device_type, self.logical_interface, self.event_type, self.format, 
+                 self.device_type, self.logical_interface, self.format , 
                  self.updated_timestamp,
                  *args, **kw)
         

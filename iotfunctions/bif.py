@@ -761,7 +761,7 @@ class IoTExpression(BaseTransformer):
     
     def get_input_items(self):
         items = self.get_expression_items(self.expression)
-        return items
+        return set(items)
     
     @classmethod
     def build_ui(cls):
@@ -1175,8 +1175,9 @@ class IoTShiftCalendar(BaseTransformer):
     def execute(self,df):
         try:
             df.sort_values([self._entity_type._timestamp_col],inplace = True)
-        except KeyError:
-            msg = self.log_df_info(df,'key error when sorting on _timestamp during custom calendar lookup')
+        except KeyError as e:
+            msg = self.log_df_info(df,'key error when sorting on _timestamp during custom calendar lookup.')
+            msg = msg + str(e)
             raise RuntimeError(msg)
             
         calendar_df = self.get_data(start_date= df[self._entity_type._timestamp_col].min(), end_date = df[self._entity_type._timestamp_col].max())

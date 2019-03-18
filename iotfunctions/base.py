@@ -419,6 +419,13 @@ class BaseFunction(object):
             logger.debug(msg)
         return column_metadata
     
+    def get_input_set(self):
+        
+        ins = set(self._input_set)
+        ins |= set(self.get_input_items())
+        
+        return ins
+    
     def get_timestamp_series(self,df):
         '''
         Return a series containing timestamps
@@ -735,6 +742,10 @@ class BaseFunction(object):
                 msg = 'Array argument %s is driven by %s so the cardinality and datatype are set from the source' %(a,array_source)
                 logger.debug(msg)
         return (metadata_inputs,metadata_outputs)
+    
+    def get_output_list(self):
+        
+        return self._output_list
     
     def get_bucket_name(self):
         '''
@@ -1166,7 +1177,7 @@ class BaseFunction(object):
         Set the _entity_type property of the function
         """
         self._entity_type = entity_type
-        if self._metadata_params != {}:
+        if self._metadata_params is not None and self._metadata_params != {}:
             self._entity_type.set_params(**self._metadata_params)
             msg = 'Metadata provider added parameters to entity type: %s' %self._metadata_params
             logger.debug(msg)
@@ -1294,7 +1305,8 @@ class BaseTransformer(BaseFunction):
     Base class for AS Transform Functions. Inherit from this class when building a custom function that adds new columns to a dataframe.
 
     """
-    category =  'TRANSFORMER'
+    category =  'TRANSFORMER' 
+    is_transformer = True
     
     def __init__(self):
         super().__init__()
