@@ -238,8 +238,11 @@ class Database(object):
                            payload = {},
                            object_name_2='')
         if metadata is not None:
-            metadata = json.loads(metadata)
-        else:
+            try:
+                metadata = json.loads(metadata)
+            except:
+                metadata = None
+        if metadata is None:
             msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
             logger.warning(msg)
             metadata = []
@@ -579,10 +582,11 @@ class Database(object):
         logger.debug(url)
         logger.debug(encoded_payload)
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
+        logger.debug('resp.status=%s' % (r.status))
         response = r.read().decode('utf-8')
-        logger.debug(response)
+        # logger.debug(response)
         response= r.data.decode('utf-8')
-        logger.debug(response)
+        # logger.debug(response)
         
         return response
     
