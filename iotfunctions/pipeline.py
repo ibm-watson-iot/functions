@@ -576,7 +576,7 @@ class Db2DataWriter():
 
             # Delete old data items in database (Prepare, execute and free delete statement)
             try:
-                stmt_delete = ibm_db.prepare(db_connection, sql_delete)
+                stmt_delete = ibm_db.prepare(self.db_connection, sql_delete)
             except Exception as exc:
                 raise DataWriterException('Preparation of the delete statement for table %s failed: %s' %
                                           (table_name, str(exc))) from exc
@@ -595,7 +595,7 @@ class Db2DataWriter():
 
             # Prepare insert statements
             try:
-                stmt_insert = ibm_db.prepare(db_connection, sql_insert)
+                stmt_insert = ibm_db.prepare(self.db_connection, sql_insert)
             except Exception as exc:
                 raise DataWriterException('Preparation of the insert statement for table %s failed: %s' %
                                           (table_name, str(exc))) from exc
@@ -611,8 +611,7 @@ class Db2DataWriter():
         row = list()
         # Loop over rows of dataframe, loop over data item in rows
         for df_row in df.itertuples():
-            ix = df_row
-            for item_name, (item_type, table_name) in self.col_props.items() :
+            for item_name, (item_type, table_name) in self.col_props.items():
                 derived_value = getattr(df_row, item_name)
                 if pd.isna(derived_value):
                     continue
