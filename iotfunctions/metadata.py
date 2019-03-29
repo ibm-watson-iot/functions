@@ -376,8 +376,11 @@ class EntityType(object):
         out = {}
         for g in grain_meta:
             grouper = []
+            freq = None
+            entity_id = None
             if g['entityFirst']:
                 grouper.append(pd.Grouper(key=self._entity_id))
+                entity_id = self._entity_id
             if g['frequency'] is not None:
                 freq = (
                         self.get_grain_freq(g['frequency'],freq_lookup,None)
@@ -390,15 +393,25 @@ class EntityType(object):
                             ))
                 grouper.append(pd.Grouper(key = self._timestamp,
                                       freq = freq))
+            custom_calendar = None
+            custom_calendar_keys = []
+            dimensions = []
+            #differentiate between dimensions and custom calendar items
             for d in g['dataItems']:
                 grouper.append(pd.Grouper(key=d))
-                
+                if self._custom_calendar is not None:
+                    if d in self._custom_calendar.get_output_list():
+                        custom_calendar_keys.append(d)
+                dimensions.append(d)
+                           
             granularity = Granularity(
                     name= g['name'],
                     grouper = grouper,
-                    custom_calendar = None)
-            
-            print('*****TBD: Identify custom calendar as time grain')
+                    dimensions = dimensions,
+                    entity_id = entity_id,
+                    custom_calendar_keys = custom_calendar_keys,
+                    freq = freq,
+                    custom_calendar = custom_calendar)            
             
             out[g['name']] = granularity
             
@@ -653,6 +666,18 @@ class EntityType(object):
         return self._data_items
     
     
+    def get_grain_freq(self,grain_name,lookup,default):
+        '''
+        Lookup a pandas frequency string from an AS granularity name
+        '''
+        if lookup is None:
+            lookup = self._grain_freq_lookup
+        for l in lookup:
+            if grain_name == l['name']:
+                return l['alias']
+        return default
+    
+    
     def get_output_items(self):
         '''
         Get a list of non calculated items: outputs from the time series table
@@ -664,16 +689,6 @@ class EntityType(object):
     
         return items
     
-    def get_grain_freq(self,grain_name,lookup,default):
-        '''
-        Lookup a pandas frequency string from an AS granularity name
-        '''
-        if lookup is None:
-            lookup = self._grain_freq_lookup
-        for l in lookup:
-            if grain_name == l['name']:
-                return l['alias']
-        return default
         
     def get_log(self,rows = 100):
         '''
@@ -1237,14 +1252,35 @@ class Granularity(object):
         
     grouper: pandas Grouper object
     
+    dimensions: list of data items used as dimension keys in group by
+    
+    entity_id: str. column name used to group by entity id. None if not
+    an entity level summary
+    
+    freq = Pandas frequency string
+    
+    custom_calendar_keys: list of strs containing custom calendar data item
+    names to be grouped on
+    
     custom_calendar: function object
     
     '''
     
-    def __init__(self,name,grouper,custom_calendar=None):
-        
+    def __init__(self,
+                 name,
+                 grouper,
+                 dimensions,
+                 entity_id,
+                 freq,
+                 custom_calendar_keys,
+                 custom_calendar=None):
+                     
         self.name = name
         self.grouper = grouper
+        self.dimensions = dimensions
+        self.entity_id = entity_id
+        self.custom_calendar_key = custom_calendar_keys
+        self.freq = freq
         self.custom_calendar = custom_calendar
         
     def __str__(self):
