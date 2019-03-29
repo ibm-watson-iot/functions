@@ -14,11 +14,28 @@ import re
 import datetime as dt
 import numpy as np
 import sys
+import ibm_db
+from . import dbhelper
 from collections import OrderedDict
 from .util import log_df_info
 import pandas as pd
 from pandas.api.types import (is_bool_dtype, is_numeric_dtype, is_string_dtype,
                               is_datetime64_any_dtype)
+
+DATA_ITEM_TYPE_BOOLEAN = 'BOOLEAN'
+DATA_ITEM_TYPE_NUMBER = 'NUMBER'
+DATA_ITEM_TYPE_LITERAL = 'LITERAL'
+DATA_ITEM_TYPE_TIMESTAMP = 'TIMESTAMP'
+
+DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
+DATA_ITEM_TRANSIENT_KEY = 'transient'
+DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
+
+KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
+KPI_TIMESTAMP_COLUMN = 'TIMESTAMP'
+
+DATAFRAME_INDEX_ENTITYID = 'id'
+DEFAULT_DATAFRAME_INDEX_TIMESTAMP = 'timestamp'
 
 
 logger = logging.getLogger(__name__)
@@ -491,6 +508,304 @@ class DataReader(object):
                       outputs)
             
         return outputs
+    
+class DataWriterException(Exception):
+
+    def __init__(self, msg):
+        super().__init__(msg)
+
+class Db2DataWriter():
+    '''
+    Stage that writes the calculated data items to database.
+    '''
+    MAX_NUMBER_OF_ROWS_FOR_SQL = 5000
+    produces_output_items = False
+
+    def __init__(self, name, data_item_metadata, db_connection, schema_name, grains_metadata, **kwargs):
+        self.name = name
+        self.data_item_metadata = data_item_metadata
+        self.db_connection = db_connection
+        self.schema_name = schema_name
+        self.grains_metadata = grains_metadata
+        self.kwargs = kwargs
+
+        self.col_props = None
+        self.table_props = None
+        self.insert_statements = dict()
+        self.row_lists = dict()
+
+    def execute(self, df=None, start_ts=None, end_ts=None, entities=None):
+
+        self.col_props = None
+        self.table_props = None
+        self.insert_statements = dict()
+        self.row_lists = dict()
+
+        if df is not None:
+            logger.debug('Data items will be written to database for interval (%s, %s)' % (str(start_ts), str(end_ts)))
+
+            try:
+                # Delete old data item values in database and prepare insert statements
+                self._delete_and_prepare(df, start_ts, end_ts)
+
+                if len(self.col_props) > 0:
+                    # Execute insert statements
+                    self._persist_dataframe(df)
+                else:
+                    logger.warning('There are no data items that have to be written to the database.')
+            finally:
+                for table_name, stmt_insert in self.insert_statements.items():
+                    ibm_db.free_result(stmt_insert)
+        else:
+            raise DataWriterException('The data frame is None.')
+
+        return df
+
+    def _delete_and_prepare(self, df, start_ts, end_ts):
+
+        self.col_props = self._get_active_cols_properties(df)
+        logger.info('The following data items will be written to the database: %s' %
+                    (', '.join([('%s (%s, %s)' % (item_name, table_name, type))
+                                for item_name, (type, table_name) in self.col_props.items()])))
+
+        self.table_props = self._get_table_properties(df, self.col_props)
+        logger.info('The data items will be written into the following tables: %s' %
+                    (', '.join([table_name for table_name, dummy in self.table_props.items()])))
+
+        for table_name, (sql_delete, sql_insert, index_pos) in self.table_props.items():
+
+            # Delete old data items in database (Prepare, execute and free delete statement)
+            try:
+                stmt_delete = ibm_db.prepare(db_connection, sql_delete)
+            except Exception as exc:
+                raise DataWriterException('Preparation of the delete statement for table %s failed: %s' %
+                                          (table_name, str(exc))) from exc
+
+            try:
+                logger.debug('Deleting old data items from table %s' % table_name)
+                ibm_db.execute(stmt_delete, (str(start_ts), str(end_ts)))
+                logger.info('%d old data items have been deleted from table %s' %
+                                (ibm_db.num_rows(stmt_delete), table_name))
+            except Exception as exc:
+                raise DataWriterException('Execution of the delete statement for table %s failed: %s' %
+                                          (table_name, str(exc))) from exc
+            finally:
+                if stmt_delete is not False:
+                    ibm_db.free_result(stmt_delete)
+
+            # Prepare insert statements
+            try:
+                stmt_insert = ibm_db.prepare(db_connection, sql_insert)
+            except Exception as exc:
+                raise DataWriterException('Preparation of the insert statement for table %s failed: %s' %
+                                          (table_name, str(exc))) from exc
+
+            self.insert_statements[table_name] = stmt_insert
+
+            # Create one result list per table
+            self.row_lists[table_name] = list()
+
+    def _persist_dataframe(self, df):
+
+        counter = 0
+        row = list()
+        # Loop over rows of dataframe, loop over data item in rows
+        for df_row in df.itertuples():
+            ix = df_row
+            for item_name, (item_type, table_name) in self.col_props.items() :
+                derived_value = getattr(df_row, item_name)
+                if pd.isna(derived_value):
+                    continue
+
+                sql_delete, sql_insert, index_pos = self.table_props[table_name]
+                ix = getattr(df_row, 'Index')
+
+                # Collect data for new row in output table
+                row.clear()
+                row.append(item_name)
+                for position in index_pos:
+                    row.append(ix[position])
+
+                if item_type == DATA_ITEM_TYPE_BOOLEAN:
+                    row.append(1 if (bool(derived_value) is True) else 0)
+                else:
+                    row.append(None)
+
+                if item_type == DATA_ITEM_TYPE_NUMBER:
+                    myFloat = float(derived_value)
+                    row.append(myFloat if np.isfinite(myFloat) else None)
+                else:
+                    row.append(None)
+
+                if item_type == DATA_ITEM_TYPE_LITERAL:
+                    row.append(str(derived_value))
+                else:
+                    row.append(None)
+
+                if item_type == DATA_ITEM_TYPE_TIMESTAMP:
+                    row.append(derived_value)
+                else:
+                    row.append(None)
+
+                # Add new row to the corresponding row list
+                row_list = self.row_lists[table_name]
+                row_list.append(tuple(row))
+
+                # Write data to database when we have reached the max number per bulk
+                if len(row_list) >= Db2DataWriter.MAX_NUMBER_OF_ROWS_FOR_SQL:
+                    saved_rows = self._persist_tuples(table_name, self.insert_statements[table_name], tuple(row_list))
+                    counter += saved_rows
+                    logger.info('Number of data item values persisted so far: %d (%s)' % (counter, table_name))
+                    row_list.clear()
+
+        # Write remaining data (final bulk for each table)) to database
+        for table_name, row_list in self.row_lists.items():
+            if len(row_list) > 0:
+                saved_rows = self._persist_tuples(table_name, self.insert_statements[table_name], tuple(row_list))
+                counter += saved_rows
+                logger.info('Number of data item values persisted so far: %d (%s)' % (counter, table_name))
+                row_list.clear()
+        logger.info('Total number of persisted data item values: %d' % counter)
+
+    def _persist_tuples(self, table_name, stmt_insert, row_tuples):
+        try:
+            numb_rows = ibm_db.execute_many(stmt_insert, row_tuples)
+        except Exception as exc:
+            raise DataWriterException('Persisting data item values to table %s failed: %s' %
+                                      (table_name, str(exc))) from exc
+
+        return numb_rows
+
+    def _get_active_cols_properties(self, df):
+        '''
+        Return a dict with all columns(=data items) that are relevant for data persistence.
+        Dict's value holds the corresponding data type and table name.
+
+        Sort out all columns of data frame that
+        1) do not correspond to a data item or
+        2) do correspond to a transient data item
+        3) have an inconsistent definition (table name or type of the corresponding data item is missing)
+        '''
+        col_props = dict()
+        for col_name, col_type in df.dtypes.iteritems():
+            metadata = self.data_item_metadata.get(col_name)
+            if metadata is not None:
+                if metadata.get(DATA_ITEM_TRANSIENT_KEY) is False:
+                    table_name = metadata.get(DATA_ITEM_SOURCETABLE_KEY)
+                    data_item_type = metadata.get(DATA_ITEM_COLUMN_TYPE_KEY)
+                    if table_name is None:
+                        logger.warning(
+                            'No table name defined for data item ' + col_name +
+                            '. The data item will not been written to the database.')
+                    elif data_item_type is None:
+                        logger.warning(
+                            'No data type defined for data item ' + col_name +
+                            '. The data item will not been written to the database.')
+                    else:
+                        if (data_item_type != DATA_ITEM_TYPE_BOOLEAN and
+                                data_item_type != DATA_ITEM_TYPE_NUMBER and
+                                data_item_type != DATA_ITEM_TYPE_LITERAL and
+                                data_item_type != DATA_ITEM_TYPE_TIMESTAMP):
+                            logger.warning(('Data item %s has the unknown type %s. The data item will be written ' +
+                                           'as %s into the database') % (col_name, data_item_type,
+                                                                        DATA_ITEM_TYPE_LITERAL))
+                            data_item_type = DATA_ITEM_TYPE_LITERAL
+                        col_props[col_name] = (data_item_type, table_name)
+                else:
+                    logger.info(
+                        'Data item ' + col_name + ' is not written to database because it is marked as transient.')
+            else:
+                logger.info('The column ' + col_name + ' in data frame does not correspond to a data item.')
+
+        return col_props
+
+    def _get_table_properties(self, df, col_props):
+
+        # Set up a map for the relation index name and index position
+        map_index_name_pos = {name: pos for pos, name in enumerate(df.index.names)}
+        logger.debug(
+            'Mapping between index name and index position: %s' %
+            (', '.join([('%s -> %d' % (name, pos)) for name, pos in map_index_name_pos.items()])))
+
+        # Assemble the sql statements and the required index elements for each table referenced in col_props
+        table_props = dict()
+        for item_name, (type, table_name) in col_props.items():
+            table_prop = table_props.get(table_name)
+            if table_prop is None:
+                grain = self.grains_metadata.get(item_name)
+                sql_delete = self.create_delete_statement(table_name)
+                sql_insert = self.create_insert_statement(table_name, grain)
+                logger.debug(
+                    'For table %s: delete statement: %s insert statement: %s' % (table_name, sql_delete, sql_insert))
+
+                index_positions = list()
+                if not isinstance(df.index, pd.MultiIndex):
+                    # only one element in the grain, ix is not an array, just append it anyway
+                    index_positions = None
+                elif grain is None:
+                    # no grain, the index must be an array of (id, timestamp)
+                    index_positions.append(0)
+                    index_positions.append(1)
+                else:
+                    if grain.entity_id is not None:
+                        # entity_first, the first level index must be the entity id
+                        index_positions.append(0)
+                    if grain.freq is not None:
+                        if grain.entity_id is not None:
+                            # if both id and time are included in the grain, time must be at pos 1
+                            index_positions.append(1)
+                        else:
+                            # if only time is included, time must be at pos 0
+                            index_positions.append(0)
+                    if grain.dimensions is not None:
+                        for dimension in grain.dimensions:
+                            index_positions.append(map_index_name_pos[dimension])
+                logger.debug('For table %s: Index elements are at positions: %s' %
+                             (table_name, ', '.join([str(pos) for pos in index_positions])))
+
+                table_props[table_name] = (sql_delete, sql_insert, index_positions)
+
+        return table_props
+
+    def create_insert_statement(self, table_name, grain):
+        dimensions = []
+        if grain is None:
+            dimensions.append(KPI_ENTITY_ID_COLUMN)
+            dimensions.append(KPI_TIMESTAMP_COLUMN)
+        else:
+            if grain.entity_id is not None:
+                dimensions.append(KPI_ENTITY_ID_COLUMN)
+            if grain.freq is not None:
+                dimensions.append(KPI_TIMESTAMP_COLUMN)
+            if grain.dimensions is not None:
+                dimensions.extend(grain.dimensions)
+
+        colExtension = ''
+        parmExtension = ''
+
+        for dimension in dimensions:
+            quoted_dimension = dbhelper.quotingColumnName(dimension)
+            colExtension += ', ' + quoted_dimension
+            parmExtension += ', ?'
+
+        stmt = ('INSERT INTO %s.%s (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) ' +
+                'VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)') % \
+               (dbhelper.quotingSchemaName(self.schema_name),
+                dbhelper.quotingTableName(table_name),
+                colExtension,
+                parmExtension)
+
+        return stmt
+
+    def create_delete_statement(self, table_name):
+        stmt = ('DELETE FROM %s.%s' %
+                (dbhelper.quotingSchemaName(self.schema_name), dbhelper.quotingTableName(table_name)))
+        where1 = ('%s >= %s' % (KPI_TIMESTAMP_COLUMN, ' ? '))
+        where2 = ('%s < %s' % (KPI_TIMESTAMP_COLUMN, ' ? '))
+        stmt = '%s WHERE %s AND %s' % (stmt, where1, where2)
+
+        return stmt
+
         
 class JobController(object):
     '''
