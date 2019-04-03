@@ -509,7 +509,38 @@ class EntityType(object):
                      [s['functionName'] for s in invalid],
                      [s['output'] for s in disabled])
         
-        return stage_metadata    
+        return stage_metadata
+    
+    def index_df(self,df):
+        '''
+        Create an index on the deviceid and the timestamp
+        '''
+    
+        if df.index.names != [self._entity_id,
+                              self._timestamp]: 
+            try:
+                df = df.set_index([self._entity_id,
+                                   self._timestamp])
+            except KeyError:
+                df = df.reset_index()
+                try:
+                    df = df.set_index([self._entity_id,
+                                       self._timestamp])
+                except KeyError:
+                    raise KeyError(('Error attempting to index time series'
+                                    ' dataframe. Unable to locate index'
+                                    ' columns: %s, %s') 
+                                    %(self._entity_id,self._timestamp)
+                                    )
+            logger.debug(('Indexed dataframe on %s, %s'),self._entity_id,
+                         self._timestamp)
+            
+        else:
+            logger.debug(('Found existing index on %s, %s.'
+                          'No need to recreate index'),self._entity_id,
+                         self._timestamp)
+        
+        return df    
 
         
     def cos_save(self):
@@ -531,7 +562,32 @@ class EntityType(object):
                  ('transform', 'is_transformer'),
                  ('simple_aggregate', 'is_simple_aggregate'),
                  ('complex_aggregate', 'is_complex_aggregate'),
-                ]       
+                ]
+        
+    def df_sort_timestamp(self,df):
+        
+        '''
+        Sort a dataframe on the timestamp column. Returns a tuple containing
+        the sorted dataframe and a column_name for the timestamp column.
+        '''
+        
+        ts_col_name = self._timestamp
+        
+        #timestamp may be column or in index
+        try:
+            df.sort_values([ts_col_name],inplace = True)
+        except KeyError:
+            try:
+                #legacy check for a redundant _timestamp alternative column
+                df.sort_values([self._timestamp_col],inplace = True)
+                ts_col_name = self._timestamp_col
+            except KeyError:
+                try:
+                    df.sort_index(level=[ts_col_name],inplace = True)
+                except:
+                    raise
+        
+        return (df,ts_col_name)
         
     def drop_child_tables(self):
         '''
@@ -652,8 +708,8 @@ class EntityType(object):
 
         # Optimizing the data frame size using downcasting
         memo = MemoryOptimizer()
-        #df = memo.downcastNumeric(df)              #uncomment only after testing better
-        memo.downcastNumeric(df)
+        df = memo.downcastNumeric(df)
+        df = self.index_df(df)
 
         return df
             
@@ -1219,24 +1275,28 @@ class EntityType(object):
         '''
         Write a row to the dimension table for every entity instance in the dataframe supplied
         '''
-        # add a dimension table if there is none
-        if self._dimension_table_name is None:
-            new_dim_name = '%s%s' %(self.name, self._auto_dim_suffix)
-            self.make_dimension(name=new_dim_name)
-            self.register()
-        #get existing dimension keys
-        ef = self.db.read_table(self._dimension_table_name, schema = self._db_schema, columns = [self._entity_id])
-        ids = set(ef[self._entity_id].unique())
-        #get new members from the dataframe supplied
-        new_ids = set(df[self._entity_id].unique()) - ids
-        #write
-        self.db.start_session()
-        table = self.db.get_table(self._dimension_table_name, self._db_schema)
-        for i in new_ids:
-            stmt = table.insert().values({self._entity_id:i})
-            self.db.connection.execute(stmt)
-        self.db.commit()
-        return new_ids
+        
+        if df.empty:
+            return []
+        else:            
+            # add a dimension table if there is none
+            if self._dimension_table_name is None:
+                new_dim_name = '%s%s' %(self.name, self._auto_dim_suffix)
+                self.make_dimension(name=new_dim_name)
+                self.register()
+            #get existing dimension keys
+            ef = self.db.read_table(self._dimension_table_name, schema = self._db_schema, columns = [self._entity_id])
+            ids = set(ef[self._entity_id].unique())
+            #get new members from the dataframe supplied
+            new_ids = set(df[self._entity_id].unique()) - ids
+            #write
+            self.db.start_session()
+            table = self.db.get_table(self._dimension_table_name, self._db_schema)
+            for i in new_ids:
+                stmt = table.insert().values({self._entity_id:i})
+                self.db.connection.execute(stmt)
+            self.db.commit()
+            return new_ids
     
     
 class Granularity(object):

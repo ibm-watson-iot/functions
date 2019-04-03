@@ -207,6 +207,9 @@ class BaseFunction(object):
         Another deviceid and another column called timestamp will be added to the dataframe as a convenience.
         '''
         
+        warnings.warn('conform_index() is deprecated. Use EntityType.index_df',
+                      DeprecationWarning)
+        
         #self.log_df_info(df,'incoming dataframe for conform index')
         if not df.index.names == [self._entity_type._df_index_entity_id,self._entity_type._timestamp]: 
             # index does not conform
@@ -1631,6 +1634,12 @@ class BaseDBActivityMerge(BaseDataSource):
         self.constants.extend(['input_activities','input_activities'])
         self.outputs.extend(['activity_duration','additional_output_names'])
         self.optionalItems.extend(['additional_items'])
+        
+    def execute(self,df):
+        
+        self.execute_by = [self._entity_type._entity_type_id]
+        df = super().execute(df)
+        return df
         
     def get_data(self,
                     start_ts= None,

@@ -721,6 +721,14 @@ class SampleActivityMerge(BaseDBActivityMerge):
     '''
     Merge data from multiple tables containing activities with start and end dates
     '''
+    
+    warnings.warn(('This sample function is deprecated. Use IoTActivityDuration'
+                   ' for simple cases involving a single table.'
+                   ' Use SampleActivityDuration for an example of a complex'
+                   ' case with multiple input tables'
+                   ),
+                  DeprecationWarning)
+    
     execute_by = ['deviceid']    
     _is_instance_level_logged = False    
     def __init__(self,
@@ -747,7 +755,6 @@ class SampleActivityDuration(BaseDBActivityMerge):
     '''
     Merge data from multiple tables containing activities with start and end dates
     '''
-    execute_by = ['deviceid']
     _is_instance_level_logged = False
     def __init__(self,input_activities, activity_duration=None):
         super().__init__(input_activities=input_activities,

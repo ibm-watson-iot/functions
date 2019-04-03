@@ -19,6 +19,7 @@ from . import dbhelper
 from collections import OrderedDict
 from .util import log_df_info
 import pandas as pd
+import warnings
 from pandas.api.types import (is_bool_dtype, is_numeric_dtype, is_string_dtype,
                               is_datetime64_any_dtype)
 
@@ -211,6 +212,21 @@ class DataMerge(object):
         df_index_names = [x for x in df_index_names if x is not None]
         
         return df_index_names
+    
+    def get_cols(self,df=None):
+        
+        '''
+        Get a full set of column names from df and index. Return set.
+        '''
+        
+        if df is None:
+            df = self.df
+        
+        cols = set(self.get_index_names(df))
+        cols |= set(df.columns)
+        
+        return cols
+        
 
     def execute(self,obj,col_names,force_overwrite=False):
         '''
@@ -268,7 +284,7 @@ class DataMerge(object):
             self.merge_non_dataframe(obj,col_names = col_names)
             
         #test that df has expected columns
-        if not self.df.empty and not set(col_names).issubset(set(self.df.columns)):
+        if not self.df.empty and not set(col_names).issubset(self.get_cols()):
             raise ValueError( ('Error in auto merge. Resulting df does not '
                     ' contain the expected output columns %s that should have'
                     ' been delivered through merge. It has columns %s'
@@ -2231,6 +2247,7 @@ class CalcPipeline:
             except Exception as e:
                 msg = 'Error while writing unmatched members to dimension. See log.' 
                 self.trace_append(msg,created_by = self)
+                raise
                 self.entity_type.raise_error(exception = e,abort_on_fail = False)
             self.mark_initial_transform_complete()
 
