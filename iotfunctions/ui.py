@@ -25,9 +25,8 @@ class BaseUIControl(object):
         try:
             return conversions[from_datatype]
         except KeyError:
-            msg = 'couldnt convert type %s. will attempt to use type supplied '
-            logger.warning(msg)
-            return from_datatype
+            msg = 'couldnt convert type %s '
+            raise TypeError(msg)
                 
 class UIFunctionOutSingle(BaseUIControl):
     '''
@@ -256,7 +255,7 @@ class UIMultiItem(BaseUIControl):
         
         if self.output_item is not None:        
             if not self.output_datatype is None:
-                datatype = [self.output_datatype]
+                datatype = [self.convert_datatype(self.output_datatype)]
             else:
                 datatype= None
                         
