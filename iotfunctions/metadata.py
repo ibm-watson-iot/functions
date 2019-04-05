@@ -779,13 +779,16 @@ class EntityType(object):
             logger.debug('API call to server did not retrieve valid entity type properties. No properties set.')
         else:
             params = {}
-            for p in meta:
-                key = p['name']
-                if isinstance(p['value'],dict):
-                    params[key] = p['value'].get('value',p['value'])
-                else:
-                    params[key] = p['value']
-                logger.debug('Adding server property %s with value %s to entity type',key,params[key])
+            
+            if not isinstance(meta, str):   # toDo: temporary fix
+                for p in meta:
+                    key = p['name']
+                    if isinstance(p['value'],dict):
+                        params[key] = p['value'].get('value',p['value'])
+                    else:
+                        params[key] = p['value']
+                    logger.debug('Adding server property %s with value %s to entity type',key,params[key])
+                
             self.set_params(**params)
         
         return params
