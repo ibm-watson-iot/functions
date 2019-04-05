@@ -779,10 +779,13 @@ class EntityType(object):
             logger.debug('API call to server did not retrieve valid entity type properties. No properties set.')
         else:
             params = {}
-            
-            if not isinstance(meta, str):   # toDo: temporary fix
-                for p in meta:
+            for p in meta:
+                try:
                     key = p['name']
+                except:
+                    logger.debug('Unexpected type: %s' % str(p))    # toDo: temporary fix
+                    continue
+                else:
                     if isinstance(p['value'],dict):
                         params[key] = p['value'].get('value',p['value'])
                     else:
