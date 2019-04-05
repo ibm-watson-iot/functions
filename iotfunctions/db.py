@@ -567,7 +567,7 @@ class Database(object):
         self.url[('entityType','POST')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type])
         self.url[('entityType','GET')] = '/'.join([base_url,'meta','v1',self.tenant_id,object_type,object_name])
         
-        self.url[('engineInput','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_type])
+        self.url[('engineInput','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])
         
         self.url[('function','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
         self.url[('function','DELETE')] = '/'.join([base_url,'catalog','v1',self.tenant_id,object_type,object_name])
@@ -601,11 +601,22 @@ class Database(object):
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
         logger.debug('resp.status=%s' % (r.status))
         response = r.read().decode('utf-8')
-        # logger.debug(response)
         response= r.data.decode('utf-8')
-        # logger.debug(response)
         
         return response
+
+    
+    def load_entity_type(self,logical_name,schema=None):
+        
+        params = {}
+        params['_db'] = self
+        params['_schema'] = schema
+        params['logical_name'] = logical_name
+        (params,meta) = md.retrieve_entity_type_metadata(**params)
+        et = md.EntityType(db=self,**params)
+        et.load_entity_type_functions()
+        
+        return et            
     
         
     def if_exists(self,table_name, schema=None):
@@ -626,14 +637,29 @@ class Database(object):
 
         msg = 'running pip install for url %s' %url
         logger.debug(msg)
-       
-        completedProcess = subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url],
-                               stderr=subprocess.STDOUT, stdout=subprocess.PIPE, text=True)
 
+        try:
+            completedProcess = subprocess.run(
+                    ['pip', 'install', 
+                     '--process-dependency-links',
+                     '--upgrade', url],
+                     stderr=subprocess.STDOUT,
+                     stdout=subprocess.PIPE,
+                     text=True)
+        except Exception as e:
+            raise ImportError('pip install for url %s failed: \n%s',
+                           url, str(e)) 
+            
         if completedProcess.returncode == 0:
-            logger.info('pip install for url %s was successful: \n %s' % (url, completedProcess.stdout))
+
+            logger.debug('pip install for url %s was successful: \n %s',
+                         url, completedProcess.stdout)
+            
         else:
-            logger.error('pip install for url %s failed: \n %s' % (url, completedProcess.stdout))
+
+            raise ImportError('pip install for url %s failed: \n %s.',
+                           url, completedProcess.stdout)
+        
          
     def import_target(self,package,module,target,url=None):
         '''
@@ -650,8 +676,12 @@ class Database(object):
             exec(impstr)
         except ModuleNotFoundError:
             if url is not None:
-                self.install_package(url)
-                return self.import_target(package=package,module=module,target=target)
+                try:
+                    self.install_package(url)
+                except ImportError:
+                    return (None,'package_error')  
+                else:
+                    return self.import_target(package=package,module=module,target=target)
             else:
                 return (None,'package_error')
         except ImportError:
