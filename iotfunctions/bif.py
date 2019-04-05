@@ -1209,22 +1209,18 @@ class IoTShiftCalendar(BaseTransformer):
         return df
     
     def execute(self,df):
-        try:
-            df.sort_values([self._entity_type._timestamp_col],inplace = True)
-        except KeyError:
-            msg = self.log_df_info(df,'key error when sorting on _timestamp during custom calendar lookup')
-            raise RuntimeError(msg)
-            
-        calendar_df = self.get_data(start_date= df[self._entity_type._timestamp_col].min(), end_date = df[self._entity_type._timestamp_col].max())
+        df = df.reset_index()
+        entity_type = self.get_entity_type()
+        (df,ts_col) = entity_type.df_sort_timestamp(df)
+        calendar_df = self.get_data(start_date= df[ts_col].min(), end_date = df[ts_col].max())
         df = pd.merge_asof(left = df,
                            right = calendar_df,
-                           left_on = self._entity_type._timestamp,
+                           left_on = ts_col,
+
                            right_on = self.period_start_date,
                            direction = 'backward')
-        if self.auto_conform_index:
-            df = self.conform_index(df)
             
-        return df
+        df = self._entity_type.index_df(df)
     
     @classmethod
     def build_ui(cls):
