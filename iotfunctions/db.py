@@ -404,6 +404,23 @@ class Database(object):
             msg = 'Dropped table name %s' %table.name
             self.session.commit()
         logger.debug(msg)
+
+        
+    def execute_job(self,entity_type_logical_name,schema=None,**kwargs):
+        
+        entity_type = self.load_entity_type(entity_type_logical_name,
+                                            schema = schema)
+        
+        job = pp.JobController(payload=entity_type,**kwargs)
+        job.execute()
+        
+        
+    def get_catalog_module(self,class_name):
+        
+        package = self.function_catalog[class_name]['package']
+        module = self.function_catalog[class_name]['module']
+        
+        return (package,module)        
         
     def get_entity_type(self,name):
         '''
