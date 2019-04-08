@@ -20,12 +20,13 @@ class BaseUIControl(object):
                        float: 'NUMBER',
                        int: 'NUMBER',
                        dict: 'JSON',
-                       dt.datetime: 'TIMESTAMP'
+                       dt.datetime: 'TIMESTAMP',
+                       None: None
                        }
         try:
             return conversions[from_datatype]
         except KeyError:
-            msg = 'couldnt convert type %s '
+            msg = 'couldnt convert type %s ' %from_datatype
             raise TypeError(msg)
                 
 class UIFunctionOutSingle(BaseUIControl):
