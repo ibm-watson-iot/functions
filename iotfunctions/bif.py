@@ -63,7 +63,6 @@ class IoTActivityDuration(BaseDBActivityMerge):
         return (inputs,outputs)        
 
 
-
 class IoTAlertExpression(BaseEvent):
     '''
     Create alerts that are triggered when data values reach a particular range.
@@ -100,22 +99,21 @@ class IoTAlertExpression(BaseEvent):
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['input_items'] = UIMultiItem(name = 'input_items',
+        inputs = []
+        inputs.append(UIMultiItem(name = 'input_items',
                                               datatype=None,
                                               description = 'Input items'
-                                              ).to_metadata()
-        inputs['expression'] = UISingle(name = 'expression',
+                                              ))
+        inputs.append(UISingle(name = 'expression',
                                               datatype=str,
                                               description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
-                                              ).to_metadata()        
+                                              ))
         #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['alert_name'] = UIFunctionOutSingle(name = 'alert_name',
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'alert_name',
                                                      datatype=bool,
                                                      description='Output of alert function'
-                                                     ).to_metadata()
-    
+                                                     ))
         return (inputs,outputs)    
     
     
@@ -163,27 +161,27 @@ class IoTAlertOutOfRange(BaseEvent):
         inputs['input_item'] = UISingleItem(name = 'input_item',
                                               datatype=None,
                                               description = 'Item to alert on'
-                                              ).to_metadata()
+                                              )
         inputs['lower_threshold'] = UISingle(name = 'lower_threshold',
                                               datatype=float,
                                               description = 'Alert when item value is lower than this value',
                                               required = False,
-                                              ).to_metadata()
+                                              )
         inputs['upper_threshold'] = UISingle(name = 'upper_threshold',
                                               datatype=float,
                                               description = 'Alert when item value is higher than this value',
                                               required = False,
-                                              ).to_metadata()  
+                                              )  
         #define arguments that behave as function outputs
         outputs = OrderedDict()
         outputs['output_alert_lower'] = UIFunctionOutSingle(name = 'output_alert_lower',
                                                      datatype=bool,
                                                      description='Output of alert function'
-                                                     ).to_metadata()        
+                                                     )
         outputs['output_alert_upper'] = UIFunctionOutSingle(name = 'output_alert_upper',
                                                      datatype=bool,
                                                      description='Output of alert function'
-                                                     ).to_metadata()
+                                                     )
     
         return (inputs,outputs)    
     
@@ -270,11 +268,11 @@ class IoTAlertLowValue(BaseEvent):
         inputs['input_item'] = UISingleItem(name = 'input_item',
                                               datatype=None,
                                               description = 'Item to alert on'
-                                              ).to_metadata()
+                                              )
         inputs['lower_threshold'] = UISingle(name = 'upper_threshold',
                                               datatype=float,
                                               description = 'Alert when item value is lower than this value'
-                                              ).to_metadata()  
+                                              )  
         #define arguments that behave as function outputs
         outputs = OrderedDict()       
         outputs['alert_name'] = UIFunctionOutSingle(name = 'alert_name',
@@ -283,6 +281,53 @@ class IoTAlertLowValue(BaseEvent):
                                                      ).to_metadata()
     
         return (inputs,outputs)    
+
+
+
+class IoTAutoTest(BaseTransformer):
+    '''
+    Test the results of pipeline execution against a known test dataset. 
+    The test will compare columns calculated values with values in the test dataset.
+    Discepancies will the written to a test output file.
+    '''
+    
+    def __init__(self,test_datset_name,columns_to_test,result_col='test_result'):
+        
+        super().__init__()
+        
+        self.test_datset_name = test_datset_name
+        self.columns_to_test = columns_to_test
+        self.result_col = result_col
+        
+    def execute(self,df):
+        
+        db = self.get_db()
+        bucket = self.get_bucket_name()
+        
+        file = db.cos_load(filename = self.test_datset_name,
+                           bucket= bucket,
+                           binary=False,
+                           pickle=False)
+            
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['test_datset_name'] = UISingle(name = 'test_datset_name',
+                                        datatype = str,
+                                        description = ('Name of cos object containing'
+                                                       ' test data. Object is a pickled '
+                                                       ' dataframe. Object must be placed '
+                                                       ' in the bos_runtime_bucket' )                            
+                                        )        
+        inputs['columns_to_test'] = UIMultiItem(name = 'input_items',
+                                          datatype=None,
+                                          description = ('Choose the data items that'
+                                                         ' you would like to compare')
+                                          )  
+        outputs = OrderedDict()
+
+        return (inputs,outputs)
 
 
 class IoTCalcSettings(BaseMetadataProvider):
@@ -514,18 +559,18 @@ class IoTConditionalItems(BaseTransformer):
         inputs['conditional_expression'] = UISingle(name = 'conditional_expression',
                                               datatype=str,
                                               description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
-                                              ).to_metadata()
+                                              )
         inputs['conditional_items'] = UIMultiItem(name = 'conditional_items',
                                               datatype=None,
                                               description = 'Data items that have conditional values, e.g. temp and pressure'
-                                              ).to_metadata()        
+                                              )        
         #define arguments that behave as function outputs
         outputs = OrderedDict()
         outputs['output_items'] = UIFunctionOutMulti(name = 'output_items',
                                                      cardinality_from = 'conditional_items',
                                                      is_datatype_derived = False,
                                                      description='Function output items'
-                                                     ).to_metadata()
+                                                     )
         
         return (inputs,outputs)
     
@@ -736,7 +781,73 @@ class IoTDropNull(BaseMetadataProvider):
                                            datatype=bool,
                                            description='Returns a status flag of True when executed'))
                 
-        return (inputs,outputs)            
+        return (inputs,outputs)    
+
+
+class IoTEntityDataGenerator(BasePreload):
+    """
+    Automatically load the entity input data table using new generated data.
+    Time series columns defined on the entity data table will be populated
+    with random data.
+    """
+    
+    freq = '5min' 
+    # ids of entities to generate. Change the value of the range() function to change the number of entities
+    
+    def __init__ (self, ids = None, output_item = 'entity_data_generator'):
+        if ids is None:
+            ids = self.get_entity_ids()
+        super().__init__(dummy_items = [], output_item = output_item)
+        self.ids = ids
+        
+    def execute(self,
+                 df,
+                 start_ts= None,
+                 end_ts= None,
+                 entities = None):
+        
+        #This sample builds data with the TimeSeriesGenerator.
+        
+        if entities is None:
+            entities = self.ids()
+            
+        if not start_ts is None:
+            seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
+        else:
+            seconds = pd.to_timedelta(self.freq).total_seconds()
+        
+        df = self._entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)        
+        self.trace_append(msg='%s Generated data. ' %self.__class__.__name__,df=df)
+        
+        return True  
+    
+    
+    def get_entity_ids(self):
+        '''
+        Generate a list of entity ids
+        '''
+        ids = [str(73000 + x) for x in list(range(5))]
+        return (ids)
+
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMulti(name = 'ids',
+                                  datatype=str,
+                                  description = 'Comma separate list of entity ids, e.g: X902-A01,X902-A03'
+                                  )
+                    )
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype=bool,
+                                           description='Returns a status flag of True when executed'))
+        
+        return (inputs,outputs)         
 
 class IoTEntityFilter(BaseMetadataProvider):
     '''
@@ -802,17 +913,18 @@ class IoTExpression(BaseTransformer):
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['expression'] = UISingle(name = 'expression',
+        inputs = []
+        inputs.append(UISingle(name = 'expression',
                                               datatype=str,
                                               description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
-                                              ).to_metadata()        
+                                              )
+                    )
         #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['output_name'] = UIFunctionOutSingle(name = 'output_name',
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_name',
                                                      datatype=None,
                                                      description='Output of expression'
-                                                     ).to_metadata()
+                                                     ))
     
         return (inputs,outputs)   
     
@@ -1209,22 +1321,18 @@ class IoTShiftCalendar(BaseTransformer):
         return df
     
     def execute(self,df):
-        try:
-            df.sort_values([self._entity_type._timestamp_col],inplace = True)
-        except KeyError:
-            msg = self.log_df_info(df,'key error when sorting on _timestamp during custom calendar lookup')
-            raise RuntimeError(msg)
-            
-        calendar_df = self.get_data(start_date= df[self._entity_type._timestamp_col].min(), end_date = df[self._entity_type._timestamp_col].max())
+        df = df.reset_index()
+        entity_type = self.get_entity_type()
+        (df,ts_col) = entity_type.df_sort_timestamp(df)
+        calendar_df = self.get_data(start_date= df[ts_col].min(), end_date = df[ts_col].max())
         df = pd.merge_asof(left = df,
                            right = calendar_df,
-                           left_on = self._entity_type._timestamp,
+                           left_on = ts_col,
+
                            right_on = self.period_start_date,
                            direction = 'backward')
-        if self.auto_conform_index:
-            df = self.conform_index(df)
             
-        return df
+        df = self._entity_type.index_df(df)
     
     @classmethod
     def build_ui(cls):
