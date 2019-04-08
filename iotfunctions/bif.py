@@ -809,7 +809,7 @@ class IoTEntityDataGenerator(BasePreload):
         #This sample builds data with the TimeSeriesGenerator.
         
         if entities is None:
-            entities = self.ids()
+            entities = self.ids
             
         if not start_ts is None:
             seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
