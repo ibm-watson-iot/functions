@@ -248,6 +248,12 @@ class DataMerge(object):
         before merging.
     
         '''
+        if obj is None:
+            raise RuntimeError(('DataMerge is attempting to merge a null'
+                                ' object with a dataframe. Object to be '
+                                ' merged must be a dataframe, series,'
+                                ' constant or numpy array. Unable to merge'
+                                ' None'))
         
         if self.df is None:
             self.df = pd.DataFrame()

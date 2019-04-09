@@ -306,8 +306,7 @@ class IoTAutoTest(BaseTransformer):
         
         file = db.cos_load(filename = self.test_datset_name,
                            bucket= bucket,
-                           binary=False,
-                           pickle=False)
+                           binary=False)
             
     @classmethod
     def build_ui(cls):
@@ -1153,7 +1152,51 @@ class IoTRandomNormal(BaseTransformer):
                                              description='Random output'
                                              ))
     
-        return (inputs,outputs)   
+        return (inputs,outputs)  
+    
+    
+class IoTSaveCosDataFrame(BaseTransformer):
+    """
+    Serialize dataframe to COS
+    """
+    
+    def __init__(self,
+                 filename='job_output_df',
+                 columns=None,
+                 output_item='save_df_result'):
+        
+        super().__init__()
+        self.filename = filename
+        self.columns = columns
+        self.ouput_item = output_item
+        
+    def execute(self,df):
+        
+        if self.columns is not None:
+            df = df[self.columns]
+        db = self.get_db()
+        bucket = self.get_bucket_name()
+        db.cos_save(persisted_object=df,
+                    filename=self.filename,
+                    bucket=bucket,
+                    binary=True)
+        
+        return True
+        
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name='filename',datatype=str))
+        inputs.append(UIMultiItem(name='columns',datatype=str))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                             datatype=str,
+                                             description='Result of save operation'
+                                             ))
+    
+        return (inputs,outputs)       
         
 
 class IoTRandomChoice(BaseTransformer):
@@ -1328,11 +1371,11 @@ class IoTShiftCalendar(BaseTransformer):
         df = pd.merge_asof(left = df,
                            right = calendar_df,
                            left_on = ts_col,
-
                            right_on = self.period_start_date,
                            direction = 'backward')
             
         df = self._entity_type.index_df(df)
+        return df
     
     @classmethod
     def build_ui(cls):
