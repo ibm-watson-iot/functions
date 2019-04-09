@@ -48,7 +48,7 @@ zeta = UIMulti(name='zeta',
 Use the register_constants method on the Database object to make constants
 available in the UI
 '''
-db.register_constants([zeta])
+db.register_constants([gamma,zeta])
 
 
 
