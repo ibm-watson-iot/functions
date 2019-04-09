@@ -592,11 +592,6 @@ class EntityType(object):
         
     def df_sort_timestamp(self,df):
 
-
-
-
-        
-
         '''
         Sort a dataframe on the timestamp column. Returns a tuple containing
         the sorted dataframe and a column_name for the timestamp column.
