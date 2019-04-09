@@ -31,6 +31,49 @@ except (ImportError,ModuleNotFoundError):
     logger.info(msg)
 else:
     IBMBOTO_INSTALLED = True
+    
+def compare_dataframes(dfl,dfr,cols=None):
+    '''
+    Explain the differences between 2 dataframes
+    '''
+    
+    if cols is None:
+        cols = list(dfl.columns)
+   
+    differences = 0
+    trace = ''
+    if len(dfl.index) != len(dfr.index):
+        msg = 'Row count: %s vs %s' %(dfl.index,dfr.index)
+        trace = trace + msg
+        differences += abs(len(dfl.index) - len(dfr.index))
+    missing_l =  set(cols) - set(dfl.columns)
+    if len(missing_l) != 0:
+        msg = 'dfl is missing columns:' %(missing_l)
+        trace = trace + msg
+        cols = [x for x in cols if x not in missing_l]
+        differences += len(missing_l) * len(dfl.index)
+    missing_r =  set(cols) - set(dfr.columns)
+    if len(missing_r) != 0:
+        msg = 'dfr is missing columns: %s' %(missing_r)
+        trace = trace + msg
+        cols = [x for x in cols if x not in missing_r]
+        differences += len(missing_r) * len(dfr.index)
+        
+    dfl = dfl[cols].reindex()
+    dfr = dfr[cols].reindex()
+    
+    dfs = {'dfl':dfl,
+           'dfr':dfr}
+    df = pd.concat(dfs)
+    total_rows = len(df.index)
+    df = df.drop_duplicates(keep=False)
+    if not df.empty and total_rows - len(df.index) > 0:
+        msg = 'Rows with different contents:%s' %(total_rows - len(df.index))
+        trace = trace + msg
+        differences = differences + total_rows - len(df.index)
+    
+    return (differences,trace,df)
+    
 
 class CosClient:
     '''
