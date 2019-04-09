@@ -654,6 +654,37 @@ class EntityType(object):
     
     def _get_scd_list(self):
         return [(s.output_item,s.table_name) for s in self._scd_stages ]
+
+    def index_df(self,df):
+        '''
+        Create an index on the deviceid and the timestamp
+        '''
+    
+        if df.index.names != [self._entity_id,
+                              self._timestamp]: 
+            try:
+                df = df.set_index([self._entity_id,
+                                   self._timestamp])
+            except KeyError:
+                df = df.reset_index()
+                try:
+                    df = df.set_index([self._entity_id,
+                                       self._timestamp])
+                except KeyError:
+                    raise KeyError(('Error attempting to index time series'
+                                    ' dataframe. Unable to locate index'
+                                    ' columns: %s, %s') 
+                                    %(self._entity_id,self._timestamp)
+                                    )
+            logger.debug(('Indexed dataframe on %s, %s'),self._entity_id,
+                         self._timestamp)
+            
+        else:
+            logger.debug(('Found existing index on %s, %s.'
+                          'No need to recreate index'),self._entity_id,
+                         self._timestamp)
+        
+        return df      
         
     def make_dimension(self,name = None, *args, **kw):
         '''
