@@ -36,6 +36,8 @@ except ImportError:
     DB2_INSTALLED = False
     msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
     logger.warning(msg)
+    
+
 
 class Database(object):
     '''
@@ -526,7 +528,14 @@ class Database(object):
         return [column.key for column in table.columns]
     
     
-    def http_request(self, object_type,object_name, request, payload=None, object_name_2=''):
+    def http_request(self,
+                     object_type,
+                     object_name,
+                     request,
+                     payload=None,
+                     object_name_2='',
+                     raise_error = False,
+                     ):
         '''
         Make an api call to AS
         
@@ -602,12 +611,39 @@ class Database(object):
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
         response= r.data.decode('utf-8')
         
-        if not (200  <= r.status <=  299):
-            logger.debug('Http request status: %s' ,r.status)
+        if 200  <= r.status <=  299:
+            logger.debug('http request successful. status %s',r.status)
+        elif request == 'POST' and (500  <= r.status <=  599):
+                logger.debug(('htpp POST failed. attempting PUT. status:%s'),
+                             r.status)
+                response = self.http_request(object_type = object_type,
+                                        object_name = object_name,
+                                        request = 'PUT',
+                                        payload = payload,
+                                        object_name_2 = object_name_2,
+                                        raise_error = raise_error
+                                        )
+        elif (400  <= r.status <=  499):
+            logger.debug('Http request client error. status: %s' ,r.status)
             logger.debug('url: %s', url)
             logger.debug('payload: %s', encoded_payload)                 
-            logger.debug('http response: %s', r.data)       
-
+            logger.debug('http response: %s', r.data)
+            if raise_error:
+                raise urllib3.exceptions.HTTPError(r.data)
+        elif (500  <= r.status <=  599):
+            logger.debug('Http request server error. status: %s' ,r.status)
+            logger.debug('url: %s', url)
+            logger.debug('payload: %s', encoded_payload)                 
+            logger.debug('http response: %s', r.data)
+            if raise_error:
+                raise urllib3.exceptions.HTTPError(r.data)
+        else :
+            logger.debug('Http request unknown error. status: %s' ,r.status)
+            logger.debug('url: %s', url)
+            logger.debug('payload: %s', encoded_payload)                 
+            logger.debug('http response: %s', r.data)
+            if raise_error:
+                raise urllib3.exceptions.HTTPError(r.data)
         
         return response        
 
