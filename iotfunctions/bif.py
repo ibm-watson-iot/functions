@@ -1188,7 +1188,7 @@ class IoTSaveCosDataFrame(BaseTransformer):
         #define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingle(name='filename',datatype=str))
-        inputs.append(UIMultiItem(name='columns',datatype=str))
+        inputs.append(UIMultiItem(name='columns'))
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_item',

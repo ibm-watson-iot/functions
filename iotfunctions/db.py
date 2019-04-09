@@ -599,12 +599,15 @@ class Database(object):
         except KeyError:
             raise ValueError ('This combination  of request_type and object_type is not supported by the python api')            
             
-        logger.debug(url)
-        logger.debug(encoded_payload)
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
-        logger.debug('resp.status=%s' % (r.status))
-        response = r.read().decode('utf-8')
         response= r.data.decode('utf-8')
+        
+        if not (200  <= r.status <=  299):
+            logger.debug('Http request status: %s' ,r.status)
+            logger.debug('url: %s', url)
+            logger.debug('payload: %s', encoded_payload)                 
+            logger.debug('http response: %s', r.data)       
+
         
         return response        
 
