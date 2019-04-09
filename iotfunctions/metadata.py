@@ -269,7 +269,32 @@ class EntityType(object):
             for d in dimensions:
                 grouper.append(pd.Grouper(key = d))
              
-        return grouper           
+        return grouper      
+
+    def df_sort_timestamp(self,df):
+
+        '''
+        Sort a dataframe on the timestamp column. Returns a tuple containing
+        the sorted dataframe and a column_name for the timestamp column.
+        '''
+        
+        ts_col_name = self._timestamp
+        
+        #timestamp may be column or in index
+        try:
+            df.sort_values([ts_col_name],inplace = True)
+        except KeyError:
+            try:
+                #legacy check for a redundant _timestamp alternative column
+                df.sort_values([self._timestamp_col],inplace = True)
+                ts_col_name = self._timestamp_col
+            except KeyError:
+                try:
+                    df.sort_index(level=[ts_col_name],inplace = True)
+                except:
+                    raise
+        
+        return (df,ts_col_name)     
         
     def drop_child_tables(self):
         '''
