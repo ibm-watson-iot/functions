@@ -35,7 +35,7 @@ gamma = UISingle(name='gamma',
                  datatype=float)
 
 '''
-Arrays are manageed by a Multi-valued 
+Arrays are managed using a multi-select control
 '''
 
 zeta = UIMulti(name='zeta',
