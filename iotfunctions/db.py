@@ -645,7 +645,7 @@ class Database(object):
                      '--upgrade', url],
                      stderr=subprocess.STDOUT,
                      stdout=subprocess.PIPE,
-                     text=True)
+                     universal_newlines=True)
         except Exception as e:
             raise ImportError('pip install for url %s failed: \n%s',
                            url, str(e)) 
