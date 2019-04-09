@@ -25,7 +25,7 @@ db = Database(credentials = credentials, tenant_id=credentials['tennant_id'])
 
 
 '''
-Constants are defined by indentifying the UI control that will manager them.
+Constants are defined by identifying  the UI control that will manager them.
 Constants may either be scalars or arrays. Single valued (scalars) will be
 managed using single line edit, which is derived from the UISingle class.
 
