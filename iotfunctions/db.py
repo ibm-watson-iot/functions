@@ -24,6 +24,7 @@ from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 from .util import CosClient, resample
 from . import metadata as md
+from . import pipeline as pp
 
 logger = logging.getLogger(__name__)
 DB2_INSTALLED = True
@@ -35,6 +36,8 @@ except ImportError:
     DB2_INSTALLED = False
     msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
     logger.warning(msg)
+    
+
 
 class Database(object):
     '''
@@ -50,6 +53,8 @@ class Database(object):
         Output sql to log
     '''
     def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
+        
+        self.function_catalog = {} #metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}
         try:
@@ -523,7 +528,14 @@ class Database(object):
         return [column.key for column in table.columns]
     
     
-    def http_request(self, object_type,object_name, request, payload=None, object_name_2=''):
+    def http_request(self,
+                     object_type,
+                     object_name,
+                     request,
+                     payload=None,
+                     object_name_2='',
+                     raise_error = False,
+                     ):
         '''
         Make an api call to AS
         
@@ -596,14 +608,44 @@ class Database(object):
         except KeyError:
             raise ValueError ('This combination  of request_type and object_type is not supported by the python api')            
             
-        logger.debug(url)
-        logger.debug(encoded_payload)
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
-        logger.debug('resp.status=%s' % (r.status))
-        response = r.read().decode('utf-8')
         response= r.data.decode('utf-8')
         
-        return response
+        if 200  <= r.status <=  299:
+            logger.debug('http request successful. status %s',r.status)
+        elif request == 'POST' and (500  <= r.status <=  599):
+                logger.debug(('htpp POST failed. attempting PUT. status:%s'),
+                             r.status)
+                response = self.http_request(object_type = object_type,
+                                        object_name = object_name,
+                                        request = 'PUT',
+                                        payload = payload,
+                                        object_name_2 = object_name_2,
+                                        raise_error = raise_error
+                                        )
+        elif (400  <= r.status <=  499):
+            logger.debug('Http request client error. status: %s' ,r.status)
+            logger.debug('url: %s', url)
+            logger.debug('payload: %s', encoded_payload)                 
+            logger.debug('http response: %s', r.data)
+            if raise_error:
+                raise urllib3.exceptions.HTTPError(r.data)
+        elif (500  <= r.status <=  599):
+            logger.debug('Http request server error. status: %s' ,r.status)
+            logger.debug('url: %s', url)
+            logger.debug('payload: %s', encoded_payload)                 
+            logger.debug('http response: %s', r.data)
+            if raise_error:
+                raise urllib3.exceptions.HTTPError(r.data)
+        else :
+            logger.debug('Http request unknown error. status: %s' ,r.status)
+            logger.debug('url: %s', url)
+            logger.debug('payload: %s', encoded_payload)                 
+            logger.debug('http response: %s', r.data)
+            if raise_error:
+                raise urllib3.exceptions.HTTPError(r.data)
+        
+        return response        
 
     
     def load_entity_type(self,logical_name,schema=None):
@@ -689,21 +731,26 @@ class Database(object):
         else:
             return (target,'ok')
     
-    def import_all_functions(self,install_missing=True, unregister_invalid_target=False):
+    def load_catalog(self,install_missing=True,
+                     unregister_invalid_target=False,
+                     function_list = None):
         '''
         Import all functions from the AS function catalog.
         
         Returns: 
         --------
-        dict containing target names and an import status
-        
+        dict keyed on function name
         '''
         
         imported = {}
         result = {}
-        fns = json.loads(self.http_request('allFunctions',object_name = None, request = 'GET', payload = None))
+
+        fns = json.loads(self.http_request('allFunctions',
+                                           object_name = None,
+                                           request = 'GET',
+                                           payload = None))
         for fn in fns:
-            msg = 'identifying path from modelule and target %s' %fn["moduleAndTargetName"]
+            msg = 'identifying path from module and target %s' %fn["moduleAndTargetName"]
             logger.debug(msg)
             path = fn["moduleAndTargetName"].split('.')
             name = fn["moduleAndTargetName"]
@@ -714,6 +761,10 @@ class Database(object):
                 status = 'metadata_error'
             else:
                 (package,module,target) = (path[0],path[1],path[2])
+                if (function_list is not None) and (target not in function_list):
+                    logger.debug(('Skipping function %s as it is not in the' 
+                                  ' function list'), target)
+                    continue                
                 if install_missing:
                     url = fn['url']
                 else:
@@ -725,18 +776,27 @@ class Database(object):
                     logger.exception(msg)
                     raise e
             try:
-                (epackage,emodule,etarget) = imported[name]
+                (epackage,emodule) = imported[target]
             except KeyError:
-                result[name] = status
-                imported[name] = (package,module,target)
+
+                result[target] = {
+                        'package':package,
+                        'module':module,
+                        'status':status,
+                        'meta' :fn
+                        }
+                imported[target] = (package,module)
             else:
-                if (package,module,target) != (epackage,emodule,etarget):
+                if (package,module) != (epackage,emodule):
                     msg = 'Duplicate class name encountered on import of %s. Ignored %s.%s' %(name,package,module)
                     logger.warning(msg)
             if status == 'target_error' and unregister_invalid_target:
                 self.unregister_functions([name])
                 msg = 'Unregistered invalid function %s' %name
                 logger.info(msg)
+        
+        self.function_catalog = result
+                
         return result
     
     
