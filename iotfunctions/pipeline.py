@@ -180,9 +180,9 @@ class CalcPipeline:
                     to_csv = to_csv,
                     dropna = dropna,
                     abort_on_fail = True)
-            
-        #execute custom calendar
-        if len(special_lookup_stages) > 0:
+        
+        #exceute special lookup stages
+        if not df.empty and len(special_lookup_stages) > 0:                
             for s in special_lookup_stages:
                 msg = 'Processing special lookup stage %s. ' %s.__class__.__name__
                 self.trace_append(msg)
@@ -194,7 +194,7 @@ class CalcPipeline:
                     register = register,
                     to_csv = to_csv,
                     dropna = dropna,
-                    abort_on_fail = True)    
+                    abort_on_fail = True) 
             
         return(df,remaining_stages)    
             
@@ -323,9 +323,9 @@ class CalcPipeline:
         except AttributeError:
             pass
         except KeyError as e:
-            msg = 'KeyError while conforming index prior to execution. ' %name
+            msg = 'KeyError while conforming index prior to execution of function %s. ' %name
             self.trace_append(msg,created_by = stage, df = df)
-            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
+            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         #there are two signatures for the execute method
         msg = 'Stage %s :' % name
         self.trace_append(msg=msg,df=df)
@@ -337,27 +337,27 @@ class CalcPipeline:
         except AttributeError as e:
             self.trace_append('The function %s makes a reference to an object property that does not exist. ' %name,
                               created_by = stage)
-            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
+            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         except SyntaxError as e:
             self.trace_append('The function %s contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct. ' %name,
                               created_by = stage)
-            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
+            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         except (ValueError,TypeError) as e:
             self.trace_append('The function %s is operating on data that has an unexpected value or data type. ' %name,
                               created_by = stage)
-            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,)
+            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         except NameError as e:
             self.trace_append('The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' %name,
                               created_by = stage)
-            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
+            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         except BaseException as e:
             self.trace_append('The function %s failed to execute. ' %name, created_by = stage)
-            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail)
+            self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         #validate that stage has not violated any pipeline processing rules
         try:
             self.validate_df(df,newdf)
         except AttributeError:
-            msg = 'Function has %s no validate_df method. Skipping validation of the dataframe' %name
+            msg = 'Function %s has no validate_df method. Skipping validation of the dataframe' %name
             logger.debug(msg)
         if register:
             try:

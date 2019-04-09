@@ -22,11 +22,47 @@ import pandas as pd
 import logging
 import iotfunctions as iotf
 from .metadata import EntityType
-from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
+
+class IoTActivityDuration(BaseDBActivityMerge):
+    '''
+    Merge data from multiple tables containing activities. An activity table
+    must have a deviceid, activity_code, start_date and end_date. The
+    function returns an activity duration for each selected activity code.
+    '''
+    
+    _is_instance_level_logged = False
+    def __init__(self,table_name,activity_codes, activity_duration=None):
+        super().__init__(input_activities=activity_codes,
+                         activity_duration=activity_duration )
+        
+        self.activities_metadata[table_name] = activity_codes
+        self.activities_custom_query_metadata = {}
+        
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = OrderedDict()
+        inputs['table_name'] = UISingle(name = 'table_name',
+                                        datatype = str,
+                                        description = 'Source table name',
+                                        )
+        inputs['activity_codes'] = UIMulti(name = 'activity_codes',
+                                              datatype=str,
+                                              description = 'Comma separated list of activity codes',
+                                              output_item = 'activity_duration',
+                                              is_output_datatype_derived = False,
+                                              output_datatype = float
+                                              )
+        outputs = OrderedDict()
+
+        return (inputs,outputs)        
+
+
 
 class IoTAlertExpression(BaseEvent):
     '''
@@ -815,6 +851,28 @@ class IoTGetEntityData(BaseDataSource):
         df = self.rename_cols(df,cols,renamed_cols)
         
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name = 'source_entity_type_name',
+                               datatype=str,
+                               description = "Enter the name of the entity type that you would like to retrieve data from")
+                      )
+        inputs.append(UISingle(name = 'key_map_column',
+                               datatype=str,
+                               description = "Enter the name of the column on the source entity type that represents the map to the device id of this entity type")
+                      )        
+        inputs.append(UIMulti(name = 'input_items',
+                               datatype=str,
+                               description = "Comma separated list of data item names to retrieve from the source entity type",
+                               output_item = 'output_items',
+                               is_output_datatype_derived = True)
+                      )
+        outputs = []
+    
+        return (inputs,outputs)  
 
 class IoTEntityId(BaseTransformer):
     """

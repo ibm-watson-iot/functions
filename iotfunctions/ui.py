@@ -25,9 +25,8 @@ class BaseUIControl(object):
         try:
             return conversions[from_datatype]
         except KeyError:
-            msg = 'couldnt convert type %s. will attempt to use type supplied '
-            logger.warning(msg)
-            return from_datatype
+            msg = 'couldnt convert type %s '
+            raise TypeError(msg)
                 
 class UIFunctionOutSingle(BaseUIControl):
     '''
@@ -256,7 +255,7 @@ class UIMultiItem(BaseUIControl):
         
         if self.output_item is not None:        
             if not self.output_datatype is None:
-                datatype = [self.output_datatype]
+                datatype = [self.convert_datatype(self.output_datatype)]
             else:
                 datatype= None
                         
@@ -409,7 +408,7 @@ class UISingle(BaseUIControl):
         Values to display in UI picklist        
     '''    
     def __init__(self,name, datatype=None, description=None, tags = None,
-                 required = True, values = None):
+                 required = True, values = None, default = None):
         
         self.name = name
         self.datatype = datatype
@@ -421,6 +420,7 @@ class UISingle(BaseUIControl):
         self.tags = tags
         self.required = required
         self.values = values
+        self.default = default
         
     def to_metadata(self):
         meta = {
@@ -432,6 +432,13 @@ class UISingle(BaseUIControl):
                 'required' : self.required,
                 'values' : self.values
                 }
+        
+        if self.default is not None:
+            if isinstance(self.default,dict):
+                meta['value'] = self.default
+            else:
+                meta['value'] = {'value':self.default}
+        
         return meta
     
 

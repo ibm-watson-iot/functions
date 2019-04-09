@@ -207,6 +207,9 @@ class BaseFunction(object):
         Another deviceid and another column called timestamp will be added to the dataframe as a convenience.
         '''
         
+        warnings.warn('conform_index() is deprecated. Use EntityType.index_df',
+                      DeprecationWarning)
+        
         #self.log_df_info(df,'incoming dataframe for conform index')
         if not df.index.names == [self._entity_type._df_index_entity_id,self._entity_type._timestamp]: 
             # index does not conform
@@ -418,6 +421,13 @@ class BaseFunction(object):
             msg = 'Argument %s is has explicit json schema defined for it %s' %(arg, self.itemJsonSchema[arg])
             logger.debug(msg)
         return column_metadata
+    
+    def get_input_set(self):
+        
+        ins = set(self._input_set)
+        ins |= set(self.get_input_items())
+        
+        return ins
     
     def get_timestamp_series(self,df):
         '''
@@ -736,6 +746,10 @@ class BaseFunction(object):
                 logger.debug(msg)
         return (metadata_inputs,metadata_outputs)
     
+    def get_output_list(self):
+        
+        return self._output_list
+    
     def get_bucket_name(self):
         '''
         Get the name of the cos bucket used to store models
@@ -755,7 +769,7 @@ class BaseFunction(object):
     
     def get_scd_data(self,table_name,start_ts, end_ts, entities):
         '''
-        Retrieve an slowly changing dimension property as a dataframe
+        Retrieve a slowly changing dimension property as a dataframe
         '''       
         (query,table) = self._entity_type.db.query(table_name,schema = self._entity_type._db_schema)
         if not start_ts is None:
@@ -1166,7 +1180,7 @@ class BaseFunction(object):
         Set the _entity_type property of the function
         """
         self._entity_type = entity_type
-        if self._metadata_params != {}:
+        if self._metadata_params is not None and self._metadata_params != {}:
             self._entity_type.set_params(**self._metadata_params)
             msg = 'Metadata provider added parameters to entity type: %s' %self._metadata_params
             logger.debug(msg)
@@ -1294,7 +1308,8 @@ class BaseTransformer(BaseFunction):
     Base class for AS Transform Functions. Inherit from this class when building a custom function that adds new columns to a dataframe.
 
     """
-    category =  'TRANSFORMER'
+    category =  'TRANSFORMER' 
+    is_transformer = True
     
     def __init__(self):
         super().__init__()
@@ -1619,6 +1634,12 @@ class BaseDBActivityMerge(BaseDataSource):
         self.constants.extend(['input_activities','input_activities'])
         self.outputs.extend(['activity_duration','additional_output_names'])
         self.optionalItems.extend(['additional_items'])
+        
+    def execute(self,df):
+        
+        self.execute_by = [self._entity_type._entity_type_id]
+        df = super().execute(df)
+        return df
         
     def get_data(self,
                     start_ts= None,
