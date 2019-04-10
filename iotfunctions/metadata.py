@@ -1427,8 +1427,8 @@ class Trace(object)    :
         text = str(text)
         try:
             (kwargs[self.primary_df],msg) = self._df_as_dict(kwargs[self.primary_df],prefix=self.primary_df)
-        except KeyError:
-            msg = ''   
+        except (KeyError,AttributeError):
+            msg = ''
         text = text + msg
         elapsed = (ts - self.prev_ts).total_seconds()
         self.prev_ts = ts
