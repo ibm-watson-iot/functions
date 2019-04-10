@@ -319,14 +319,6 @@ class EntityType(object):
         if publish:
             pl.publish()
         return df
-
-    def get_attributes_dict(self):
-        '''
-        Produce a dictionary containing all attributes
-        '''
-        c = {}
-        for att in dir(self):
-            c[att] = getattr(self,att)
     
     def get_calc_pipeline(self,stages=None):
         '''

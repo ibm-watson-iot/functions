@@ -85,7 +85,6 @@ class IoTAlertExpression(BaseEvent):
         return df
         
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
@@ -94,7 +93,7 @@ class IoTAlertExpression(BaseEvent):
             expr = self.expression
             msg = 'Expression (%s). ' %expr
         self.trace_append(msg)
-        df[self.alert_name] = np.where(eval(expr), True, False)
+        df[self.alert_name] = np.where(eval(expr), True, np.nan)
         return df
     
     @classmethod
@@ -143,7 +142,7 @@ class IoTAlertOutOfRange(BaseEvent):
         '''        
         
     def execute(self,df):
-        c = self._entity_type.get_attributes_dict()
+        
         df = df.copy()
         df[self.output_alert_upper] = False
         df[self.output_alert_lower] = False
@@ -205,7 +204,7 @@ class IoTAlertHighValue(BaseEvent):
         '''        
         
     def execute(self,df):
-        c = self._entity_type.get_attributes_dict()
+        
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
             
@@ -256,7 +255,7 @@ class IoTAlertLowValue(BaseEvent):
         return df        
         
     def execute(self,df):
-        c = self._entity_type.get_attributes_dict()
+        
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
             
@@ -465,6 +464,42 @@ class IoTCalcSettings(BaseMetadataProvider):
         return (inputs,outputs)  
     
     
+class IoTCheckpointOverride(BaseMetadataProvider):
+    '''
+    Allows customization of start and end date of initial load data
+    '''
+    
+    def __init__(self, start_date, end_date, output_item= 'is_override_set'):
+        
+        dummy_items = ['deviceid']
+        kwargs = { '_start_ts_override' : start_date,
+                   '_end_ts_override' : end_date,
+                 }
+        super().__init__(dummy_items, output_item = 'is_parameters_set', **kwargs)
+        
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMulti(name = 'start_date',
+                              datatype=dt.datetime,
+                              description = 'Retrieve from timestamp \n Ex: 2018-10-12 03:30:00'
+                              ))
+        inputs.append(UIMulti(name = 'end_date',
+                              datatype=dt.datetime,
+                              description = 'Retrieve until this timestamp \n Ex: 2018-10-12 03:30:00'
+                              ))        
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype=bool,
+                                           description='Returns a status flag of True when executed'))
+        
+        return (inputs,outputs)   
+    
 class IoTCoalesceDimension(BaseTransformer):
     """
     Return first non-null value from a list of data items.
@@ -491,6 +526,9 @@ class IoTCoalesceDimension(BaseTransformer):
         outputs.append(UIFunctionOutSingle('output_item', tags = ['DIMENSION']))
 
         return (inputs,outputs)
+    
+    
+
 
 class IoTConditionalItems(BaseTransformer):
     """
@@ -507,7 +545,6 @@ class IoTConditionalItems(BaseTransformer):
         self.output_items = output_items
         
     def execute(self,df):
-        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         result  = eval(self.conditional_expression)
         for i,o in enumerate(self.conditional_items):
@@ -859,7 +896,6 @@ class IoTExpression(BaseTransformer):
         
                 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         requested = list(self.get_input_items())
         msg = self.expression + ' .'
@@ -1004,7 +1040,6 @@ class IoTIfThenElse(BaseTransformer):
         self.output_item = output_item
         
     def execute(self,df):
-        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.output_item] = np.where(eval(self.conditional_expression),
                                         eval(self.true_expression),
@@ -1040,70 +1075,6 @@ class IoTIfThenElse(BaseTransformer):
         items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
         return items    
                 
-class IoTPackageInfo(BaseTransformer):
-    """
-    Show the version of a list of installed packages. Optionally install packages that are not installed.
-    """
-    
-    def __init__ (self, package_names,add_to_trace=True, install_missing = True, version_output = None):
-        
-        self.package_names = package_names
-        self.add_to_trace = add_to_trace
-        self.install_missing = install_missing
-        if version_output is None:
-            version_output = ['%s_version' %x for x in package_names]
-        self.version_output = version_output
-        super().__init__()
-        
-    def execute(self,df):
-        import importlib
-        entity_type = self.get_entity_type()
-        df = df.copy()
-        for i,p in enumerate(self.package_names):
-            ver = ''
-            try:
-                installed_package = importlib.import_module(p)
-            except (ImportError,ModuleNotFoundError):
-                if self.install_missing:
-                    entity_type.db.install_package(p)
-                    try:
-                        installed_package = importlib.import_module(p)
-                    except (ImportError,ModuleNotFoundError):
-                        ver = 'Package could not be installed'
-                    else:
-                        try:
-                            ver = 'installed %s' %installed_package.__version__
-                        except AttributeError:
-                            ver = 'Package has no __version__ attribute'
-            else:
-                try:
-                    ver = installed_package.__version__
-                except AttributeError:
-                    ver = 'Package has no __version__ attribute'
-            df[self.version_output[i]] = ver
-            if self.add_to_trace:
-                msg = '( %s : %s)' %(p, ver)
-                self.trace_append(msg)
-        
-        return df
-    
-    @classmethod
-    def build_ui(cls):
-        #define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UIMulti(name = 'package_names',
-                              datatype=str,
-                              description = 'Comma separate list of python package names',
-                              output_item = 'version_output',
-                              is_output_datatype_derived = False,
-                              output_datatype = str
-                                              ))
-        inputs.append(UISingle(name='install_missing',datatype=bool))
-        inputs.append(UISingle(name='add_to_trace',datatype=bool))
-        #define arguments that behave as function outputs
-        outputs = []
-    
-        return (inputs,outputs)    
 
 class IoTRaiseError(BaseTransformer):
     """
@@ -1182,7 +1153,51 @@ class IoTRandomNormal(BaseTransformer):
                                              ))
     
         return (inputs,outputs)  
-                 
+    
+    
+class IoTSaveCosDataFrame(BaseTransformer):
+    """
+    Serialize dataframe to COS
+    """
+    
+    def __init__(self,
+                 filename='job_output_df',
+                 columns=None,
+                 output_item='save_df_result'):
+        
+        super().__init__()
+        self.filename = filename
+        self.columns = columns
+        self.ouput_item = output_item
+        
+    def execute(self,df):
+        
+        if self.columns is not None:
+            df = df[self.columns]
+        db = self.get_db()
+        bucket = self.get_bucket_name()
+        db.cos_save(persisted_object=df,
+                    filename=self.filename,
+                    bucket=bucket,
+                    binary=True)
+        
+        return True
+        
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name='filename',datatype=str))
+        inputs.append(UIMultiItem(name='columns',datatype=str))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                             datatype=str,
+                                             description='Result of save operation'
+                                             ))
+    
+        return (inputs,outputs)       
+        
 
 class IoTRandomChoice(BaseTransformer):
     """
@@ -1216,52 +1231,72 @@ class IoTRandomChoice(BaseTransformer):
     
         return (inputs,outputs)   
 
-
-class IoTSaveCosDataFrame(BaseTransformer):
+        
+    
+class IoTPackageInfo(BaseTransformer):
     """
-    Serialize dataframe to COS
+    Show the version of a list of installed packages. Optionally install packages that are not installed.
     """
     
-    def __init__(self,
-                 filename='job_output_df',
-                 columns=None,
-                 output_item='save_df_result'):
+    def __init__ (self, package_names,add_to_trace=True, install_missing = True, version_output = None):
         
+        self.package_names = package_names
+        self.add_to_trace = add_to_trace
+        self.install_missing = install_missing
+        if version_output is None:
+            version_output = ['%s_version' %x for x in package_names]
+        self.version_output = version_output
         super().__init__()
-        self.filename = filename
-        self.columns = columns
-        self.output_item = output_item
         
     def execute(self,df):
-        
-        if self.columns is not None:
-            df = df[self.columns]
-        db = self.get_db()
-        bucket = self.get_bucket_name()
-        db.cos_save(persisted_object=df,
-                    filename=self.filename,
-                    bucket=bucket,
-                    binary=True)
-        
-        df[self.output_item] = True
+        import importlib
+        entity_type = self.get_entity_type()
+        df = df.copy()
+        for i,p in enumerate(self.package_names):
+            ver = ''
+            try:
+                installed_package = importlib.import_module(p)
+            except (ImportError,ModuleNotFoundError):
+                if self.install_missing:
+                    entity_type.db.install_package(p)
+                    try:
+                        installed_package = importlib.import_module(p)
+                    except (ImportError,ModuleNotFoundError):
+                        ver = 'Package could not be installed'
+                    else:
+                        try:
+                            ver = 'installed %s' %installed_package.__version__
+                        except AttributeError:
+                            ver = 'Package has no __version__ attribute'
+            else:
+                try:
+                    ver = installed_package.__version__
+                except AttributeError:
+                    ver = 'Package has no __version__ attribute'
+            df[self.version_output[i]] = ver
+            if self.add_to_trace:
+                msg = '( %s : %s)' %(p, ver)
+                self.trace_append(msg)
         
         return df
-        
+    
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(name='filename',datatype=str))
-        inputs.append(UIMultiItem(name='columns'))
+        inputs.append(UIMulti(name = 'package_names',
+                              datatype=str,
+                              description = 'Comma separate list of python package names',
+                              output_item = 'version_output',
+                              is_output_datatype_derived = False,
+                              output_datatype = str
+                                              ))
+        inputs.append(UISingle(name='install_missing',datatype=bool))
+        inputs.append(UISingle(name='add_to_trace',datatype=bool))
         #define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item',
-                                             datatype=str,
-                                             description='Result of save operation'
-                                             ))
     
-        return (inputs,outputs)
-         
+        return (inputs,outputs)     
     
 class IoTSCDLookup(BaseSCDLookup):
     '''
