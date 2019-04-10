@@ -417,7 +417,9 @@ class Database(object):
                                             schema = schema)
         
         job = pp.JobController(payload=entity_type,**kwargs)
+
         job.execute()
+
         
         
     def get_catalog_module(self,class_name):

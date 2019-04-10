@@ -277,15 +277,6 @@ class EntityType(object):
                                 'logicalinterface_id', 'devicetype','format',
                                 'updated_utc', self._timestamp]
         self._stage_type_map = self.default_stage_type_map()
-
-
-
-
-
-
-
-
-
         self._custom_exclude_col_from_auto_drop_nulls = []
         self._drop_all_null_rows = True
         #pipeline work variables stages
@@ -639,6 +630,15 @@ class EntityType(object):
             pl.publish()
         return df
     
+    
+    def get_attributes_dict(self):
+        '''
+        Produce a dictionary containing all attributes
+        '''
+        c = {}
+        for att in dir(self):
+            c[att] = getattr(self,att)
+        return c
     
     def get_calc_pipeline(self,stages=None):
         '''

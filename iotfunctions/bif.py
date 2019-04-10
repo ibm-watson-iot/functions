@@ -85,6 +85,7 @@ class IoTAlertExpression(BaseEvent):
         return df
         
     def execute(self, df):
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
@@ -93,7 +94,7 @@ class IoTAlertExpression(BaseEvent):
             expr = self.expression
             msg = 'Expression (%s). ' %expr
         self.trace_append(msg)
-        df[self.alert_name] = np.where(eval(expr), True, np.nan)
+        df[self.alert_name] = np.where(eval(expr), True, False)
         return df
     
     @classmethod
@@ -142,7 +143,7 @@ class IoTAlertOutOfRange(BaseEvent):
         '''        
         
     def execute(self,df):
-        
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.output_alert_upper] = False
         df[self.output_alert_lower] = False
@@ -204,7 +205,7 @@ class IoTAlertHighValue(BaseEvent):
         '''        
         
     def execute(self,df):
-        
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
             
@@ -255,7 +256,7 @@ class IoTAlertLowValue(BaseEvent):
         return df        
         
     def execute(self,df):
-        
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
             
@@ -506,6 +507,7 @@ class IoTConditionalItems(BaseTransformer):
         self.output_items = output_items
         
     def execute(self,df):
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         result  = eval(self.conditional_expression)
         for i,o in enumerate(self.conditional_items):
@@ -857,6 +859,7 @@ class IoTExpression(BaseTransformer):
         
                 
     def execute(self, df):
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         requested = list(self.get_input_items())
         msg = self.expression + ' .'
@@ -1001,6 +1004,7 @@ class IoTIfThenElse(BaseTransformer):
         self.output_item = output_item
         
     def execute(self,df):
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.output_item] = np.where(eval(self.conditional_expression),
                                         eval(self.true_expression),

@@ -1384,13 +1384,24 @@ class JobController(object):
                                             start_ts=chunk_start,
                                             end_ts=chunk_end,
                                             df=df)
-
+                                    
+                    log_file = 'TBD'
+                    trace = self.get_payload_param('_trace',None)
+                    if trace is not None:
+                        try:
+                            trace = trace.as_json()
+                        except AttributeError:
+                            trace = {'no_trace': ('Add a Trace object to the'
+                                                  ' Payload to collect data'
+                                                  ' about job execution')}
                                 
                     for m in meta['mark_complete']:
                         self.log_completion(schedule = m,
                                             timestamp=execute_date,
                                             backtrack=meta['backtrack'],
-                                            trace=None)
+                                            status = 'complete',
+                                            log_file = log_file,
+                                            trace=trace)
                     
                     is_executed = True
             
@@ -1846,7 +1857,9 @@ class JobController(object):
         return out
 
     
-    def log_completion(self,schedule,timestamp,backtrack,trace=None):
+    def log_completion(self,schedule,timestamp,backtrack,
+                       status,log_file,
+                       trace=None):
         '''
         Log job completion
         '''
@@ -1854,6 +1867,8 @@ class JobController(object):
         self.job_log.write(name = self.name,
         schedule = schedule,
         timestamp = timestamp,
+        status = status,
+        log_file = log_file,
         trace = trace)
         
     def log_schedule_non_exec(self,schedule,schedule_metadata):
@@ -1961,19 +1976,23 @@ class JobLog(object):
                 Column('object_name', String(255)),
                 Column('schedule', String(255)),
                 Column('last_update', DateTime()),
+                Column('status',String(30)),
+                Column('log_file',String(255)),
                 Column('trace',String(2000)),
                 **kw
                 )
         
         self.db.metadata.create_all(self.db.connection)
         
-    def write (self,name,schedule,timestamp,trace=None):
+    def write (self,name,schedule,timestamp,status,log_file,trace=None):
         
         self.db.start_session()
         ins = self.table.insert().values(object_type = self.job.payload.__class__.__name__,
                                    object_name = name,
                                    schedule = schedule,
                                    last_update = timestamp,
+                                   status = status,
+                                   log_file = log_file,
                                    trace = trace
                                    )
         self.db.connection.execute(ins)
@@ -1993,7 +2012,8 @@ class JobLog(object):
         query = select([col.label('last_update')]).where(and_(
                 self.table.c['object_type'] == self.job.payload.__class__.__name__,
                 self.table.c['object_name'] == name,
-                self.table.c['schedule'] == schedule
+                self.table.c['schedule'] == schedule,
+                self.table.c['status'] == 'complete'
                 ))
         result = self.db.connection.execute(query).first()
         
