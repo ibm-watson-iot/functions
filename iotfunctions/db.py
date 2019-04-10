@@ -417,9 +417,7 @@ class Database(object):
                                             schema = schema)
         
         job = pp.JobController(payload=entity_type,**kwargs)
-
         job.execute()
-
         
         
     def get_catalog_module(self,class_name):
@@ -608,14 +606,19 @@ class Database(object):
         try:
             url =self.url[(object_type,request)]
         except KeyError:
-            raise ValueError ('This combination  of request_type and object_type is not supported by the python api')            
+            raise ValueError (('This combination  of request_type (%s) and' 
+                               ' object_type (%s) is not supported by the' 
+                               ' python api') %(object_type,request))            
             
         r = self.http.request(request,url, body = encoded_payload, headers=headers)
         response= r.data.decode('utf-8')
         
         if 200  <= r.status <=  299:
             logger.debug('http request successful. status %s',r.status)
-        elif request == 'POST' and (500  <= r.status <=  599):
+        elif (request == 'POST' and
+              object_type in ['kpiFunction','defaultConstants','constants'] and
+              (500  <= r.status <=  599)
+              ):
                 logger.debug(('htpp POST failed. attempting PUT. status:%s'),
                              r.status)
                 response = self.http_request(object_type = object_type,

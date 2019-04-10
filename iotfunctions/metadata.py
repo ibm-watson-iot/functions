@@ -1251,7 +1251,8 @@ class EntityType(object):
         response = self.db.http_request(request='POST',
                                      object_type = 'entityType',
                                      object_name = self.name,
-                                     payload = payload)
+                                     payload = payload,
+                                     raise_error = True)
 
         msg = 'Metadata registered for table %s '%self.name
         logger.debug(msg)
