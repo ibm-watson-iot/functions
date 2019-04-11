@@ -638,7 +638,9 @@ class EntityType(object):
         '''
         c = {}
         for att in dir(self):
-            c[att] = getattr(self,att)
+            value = getattr(self,att)
+            if not callable(value):
+                c[att] = value
         return c
     
     def get_calc_pipeline(self,stages=None):

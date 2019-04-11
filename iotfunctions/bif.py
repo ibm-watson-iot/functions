@@ -1357,7 +1357,7 @@ class IoTShiftCalendar(BaseTransformer):
         outputs.append(UIFunctionOutSingle(name = 'shift_day', datatype = dt.datetime, tags = ['DIMENSION']))
         outputs.append(UIFunctionOutSingle(name = 'shift_id', datatype = int, tags = ['DIMENSION']))
     
-        return (inputs,outputs)        
+        return (inputs,outputs)    
     
 class IoTSleep(BaseTransformer):
     
@@ -1398,6 +1398,32 @@ class IoTSleep(BaseTransformer):
                                                      description='Dummy function output'
                                                      ))
     
-        return (inputs,outputs)         
+        return (inputs,outputs)
+
+class IoTTraceConstants(BaseTransformer):
+
+    """
+    Write the values of available constants to the trace
+    """         
+    
+    def __init__(self,dummy_items,output_item = 'trace_written'):
+        
+        super().__init__()
+        
+        self.dummy_items = dummy_items
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        c = self._entity_type.get_attributes_dict()
+        for key,value in list(c.items()):
+            msg = 'c[%s]=%s' %(key,value)
+            self.trace_append(msg)
+            
+        df[self.output_item] = True
+        return df
+        
+        
+        
    
     
