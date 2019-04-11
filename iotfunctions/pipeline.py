@@ -1300,7 +1300,6 @@ class JobController(object):
                     'Starting execution number: %s with execution date: %s'),
                     execution_counter, execute_date
                     )
-            self.trace_reset()
             # evalute the all candiadate schedules that were indentified when
             # the job controller was initialized. 
             # The resulting dictionary contains a dictionary of status items
@@ -1335,6 +1334,8 @@ class JobController(object):
                                 ' subsequent iteration of this job'
                                 ), schedule)
                 else:
+                    self.trace_reset()
+                    self.log_start(meta,status='running',startup_log =None)
                     try:
                         self.log_schedule_tagged_for_exec(schedule=schedule,
                                                       schedule_metadata=meta,
@@ -1958,14 +1959,14 @@ class JobController(object):
         
         kw = {'execute_date':metadata['execute_date']}
         trace_filename = self.exec_payload_method('trace_save',None,**kw)
-        log_filename = self.exec_payload_method('log_save',None,**kw)
+        execution_log = self.exec_payload_method('log_save',None,**kw)
                     
         for m in metadata['mark_complete']:
-            self.job_log.write(name = self.name,
+            self.job_log.update(name = self.name,
                                 schedule = m,
                                 timestamp = metadata['execute_date'],
                                 status = status,
-                                log_file = log_filename,
+                                execution_log = execution_log,
                                 trace = trace_filename)
         
     def log_schedule_non_exec(self,schedule,schedule_metadata):
@@ -2002,6 +2003,22 @@ class JobController(object):
                 msg = msg + '.Previous checkpoint is %s' %schedule_metadata['prev_checkpoint']
                 
         self.trace_append(msg=msg,created_by=self,log_method=logger.debug)
+
+    def log_start(self,metadata,status='complete',startup_log =None):
+        '''
+        Log the start of a job
+        '''
+        
+        kw = {'execute_date':metadata['execute_date']}
+                    
+        for m in metadata['mark_complete']:
+            self.job_log.insert(name = self.name,
+                                schedule = m,
+                                timestamp = metadata['execute_date'],
+                                status = status,
+                                startup_log = startup_log,
+                                execution_log = None,
+                                trace = None)        
     
     def remove_stage(self,job_spec,stage):
         '''
@@ -2096,6 +2113,16 @@ class JobController(object):
         
 class JobLog(object):
     
+    '''
+    Create and manage a database table to store job execution history.
+    
+    A job log entry is created at the start of job execution with a default
+    status of 'running'. This job log entry may be updated at various times
+    during the process. Each update may update the status, trace or log 
+    references.
+    
+    '''
+    
     def __init__(self,job,table_name='job_log'):
         
         self.job = job
@@ -2115,14 +2142,17 @@ class JobLog(object):
                 Column('schedule', String(255)),
                 Column('last_update', DateTime()),
                 Column('status',String(30)),
-                Column('log_file',String(255)),
+                Column('startup_log',String(255)),
+                Column('execution_log',String(255)),
                 Column('trace',String(2000)),
                 **kw
                 )
         
         self.db.metadata.create_all(self.db.connection)
-        
-    def write (self,name,schedule,timestamp,status,log_file,trace=None):
+
+
+    def insert (self,name,schedule,timestamp,status='running',
+               startup_log=None,execution_log=None,trace=None):
         
         self.db.start_session()
         ins = self.table.insert().values(object_type = self.job.payload.__class__.__name__,
@@ -2130,15 +2160,42 @@ class JobLog(object):
                                    schedule = schedule,
                                    last_update = timestamp,
                                    status = status,
-                                   log_file = log_file,
+                                   startup_log = startup_log,
+                                   execution_log = execution_log,
                                    trace = trace
                                    )
         self.db.connection.execute(ins)
         logger.debug((
-                'Completed execution. Wrote to job log (%s,%s): %s'),
+                'Created job log entry (%s,%s): %s'),
                 name,schedule,timestamp
                 )
         self.db.commit()
+
+        
+    def update (self,name,schedule,timestamp,status,
+                execution_log=None,trace=None):
+        
+        self.db.start_session()
+        upd = self.table.update().\
+            where(and_(
+                    self.table.c.object_type == self.job.payload.__class__.__name__,
+                    self.table.c.object_name == name,
+                    self.table.c.schedule == schedule,
+                    self.table.c.last_update == timestamp
+                    )).\
+            values(
+                    status = status,
+                    execution_log = execution_log,
+                    trace = trace
+                                   )
+        self.db.connection.execute(upd)
+        logger.debug((
+                'Updated job log (%s,%s): %s'),
+                name,schedule,timestamp
+                )
+        self.db.commit()
+        
+        
         
     def get_last_execution_date( self,name, schedule):
         

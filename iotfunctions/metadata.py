@@ -215,10 +215,10 @@ class EntityType(object):
     db: Database object
         Contains the connection info for the database
     *args:
-        Additional positional arguments are used to add the list of SQL Alchemy Column
-        objects contained within this table. Similar to the style of a CREATE TABLE sql statement.
-        There is no need to specify column names if you are using an existing database table as
-        an entity type.
+        Additional positional arguments are used to add the list of SQL Alchemy
+        Column objects contained within this table. Similar to the style of a
+        CREATE TABLE sql statement. There is no need to specify column names 
+        if you are using an existing database table as an entity type.
     **kwargs
         Additional keywork args. 
         _timestamp: str
@@ -1214,12 +1214,13 @@ class EntityType(object):
         table['name'] = self.logical_name
         table['metricTableName'] = self.name
         table['metricTimestampColumn'] = self._timestamp
-        if self._dimension_table is not None:
-            table['dimensionTableName'] = self._dimension_table_name
-            for c in self.db.get_column_names(self._dimension_table, schema = self._db_schema):
-                cols.append((self._dimension_table,c,'DIMENSION'))
         for c in self.db.get_column_names(self.table, schema = self._db_schema):
             cols.append((self.table,c,'METRIC'))
+        if self._dimension_table is not None:            
+            table['dimensionTableName'] = self._dimension_table_name
+            for c in self.db.get_column_names(self._dimension_table, schema = self._db_schema):
+                if c not in cols:
+                    cols.append((self._dimension_table,c,'DIMENSION'))
         for (table_obj,column_name,col_type) in cols:
             msg = 'found %s column %s' %(col_type,column_name)
             logger.debug(msg)
