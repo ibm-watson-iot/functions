@@ -1965,8 +1965,11 @@ class JobController(object):
         '''
         
         kw = {'execution_date':metadata['execution_date']}
-        trace = self.exec_payload_method('trace_save',None,**kw)
         execution_log = self.exec_payload_method('log_save',None,**kw)
+        
+        trace = self.get_payload_param('_trace',None)
+        if trace is not None:
+            trace.save()
                     
         for m in metadata['mark_complete']:
             self.job_log.update(name = self.name,
