@@ -266,6 +266,7 @@ class EntityType(object):
     _pre_agg_outputs = None #dictionary containing list of output items names for each item
     _data_reader = DataReader
     _abort_on_fail = False
+    _auto_save_trace = True
     
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name.lower()
@@ -285,16 +286,16 @@ class EntityType(object):
         self._scd_stages = []
         self._custom_calendar = None
         self._is_initial_transform = True
-        self._trace = Trace(self)
         self._is_preload_complete = False
 
         #additional params set from kwargs
         self.set_params(**kwargs)
+        
+        #Start a trace to record activity on the entity type
+        self._trace = Trace(name=None,parent=self,db=db,auto_save=False)
 
         # attach to time series table
         if self._db_schema is None:
-
-
             logger.warning(('No _db_schema specified in **kwargs. Using'
                              'default database schema.'))
         if self.logical_name is None:
@@ -1274,24 +1275,6 @@ class EntityType(object):
                           log_method = log_method,
                           text = msg,
                           **kwargs)
-        
-    def trace_reset(self):
-        '''
-        Clear trace information
-        '''
-        self._trace.data = []
-        
-    def trace_save(self,execute_date):
-        '''
-        Write trace to COS
-        '''
-        
-        trace = self._trace.as_json()
-        trace_filename = '%s_trace_%s' %(self.name, execute_date)
-        self.db.cos_save(persisted_object=trace,filename=trace_filename,binary=True)
-        
-        return trace_filename
-        
             
     def set_custom_calendar(self,custom_calendar):
         '''
@@ -1432,16 +1415,58 @@ class Trace(object)    :
     '''
     elapsed_threshold_sec = 2 #threshold for wring elapsed time to the trace
     primary_df = 'df'
-    def __init__(self,parent=None):
+    def __init__(self,name=None,parent=None,db=None,auto_save=False):
         if parent is None:
             parent = self
-        self.parent = parent
+        self.parent = parent            
+        self.db = db
+        self.auto_save = auto_save
+        if name is None:
+            name = self.build_trace_name()
+        self.name = name
         self.data = []
         self.df_cols = set()
         self.df_index = set()
         self.df_count = 0
         self.prev_ts = dt.datetime.utcnow()
         self.write(created_by=parent,text='Trace started. ')
+        
+    def as_json(self):        
+        return json.dumps(self.data)        
+        
+    def build_trace_name(self):
+        return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,
+                               dt.datetime.utcnow())
+        
+    def reset(self,name=None,auto_save=None):
+        '''
+        Clear trace information and rename trace
+        '''
+        if auto_save is not None:
+            self.auto_save = auto_save
+        if self.auto_save:
+            self.save()
+        self.data = []
+        if name is None:
+            name = self._trace.build_trace_name()
+        self.name = name
+        
+    def save(self):
+        '''
+        Write trace to COS
+        '''
+        
+        if len(self.data) == 0:
+            logger.debug('No trace data to save')
+        elif self.db is None:
+            logger.warning('Cannot save trace. No db object supplied')
+        else:
+            trace = str(self.as_json())
+            self.db.cos_save(persisted_object=trace,
+                         filename=self.name,
+                         binary=False)
+        
+        return trace        
         
     def write(self,created_by,text,log_method=None,**kwargs):
         ts = dt.datetime.utcnow()
@@ -1505,10 +1530,6 @@ class Trace(object)    :
         data['%s_columns' %prefix] = self.df_cols
     
         return(data,msg)
-        
-    def as_json(self):
-        
-        return json.dumps(self.data)
     
     def __str__(self):
         

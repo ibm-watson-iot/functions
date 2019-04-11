@@ -1202,6 +1202,13 @@ class JobController(object):
         
         return meta
     
+    def build_trace_name(self,execute_date):
+        
+        if execute_date is None:
+            execute_date = dt.datetime.utcnow()
+    
+        return '%s_%s_trace_%s' %(self.payload.__class__.__name__,
+                               self.name,execute_date)
     
     def collapse_aggregation_stages(self,granularity, available_columns):
         '''
@@ -1309,7 +1316,7 @@ class JobController(object):
             except BaseException as e:
                 msg = 'Error evaluating schedules. Aborting job: %s' %e
                 self.trace_append(msg,self,logger.warning)
-                meta = {'execute_date':execute_date,
+                meta = {'execution_date':execute_date,
                         'mark_complete':[None]}
                 self.log_completion(meta,'aborted')
                 raise RuntimeError(msg)
@@ -1334,7 +1341,6 @@ class JobController(object):
                                 ' subsequent iteration of this job'
                                 ), schedule)
                 else:
-                    self.trace_reset()
                     self.log_start(meta,status='running',startup_log =None)
                     try:
                         self.log_schedule_tagged_for_exec(schedule=schedule,
@@ -1655,8 +1661,9 @@ class JobController(object):
         for (s,round_hour,round_min,backtrack) in self._schedules:
             meta = {}
             schedule[s] = meta
-            meta['execute_date'] = execute_date
-            meta['next_date'] = self.get_next_execution_date(s,execute_date)
+            meta['execution_date'] = execute_date
+            result = self.get_next_execution_date(s,execute_date)
+            (meta['next_date'],meta['previous_execution_date']) = result
             meta['is_subsumed'] = False
             meta['prev_checkpoint'] = None
             meta['is_checkpoint_driven'] = False
@@ -1898,7 +1905,7 @@ class JobController(object):
                 'Evaluated at %s.'), schedule, last_execution_date, 
                  next_execution, current_execution_date)
             
-        return next_execution
+        return (next_execution, last_execution_date)
     
     def get_payload_param(self,param,default=None):
         
@@ -1957,17 +1964,16 @@ class JobController(object):
         Log job completion
         '''
         
-        kw = {'execute_date':metadata['execute_date']}
-        trace_filename = self.exec_payload_method('trace_save',None,**kw)
+        kw = {'execution_date':metadata['execution_date']}
+        trace = self.exec_payload_method('trace_save',None,**kw)
         execution_log = self.exec_payload_method('log_save',None,**kw)
                     
         for m in metadata['mark_complete']:
             self.job_log.update(name = self.name,
                                 schedule = m,
-                                timestamp = metadata['execute_date'],
+                                execution_date = metadata['execution_date'],
                                 status = status,
-                                execution_log = execution_log,
-                                trace = trace_filename)
+                                execution_log = execution_log)
         
     def log_schedule_non_exec(self,schedule,schedule_metadata):
         '''
@@ -2006,19 +2012,29 @@ class JobController(object):
 
     def log_start(self,metadata,status='complete',startup_log =None):
         '''
-        Log the start of a job
+        Log the start of a job. Reset the trace.
         '''
         
-        kw = {'execute_date':metadata['execute_date']}
+        trace = self.get_payload_param('_trace',None)
+        if trace is None:
+            trace_name = None
+        else:
+            trace_name = self.build_trace_name(metadata['execution_date'])
+            trace.reset(
+                    name=trace_name,
+                    auto_save= self.get_payload_param('_auto_save_trace',False)
+                    )
                     
         for m in metadata['mark_complete']:
             self.job_log.insert(name = self.name,
                                 schedule = m,
-                                timestamp = metadata['execute_date'],
+                                execution_date = metadata['execution_date'],
+                                previous_execution_date = metadata['previous_execution_date'],
                                 status = status,
                                 startup_log = startup_log,
                                 execution_log = None,
-                                trace = None)        
+                                trace = trace_name)
+                      
     
     def remove_stage(self,job_spec,stage):
         '''
@@ -2100,15 +2116,6 @@ class JobController(object):
                           ' Trace will be written to log instead'))
             logger.debug('Trace:%s',msg)
 
-    def trace_reset(self):
-        '''
-        Reset payload trace
-        '''
-        
-        try:
-            self.payload.trace_reset()
-        except AttributeError:
-            pass
         
         
 class JobLog(object):
@@ -2140,7 +2147,8 @@ class JobLog(object):
                 Column('object_type', String(255)),
                 Column('object_name', String(255)),
                 Column('schedule', String(255)),
-                Column('last_update', DateTime()),
+                Column('execution_date', DateTime()),
+                Column('previous_execution_date',DateTime()),
                 Column('status',String(30)),
                 Column('startup_log',String(255)),
                 Column('execution_log',String(255)),
@@ -2151,51 +2159,62 @@ class JobLog(object):
         self.db.metadata.create_all(self.db.connection)
 
 
-    def insert (self,name,schedule,timestamp,status='running',
-               startup_log=None,execution_log=None,trace=None):
+    def insert (self,name,schedule,execution_date,status='running',
+                previous_execution_date = None,
+                startup_log=None,execution_log=None,trace=None):
         
         self.db.start_session()
         ins = self.table.insert().values(object_type = self.job.payload.__class__.__name__,
-                                   object_name = name,
-                                   schedule = schedule,
-                                   last_update = timestamp,
-                                   status = status,
-                                   startup_log = startup_log,
-                                   execution_log = execution_log,
-                                   trace = trace
-                                   )
+                               object_name = name,
+                               schedule = schedule,
+                               execution_date = execution_date,
+                               previous_execution_date = previous_execution_date,
+                               status = status,
+                               startup_log = startup_log,
+                               execution_log = execution_log,
+                               trace = trace
+                               )
         self.db.connection.execute(ins)
         logger.debug((
                 'Created job log entry (%s,%s): %s'),
-                name,schedule,timestamp
+                name,schedule,execution_date
                 )
         self.db.commit()
 
         
-    def update (self,name,schedule,timestamp,status,
-                execution_log=None,trace=None):
+    def update (self,name,schedule,execution_date,
+                status=None, execution_log=None,trace=None):
         
         self.db.start_session()
-        upd = self.table.update().\
-            where(and_(
-                    self.table.c.object_type == self.job.payload.__class__.__name__,
-                    self.table.c.object_name == name,
-                    self.table.c.schedule == schedule,
-                    self.table.c.last_update == timestamp
-                    )).\
-            values(
-                    status = status,
-                    execution_log = execution_log,
-                    trace = trace
-                                   )
-        self.db.connection.execute(upd)
-        logger.debug((
-                'Updated job log (%s,%s): %s'),
-                name,schedule,timestamp
-                )
-        self.db.commit()
         
-        
+        values = {}
+        if status is not None:
+            values['status'] = status
+        if execution_log is not None:
+            values['execution_log'] = execution_log            
+        if trace is not None:
+            values['trace'] = trace
+        if values:        
+            upd = self.table.update().\
+                where(and_(
+                        self.table.c.object_type == self.job.payload.__class__.__name__,
+                        self.table.c.object_name == name,
+                        self.table.c.schedule == schedule,
+                        self.table.c.execution_date == execution_date
+                        )).\
+                values(**values)
+            
+            self.db.connection.execute(upd)
+            logger.debug((
+                    'Updated job log (%s,%s): %s'),
+                    name,schedule,execution_date
+                    )
+            self.db.commit()
+        else:
+            logger.debug((
+                    'No non-null values supplied. job log was not updated (%s,%s): %s'),
+                    name,schedule,timestamp
+                    )                    
         
     def get_last_execution_date( self,name, schedule):
         
@@ -2203,8 +2222,8 @@ class JobLog(object):
         Last execution date for payload object name for particular schedule
         '''
         
-        col = func.max(self.table.c['last_update'])
-        query = select([col.label('last_update')]).where(and_(
+        col = func.max(self.table.c['execution_date'])
+        query = select([col.label('last_execution')]).where(and_(
                 self.table.c['object_type'] == self.job.payload.__class__.__name__,
                 self.table.c['object_name'] == name,
                 self.table.c['schedule'] == schedule,
