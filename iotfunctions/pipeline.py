@@ -1351,7 +1351,7 @@ class JobController(object):
                                             available_columns = set(),
                                             exclude_stages = [])
                     except BaseException as e:
-                        msg = 'Error getting preload stages: %s' %e
+                        msg = 'Aborted execution. Error getting preload stages: %s' %e
                         self.trace_append(msg,self,logger.debug)
                         if self.get_payload_param('_abort_on_fail',False):
                             self.log_completion(self,meta,status='aborted')
@@ -1378,40 +1378,61 @@ class JobController(object):
                         logger.debug('Preload stages complete')
                         
                     # build a job specification
-                    job_spec = self.build_job_spec(
+                    try:
+                        job_spec = self.build_job_spec(
                                 schedule=schedule,
-                                subsumed=meta['mark_complete'])                                        
+                                subsumed=meta['mark_complete'])
+                    except BaseException as e:
+                        msg = 'Aborted execution. Error building job spec: %s' %e
+                        self.trace_append(msg,self,logger.debug)
+                        self.log_completion(self,meta,status='aborted')
+                        continue                       
                     
                     # divide up the date range to be processed into chunks
-                    for (chunk_start,chunk_end) in (
-                            self.get_chunks(
+                    try:
+                        chunks = self.get_chunks(
                                     start_date=meta['start_date'],
                                     end_date=execute_date,
                                     round_hour = meta['round_hour'],
                                     round_min = meta['round_min'],
                                     schedule = schedule)
-                            ):
+                    except BaseException as e:
+                        msg = 'Aborted execution. Error identifying chunks: %s' %e
+                        self.trace_append(msg,self,logger.debug)
+                        self.log_completion(self,meta,status='aborted')
+                        continue                         
+                    
+                    for (chunk_start,chunk_end) in (chunks):
                                 
                         # execute the job spec for each chunk.
                         # add the constants that were produced by
                         # the preload stages
-                        (df,can_proceed) = self.execute_stages(
-                                stages = job_spec['input_level'],
-                                start_ts=chunk_start,
-                                end_ts=chunk_end,
-                                df=None,
-                                constants = constants)                        
-                        if not can_proceed:
-                            continue
-                        else:
-                            for (grain,stages) in list(job_spec.items()):
-                                if grain != 'input_level':
-                                    
-                                    (result,can_proceed) = self.execute_stages(
-                                            stages = stages,
-                                            start_ts=chunk_start,
-                                            end_ts=chunk_end,
-                                            df=df)
+                        if can_proceed:
+                            (df,can_proceed) = self.execute_stages(
+                                    stages = job_spec['input_level'],
+                                    start_ts=chunk_start,
+                                    end_ts=chunk_end,
+                                    df=None,
+                                    constants = constants)                        
+                            if not can_proceed:
+                                msg = 'Aborted execution. Error executing stages'
+                                self.trace_append(msg,self,logger.debug)
+                                self.log_completion(self,meta,status='aborted')                            
+                                continue
+                            else:
+                                for (grain,stages) in list(job_spec.items()):
+                                    if can_proceed:
+                                        if grain != 'input_level':                             
+                                            (result,can_proceed) = self.execute_stages(
+                                                    stages = stages,
+                                                    start_ts=chunk_start,
+                                                    end_ts=chunk_end,
+                                                    df=df)
+                                            if not can_proceed:
+                                                msg = 'Aborted execution. Error executing stages'
+                                                self.trace_append(msg,self,logger.debug)
+                                                self.log_completion(self,meta,status='aborted')                            
+                                                continue                                    
                                     
                     self.log_completion(metadata = meta,
                                         status = 'complete')
