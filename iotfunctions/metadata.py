@@ -514,41 +514,7 @@ class EntityType(object):
                      [s['output'] for s in disabled])
         
         return stage_metadata
-    
-    def index_df(self,df):
-        '''
-        Create an index on the deviceid and the timestamp
-        '''
-    
-        if df.index.names != [self._entity_id,
-                              self._timestamp]: 
-            try:
-                df = df.set_index([self._entity_id,
-                                   self._timestamp])
-            except KeyError:
-                df = df.reset_index()
-                try:
-                    df = df.set_index([self._entity_id,
-                                       self._timestamp])
-                except KeyError:
-                    raise KeyError(('Error attempting to index time series'
-                                    ' dataframe. Unable to locate index'
-                                    ' columns: %s, %s') 
-                                    %(self._entity_id,self._timestamp)
-                                    )
-            logger.debug(('Indexed dataframe on %s, %s'),self._entity_id,
-                         self._timestamp)
-            
-        else:
-            logger.debug(('Found existing index on %s, %s.'
-                          'No need to recreate index'),self._entity_id,
-                         self._timestamp)
-        
-        return df
-    
-
-
-                
+                    
         
     def cos_save(self):
         
@@ -1233,12 +1199,13 @@ class EntityType(object):
         table['name'] = self.logical_name
         table['metricTableName'] = self.name
         table['metricTimestampColumn'] = self._timestamp
-        if self._dimension_table is not None:
-            table['dimensionTableName'] = self._dimension_table_name
-            for c in self.db.get_column_names(self._dimension_table, schema = self._db_schema):
-                cols.append((self._dimension_table,c,'DIMENSION'))
         for c in self.db.get_column_names(self.table, schema = self._db_schema):
             cols.append((self.table,c,'METRIC'))
+        if self._dimension_table is not None:            
+            table['dimensionTableName'] = self._dimension_table_name
+            for c in self.db.get_column_names(self._dimension_table, schema = self._db_schema):
+                if c not in cols:
+                    cols.append((self._dimension_table,c,'DIMENSION'))
         for (table_obj,column_name,col_type) in cols:
             msg = 'found %s column %s' %(col_type,column_name)
             logger.debug(msg)
