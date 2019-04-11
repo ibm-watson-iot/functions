@@ -1305,27 +1305,43 @@ class JobController(object):
             # the job controller was initialized. 
             # The resulting dictionary contains a dictionary of status items
             # about each schedule
-            schedule_metadata = self.evaluate_schedules(execute_date)
+            try:
+                schedule_metadata = self.evaluate_schedules(execute_date)
+            except BaseException as e:
+                msg = 'Error evaluating schedules. Aborting job: %s' %e
+                self.trace_append(msg,self,logger.warning)
+                meta = {'execute_date':execute_date,
+                        'mark_complete':[None]}
+                self.log_completion(meta,'aborted')
+                raise RuntimeError(msg)
+                
             future_executions = []
             is_executed = False
             # look for schedules that were flagged 'is_due'.
             # These will be executed.
             for (schedule,meta) in list(schedule_metadata.items()):
                 if not meta['is_due']:
-                    self.log_schedule_non_exec(schedule=schedule,
+                    try:
+                        self.log_schedule_non_exec(schedule=schedule,
                                                schedule_metadata = meta)
+                    except BaseException as e:
+                        logger.warning('Error logging non-execution data: %s' %e)
                     # keep track of any executions that are scheduled 
                     # to complete before this job ends
                     if not meta['is_subsumed'] and meta['next_date'] <= execute_until:
                         future_executions.append(meta['next_date'])
                         logger.debug((
-                                'This schedule is pending execution in a '
+                                'Schedule %s is pending execution in a '
                                 ' subsequent iteration of this job'
-                                ))
+                                ), schedule)
                 else:
-                    self.log_schedule_tagged_for_exec(schedule=schedule,
+                    try:
+                        self.log_schedule_tagged_for_exec(schedule=schedule,
                                                       schedule_metadata=meta,
                                                       execute_date = execute_date)
+                    except BaseException as e:
+                        logger.warning('Error logging active schedules: %s' %e)
+                        
                     #preload stages are not backtracked.
                     # Start date is always last checkpoint
                     try:
@@ -1408,19 +1424,13 @@ class JobController(object):
             # of this job, no need to hang around and wait
             
             if not is_executed:
-                if len(future_executions) > 0:
-                    wait_for = min(future_executions)-dt.datetime.utcnow()
-                    wait_for = wait_for.total_seconds()
-                    if wait_for > 0:
-                        logger.debug('Waiting %s seconds until next execution',
-                                      wait_for)
-                        time.sleep(wait_for)
-                else:
-                    logger.debug((
-                            'Aborting job as there is nothing left to process'
-                            ' before execution end time'
+                self.sleep_until_next_execution(future_executions)
+            else:
+                logger.debug((
+                        'Aborting job as there is nothing left to process'
+                        ' before execution end time'
                             ))
-                    break
+                break
             
             execution_counter += 1
             execute_date = dt.datetime.utcnow()
@@ -1430,12 +1440,18 @@ class JobController(object):
         Execute a series of stages contained in a job spec. 
         Combine the execution results with the incoming dataframe.
         Return a new dataframe.
+        
+        When the execution of a stage fails or results in an empty
+        dataframe, payload properties determine whether
+        execution of remaining stages should go ahead or not. If 
+        execution proceeds on failure of a stage, the columns that
+        were supposed to be contributed by the stage will be set to null.
+        
         '''
         
         #create a new data_merge object using the dataframe provided
         merge = self.data_merge(df=df,constants=constants)
         can_proceed = True
-
         
         for s in stages:
             
@@ -1450,50 +1466,96 @@ class JobController(object):
                         ), s.name)
                 
                 break            
-                        
-            result = self.execute_stage(stage=s,
+            
+            is_error = True
+            msg = ''
+            try:
+                result = self.execute_stage(stage=s,
                                         df=merge.df,
                                         start_ts=start_ts,
                                         end_ts=end_ts)
-            
-            #combine result with data from prior stages
-            #merge behavior influenced by stage params and cols delivered
-            new_cols = self.exec_stage_method(s,'get_output_list',None)            
-            produces_output_items  = self.get_stage_param(
-                                        s,'produces_output_items',True)
-            discard_prior_data = self.get_stage_param(
-                                        s,'_discard_prior_on_merge',False)
-            if discard_prior_data:
-                merge.clear_data()
-                logger.debug(('Prior data will be replaced by the results'
-                              ' of the %s stage. Cleared prior data'),
-                              s.name)
-            
-            if produces_output_items:
-                if new_cols is None or len(new_cols) ==0:
-                    raise AttributeError((
-                            'Stage %s did not provide a list of columns produced'
-                            ' when the get_output_list() method was called to'
-                            ' inspect the stage prior to execution. This is a '
-                            ' mandatory method. It should return a list with at '
-                            ' least one data item name' %s.name
-                            ))
                 
-                #execute the merge
-            
-                merge.execute(obj=result,col_names = new_cols)
-                
-                logger.debug('After merge row count: %s , Columns: %s, Index: %s',
-                             len(merge.df.index),
-                             list(merge.df.columns),
-                             merge.df.index.names)
+            except AttributeError as e:
+                msg = ('The function %s makes a reference to an'
+                       ' object property that does not exist. ') %s.name
+            except SyntaxError as e:
+                msg = ('The function %s contains a syntax error.'
+                       ' If the function configuration includes a type-in'
+                       ' expression, make sure that this expression is '
+                       ' correct. ') %s.name
+            except (ValueError,TypeError) as e:
+                msg = ('The function %s is operating on data that has an'
+                       ' unexpected value or data type.') %s.name
+            except KeyError as e:
+                msg = ('The function %s is refering to a dictionary key or'
+                       ' dataframe column that doesnt exist') %s.name                       
+            except NameError as e:
+                msg = ('The function %s referred to an object that does not'
+                       ' exist. You may be referring to data items in pandas'
+                       ' expressions, ensure that you refer to them by name,'
+                       ' ie: as a quoted string. ') %s.name
+            except BaseException as e:
+                msg = ('The function %s failed to execute.') %s.name
             else:
-                logger.debug(('Stage %s did not contribute any new data as '
-                              ' the stage param produces_output_items was'
-                              ' set to False'
-                              ), s.name)
+                is_error = False
+                
+            if is_error:
             
-        return merge.df, can_proceed
+                df = merge.df
+                self.trace_append(msg,s,logger.debug)
+                msg = ('Execution of stage %s failed. Error: %s: %s') %(
+                        s.name,type(e),str(exception))
+                self.trace_append(msg,s,logger.debug)
+                abort = self.get.payload_param('_abort_on_fail',False)
+                if abort:
+                    can_proceed = False
+                    break
+                else:
+                    new_cols = self.exec_stage_method(s,'get_output_list',None)
+                    for c in new_cols:
+                        df[c] = None
+                    
+            else:
+                #combine result with data from prior stages
+                #merge behavior influenced by stage params and cols delivered
+                new_cols = self.exec_stage_method(s,'get_output_list',None)            
+                produces_output_items  = self.get_stage_param(
+                                            s,'produces_output_items',True)
+                discard_prior_data = self.get_stage_param(
+                                            s,'_discard_prior_on_merge',False)
+                if discard_prior_data:
+                    merge.clear_data()
+                    logger.debug(('Prior data will be replaced by the results'
+                                  ' of the %s stage. Cleared prior data'),
+                                  s.name)
+                
+                if produces_output_items:
+                    if new_cols is None or len(new_cols) ==0:
+                        raise AttributeError((
+                                'Stage %s did not provide a list of columns produced'
+                                ' when the get_output_list() method was called to'
+                                ' inspect the stage prior to execution. This is a '
+                                ' mandatory method. It should return a list with at '
+                                ' least one data item name' %s.name
+                                ))
+                    
+                    #execute the merge
+                
+                    merge.execute(obj=result,col_names = new_cols)
+                    
+                    logger.debug('After merge row count: %s , Columns: %s, Index: %s',
+                                 len(merge.df.index),
+                                 list(merge.df.columns),
+                                 merge.df.index.names)
+                else:
+                    logger.debug(('Stage %s did not contribute any new data as '
+                                  ' the stage param produces_output_items was'
+                                  ' set to False'
+                                  ), s.name)
+                    
+                df = merge.df
+            
+        return df, can_proceed
     
     def execute_stage(self,stage,df,start_ts,end_ts):
         
@@ -1509,6 +1571,8 @@ class JobController(object):
             result = stage.execute(df=df,start_ts=start_ts,end_ts=end_ts)
         except TypeError:
             is_executed = False
+        except BaseExeption as e:
+            raise e
         else:
             is_executed = True
         
@@ -1516,7 +1580,10 @@ class JobController(object):
         # the type error showing up in the stack trace when there is an
         # error executing
         if not is_executed:
-            result = stage.execute(df=df)
+            try:
+                result = stage.execute(df=df)
+            except BaseException as e:
+                raise e
         
         if isinstance(result,bool) and result:
             result = pd.DataFrame()
@@ -1914,7 +1981,6 @@ class JobController(object):
                 msg = msg + '.Previous checkpoint is %s' %schedule_metadata['prev_checkpoint']
                 
         self.trace_append(msg=msg,created_by=self,log_method=logger.debug)
-        
     
     def remove_stage(self,job_spec,stage):
         '''
@@ -1966,6 +2032,19 @@ class JobController(object):
         setattr(stage, param, value)
         return stage
     
+    def sleep_until_next_execution(self,future_executions):
+        '''
+        
+        '''
+        wait_for = 0
+        if len(future_executions) > 0:
+            wait_for = min(future_executions)-dt.datetime.utcnow()
+            wait_for = wait_for.total_seconds()
+        if wait_for > 0:
+            logger.debug('Waiting %s seconds until next execution',
+                          wait_for)
+            time.sleep(wait_for)
+    
     def trace_append(self,msg,created_by = None, log_method = None, **kwargs):
         '''
         Append to the trace information collected the entity type
@@ -1979,8 +2058,8 @@ class JobController(object):
                                       log_method=log_method,
                                       **kwargs)
         except AttributeError:
-            logger.warning(('Payload has no trace_append() method.'
-                            ' Trace will be written to log instead'))
+            logger.debug(('Payload has no trace_append() method.'
+                          ' Trace will be written to log instead'))
             logger.debug('Trace:%s',msg)
 
     def trace_reset(self):
