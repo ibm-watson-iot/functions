@@ -265,6 +265,7 @@ class EntityType(object):
     _pre_agg_rules = None # pandas agg dictionary containing list of aggregates to apply for each item
     _pre_agg_outputs = None #dictionary containing list of output items names for each item
     _data_reader = DataReader
+    _abort_on_fail = False
     
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name.lower()
@@ -1270,6 +1271,23 @@ class EntityType(object):
                           log_method = log_method,
                           text = msg,
                           **kwargs)
+        
+    def trace_reset(self):
+        '''
+        Clear trace information
+        '''
+        self._trace.data = []
+        
+    def trace_save(self,execute_date):
+        '''
+        Write trace to COS
+        '''
+        
+        trace = self._trace.as_json()
+        trace_filename = '%s_trace_%s' %(self.name, execute_date)
+        self.db.cos_save(persisted_object=trace,filename=trace_filename,binary=True)
+        
+        return trace_filename
         
             
     def set_custom_calendar(self,custom_calendar):

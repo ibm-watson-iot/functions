@@ -1300,6 +1300,7 @@ class JobController(object):
                     'Starting execution number: %s with execution date: %s'),
                     execution_counter, execute_date
                     )
+            self.trace_reset()
             # evalute the all candiadate schedules that were indentified when
             # the job controller was initialized. 
             # The resulting dictionary contains a dictionary of status items
@@ -1327,11 +1328,22 @@ class JobController(object):
                                                       execute_date = execute_date)
                     #preload stages are not backtracked.
                     # Start date is always last checkpoint
-                    (preload_stages,cols) = self.get_stages(
+                    try:
+                        (preload_stages,cols) = self.get_stages(
                                             stage_type = 'preload',
                                             granularity = None,
                                             available_columns = set(),
                                             exclude_stages = [])
+                    except BaseException as e:
+                        msg = 'Error getting preload stages: %s' %e
+                        self.trace_append(msg,self,logger.debug)
+                        if self.get_payload_param('_abort_on_fail',False):
+                            self.log_completion(self,meta,status='aborted')
+                            continue
+                        else:
+                            preload_stages = []
+                            cols = []
+                        
                     # the output of a preload stage is a boolean column
                     # until we retrieve data, it has nowhere to go, 
                     # for now we will declare it as a constant
@@ -1385,23 +1397,8 @@ class JobController(object):
                                             end_ts=chunk_end,
                                             df=df)
                                     
-                    log_file = 'TBD'
-                    trace = self.get_payload_param('_trace',None)
-                    if trace is not None:
-                        try:
-                            trace = trace.as_json()
-                        except AttributeError:
-                            trace = {'no_trace': ('Add a Trace object to the'
-                                                  ' Payload to collect data'
-                                                  ' about job execution')}
-                                
-                    for m in meta['mark_complete']:
-                        self.log_completion(schedule = m,
-                                            timestamp=execute_date,
-                                            backtrack=meta['backtrack'],
-                                            status = 'complete',
-                                            log_file = log_file,
-                                            trace=trace)
+                    self.log_completion(metadata = meta,
+                                        status = 'complete')
                     
                     is_executed = True
             
@@ -1523,9 +1520,11 @@ class JobController(object):
         
         if isinstance(result,bool) and result:
             result = pd.DataFrame()
-            
-        logger.debug('Executed stage %s' ,stage.name )
         
+        msg = 'Executed stage %s' %stage.name
+        self.trace_append(msg=msg,created_by=stage,
+                          log_method=logger.info)
+                
         return result     
     
         
@@ -1534,6 +1533,12 @@ class JobController(object):
         try:
             return(getattr(self.payload,method_name)(**kwargs))
         except (TypeError,AttributeError):
+            logger.debug(('Error attempting to execute method %s() on'
+                          ' payload %s %s. This method does'
+                          ' not appear to be present. Returning'
+                          ' default value %s'),method_name,
+                          type(self.payload.name),self.payload.name,
+                          default_output)
             return(default_output)
             
     def exec_stage_method(self,stage,method_name,default_output,**kwargs):
@@ -1561,6 +1566,7 @@ class JobController(object):
         for (s,round_hour,round_min,backtrack) in self._schedules:
             meta = {}
             schedule[s] = meta
+            meta['execute_date'] = execute_date
             meta['next_date'] = self.get_next_execution_date(s,execute_date)
             meta['is_subsumed'] = False
             meta['prev_checkpoint'] = None
@@ -1857,19 +1863,22 @@ class JobController(object):
         return out
 
     
-    def log_completion(self,schedule,timestamp,backtrack,
-                       status,log_file,
-                       trace=None):
+    def log_completion(self,metadata,status='complete'):
         '''
         Log job completion
         '''
-
-        self.job_log.write(name = self.name,
-        schedule = schedule,
-        timestamp = timestamp,
-        status = status,
-        log_file = log_file,
-        trace = trace)
+        
+        kw = {'execute_date':metadata['execute_date']}
+        trace_filename = self.exec_payload_method('trace_save',None,**kw)
+        log_filename = self.exec_payload_method('log_save',None,**kw)
+                    
+        for m in metadata['mark_complete']:
+            self.job_log.write(name = self.name,
+                                schedule = m,
+                                timestamp = metadata['execute_date'],
+                                status = status,
+                                log_file = log_filename,
+                                trace = trace_filename)
         
     def log_schedule_non_exec(self,schedule,schedule_metadata):
         '''
@@ -1903,7 +1912,8 @@ class JobController(object):
                 msg = msg + 'No previous checkpoint. All data will be retrieved.'
             else:
                 msg = msg + '.Previous checkpoint is %s' %schedule_metadata['prev_checkpoint']
-        logger.debug(msg)
+                
+        self.trace_append(msg=msg,created_by=self,log_method=logger.debug)
         
     
     def remove_stage(self,job_spec,stage):
@@ -1954,7 +1964,35 @@ class JobController(object):
         
         '''
         setattr(stage, param, value)
-        return stage        
+        return stage
+    
+    def trace_append(self,msg,created_by = None, log_method = None, **kwargs):
+        '''
+        Append to the trace information collected the entity type
+        '''
+        if created_by is None:
+            created_by = self
+        
+        try:
+            self.payload.trace_append(created_by=created_by,
+                                      msg = msg,
+                                      log_method=log_method,
+                                      **kwargs)
+        except AttributeError:
+            logger.warning(('Payload has no trace_append() method.'
+                            ' Trace will be written to log instead'))
+            logger.debug('Trace:%s',msg)
+
+    def trace_reset(self):
+        '''
+        Reset payload trace
+        '''
+        
+        try:
+            self.payload.trace_reset()
+        except AttributeError:
+            pass
+        
         
 class JobLog(object):
     

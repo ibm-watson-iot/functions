@@ -279,7 +279,7 @@ class IoTAlertLowValue(BaseEvent):
         outputs['alert_name'] = UIFunctionOutSingle(name = 'alert_name',
                                                      datatype=bool,
                                                      description='Output of alert function'
-                                                     ).to_metadata()
+                                                     )
     
         return (inputs,outputs)    
 

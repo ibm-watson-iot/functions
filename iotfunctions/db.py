@@ -327,7 +327,7 @@ class Database(object):
         else:
             ret = None
         if ret is None:
-            logger.info('Not able to PUT %s to COS bucket %s', (filename, bucket))
+            logger.info('Not able to PUT %s to COS bucket %s',filename, bucket)
         return ret
 
     def cos_delete(self, filename, bucket=None):
