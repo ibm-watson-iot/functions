@@ -1195,16 +1195,19 @@ class EntityType(object):
         '''
         cols = []
         columns = []
+        metric_column_names = []
         table = {}
         table['name'] = self.logical_name
         table['metricTableName'] = self.name
         table['metricTimestampColumn'] = self._timestamp
         for c in self.db.get_column_names(self.table, schema = self._db_schema):
             cols.append((self.table,c,'METRIC'))
+            metric_column_names.append(c)
+
         if self._dimension_table is not None:            
             table['dimensionTableName'] = self._dimension_table_name
             for c in self.db.get_column_names(self._dimension_table, schema = self._db_schema):
-                if c not in cols:
+                if c not in metric_column_names:
                     cols.append((self._dimension_table,c,'DIMENSION'))
         for (table_obj,column_name,col_type) in cols:
             msg = 'found %s column %s' %(col_type,column_name)
