@@ -15,6 +15,7 @@ import numpy as np
 import json
 import importlib
 import time
+import threading
 from collections import OrderedDict, defaultdict
 import pandas as pd
 from collections import OrderedDict
@@ -266,7 +267,8 @@ class EntityType(object):
     _pre_agg_outputs = None #dictionary containing list of output items names for each item
     _data_reader = DataReader
     _abort_on_fail = False
-    _auto_save_trace = True
+    _auto_save_trace = 30
+    save_trace_to_file = False
     
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name.lower()
@@ -292,7 +294,8 @@ class EntityType(object):
         self.set_params(**kwargs)
         
         #Start a trace to record activity on the entity type
-        self._trace = Trace(name=None,parent=self,db=db,auto_save=False)
+        self._trace = Trace(name=None,parent=self,db=db,
+                            save_to_file=self.save_trace_to_file)
 
         # attach to time series table
         if self._db_schema is None:
@@ -1415,12 +1418,14 @@ class Trace(object)    :
     '''
     elapsed_threshold_sec = 2 #threshold for wring elapsed time to the trace
     primary_df = 'df'
-    def __init__(self,name=None,parent=None,db=None,auto_save=False):
+    def __init__(self,name=None,parent=None,db=None,save_to_file=False):
         if parent is None:
             parent = self
         self.parent = parent            
         self.db = db
-        self.auto_save = auto_save
+        self.save_to_file = save_to_file
+        self.auto_save = None
+        self.auto_save_thread = threading.Thread(target=self.run_auto_save)
         if name is None:
             name = self.build_trace_name()
         self.name = name
@@ -1435,21 +1440,37 @@ class Trace(object)    :
         return json.dumps(self.data)        
         
     def build_trace_name(self):
+        
+        execute_str = f'{dt.datetime.utcnow():%Y%m%d%H%M%S%f}' 
+        
         return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,
-                               dt.datetime.utcnow())
+                               execute_str)
         
     def reset(self,name=None,auto_save=None):
         '''
         Clear trace information and rename trace
         '''
-        if auto_save is not None:
-            self.auto_save = auto_save
-        if self.auto_save:
-            self.save()
+        
+        self.auto_save = auto_save
+        if self.auto_save is not None:
+            self.save()        
         self.data = []
         if name is None:
             name = self._trace.build_trace_name()
         self.name = name
+        if self.auto_save is not None:
+            self.auto_save_thread.start()
+            
+    def run_auto_save(self):
+        '''
+        Run auto save
+        '''
+        
+        while self.auto_save is not None:
+            self.save()
+            logger.debug('Auto saved trace %s' %self.name)
+            time.sleep(self.auto_save)
+            
         
     def save(self):
         '''
@@ -1465,8 +1486,14 @@ class Trace(object)    :
             self.db.cos_save(persisted_object=trace,
                          filename=self.name,
                          binary=False)
+            if self.save_to_file:
+                with open('%s.json' %self.name, 'w') as fp:
+                    json.dump(trace, fp)
+                logger.debug('wrote trace to file %s.json' %self.name)
         
-        return trace        
+        return trace
+
+               
         
     def write(self,created_by,text,log_method=None,**kwargs):
         ts = dt.datetime.utcnow()
@@ -1481,8 +1508,12 @@ class Trace(object)    :
         if elapsed >= self.elapsed_threshold_sec:
             msg = 'Time since last trace entry: %s sec. ' %elapsed
             text = text + msg
+        try:
+            created_by_name = created_by.name
+        except AttributeError:
+            created_by_name = str(created_by)
         entry = { 'timestamp' : str(ts),
-          'created_by' : str(created_by),
+          'created_by' : created_by_name,
           'text': text,
           'elapsed_time' : elapsed
         }

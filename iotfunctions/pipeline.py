@@ -13,11 +13,13 @@ import json
 import re
 import datetime as dt
 import numpy as np
+import time
 import sys
+import traceback
 import ibm_db
 from . import dbhelper
 from collections import OrderedDict
-from .util import log_df_info
+from .util import log_df_info, freq_to_timedelta, StageException
 import pandas as pd
 import warnings
 from pandas.api.types import (is_bool_dtype, is_numeric_dtype, is_string_dtype,
@@ -890,6 +892,7 @@ class JobController(object):
     default_is_schedule_progressive = True
     keep_alive_duration = None #'2min'
     recursion_limit = 99
+    save_trace_to_file = False
     # Most of the work performed when executing a job is done by
     # executing the execute method of one or more stages defined in
     # the payload. There are however certain default classes that
@@ -911,6 +914,7 @@ class JobController(object):
         # kwargs can be used to override default job controller and payload
         # parameters. All kwargs will be copied onto both objects.
         self.set_params(**kwargs)
+        kwargs['save_trace_to_file'] = self.save_trace_to_file
         self.set_payload_params(**kwargs)
         
         #create a job log
@@ -977,7 +981,7 @@ class JobController(object):
             if scheduled > execute_date:
                 scheduled = scheduled - dt.timedelta(days=1)
                 
-            interval = pd.to_timedelta(interval)
+            interval = freq_to_timedelta(interval)
             periods = (execute_date - scheduled)//interval
             adjusted = scheduled + periods * interval
 
@@ -1131,7 +1135,7 @@ class JobController(object):
         #sort freq_list
         sort_dict = {}
         for f in freq_list:
-            sort_dict[pd.to_timedelta(f)] = f
+            sort_dict[freq_to_timedelta(f)] = f
         durations = list(sort_dict.keys())
         durations.sort()                
         #asseble output list
@@ -1206,9 +1210,10 @@ class JobController(object):
         
         if execute_date is None:
             execute_date = dt.datetime.utcnow()
+        execute_str = f'{execute_date:%Y%m%d%H%M%S%f}' 
     
         return '%s_%s_trace_%s' %(self.payload.__class__.__name__,
-                               self.name,execute_date)
+                               self.name,execute_str)
     
     def collapse_aggregation_stages(self,granularity, available_columns):
         '''
@@ -1288,7 +1293,7 @@ class JobController(object):
         logger.debug(str(self))
         execute_date = dt.datetime.utcnow()
         if self.keep_alive_duration is not None:
-            execute_until = execute_date + pd.to_timedelta(self.keep_alive_duration)
+            execute_until = execute_date + freq_to_timedelta(self.keep_alive_duration)
             logger.debug((
                     'Job will continue executing until %s as it has a keep'
                     'alive duration of %s',execute_until,self.keep_alive_duration
@@ -1319,7 +1324,7 @@ class JobController(object):
                 meta = {'execution_date':execute_date,
                         'mark_complete':[None]}
                 self.log_completion(meta,'aborted')
-                raise RuntimeError(msg)
+                self.raise_error(exception=e,msg='',stageName='evaluate_schedules')
                 
             future_executions = []
             is_executed = False
@@ -1506,35 +1511,36 @@ class JobController(object):
             except AttributeError as e:
                 msg = ('The function %s makes a reference to an'
                        ' object property that does not exist. ') %s.name
+                self.trace_error(exception=e,msg=msg,created_by=s)
             except SyntaxError as e:
                 msg = ('The function %s contains a syntax error.'
                        ' If the function configuration includes a type-in'
                        ' expression, make sure that this expression is '
                        ' correct. ') %s.name
+                self.trace_error(exception=e,msg=msg,created_by=s)
             except (ValueError,TypeError) as e:
                 msg = ('The function %s is operating on data that has an'
                        ' unexpected value or data type.') %s.name
+                self.trace_error(exception=e,msg=msg,created_by=s)
             except KeyError as e:
                 msg = ('The function %s is refering to a dictionary key or'
-                       ' dataframe column that doesnt exist') %s.name                       
+                       ' dataframe column that doesnt exist') %s.name
+                self.trace_error(exception=e,msg=msg,created_by=s)
             except NameError as e:
                 msg = ('The function %s referred to an object that does not'
                        ' exist. You may be referring to data items in pandas'
                        ' expressions, ensure that you refer to them by name,'
                        ' ie: as a quoted string. ') %s.name
+                self.trace_error(exception=e,msg=msg,created_by=s)
             except BaseException as e:
                 msg = ('The function %s failed to execute.') %s.name
+                self.trace_error(exception=e,msg=msg,created_by=s)
             else:
                 is_error = False
                 
             if is_error:
-            
                 df = merge.df
-                self.trace_append(msg,s,logger.debug)
-                msg = ('Execution of stage %s failed. Error: %s: %s') %(
-                        s.name,type(e),str(exception))
-                self.trace_append(msg,s,logger.debug)
-                abort = self.get.payload_param('_abort_on_fail',False)
+                abort = self.get_payload_param('_abort_on_fail',False)
                 if abort:
                     can_proceed = False
                     break
@@ -1542,7 +1548,6 @@ class JobController(object):
                     new_cols = self.exec_stage_method(s,'get_output_list',None)
                     for c in new_cols:
                         df[c] = None
-                    
             else:
                 #combine result with data from prior stages
                 #merge behavior influenced by stage params and cols delivered
@@ -1696,13 +1701,13 @@ class JobController(object):
                     if meta['prev_checkpoint'] is not None:
                         meta['start_date']= (
                                 meta['prev_checkpoint'] +
-                                pd.to_timedelta('1us')
+                                freq_to_timedelta('1us')
                                 )
                     meta['backtrack'] = None
                 elif meta['backtrack'] is not None:
                     meta['start_date'] = (
                             execute_date - 
-                            pd.to_timedelta(meta['backtrack'])
+                            freq_to_timedelta(meta['backtrack'])
                             )
                 meta['mark_complete'] = [s]
                 last_schedule_due = s
@@ -1852,19 +1857,19 @@ class JobController(object):
                             'get_adjusted_start_date',
                             chunk_start,
                             **{'start_date' : chunk_start})
-            chunk_end = chunk_start + pd.to_timedelta(chunk_size)
+            chunk_end = chunk_start + freq_to_timedelta(chunk_size)
             chunk_end = min(chunk_end,end_date)
             logger.debug('First chunk will run %s to %s',
                          chunk_start, chunk_end)
             chunks.append((chunk_start,chunk_end))
             
             while chunk_end < end_date:    
-                chunk_start = chunk_end + pd.to_timedelta('1us')
+                chunk_start = chunk_end + freq_to_timedelta('1us')
                 chunk_start = self.exec_payload_method(
                                 'get_adjusted_start_date',
                                 chunk_start,
                                 **{'start_date' : chunk_start})
-                chunk_end = chunk_start + pd.to_timedelta(chunk_size)
+                chunk_end = chunk_start + freq_to_timedelta(chunk_size)
                 chunk_end = min(chunk_end,end_date)
                 logger.debug('Next chunk will run %s to %s',chunk_start,
                              end_date)
@@ -1899,7 +1904,7 @@ class JobController(object):
         if last_execution_date is None:
             next_execution = current_execution_date
         else:
-            next_execution = last_execution_date + pd.to_timedelta(schedule)            
+            next_execution = last_execution_date + freq_to_timedelta(schedule)            
         logger.debug((
                 'Last execution of schedule %s was %s. Next execution is %s.'
                 'Evaluated at %s.'), schedule, last_execution_date, 
@@ -2025,7 +2030,7 @@ class JobController(object):
             trace_name = self.build_trace_name(metadata['execution_date'])
             trace.reset(
                     name=trace_name,
-                    auto_save= self.get_payload_param('_auto_save_trace',False)
+                    auto_save= self.get_payload_param('_auto_save_trace',None)
                     )
                     
         for m in metadata['mark_complete']:
@@ -2037,6 +2042,22 @@ class JobController(object):
                                 startup_log = startup_log,
                                 execution_log = None,
                                 trace = trace_name)
+            
+    def raise_error(self,exception,msg='',stageName=None):
+        '''
+        Raise an exception, Include message and stage name.
+        '''
+        msg = 'Execution of job %s failed during stage %s because of %s: %s - %s ' %(
+                self.name,stageName,type(exception).__name__,str(exception),msg)
+        try:
+            tb = sys.exc_info()[2]
+        except TypeError:
+            raise StageException(msg, stageName)
+            tb = None
+        else:
+            raise StageException(msg, stageName).with_traceback(tb)
+            
+        return tb
                       
     
     def remove_stage(self,job_spec,stage):
@@ -2119,6 +2140,52 @@ class JobController(object):
                           ' Trace will be written to log instead'))
             logger.debug('Trace:%s',msg)
 
+
+    def trace_error(self,exception,
+                    msg,
+                    created_by = None,
+                    log_method = logger.warning,
+                    **kwargs):
+        '''
+        Log the occurance of an error to the trace
+        '''
+        if created_by is None:
+            created_by = self
+            
+        try:
+            tb = sys.exc_info()[2]
+        except TypeError:
+            tb = None
+            
+        if tb is not None:
+            tb = traceback.format_exc(tb)
+        
+        error = {
+                'exception_type' : exception.__class__.__name__,
+                'exception': str(exception),
+                'stack_trace' : tb
+                }
+        
+        kwargs = {**error,**kwargs}
+        
+        trace = self.get_payload_param('_trace',None)
+        if trace is None:
+            log_method(('Payload has no trace object. An error occured.'
+                            ' Error will be written to the log instead'))
+            log_method('Trace:%s',msg)
+            log_method('Error:%s',error)            
+        else:
+            try:
+                trace.write(
+                        created_by=created_by,
+                        text = msg,
+                        log_method=log_method,
+                        **kwargs)
+            except AttributeError:
+                log_method(('Payload has no trace_append() method.'
+                          ' Error will be written to log instead'))
+                log_method('Trace:%s',msg)
+                log_method('Error:%s',error)
         
         
 class JobLog(object):

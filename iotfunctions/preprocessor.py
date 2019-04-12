@@ -136,6 +136,9 @@ class EntityDataGenerator(BasePreload):
         super().__init__(dummy_items = dummy_items, output_item = output_item)
         self.inputs = ['dummy_items']
         self.outputs = ['output_item']
+        warnings.warn(('This sample function is deprecated.'
+                       ' Use bif.IoTEntityDataGenerator.'),
+                      DeprecationWarning)
         
     def execute(self,
                  df,

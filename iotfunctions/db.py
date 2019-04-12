@@ -414,7 +414,7 @@ class Database(object):
     def execute_job(self,entity_type_logical_name,schema=None,**kwargs):
         
         entity_type = self.load_entity_type(entity_type_logical_name,
-                                            schema = schema)
+                                            schema = schema, **kwargs)
         
         job = pp.JobController(payload=entity_type,**kwargs)
         job.execute()
@@ -653,12 +653,13 @@ class Database(object):
         return response        
 
     
-    def load_entity_type(self,logical_name,schema=None):
+    def load_entity_type(self,logical_name,schema=None,**params):
         
-        params = {}
-        params['_db'] = self
-        params['_schema'] = schema
-        params['logical_name'] = logical_name
+        extras = {}
+        extras['_db'] = self
+        extras['_schema'] = schema
+        extras['logical_name'] = logical_name
+        params = {**extras,**params}
         (params,meta) = md.retrieve_entity_type_metadata(**params)
         et = md.EntityType(db=self,**params)
         et.load_entity_type_functions()

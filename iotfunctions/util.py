@@ -493,6 +493,19 @@ class MemoryOptimizer:
         self.printCurrentMemoryConsumption(df_new)
 
         return df_new
+    
+def freq_to_timedelta(freq):
+    
+    '''
+    The pandas to_timedelta does not handle the full set of
+    set of pandas frequency abreviations. Convert to supported 
+    abreviation and the use to_timedelta.
+    '''
+    try:
+        freq = freq.replace('T','min')
+    except AttributeError:
+        pass
+    return (pd.to_timedelta(freq))
 
 class StageException(Exception):
     EXTENSION_DICT = 'extensionDict'
