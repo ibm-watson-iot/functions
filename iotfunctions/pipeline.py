@@ -1296,8 +1296,9 @@ class JobController(object):
             execute_until = execute_date + freq_to_timedelta(self.keep_alive_duration)
             logger.debug((
                     'Job will continue executing until %s as it has a keep'
-                    'alive duration of %s',execute_until,self.keep_alive_duration
-                    ))
+                    'alive duration of %s'),
+                    execute_until,self.keep_alive_duration
+                    )
         else:
             execute_until = execute_date
         #process continuously while job until time is up
@@ -1463,10 +1464,13 @@ class JobController(object):
                         'Aborting job as there is nothing left to process'
                         ' before execution end time'
                             ))
+                self.trace_end()
                 break
+                
             
             execution_counter += 1
             execute_date = dt.datetime.utcnow()
+        
             
     def execute_stages(self,stages,df,start_ts,end_ts,constants=None):
         '''
@@ -1905,10 +1909,10 @@ class JobController(object):
             next_execution = current_execution_date
         else:
             next_execution = last_execution_date + freq_to_timedelta(schedule)            
-        logger.debug((
-                'Last execution of schedule %s was %s. Next execution is %s.'
-                'Evaluated at %s.'), schedule, last_execution_date, 
-                 next_execution, current_execution_date)
+        logger.debug(
+            'Last execution of schedule %s was %s. Next execution due %s.', 
+             schedule, last_execution_date, 
+             next_execution)
             
         return (next_execution, last_execution_date)
     
@@ -1974,6 +1978,15 @@ class JobController(object):
         
         trace = self.get_payload_param('_trace',None)
         if trace is not None:
+            tw = { 
+                    'status': status 
+                 }
+            tw = {**kw,**tw}
+            trace.write(
+                    created_by = self,
+                    text = 'Execution completed',
+                    **tw
+                    )
             trace.save()
                     
         for m in metadata['mark_complete']:
@@ -2016,7 +2029,7 @@ class JobController(object):
             else:
                 msg = msg + '.Previous checkpoint is %s' %schedule_metadata['prev_checkpoint']
                 
-        self.trace_append(msg=msg,created_by=self,log_method=logger.debug)
+        logger.debug(msg)
 
     def log_start(self,metadata,status='complete',startup_log =None):
         '''
@@ -2031,6 +2044,12 @@ class JobController(object):
             trace.reset(
                     name=trace_name,
                     auto_save= self.get_payload_param('_auto_save_trace',None)
+                    )
+            trace.write(
+                    created_by = self,
+                    text = 'Started job',
+                    log_method=None,
+                    **metadata
                     )
                     
         for m in metadata['mark_complete']:
@@ -2140,6 +2159,16 @@ class JobController(object):
                           ' Trace will be written to log instead'))
             logger.debug('Trace:%s',msg)
 
+    def trace_end(self):
+        '''
+        Stop the autosave thread on the trace
+        '''       
+        trace = self.get_payload_param('_trace',None)
+        if trace is not None:
+            try:
+                trace.stop()
+            except AttributeError:
+                pass
 
     def trace_error(self,exception,
                     msg,
@@ -2154,11 +2183,10 @@ class JobController(object):
             
         try:
             tb = sys.exc_info()[2]
+            tb = traceback.format_exc(tb)
         except TypeError:
             tb = None
-            
-        if tb is not None:
-            tb = traceback.format_exc(tb)
+            logger.debug('Unable to obtain stack trace for exception')
         
         error = {
                 'exception_type' : exception.__class__.__name__,

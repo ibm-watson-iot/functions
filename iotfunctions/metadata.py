@@ -1416,7 +1416,7 @@ class Trace(object)    :
     '''
     Gather status and diagnostic information to report back in the UI
     '''
-    elapsed_threshold_sec = 2 #threshold for wring elapsed time to the trace
+    
     primary_df = 'df'
     def __init__(self,name=None,parent=None,db=None,save_to_file=False):
         if parent is None:
@@ -1425,7 +1425,8 @@ class Trace(object)    :
         self.db = db
         self.save_to_file = save_to_file
         self.auto_save = None
-        self.auto_save_thread = threading.Thread(target=self.run_auto_save)
+        self.auto_save_thread = None
+        self.stop_event = None
         if name is None:
             name = self.build_trace_name()
         self.name = name
@@ -1436,8 +1437,9 @@ class Trace(object)    :
         self.prev_ts = dt.datetime.utcnow()
         self.write(created_by=parent,text='Trace started. ')
         
+        
     def as_json(self):        
-        return json.dumps(self.data)        
+        return json.dumps(self.data,indent=4)        
         
     def build_trace_name(self):
         
@@ -1450,27 +1452,44 @@ class Trace(object)    :
         '''
         Clear trace information and rename trace
         '''
-        
+        self.df_cols = set()
+        self.df_index = set()
+        self.df_count = 0        
+        self.prev_ts = dt.datetime.utcnow()
         self.auto_save = auto_save
-        if self.auto_save is not None:
-            self.save()        
+        if self.auto_save_thread is not None:
+            self.stop()
         self.data = []
         if name is None:
             name = self._trace.build_trace_name()
         self.name = name
         if self.auto_save is not None:
+            self.stop_event = threading.Event()
+            self.auto_save_thread = threading.Thread(
+                    target=self.run_auto_save,
+                    args=(self.stop_event))
             self.auto_save_thread.start()
             
-    def run_auto_save(self):
+    def run_auto_save(self,stop_event):
         '''
-        Run auto save
+        Run auto save. Auto save is intended to be run in a separate thread.
         '''
-        
-        while self.auto_save is not None:
-            self.save()
-            logger.debug('Auto saved trace %s' %self.name)
-            time.sleep(self.auto_save)
-            
+        last_trace = None
+        next_autosave = dt.datetime.utcnow()
+        while not stop_event.is_set():
+            if next_autosave >= dt.datetime.utcnow():
+                if self.data != last_trace:
+                    self.save()
+                    last_trace = self.data
+                    logger.debug('Auto saved trace %s' %self.name)
+                else:
+                    logger.debug(('Auto save trace %s is alive. No ' 
+                                  ' changes to save. Will look for new changes'
+                                  ' in %s seconds'), self.name, self.auto_save)
+                next_autosave = dt.datetime.utcnow() + dt.timedelta(seconds = self.auto_save)
+                
+            time.sleep(0.1)
+        logger.debug('%s autosave thread has stopped',self.name)
         
     def save(self):
         '''
@@ -1479,8 +1498,10 @@ class Trace(object)    :
         
         if len(self.data) == 0:
             logger.debug('No trace data to save')
+            trace = None
         elif self.db is None:
             logger.warning('Cannot save trace. No db object supplied')
+            trace = None
         else:
             trace = str(self.as_json())
             self.db.cos_save(persisted_object=trace,
@@ -1488,12 +1509,39 @@ class Trace(object)    :
                          binary=False)
             if self.save_to_file:
                 with open('%s.json' %self.name, 'w') as fp:
-                    json.dump(trace, fp)
+                    fp.write(trace)
                 logger.debug('wrote trace to file %s.json' %self.name)
         
         return trace
 
-               
+    def stop(self):
+        '''
+        Stop autosave thead
+        '''
+        self.auto_save = None
+        self.stop_event.set()
+        if self.auto_save_thread is not None:
+            self.auto_save_thread.join()
+            self.auto_save_thread = None
+            logger.debug('Stopping autosave on trace %s',self.name)
+            
+    def update_last_entry(self,last,**kw):
+        '''
+        Update the last trace entry. Include the contents of **kw.
+        '''
+        kw['updated'] = dt.datetime.utcnow()
+        
+        try:
+            last = self.data.pop()
+        except IndexError:
+            last = {}
+            logger.debug(('Tried to update the last entry of an empty trace.'
+                          ' Nothing to update. New entry will be inserted.'))
+        last = {**last,**kw}
+        self.data.append(last)
+        
+        return last
+          
         
     def write(self,created_by,text,log_method=None,**kwargs):
         ts = dt.datetime.utcnow()
@@ -1505,9 +1553,7 @@ class Trace(object)    :
         text = text + msg
         elapsed = (ts - self.prev_ts).total_seconds()
         self.prev_ts = ts
-        if elapsed >= self.elapsed_threshold_sec:
-            msg = 'Time since last trace entry: %s sec. ' %elapsed
-            text = text + msg
+        kwargs['elapsed_time'] = elapsed
         try:
             created_by_name = created_by.name
         except AttributeError:
@@ -1569,6 +1615,8 @@ class Trace(object)    :
             out = out + entry['text'] 
             
         return out
+    
+
                 
     
 

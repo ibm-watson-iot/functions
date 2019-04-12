@@ -756,27 +756,26 @@ class Database(object):
                                            request = 'GET',
                                            payload = None))
         for fn in fns:
-            msg = 'identifying path from module and target %s' %fn["moduleAndTargetName"]
-            logger.debug(msg)
             path = fn["moduleAndTargetName"].split('.')
             name = fn["moduleAndTargetName"]
             if path is None:
                 msg = 'Cannot import %s it has an invalid module and path %s' %(name,path)
-                logger.debug(msg)
+                logger.warning(msg)
                 tobj = None
                 status = 'metadata_error'
             else:
                 (package,module,target) = (path[0],path[1],path[2])
                 if (function_list is not None) and (target not in function_list):
-                    logger.debug(('Skipping function %s as it is not in the' 
-                                  ' function list'), target)
                     continue                
                 if install_missing:
                     url = fn['url']
                 else:
                     url = None
                 try:
-                    tobj,status = self.import_target(package=package,module=module,target=target,url=url)    
+                    tobj,status = self.import_target(package=package,
+                                                     module=module,
+                                                     target=target,
+                                                     url=url)    
                 except Exception as e:
                     msg = 'unkown error when importing: %s' %name
                     logger.exception(msg)
@@ -794,13 +793,16 @@ class Database(object):
                 imported[target] = (package,module)
             else:
                 if (package,module) != (epackage,emodule):
-                    msg = 'Duplicate class name encountered on import of %s. Ignored %s.%s' %(name,package,module)
-                    logger.warning(msg)
+                    logger.warning(
+                        ('Duplicate class name encountered on import of'
+                         ' %s. Ignored %s.%s'),name,package,module)
+                    
             if status == 'target_error' and unregister_invalid_target:
                 self.unregister_functions([name])
                 msg = 'Unregistered invalid function %s' %name
                 logger.info(msg)
         
+        logger.debug('Imported %s functions from catalog',len(imported))
         self.function_catalog = result
                 
         return result
