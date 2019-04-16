@@ -537,7 +537,13 @@ class Database(object):
                      raise_error = False,
                      ):
         '''
-        Make an api call to AS
+        Make an api call to AS.
+        
+        Warning: This is a low level API that closley maps to the AS Server API.
+        The AS Server API changes regularly. This API will not shield you from
+        these changes. Consult the iotfunctions wiki and view samples to understand
+        the supported APIs for interacting with the AS Server.
+        
         
         Parameters
         ----------

@@ -16,6 +16,7 @@ import json
 import importlib
 import time
 import threading
+import warnings
 from collections import OrderedDict, defaultdict
 import pandas as pd
 from collections import OrderedDict
@@ -524,6 +525,13 @@ class EntityType(object):
         
         return stage_metadata
     
+    def build_job_payload(self,*args):
+        '''
+        Make a new JobController payload from a list of local function objects
+        '''
+        
+        
+    
     def index_df(self,df):
         '''
         Create an index on the deviceid and the timestamp
@@ -651,11 +659,14 @@ class EntityType(object):
         '''
         Make a new CalcPipeline object. Reset processing variables.
         '''
+        warnings.warn('get_calc_pipeline() is deprecated. Use build_job()',
+                      DeprecationWarning)
         self._scd_stages = []
         self._custom_calendar = None
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
-    
+
+
     def get_custom_calendar(self):
         
         return self._custom_calendar
@@ -1467,7 +1478,7 @@ class Trace(object)    :
             self.stop_event = threading.Event()
             self.auto_save_thread = threading.Thread(
                     target=self.run_auto_save,
-                    args=(self.stop_event))
+                    args=[self.stop_event])
             self.auto_save_thread.start()
             
     def run_auto_save(self,stop_event):
@@ -1482,12 +1493,7 @@ class Trace(object)    :
                     self.save()
                     last_trace = self.data
                     logger.debug('Auto saved trace %s' %self.name)
-                else:
-                    logger.debug(('Auto save trace %s is alive. No ' 
-                                  ' changes to save. Will look for new changes'
-                                  ' in %s seconds'), self.name, self.auto_save)
-                next_autosave = dt.datetime.utcnow() + dt.timedelta(seconds = self.auto_save)
-                
+                next_autosave = dt.datetime.utcnow() + dt.timedelta(seconds = self.auto_save)                
             time.sleep(0.1)
         logger.debug('%s autosave thread has stopped',self.name)
         
@@ -1519,7 +1525,8 @@ class Trace(object)    :
         Stop autosave thead
         '''
         self.auto_save = None
-        self.stop_event.set()
+        if not self.stop_event is None:
+            self.stop_event.set()
         if self.auto_save_thread is not None:
             self.auto_save_thread.join()
             self.auto_save_thread = None
