@@ -2230,8 +2230,8 @@ class JobController(object):
             wait_for = next_execution-dt.datetime.utcnow()
             wait_for = wait_for.total_seconds()
         if wait_for > 0:
-            logger.debug('Waiting %s seconds until next execution',
-                          wait_for)
+            logger.debug('Waiting %s seconds until next execution at %s',
+                          wait_for, next_execution)
             time.sleep(wait_for)
     
     def trace_append(self,msg,created_by = None, log_method = None, **kwargs):
