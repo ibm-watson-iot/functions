@@ -605,6 +605,144 @@ class IoTCosFunction(BaseTransformer):
 
         return (inputs,outputs)
     
+class DateDifference(BaseTransformer):
+    """
+    Calculate the difference between two date data items in days,ie: ie date_2 - date_1
+    """
+    
+    def __init__ (self,date_1,date_2,num_days='num_days'):
+        
+        super().__init__()
+        self.date_1 = date_1
+        self.date_2 = date_2
+        self.num_days = num_days
+        
+    def execute(self,df):
+        
+        df[self.num_days] = (df[self.date_2] - df[self.date_1]).\
+                                dt.total_seconds() / (60*60*24)
+        
+        return df
+        
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name = 'date_1',
+                                  datatype=dt.datetime,
+                                  description = 'Date data item'
+                                              ))
+        inputs.append(UISingleItem(name = 'date_2',
+                               datatype=dt.datetime,
+                               description = 'Date data item'
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(
+            UIFunctionOutSingle(
+                    name = 'num_days',
+                    datatype=dt.datetime,
+                    description='Number of days')
+            )
+                
+        return (inputs,outputs) 
+
+
+class DateDifferenceReference(BaseTransformer):
+    """
+    Calculate the difference between a data item and a reference value,
+    ie: ie ref_date - date_1
+    """
+    
+    def __init__ (self,date_1,ref_date,num_days='num_days'):
+        
+        super().__init__()
+        self.date_1 = date_1
+        self.ref_date = ref_date
+        self.num_days = num_days
+        
+    def execute(self,df):
+        
+        df[self.num_days] = (self.ref_date - df[self.date_1]).\
+                                dt.total_seconds() / (60*60*24)
+        
+        return df
+        
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name = 'date_1',
+                                  datatype=dt.datetime,
+                                  description = 'Date data item'
+                                              ))
+        inputs.append(UISingle(name = 'ref_date',
+                               datatype=dt.datetime,
+                               description = 'Date value'
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(
+            UIFunctionOutSingle(
+                    name = 'num_days',
+                    datatype=dt.datetime,
+                    description='Number of days')
+            )
+                
+        return (inputs,outputs) 
+    
+class DateDifferenceConstant(BaseTransformer):
+    """
+    Calculate the difference between a data item and a constant_date,
+    ie: ie constant_date - date_1
+    """
+    
+    def __init__ (self,date_1,date_constant,num_days='num_days'):
+        
+        super().__init__()
+        self.date_1 = date_1
+        self.date_constant = date_constant
+        self.num_days = num_days
+        
+    def execute(self,df):
+        
+        df[self.num_days] = (self.date_constant - df[self.date_1]).\
+                                dt.total_seconds() / (60*60*24)
+        
+        return df
+        
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name = 'date_1',
+                                  datatype=dt.datetime,
+                                  description = 'Date data item'
+                                              ))
+        inputs.append(UISingle(name = 'date_constant',
+                               datatype=str,
+                               description = 'Name of datetime constant'
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(
+            UIFunctionOutSingle(
+                    name = 'num_days',
+                    datatype=dt.datetime,
+                    description='Number of days')
+            )
+                
+        return (inputs,outputs)     
+    
     
 class IoTDatabaseLookup(BaseDatabaseLookup):
     """
