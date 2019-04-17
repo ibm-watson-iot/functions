@@ -290,6 +290,8 @@ class EntityType(object):
         self._custom_calendar = None
         self._is_initial_transform = True
         self._is_preload_complete = False
+        if self._data_items is None:
+            self._data_items = []
 
         #additional params set from kwargs
         self.set_params(**kwargs)
@@ -322,6 +324,8 @@ class EntityType(object):
                            ' or use the auto_create_table = True keyword arg'
                            ' to create a table. ' %(name) )
                     raise ValueError (msg)
+            #populate the data items metadata from the supplied columns
+            self._data_items = self.build_item_metadata(self.table)
         else:
             logger.warning((
                     'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'
@@ -431,7 +435,31 @@ class EntityType(object):
             
         return out
     
-    def build_stages(self, function_meta, granularities_dict, item_meta):
+    def build_item_metadata(self,table):
+        '''
+        Build a client generated version of AS server metadata from a 
+        sql alachemy table object.
+        '''
+        
+        for col_name,col in list(table.c.items()):
+            item = {}
+            if col_name not in self.get_excluded_cols():
+                item['name'] = col_name
+                item['type'] = 'METRIC'
+                item['parentDataItem'] = None 
+                item['kpiFunctionDto'] = None
+                item['columnName'] = col.name
+                item['columnType'] = self.db.get_as_datatype(col)
+                item['sourceTableName'] = self.name
+                item['tags'] = []
+                item['transient'] = False
+                self._data_items.append(item)
+                
+        return self._data_items
+
+        
+    
+    def build_stages(self, function_meta, granularities_dict):
         '''
         Create a dictionary of stage objects. Dictionary is keyed by 
         stage type and a granularity obj. It contains a list of stage
@@ -464,56 +492,69 @@ class EntityType(object):
               disabled.append(s)              
               continue
             meta = {}
-            (package,module) = self.db.get_catalog_module(s['functionName'])
-            meta['__module__'] = '%s.%s' %(package,module)
-            meta['__class__'] =  s['functionName']
-            meta={}
-            meta = {**meta,**s['input']}
-            meta = {**meta,**s['output']}
-            mod = importlib.import_module('%s.%s' %(package,module))        
-            cls = getattr(mod,s['functionName'])
             try:
-                obj = cls(**meta)
-            except TypeError as e:
-                logger.warning(
-                    ('Unable build %s object. The arguments are mismatched'
-                     ' with the function metadata. You may need to'
-                     ' re-register the function. %s' %(s['functionName'],str(e))
-                     )
-                             )
-                invalid.append(s)
-            else:  
-                #add metadata to stage
-                try:
-                    obj.name
-                except AttributeError:
-                    obj.name = obj.__class__.__name__
-                obj._entity_type = self
-                schedule = s.get('schedule',None)
-                if schedule is not None:
-                    schedule = schedule.get('every',None)
-                obj._schedule = schedule
-                stage_type = self.get_stage_type(obj)
-                granularity_name = s.get('granularity',None)
-                if granularity_name is not None:
-                    granularity = granularities_dict.get(granularity_name,None)
+                (package,module) = self.db.get_catalog_module(s['functionName'])
+            except KeyError:
+                obj = s.get('object_instance',None)
+                if obj is None:
+                    msg = 'Function %s not found in the catalog metadata' %s['functionName']
+                    logger.warning(msg)
+                    invalid.append(s)
+                    continue
                 else:
-                    granularity = None
+                    logger.debug('Using local function instance %s',
+                                 s.get('name','unknown'))
+            else:
+                meta['__module__'] = '%s.%s' %(package,module)
+                meta['__class__'] =  s['functionName']
+                mod = importlib.import_module('%s.%s' %(package,module))
+                meta = {**meta,**s['input']}
+                meta = {**meta,**s['output']}
+                
+                cls = getattr(mod,s['functionName'])
                 try:
-                    stage_metadata[(stage_type,granularity)].append(obj)
-                except KeyError:
-                    stage_metadata[(stage_type,granularity)]=[obj]
-                #add input and output items
-                if stage_type != 'preload':
-                    obj._input_set = self.get_stage_input_item_set(
-                                    stage=obj,
-                                    arg_meta = s.get('input',{}))
-                else:
-                    #as a legacy quirk, a preload stage may have 
-                    # dummy input items that should always be ignored
-                    obj._input_set = set()
-                obj._output_list = self.get_stage_output_item_list(
-                                    arg_meta = s.get('output',[]))
+                    obj = cls(**meta)
+                except TypeError as e:
+                    logger.warning(
+                        ('Unable build %s object. The arguments are mismatched'
+                         ' with the function metadata. You may need to'
+                         ' re-register the function. %s' %(s['functionName'],str(e))
+                         )
+                                 )
+                    invalid.append(s)
+                    continue
+
+            #add metadata to stage
+            try:
+                obj.name
+            except AttributeError:
+                obj.name = obj.__class__.__name__
+            obj._entity_type = self
+            schedule = s.get('schedule',None)
+            if schedule is not None:
+                schedule = schedule.get('every',None)
+            obj._schedule = schedule
+            stage_type = self.get_stage_type(obj)
+            granularity_name = s.get('granularity',None)
+            if granularity_name is not None:
+                granularity = granularities_dict.get(granularity_name,None)
+            else:
+                granularity = None
+            try:
+                stage_metadata[(stage_type,granularity)].append(obj)
+            except KeyError:
+                stage_metadata[(stage_type,granularity)]=[obj]
+            #add input and output items
+            if stage_type != 'preload':
+                obj._input_set = self.get_stage_input_item_set(
+                                stage=obj,
+                                arg_meta = s.get('input',{}))
+            else:
+                #as a legacy quirk, a preload stage may have 
+                # dummy input items that should always be ignored
+                obj._input_set = set()
+            obj._output_list = self.get_stage_output_item_list(
+                                arg_meta = s.get('output',[]))
             
         logger.debug('skipping disabled stages: %s . Ignoring outputs: %s' , 
                      [s['functionName'] for s in disabled],
@@ -525,12 +566,33 @@ class EntityType(object):
         
         return stage_metadata
     
-    def build_job_payload(self,*args):
+    def build_stage_metadata(self,*args):
         '''
         Make a new JobController payload from a list of local function objects
         '''
-        
-        
+        metadata = []
+        for f in args:
+            fn = {}
+            try:
+                name = f.name
+            except AttributeError:
+                name = f.__class__.__name__
+            fn['name'] = name
+            fn['object_instance'] = f
+            fn['description'] = f.__doc__
+            fn['functionName'] = f.__class__.__name__
+            fn['enabled'] = True
+            fn['execStatus'] = False
+            fn['schedule'] = None
+            fn['backtrack'] = None
+            fn['granularity'] = None
+            (fn['input'],fn['output'],fn['outputMeta']) = f.build_arg_metadata()
+            fn['inputMeta'] : None
+            metadata.append(fn)
+            
+        self._stages = self.build_stages(function_meta = metadata,
+                                         granularities_dict = {})
+        return metadata
     
     def index_df(self,df):
         '''
@@ -572,21 +634,11 @@ class EntityType(object):
         
     @classmethod
     def default_stage_type_map(cls):
-        
-
         '''
-
-
         Configure how properties of stages are used to set the stage type
         that is used by the job controller to decide how to process a stage
         '''
-        
-
-
-
-
-
-
+    
         return [ ('preload', 'is_preload'), 
                  ('get_data', 'is_data_source'),
                  ('transform', 'is_transformer'),
@@ -767,6 +819,16 @@ class EntityType(object):
         '''
         return self._data_items
     
+    def get_excluded_cols(self):
+        '''
+        Return a list of physical columns that should be excluded when returning
+        the list of data items
+        '''
+        
+        return [ 'logicalinterface_id',
+                 'format',
+                 'updated_utc'    ]
+    
     
     def get_grain_freq(self,grain_name,lookup,default):
         '''
@@ -847,6 +909,8 @@ class EntityType(object):
                     ('Argument %s was not considered as a data item as it has'
                      ' a type %s' ), arg, type(value)
                     )
+                    
+        print (self._data_items)
                 
         items = set([x['name'] for x in self._data_items])
             
@@ -1101,7 +1165,7 @@ class EntityType(object):
         Base items are non calculated data items.
         '''
         
-        item_type = self._data_items[item_name]
+        item_type = self._data_items[item_name]['columnType']
         if item_type == 'METRIC':
             return True
         else:
@@ -1112,7 +1176,7 @@ class EntityType(object):
         Determine whether an item is a data item
         '''
         
-        if name in self._data_items:
+        if name in [x.name for x in self._data_items]:
             return True
         else:
             return False
@@ -1148,8 +1212,7 @@ class EntityType(object):
         #build a dictionary of stages
         stages = self.build_stages(
                     function_meta = meta.get('kpiDeclarations',[]),
-                    granularities_dict =grains_metadata,
-                    item_meta = meta.get('dataItems',[])
+                    granularities_dict =grains_metadata
                     )
         
         params = {
@@ -1239,7 +1302,7 @@ class EntityType(object):
         for (table_obj,column_name,col_type) in cols:
             msg = 'found %s column %s' %(col_type,column_name)
             logger.debug(msg)
-            if column_name not in ['logicalinterface_id','format','updated_utc']:
+            if column_name not in self.get_excluded_cols():
                 data_type = table_obj.c[column_name].type
                 if isinstance(data_type,DOUBLE) or isinstance(data_type,Float) or isinstance(data_type,Integer):
                     data_type = 'NUMBER'

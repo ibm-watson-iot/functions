@@ -155,6 +155,34 @@ class BaseFunction(object):
         for o in self.outputs:
             df[o] = True
         return df
+    
+    def build_arg_metadata(self):
+        
+        try:
+            (inputs,outputs) = self.build_ui()
+        except (AttributeError,NotImplementedError):
+            msg = ('Cant get function metadata for %s. Implement the'
+                   ' build_metadata() method.' %name)
+            raise NotImplementedError (msg)
+            
+        input_args ={}
+        output_args ={}
+        output_meta = {}
+        
+        for i in inputs:
+            try:
+                meta = i.to_metadata()
+            except AttributeError:
+                meta = i
+            input_args[meta['name']] = getattr(self,meta['name'])
+        for o in outputs:
+            try:
+                meta = o.to_metadata()
+            except AttributeError:
+                meta = o                        
+            output_args[meta['name']] = getattr(self,meta['name'])
+            
+        return(input_args,output_args,output_meta)
 
     @classmethod
     def build_ui(cls):

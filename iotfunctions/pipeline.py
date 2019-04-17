@@ -926,8 +926,8 @@ class JobController(object):
         
         #create a job log
         self.job_log = JobLog(self)
-        
         self.stage_metadata = self.get_payload_param('_stages',None)
+        
         if self.stage_metadata is None:
             raise ValueError((
                     'The playload for this job does not have valid metadata.'
@@ -1132,6 +1132,10 @@ class JobController(object):
         (freq,start_hour,start_min,backtrack_days)
         '''        
         #combine default with other schedules
+        
+        if schedules_dict is None:
+            schedules_dict = {}
+        
         if self.default_schedule[0] not in schedules_dict:
             schedules_dict[self.default_schedule[0]] = (
                     self.default_schedule[1], self.default_schedule[2],
@@ -1622,7 +1626,7 @@ class JobController(object):
             result = stage.execute(df=df,start_ts=start_ts,end_ts=end_ts)
         except TypeError:
             is_executed = False
-        except BaseExeption as e:
+        except BaseException as e:
             raise e
         else:
             is_executed = True
@@ -1810,7 +1814,6 @@ class JobController(object):
                         ' to the payload'),s.name
                         )
 
-        
         #Any code running outside of the main loop above will run whether or not
         # there where stages found. This is rather obvious, but what is not is that
         # is that build_stages is called multiple times for the same type of stage

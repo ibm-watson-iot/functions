@@ -411,13 +411,33 @@ class Database(object):
         logger.debug(msg)
 
         
-    def execute_job(self,entity_type_logical_name,schema=None,**kwargs):
+    def execute_job(self,entity_type,schema=None,**kwargs):
         
-        entity_type = self.load_entity_type(entity_type_logical_name,
+        if isinstance(entity_type,str):
+            entity_type = self.load_entity_type(entity_type,
                                             schema = schema, **kwargs)
         
         job = pp.JobController(payload=entity_type,**kwargs)
         job.execute()
+        
+    def get_as_datatype(self,column_object):
+        '''
+        Get the datatype of a sql alchemy column object and convert it to an
+        AS server datatype string
+        '''
+        
+        data_type = column_object.type
+        if isinstance(data_type,DOUBLE) or isinstance(data_type,Float) or isinstance(data_type,Integer):
+                data_type = 'NUMBER'
+        elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
+            data_type = 'LITERAL'
+        elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
+            data_type = 'TIMESTAMP'
+        else:
+            data_type = str(data_type)
+            logger.warning('Unknown datatype %s for column %s' %(data_type,column_object.name))
+
+        return data_type            
         
         
     def get_catalog_module(self,class_name):
@@ -656,21 +676,7 @@ class Database(object):
             if raise_error:
                 raise urllib3.exceptions.HTTPError(r.data)
         
-        return response        
-
-    
-    def load_entity_type(self,logical_name,schema=None,**params):
-        
-        extras = {}
-        extras['_db'] = self
-        extras['_schema'] = schema
-        extras['logical_name'] = logical_name
-        params = {**extras,**params}
-        (params,meta) = md.retrieve_entity_type_metadata(**params)
-        et = md.EntityType(db=self,**params)
-        et.load_entity_type_functions()
-        
-        return et            
+        return response                
     
         
     def if_exists(self,table_name, schema=None):
@@ -812,6 +818,20 @@ class Database(object):
         self.function_catalog = result
                 
         return result
+    
+    
+    def load_entity_type(self,logical_name,schema=None,**params):
+        
+        extras = {}
+        extras['_db'] = self
+        extras['_schema'] = schema
+        extras['logical_name'] = logical_name
+        params = {**extras,**params}
+        (params,meta) = md.retrieve_entity_type_metadata(**params)
+        et = md.EntityType(db=self,**params)
+        et.load_entity_type_functions()
+        
+        return et        
     
     
     def subquery_join(self,left_query,right_query,*args,**kwargs):
