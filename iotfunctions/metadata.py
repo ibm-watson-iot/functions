@@ -308,12 +308,16 @@ class EntityType(object):
         if self.logical_name is None:
             self.logical_name = self.name
         self._mandatory_columns = [self._timestamp,self._entity_id]
+        
+        (cols,functions) = self.separate_args(args)
+        
+        #create a database table if needed
         if name is not None and db is not None:            
             try:
                 self.table = self.db.get_table(self.name,self._db_schema)
             except KeyError:
                 if self.auto_create_table:
-                    ts = db_module.TimeSeriesTable(self.name ,self.db, *args, **kwargs)
+                    ts = db_module.TimeSeriesTable(self.name ,self.db, *cols, **kwargs)
                     self.table = ts.table
                     self.db.create()
                     msg = 'Create table %s' %self.name
@@ -330,8 +334,10 @@ class EntityType(object):
         else:
             logger.warning((
                     'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'
-
                     ))
+            
+        #add functions
+        self.build_stage_metadata(*functions)
             
     def add_activity_table(self, name, activities, *args, **kwargs):
         '''
@@ -1352,6 +1358,21 @@ class EntityType(object):
                           log_method = log_method,
                           text = msg,
                           **kwargs)
+        
+    def separate_args(self,args):
+        '''
+        Separate arguments into columns and functions
+        '''
+        
+        cols = []
+        functions = []
+        for a in args:
+            if isinstance(a,Column):
+                cols.append(a)
+            else:
+                functions.append(a)
+            
+        return (cols,functions)
             
     def set_custom_calendar(self,custom_calendar):
         '''

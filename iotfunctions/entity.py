@@ -13,8 +13,10 @@ The entity module contains sample entity types
 '''
 
 import logging
+import datetime as dt
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .metadata import EntityType
+from .bif import IoTEntityDataGenerator,TimestampCol,DateDifferenceReference
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ class EmptyEntityType(EntityType):
         super().__init__(name,db, *args,**kw)
 
 class Boiler(EntityType):
-    is_entity_type = True
+
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp'):
         args = []
         args.append(Column('company_code',String(50)))
@@ -41,7 +43,11 @@ class Boiler(EntityType):
         args.append(Column('discharge_rate',Float()))
         args.append(Column('fuel_flow_rate',Float()))
         args.append(Column('air_flow_rate',Float()))
-        kw = {'_timestamp' : 'evt_timestamp',
+        args.append(IoTEntityDataGenerator(ids=None))
+        args.append(TimestampCol(dummy_items = None, output_item = 'timestamp_col'))
+        args.append(DateDifferenceReference(date_1='timestamp_col',ref_date=dt.datetime.utcnow()))
+        
+        kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema
               }
         
