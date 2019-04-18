@@ -14,6 +14,9 @@ import logging
 import urllib3
 import json
 import inspect
+import sys
+import gzip
+
 import pandas as pd
 import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
@@ -25,6 +28,7 @@ from sqlalchemy.exc import NoSuchTableError
 from .util import CosClient, resample
 from . import metadata as md
 from . import pipeline as pp
+from .enginelog import EngineLogging
 
 logger = logging.getLogger(__name__)
 DB2_INSTALLED = True
@@ -211,6 +215,19 @@ class Database(object):
             connection_kwargs = {}
             msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db'
             logger.info(msg)
+
+        self.http = urllib3.PoolManager()
+        try:
+            self.cos_client = CosClient(self.credentials)
+        except KeyError:
+            msg = 'Unable to setup a cos client due to missing credentials. COS writes disabled'
+            logger.warning(msg)
+            self.cos_client = None
+        else:
+            msg = 'created a CosClient object'
+            logger.debug(msg)
+
+        EngineLogging.set_cos_client(self.cos_client)            
                 
         self.connection =  create_engine(connection_string, echo = echo, **connection_kwargs)
         self.Session = sessionmaker(bind=self.connection)
@@ -224,16 +241,6 @@ class Database(object):
             self.session = None
         self.metadata = MetaData(self.connection)
         logger.debug('Db connection established')
-        self.http = urllib3.PoolManager()
-        try:
-            self.cos_client = CosClient(self.credentials)
-        except KeyError:
-            msg = 'Unable to setup a cos client due to missing credentials. COS writes disabled'
-            logger.warning(msg)
-            self.cos_client = None
-        else:
-            msg = 'created a CosClient object'
-            logger.debug(msg)
             
         #cache entity types
         self.entity_type_metadata = {}
