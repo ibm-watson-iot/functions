@@ -266,11 +266,14 @@ class DataMerge(object):
         
         if self.df is None:
             self.df = pd.DataFrame()
-        logger.debug(('Input dataframe has columns %s and index %s'), 
+        if len(self.df.index)>0:
+            logger.debug(('Input dataframe has columns %s and index %s'), 
                      list(self.df.columns),
                      self.get_index_names())
-        logger.debug(('The job also has constant output items %s'), 
-                     [x for x in list(self.constants.keys())])        
+        job_constants = list(self.constants.keys())
+        if len(job_constants) > 0:
+            logger.debug(('The job also has constant output items %s'), 
+                     [x for x in job_constants])        
         if isinstance(obj, (dict,OrderedDict)):
             raise TypeError(('Function error.'
                              ' A failure occured when attempting to merge a'
@@ -326,8 +329,8 @@ class DataMerge(object):
             else:
                 if len(col_names) == len(df.columns):
                     df.columns = col_names
-
-        logger.debug((
+        if len(df.index)>0:
+            logger.debug((
                 'Merging dataframe with columns %s and index %s'), 
                 list(self.df.columns),
                 self.get_index_names())
@@ -336,10 +339,10 @@ class DataMerge(object):
         # and determine merge strategy
         obj_index_names = self.get_index_names(df)
         merge_strategy = None
-        if df.empty:
+        if len(df.index)==0:
             merge_strategy = 'skip'
-            logger.debug('Skipping empty dataframe')
-        elif self.df.empty:
+            logger.debug('Skipping empty dataframe received as merge input')
+        elif len(self.df.index)==0:
             merge_strategy = 'replace'
         elif df.index.equals(self.df.index):
             if set(col_names).issubset(set(self.df.columns)) and (
@@ -445,7 +448,7 @@ class DataMerge(object):
         if len(col_names)==1:
             # if the source dataframe is empty, it has no index
             # the data merge object can only accept a constant
-            if self.df.empty:
+            if len(df.index)==0:
                 self.add_constant(col_names[0],obj)
             else:
                 try:
@@ -469,7 +472,7 @@ class DataMerge(object):
                     ))    
             
     
-class DataWriter(object):
+class DataWriterFile(object):
     '''
     Default data write stage. Writes to the file system.
     '''
@@ -546,7 +549,7 @@ class DataReader(object):
                  ))               
             
         logger.debug(('Data items %s will will be automatically'
-                      ' retreievd by the get_data method of the payload'),
+                      ' retrieved by the get_data method of the payload'),
                       outputs)
             
         return outputs
@@ -1339,7 +1342,6 @@ class JobController(object):
                 self.log_failed_start(meta,exception=e,status ='aborted')
                 self.raise_error(exception=e,msg='',stageName='evaluate_schedules')
                 
-            is_executed = False
             # look for schedules that were flagged 'is_due'.
             # These will be executed.
             for (schedule,meta) in list(schedule_metadata.items()):
@@ -1348,20 +1350,11 @@ class JobController(object):
                         self.log_schedule_non_exec(schedule=schedule,
                                                schedule_metadata = meta)
                     except BaseException as e:
-                        logger.warning('Error logging non-execution data: %s' %e)
+                        logger.warning('Error logging non-execution data: %s',e)
                 else:
                     self.log_start(meta,
                                    status='running',
                                    startup_log =None)
-                    try:
-                        self.log_schedule_tagged_for_exec(schedule=schedule,
-                                                      schedule_metadata=meta,
-                                                      execute_date = execute_date)
-                    except BaseException as e:
-                        logger.warning('Error logging active schedules: %s' %e)
-                        
-                    #preload stages are not backtracked.
-                    # Start date is always last checkpoint
                     try:
                         (preload_stages,cols) = self.get_stages(
                                             stage_type = 'preload',
@@ -1420,11 +1413,27 @@ class JobController(object):
                         self.log_completion(self,meta,status='aborted')
                         continue                         
                     
-                    for (chunk_start,chunk_end) in (chunks):
+                    for i,(chunk_start,chunk_end) in enumerate(chunks):
                                 
                         # execute the job spec for each chunk.
                         # add the constants that were produced by
                         # the preload stages
+
+                        kwargs = {'chunk' : i,
+                                  'start_date':chunk_start,
+                                  'end_date': chunk_end}                                  
+
+                        if len(chunks) > 1 :
+                            self.trace_append('Processing in chunks',
+                                          created_by = None,
+                                          log_method = logger.debug,
+                                          **kwargs)
+                        else: 
+                            self.trace_append('Processing as a single chunk',
+                                          created_by = None,
+                                          log_method = logger.debug,
+                                          **kwargs)
+                        
                         if can_proceed:
                             (df,can_proceed) = self.execute_stages(
                                     stages = job_spec['input_level'],
@@ -1457,7 +1466,6 @@ class JobController(object):
                     self.log_completion(metadata = meta,
                                         status = 'complete')
                     
-                    is_executed = True
             
             #if nothing was processed this round wait until the next 
             # scheduled execution
@@ -1468,8 +1476,8 @@ class JobController(object):
                 self.sleep_until(next_execution)
             else:
                 logger.debug((
-                        'Aborting job as there is nothing left to process'
-                        ' before execution end time'
+                        'Ending job normally as there are no scheduled executions '
+                        ' due before execution end time'
                             ))
                 self.trace_end()
                 break
@@ -1514,7 +1522,7 @@ class JobController(object):
             
             #halt execution if no data 
             if not self.get_stage_param(s,'_allow_empty_df',True) and (
-                               merge.df is None or merge.df.empty):
+                    merge.df is None or len(df.index)==0):
                 can_proceed = False
                 tsg = tsg + (' This function received an empty dataframe as'
                              ' input. Processing will halt as this function'
@@ -1592,20 +1600,20 @@ class JobController(object):
                                 ' least one data item name' 
                                 ))
                     
-                    #execute the merge
-                
+                    #execute the merge                
                     merge.execute(obj=result,col_names = new_cols)
-                    
-                    tw['row_count'] = len(merge.df.index)
-                    tw['columns'] = list(merge.df.columns)
-                    tw['index'] = list(merge.df.index.names)
-                    
                     
                 else:
                     tsg = tsg + (' Function did not contribute any new data as'
                                  ' the stage param produces_output_items was'
                                  ' set to False' )
-                 
+                
+                #look for changes in the dataframe since last trace
+                if self.get_payload_param('trace_df_changes',False):
+                    tw['df'] = merge.df
+                    
+                    
+                #Write results of execution to trace
                 self.trace_append(msg=tsg,created_by=s,
                               log_method=logger.info,**tw)                   
                 df = merge.df
@@ -1682,6 +1690,8 @@ class JobController(object):
         last_schedule_due = None
         all_due = []
         for (s,round_hour,round_min,backtrack) in self._schedules:
+            if backtrack is None:
+                backtrack = self.get_payload_param('default_backtrack',None)
             meta = {}
             schedule[s] = meta
             meta['schedule'] = s
@@ -1713,7 +1723,6 @@ class JobController(object):
                                 meta['prev_checkpoint'] +
                                 freq_to_timedelta('1us')
                                 )
-                    meta['backtrack'] = None
                 elif meta['backtrack'] is not None:
                     meta['start_date'] = (
                             meta['adjusted_exec_date'] - 
@@ -1725,11 +1734,12 @@ class JobController(object):
                 next_future = meta['adjusted_exec_date'] + freq_to_timedelta(s)
                 meta['next_future_execution'] = next_future
             else:
+                #This schedule is not due
                 meta['is_due'] = False
                 meta['mark_complete'] = []
                 meta['backtrack'] = None
                 meta['next_future_execution'] = meta['adjusted_exec_date']
-
+                
         #progressive schedules imply that the last schedule involves
         # doing the work of the prior schedules so there it is only
         # neccessary to execute the last. If the schedules are not
@@ -1746,9 +1756,10 @@ class JobController(object):
                     if s == last_schedule_due:
                         meta['mark_complete'] = all_due
                         logger.debug(
-                                ('Schedule %s will execute. %s be marked'
-                                 ' complete'), last_schedule_due, all_due
-                                )
+                            'Schedule %s will execute', last_schedule_due)
+                        subsumed = [x for x in meta['mark_complete'] if x!=s]
+                        if len(subsumed) > 0:
+                            logger.debug('This schedules subsumes %s.', subsumed)
                     elif meta['is_due']:
                         meta['is_due'] = False
                         meta['is_subsumed'] = True
@@ -1998,8 +2009,10 @@ class JobController(object):
         try:
             out = getattr(stage,param)
         except AttributeError:
+            '''
             logger.debug(('No %s property on %s using default %s'),
                           param, stage.name, default )
+            '''
             out = default
         return out
 
@@ -2091,22 +2104,6 @@ class JobController(object):
             schedule_metadata['adjusted_exec_date']
             )
                 
-    def log_schedule_tagged_for_exec(self,schedule,schedule_metadata,execute_date):
-        '''
-        Schedule was tagged for execution. Log more details about execution.
-        '''
-        
-        msg = 'Starting job %s for schedule %s at %s. %s' %(self.name,
-                    schedule,execute_date,schedule_metadata['rounded_start'])
-        if schedule_metadata['backtrack'] is not None:
-            msg = msg + 'Backtrack of %s specified.' %schedule_metadata['backtrack']
-        if schedule_metadata['is_checkpoint_driven']:
-            if schedule_metadata['prev_checkpoint'] is None:
-                msg = msg + 'No previous checkpoint. All data will be retrieved.'
-            else:
-                msg = msg + '.Previous checkpoint is %s' %schedule_metadata['prev_checkpoint']
-                
-        logger.debug(msg)
 
     def log_start(self,metadata,
                   status='complete',
@@ -2125,6 +2122,52 @@ class JobController(object):
             'backtrack_days' : metadata['backtrack'],
             'next_future_execution' : metadata['next_future_execution']
             }
+        
+        if metadata['backtrack'] is None:
+            tm['backtrack_info'] = ('The backtrack setting for this execution'
+                                    ' is null. When the backtrack setting is'
+                                    ' null, the job retrieves all available'
+                                    ' data on each execution. To change this'
+                                    ' behavior, explicitly set period of time'
+                                    ' to backtrack or set the entity constant'
+                                    ' default_backtrack to "checkpoint" to'
+                                    ' retrieve data from the last checkpoint.')
+
+        elif metadata['backtrack'] == 'checkpoint':
+            tm['backtrack_info'] = ('The backtrack setting for this execution'
+                                    ' is "checkpoint". This means that only data'
+                                    ' inserted since the last checkpoint will be'
+                                    ' will be processed. If you need to '
+                                    ' retrieve historical data, set the '
+                                    ' backtrack property on the schedule or'
+                                    ' set the entity_type constant '
+                                    ' default_backtrack to None to retrieve'
+                                    ' all data')
+
+        else:
+            tm['backtrack_info'] = ('The backtrack setting for this execution'
+                                    ' is set to a specific number of days. '
+                                    ' The number of days was determined by'
+                                    ' taking the longest number of days from'
+                                    ' this schedule and others that were '
+                                    ' subsumed by it.'
+                                    ' Backtrack behavior can also be set'
+                                    ' using the entity type constant '
+                                    ' default_backtrack.'
+                                    ' Use a null value to retrieve all data'
+                                    ' with each execution or the specify the'
+                                    ' value of "checkpoint" to retrieve data'
+                                    ' inserted since the last checkpoint' )
+            
+        if metadata['adjusted_exec_date'] != metadata['execution_date']:
+            tm['adjusted_start_date'] = ('The start date for this execution '
+                                        ' was adjusted to match the explicit'
+                                        ' start hour and minute definined'
+                                        ' for the schedule' )
+        
+        if metadata['is_checkpoint_driven'] and metadata['prev_checkpoint'] is None:
+            tm['checkpoint_info'] = ('No previous checkpoint.'
+                                      ' All data will be retrieved')
         
         trace = self.get_payload_param('_trace',None)
         if trace is None:
@@ -2163,7 +2206,6 @@ class JobController(object):
                 self.name,stageName,type(exception).__name__,str(exception),msg)
         try:
             tb = sys.exc_info()[2]
-            tb = traceback.format_exc(tb)
         except TypeError:
             raise StageException(msg, stageName)
             tb = None
@@ -2204,6 +2246,7 @@ class JobController(object):
         
         for key,value in list(params.items()):
             setattr(self.payload, key, value)
+            logger.debug('Setting param %s on payload to %s', key, value)
         return self.payload
     
     def set_payload_param(self,key,value):
@@ -2253,6 +2296,7 @@ class JobController(object):
             logger.debug(('Payload has no trace_append() method.'
                           ' Trace will be written to log instead'))
             logger.debug('Trace:%s',msg)
+            raise
 
     def trace_end(self):
         '''
@@ -2278,11 +2322,14 @@ class JobController(object):
             
         try:
             tb = sys.exc_info()[2]
-            tb = traceback.format_exc(tb)            
+            tb = str(StageException(exception, created_by.name).with_traceback(tb))
+            print('****',tb)
+            raise
         except TypeError:
             tb = None
             logger.debug('Unable to obtain stack trace for exception')
-            
+            print('*******',tb)
+            raise
         
         error = {
                 'exception_type' : exception.__class__.__name__,
@@ -2357,7 +2404,17 @@ class JobLog(object):
                           name,
                           schedule):
         
-        upd = self.table.update().values(status='abandoned').\
+        q = self.table.select().\
+            where(and_(
+                self.table.c.object_type == self.job.payload.__class__.__name__,
+                self.table.c.object_name == name,
+                self.table.c.schedule == schedule,
+                self.table.c.status == 'running'                  
+                    ))
+        df = pd.read_sql(sql=q,con=self.db.connection)
+        
+        if len(df.index)>0:
+            upd = self.table.update().values(status='abandoned').\
             where(and_(
                 self.table.c.object_type == self.job.payload.__class__.__name__,
                 self.table.c.object_name == name,
@@ -2365,12 +2422,13 @@ class JobLog(object):
                 self.table.c.status == 'running'                  
                     ))
             
-        self.db.connection.execute(upd)
-        logger.debug(
-                'Marked existing running jobs as abandoned  (%s,%s)',
-                name,schedule
-                )
-        self.db.commit()            
+            self.db.connection.execute(upd)
+            logger.debug(
+                    'Marked existing running jobs as abandoned  (%s,%s)',
+                    name,schedule
+                    )
+            logger.debug(df)
+            self.db.commit()            
         
 
     def insert (self,name,schedule,execution_date,status='running',

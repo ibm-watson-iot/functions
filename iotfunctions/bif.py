@@ -619,17 +619,21 @@ class DateDifference(BaseTransformer):
         
     def execute(self,df):
         
-        if self.date_1 is not None:
+        if self.date_1 is None:
+            ds_1 = self.get_timestamp_series(df)
+            if isinstance(ds_1,pd.DatetimeIndex):
+                ds_1 = pd.Series(data=ds_1,index=df.index)
+            ds_1 = pd.to_datetime(ds_1)
+        else:
             ds_1 = df[self.date_1]
-        else:
-            ts_col = self._entity_type._timestamp
-            ds_1 = df.index.get_level_values(ts_col)
             
-        if self.date_2 is not None:
-            ds_2 = df[self.date_2]
+        if self.date_2 is None:
+            ds_2 = self.get_timestamp_series(df)
+            if isinstance(ds_2,pd.DatetimeIndex):
+                ds_2 = pd.Series(data=ds_2,index=df.index)
+            ds_2 = pd.to_datetime(ds_2)
         else:
-            ts_col = self._entity_type._timestamp
-            ds_2 = df.index.get_level_values(ts_col)            
+            ds_2 = df[self.date_2]         
         
         df[self.num_days] = (ds_2 - ds_1).\
                             dt.total_seconds() / (60*60*24)
@@ -682,14 +686,16 @@ class DateDifferenceReference(BaseTransformer):
         
     def execute(self,df):
         
-        if self.date_1 is not None:
-            ds_1 = df[self.date_1]
+        if self.date_1 is None:
+            ds_1 = self.get_timestamp_series(df)
+            if isinstance(ds_1,pd.DatetimeIndex):
+                ds_1 = pd.Series(data=ds_1,index=df.index)
+            ds_1 = pd.to_datetime(ds_1)
         else:
-            ts_col = self._entity_type._timestamp
-            ds_1 = df.index.get_level_values(ts_col)
+            ds_1 = df[self.date_1]
         
         df[self.num_days] = (self.ref_date - ds_1).\
-                                dt.total_seconds() / (60*60*24)
+                            dt.total_seconds() / (60*60*24)
         
         return df
         
@@ -738,14 +744,19 @@ class DateDifferenceConstant(BaseTransformer):
         
     def execute(self,df):
         
-        if self.date_1 is not None:
-            ds_1 = df[self.date_1]
+        if self.date_1 is None:
+            ds_1 = self.get_timestamp_series(df)
+            if isinstance(ds_1,pd.DatetimeIndex):
+                ds_1 = pd.Series(data=ds_1,index=df.index)
+            ds_1 = pd.to_datetime(ds_1)
         else:
-            ts_col = self._entity_type._timestamp
-            ds_1 = df.index.get_level_values(ts_col)
+            ds_1 = df[self.date_1]    
         
-        
-        df[self.num_days] = (self.date_constant - ds_1).\
+        c = self._entity_type.get_attributes_dict()
+        constant_value = c[self.date_constant]
+        ds_2 = pd.Series(data=constant_value,index=df.index)
+        ds_2 = pd.to_datetime(ds_2)
+        df[self.num_days] = (ds_2 - ds_1).\
                             dt.total_seconds() / (60*60*24)
         
         return df
@@ -951,8 +962,12 @@ class IoTEntityDataGenerator(BasePreload):
         else:
             seconds = pd.to_timedelta(self.freq).total_seconds()
         
-        df = self._entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)        
-        self.trace_append(msg='%s Generated data. ' %self.__class__.__name__,df=df)
+        df = self._entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)
+        
+        kw = {'rows_generated' : len(df.index),
+              'start_ts' : start_ts,
+              'seconds' : seconds}
+        self.trace_append(msg='%s Generated data. ' %self.__class__.__name__,df=df,**kw)
         
         return True  
     
@@ -1120,7 +1135,7 @@ class IoTGetEntityData(BaseDataSource):
                       )
         outputs = []
     
-        return (inputs,outputs)  
+        return (inputs,outputs)          
 
 class IoTEntityId(BaseTransformer):
     """
@@ -1572,6 +1587,7 @@ class IoTSleep(BaseTransformer):
                                                      ))
     
         return (inputs,outputs)
+    
 
 class IoTTraceConstants(BaseTransformer):
 
@@ -1589,12 +1605,69 @@ class IoTTraceConstants(BaseTransformer):
     def execute(self,df):
         
         c = self._entity_type.get_attributes_dict()
-        for key,value in list(c.items()):
-            msg = 'c[%s]=%s' %(key,value)
-            self.trace_append(msg)
+        msg = 'entity constants retrieved'
+        self.trace_append(msg,**c)
             
         df[self.output_item] = True
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name = 'dummy_items',
+                                              datatype=None,
+                                              required = False,
+                                              description = 'Not required'
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype=bool,
+                                           description='Dummy function output'
+                                          ))
+        
+        return (inputs,outputs)
+    
+class TimestampCol(BaseTransformer):
+    """
+    Deliver a data item containing the timestamp
+    """
+    
+    def __init__(self,dummy_items=None,output_item = 'timestamp_col'):
+        
+        super().__init__()
+        self.dummy_items = None
+        self.output_item = output_item
+        
+    def execute(self,df):
+
+        ds_1 = self.get_timestamp_series(df)
+        if isinstance(ds_1,pd.DatetimeIndex):
+            ds_1 = pd.Series(data=ds_1,index=df.index)
+        ds_1 = pd.to_datetime(ds_1)
+        df[self.output_item] = ds_1
+        
+        return df
+        
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name = 'dummy_items',
+                                              datatype=None,
+                                              required = False,
+                                              description = 'Not required'
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype=dt.datetime,
+                                           description='Timestamp column name'
+                                           ))     
+        
+        return (inputs,outputs)
+                    
         
         
         

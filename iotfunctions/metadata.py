@@ -228,8 +228,10 @@ class EntityType(object):
     '''    
     
     auto_create_table = True        
-    log_table = 'KPI_LOGGING'
-    checkpoint_table = 'KPI_CHECKPOINT'
+    log_table = 'KPI_LOGGING' #deprecated, to be removed
+    checkpoint_table = 'KPI_CHECKPOINT' #deprecated,to be removed
+    default_backtrack = None
+    trace_df_changes = False
     # These two columns will be available in the dataframe of a pipeline
     _entity_id = 'deviceid' #identify the instance
     _timestamp_col = '_timestamp' #copy of the event timestamp from the index
@@ -297,8 +299,7 @@ class EntityType(object):
         self.set_params(**kwargs)
         
         #Start a trace to record activity on the entity type
-        self._trace = Trace(name=None,parent=self,db=db,
-                            save_to_file=self.save_trace_to_file)
+        self._trace = Trace(name=None,parent=self,db=db)
 
         # attach to time series table
         if self._db_schema is None:
@@ -729,14 +730,11 @@ class EntityType(object):
         Retrieve entity data at input grain or preaggregated
         '''
         
+        tw = {} #info to add to trace
         if entities is None:
-            e_count = 'all'
-            e_preview = ''
+            tw['entity_filter'] = 'all'
         else:
-            e_count = len(entities)
-            e_preview = '[%s..]' %entities[0]
-        msg = 'Getting entity type data for %s entities %s' %(e_count,e_preview)
-        self.trace_append(self,msg)
+            tw['entity_filter'] = '% entities' %len(entities)
         
         if self._pre_aggregate_time_grain is None:    
             df = self.db.read_table(
@@ -750,7 +748,7 @@ class EntityType(object):
                     entities = entities,
                     dimension = self._dimension_table_name
                     ) 
-            self.trace_append(self,'Read source data',df=df)
+            tw['pre-aggregeted'] = None
             
         else:
             (metrics,dates,categoricals,others) = self.db.get_column_lists_by_type(self.name,self._db_schema)
@@ -796,18 +794,21 @@ class EntityType(object):
                     dimension = self._dimension_table_name                    
                     )
 
-            msg = 'Read input data aggregated to %s. '  %(self._pre_aggregate_time_grain)
-            self.trace_append(self,msg=msg,df=df)
-            
-        if start_ts is not None:
-            msg = 'Data retrieved after timestamp: %s. ' %start_ts
+            tw['pre-aggregeted'] = self._pre_aggregate_time_grain
+        
+        tw['rows_retrieved'] = len(df.index)
+        tw['start_ts'] = start_ts
+        tw['end_ts'] = end_ts
+        self.trace_append(created_by = self,
+                          msg='Retrieved entity timeseries data for %s' %self.name,
+                          **tw)
 
         # Optimizing the data frame size using downcasting
         memo = MemoryOptimizer()
 
         #df = memo.downcastNumeric(df)
         df = self.index_df(df)
-
+        
         return df
             
 
@@ -898,6 +899,7 @@ class EntityType(object):
                           ' to request items programatically'),
                             stage.name, candidate_items)            
             candidate_items = set()
+            
         for arg,value in list(arg_meta.items()):
             
             if isinstance(value,str):
@@ -909,8 +911,6 @@ class EntityType(object):
                     ('Argument %s was not considered as a data item as it has'
                      ' a type %s' ), arg, type(value)
                     )
-                    
-        print (self._data_items)
                 
         items = set([x['name'] for x in self._data_items])
             
@@ -1491,13 +1491,14 @@ class Trace(object)    :
     Gather status and diagnostic information to report back in the UI
     '''
     
+    save_trace_to_file = False
+    
     primary_df = 'df'
-    def __init__(self,name=None,parent=None,db=None,save_to_file=False):
+    def __init__(self,name=None,parent=None,db=None):
         if parent is None:
             parent = self
         self.parent = parent            
         self.db = db
-        self.save_to_file = save_to_file
         self.auto_save = None
         self.auto_save_thread = None
         self.stop_event = None
@@ -1509,6 +1510,9 @@ class Trace(object)    :
         self.df_index = set()
         self.df_count = 0
         self.prev_ts = dt.datetime.utcnow()
+        logger.debug('Starting trace')
+        logger.debug('Trace name: %s',self.name )
+        logger.debug('auto_save %s',self.auto_save)
         self.write(created_by=parent,text='Trace started. ')
         
         
@@ -1532,12 +1536,15 @@ class Trace(object)    :
         self.prev_ts = dt.datetime.utcnow()
         self.auto_save = auto_save
         if self.auto_save_thread is not None:
+            logger.debug('Reseting trace %s', self.name)
             self.stop()
         self.data = []
         if name is None:
             name = self._trace.build_trace_name()
         self.name = name
+        logger.debug('Started a new trace %s ', self.name)
         if self.auto_save is not None:
+            logger.debug('Initiating auto save for trace')
             self.stop_event = threading.Event()
             self.auto_save_thread = threading.Thread(
                     target=self.run_auto_save,
@@ -1553,9 +1560,9 @@ class Trace(object)    :
         while not stop_event.is_set():
             if next_autosave >= dt.datetime.utcnow():
                 if self.data != last_trace:
+                    logger.debug('Auto save trace %s' %self.name)
                     self.save()
                     last_trace = self.data
-                    logger.debug('Auto saved trace %s' %self.name)
                 next_autosave = dt.datetime.utcnow() + dt.timedelta(seconds = self.auto_save)                
             time.sleep(0.1)
         logger.debug('%s autosave thread has stopped',self.name)
@@ -1566,20 +1573,26 @@ class Trace(object)    :
         '''
         
         if len(self.data) == 0:
-            logger.debug('No trace data to save')
             trace = None
-        elif self.db is None:
-            logger.warning('Cannot save trace. No db object supplied')
-            trace = None
+            logger.debug('Trace is empty. Nothing to save.')
         else:
-            trace = str(self.as_json())
-            self.db.cos_save(persisted_object=trace,
+            if self.db is None:
+                logger.warning('Cannot save trace. No db object supplied')
+                trace = None
+            else:
+                trace = str(self.as_json())
+                self.db.cos_save(persisted_object=trace,
                          filename=self.name,
                          binary=False)
-            if self.save_to_file:
-                with open('%s.json' %self.name, 'w') as fp:
-                    fp.write(trace)
-                logger.debug('wrote trace to file %s.json' %self.name)
+                logger.debug('Saved trace to cos %s', self.name)
+        try:
+            save_to_file = self.parent.save_trace_to_file
+        except AttributeError:
+            save_to_file = self.save_trace_to_file
+        if trace is not None and save_to_file:
+            with open('%s.json' %self.name, 'w') as fp:
+                fp.write(trace)
+            logger.debug('wrote trace to file %s.json' %self.name)
         
         return trace
 
@@ -1616,11 +1629,6 @@ class Trace(object)    :
     def write(self,created_by,text,log_method=None,**kwargs):
         ts = dt.datetime.utcnow()
         text = str(text)
-        try:
-            (kwargs[self.primary_df],msg) = self._df_as_dict(kwargs[self.primary_df],prefix=self.primary_df)
-        except (KeyError,AttributeError):
-            msg = ''
-        text = text + msg
         elapsed = (ts - self.prev_ts).total_seconds()
         self.prev_ts = ts
         kwargs['elapsed_time'] = elapsed
@@ -1637,6 +1645,15 @@ class Trace(object)    :
             if not isinstance(value,str):
                 kwargs[key] = str(value)
         entry = {**entry,**kwargs}
+        
+        # The trace can track changes in a dataframe between writes
+        # The dataframe my ne passed using the df argument
+        df = kwargs.get(self.primary_df,None)
+        
+        if df is not None:
+            (df_info,msg) = self._df_as_dict(df=df,prefix=self.primary_df)
+            entry = {**entry,**df_info}
+        
         self.data.append(entry)
          
         try:
@@ -1647,35 +1664,40 @@ class Trace(object)    :
             logger.warning(msg)
             
     def _df_as_dict(self,df,prefix):
-        msg = ''
-        data = {}
-        prev_count = self.df_count
-        prev_index = self.df_index
-        prev_cols = self.df_cols
-        self.df_count = len(df.index)
-        if df.index.names is None:
-            self.df_index = {}
+        
+        if df is None:
+            logger.warning('Trace info ignoring null dateframe')
+            df = pd.DataFrame()
+        elif not isinstance(df,pd.DataFrame):
+            logger.warning('Trace info ignoring non dataframe %s of type %s', df, type(df))
+            df = pd.DataFrame()
+        
+        if len(df.index)>0:
+            msg = ''
+            data = {}
+            prev_count = self.df_count
+            prev_cols = self.df_cols  
+            self.df_count = len(df.index)
+            if df.index.names is None:
+                self.df_index = {}
+            else:
+                self.df_index = set(df.index.names)
+            self.df_cols = set(df.columns)
+            # stats
+            data['%s_count' %prefix] = self.df_count
+            data['%s_index' %prefix] = self.df_index
+            data['%s_columns' %prefix] = self.df_cols        
+            #look at changes
+            if self.df_count != prev_count:
+                data['%s_rowcount_change' %prefix] = self.df_count - prev_count
+            if len(self.df_cols-prev_cols)>0:
+                data['%s_added_columns' %prefix] = self.df_cols-prev_cols
+            if len(prev_cols-self.df_cols)>0:
+                data['%s_added_columns' %prefix] = prev_cols-self.df_cols
         else:
-            self.df_index = set(df.index.names)
-        self.df_cols = set(df.columns)
-        #formulate message based on changes
-        if self.df_count > prev_count:
-            msg = '%s Added %s rows. ' %(msg,self.df_count - prev_count)
-        if self.df_count < prev_count:
-            msg = '%s Removed %s rows. ' %(msg,self.df_count - prev_count)            
-        if len(self.df_index-prev_index)>0:
-            msg = '%s Added to index %s. ' %(msg,self.df_index-prev_index)
-        if len(prev_index-self.df_index)>0:
-            msg = '%s Removed from index %s ' %(msg,prev_index-self.df_index)
-        if len(self.df_cols-prev_cols)>0:
-            msg = '%s Added columns %s. ' %(msg,self.df_cols-prev_cols)
-        if len(prev_cols-self.df_cols)>0:
-            msg = '%s Removed columns %s.  ' %(msg,prev_cols-self.df_cols)            
-        #also include a dict with actual stats
-        data['%s_count' %prefix] = self.df_count
-        data['%s_index' %prefix] = self.df_index
-        data['%s_columns' %prefix] = self.df_cols
-    
+            data = {'df': None}
+            msg = ''
+            
         return(data,msg)
     
     def __str__(self):

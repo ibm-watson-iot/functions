@@ -67,7 +67,7 @@ def compare_dataframes(dfl,dfr,cols=None):
     df = pd.concat(dfs)
     total_rows = len(df.index)
     df = df.drop_duplicates(keep=False)
-    if not df.empty and total_rows - len(df.index) > 0:
+    if total_rows - len(df.index) > 0:
         msg = 'Rows with different contents:%s' %(total_rows - len(df.index))
         trace = trace + msg
         differences = differences + total_rows - len(df.index)
