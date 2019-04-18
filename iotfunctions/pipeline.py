@@ -916,7 +916,7 @@ class JobController(object):
     # aggegregating data, writing data and merging the results of 
     # the execution of a stage with data produced from prior stages
     data_aggregator = DataAggregator
-    data_writer = Db2DataWriter
+    data_writer = DataWriterFile
     data_merge = DataMerge
     
     def __init__ (self,payload,**kwargs):
