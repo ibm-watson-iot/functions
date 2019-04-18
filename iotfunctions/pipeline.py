@@ -72,6 +72,7 @@ class DataAggregator(object):
     
     '''
     
+    is_system_function = True
     _allow_empty_df = False
     _discard_prior_on_merge = True
 
@@ -138,6 +139,7 @@ class DataMerge(object):
     
     '''
     
+    is_system_function = True
     r_suffix = '_new_'
     
     def __init__ (self,name=None,df=None, **kwargs):
@@ -477,6 +479,7 @@ class DataWriterFile(object):
     Default data write stage. Writes to the file system.
     '''
     
+    is_system_function = True
     produces_output_items = False
     
     def __init__(self,name,**params):
@@ -503,7 +506,7 @@ class DataReader(object):
     '''
     Default data reader stage. Calls get_data method on the object.
     '''
-    
+    is_system_function = True
     is_data_source = True
     #will be added by job controller
     _projection_list = None
@@ -555,7 +558,7 @@ class DataReader(object):
         return outputs
     
 class DataWriterException(Exception):
-
+    
     def __init__(self, msg):
         super().__init__(msg)
 
@@ -563,6 +566,7 @@ class Db2DataWriter():
     '''
     Stage that writes the calculated data items to database.
     '''
+    is_system_function = True
     MAX_NUMBER_OF_ROWS_FOR_SQL = 5000
     produces_output_items = False
 

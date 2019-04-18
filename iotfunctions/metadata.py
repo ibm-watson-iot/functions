@@ -392,7 +392,32 @@ class EntityType(object):
     def _add_scd_pipeline_stage(self, scd_lookup):
         
         self._scd_stages.append(scd_lookup)
-
+        
+    def build_flat_stage_list(self):
+        '''
+        Build a flat list of all function objects defined for entity type
+        '''
+        
+        stages = []
+        
+        for s_list in list(self._stages.values()):
+            for stage in s_list:
+                #some functions are automatically added by the system
+                #do not include these
+                try:
+                    is_system = stage.is_system_function
+                except AttributeError:
+                    is_system = False
+                    logger.warning(('Function %s has no is_system_function property.'
+                              ' This means it was not inherited from '
+                              ' an iotfunctions base class. AS authors are'
+                              ' strongly encouraged to always inherit '
+                              ' from iotfunctions base classes' ),
+                             stage.__class__.__name__)
+            
+                if not is_system:
+                    stages.append(stage)
+        return stages
     
     def build_granularities(self,grain_meta,freq_lookup):
         '''
@@ -1262,6 +1287,44 @@ class EntityType(object):
             dim.create()
             msg = 'Creates dimension table %s' %self._dimension_table_name
             logger.debug(msg)
+            
+    def publish_kpis(self):
+        '''
+        Publish the stages assigned to this entity type to the AS Server
+        '''   
+        export = []
+        stages = self.build_flat_stage_list()
+            
+        self.db.register_functions(stages)
+                
+        for s in stages:
+            try:
+                name = s.name
+            except AttributeError:
+                name = s.__class__.__name__
+                logger.debug(('Function class %s has no name property.'
+                              ' Using the class name'),
+                             name)                                
+             
+            try:
+                args = s._get_arg_metadata()
+            except AttributeError:
+                msg = ('Attempting to publish kpis for an entity type.'
+                       ' Function %s has no _get_arg_spec() method.'
+                       ' It cannot be published' ) %name
+                raise NotImplementedError(msg)
+                
+            metadata  = { 
+                    'name' : name ,
+                    'args' : args
+                    }
+            export.append(metadata)
+                
+        response = self.db.http_request(object_type = 'kpiFunctions',
+                                        object_name = self.logical_name,
+                                        request = 'POST',
+                                        payload = export)    
+        return response
 
     def raise_error(self,exception,msg='',abort_on_fail=False,stageName=None):
         '''
@@ -1282,7 +1345,7 @@ class EntityType(object):
             msg = 'An exception occurred during execution of the pipeline stage %s. The stage is configured to continue after an execution failure' % (stageName)
             logger.warning(msg)
 
-    def register(self):
+    def register(self,publish_kpis=False):
         '''
         Register entity type so that it appears in the UI. Create a table for input data.
         
@@ -1344,9 +1407,9 @@ class EntityType(object):
 
         msg = 'Metadata registered for table %s '%self.name
         logger.debug(msg)
-        #response = self.cos_save()
-        #msg = 'Entity type saved to cos %s '%response
-        #logger.debug(msg)
+        if publish_kpis:
+            self.publish_kpis()
+        
         return response
     
         
