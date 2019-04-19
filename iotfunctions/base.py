@@ -159,29 +159,72 @@ class BaseFunction(object):
     
     def build_arg_metadata(self):
         
+        name = self.__class__.__name__
+        
         try:
             (inputs,outputs) = self.build_ui()
-        except (AttributeError,NotImplementedError):
+        except (AttributeError,NotImplementedError) as e:
             msg = ('Cant get function metadata for %s. Implement the'
-                   ' build_metadata() method.' %name)
+                   ' build_metadata() method.' %(name,str(e)))
             raise NotImplementedError (msg)
+
+        
             
         input_args ={}
         output_args ={}
         output_meta = {}
         
+        if not isinstance(inputs,list):
+             raise TypeError(('Function registration metadata must be defined',
+                             ' using a list of objects derived from iotfunctions',
+                             ' BaseUIControl. Check metadata for %s'
+                             ' %s ' %(name,inputs) ))           
+
+        if not isinstance(outputs,list):
+             raise TypeError(('Function registration metadata must be defined',
+                             ' using a list of objects derived from iotfunctions',
+                             ' BaseUIControl. Check metadata for %s'
+                             ' %s ' %(name,outputs) ))  
+        
         for i in inputs:
             try:
-                meta = i.to_metadata()
+                is_ui = i.is_ui_control
             except AttributeError:
-                meta = i
-            input_args[meta['name']] = getattr(self,meta['name'])
+                is_ui = False            
+            if is_ui:
+                meta = i.to_metadata()
+                input_args[meta['name']] = getattr(self,meta['name'])
+                #some inputs implicitly describe outputs
+                try:
+                    out_meta = i.to_output_metadata()
+                except AttributeError:
+                    pass
+                else:
+                    if out_meta is not None:
+                        output_args[out_meta['name']] = getattr(self,out_meta['name'])    
+            else:
+                raise TypeError(('Function registration metadata must be defined',
+                                 ' using objects derived from iotfunctions',
+                                 ' BaseUIControl. Check metadata for %s'
+                                 ' %s ' %(name,i) ))
+            
         for o in outputs:
             try:
-                meta = o.to_metadata()
+                is_ui = o.is_ui_control
             except AttributeError:
-                meta = o                        
-            output_args[meta['name']] = getattr(self,meta['name'])
+                is_ui = False
+            
+            if is_ui:
+                meta = o.to_metadata()
+                output_args[meta['name']] = getattr(self,meta['name'])
+            else:
+                raise TypeError(('Function registration metadata must be defined',
+                                 ' using objects derived from iotfunctions',
+                                 ' BaseUIControl. Check metadata for %s'
+                                 ' %s ' %(name,i) ))
+                
+        #output_meta is present in the AS metadata structure, but not 
+        #currently produced for local functions
             
         return(input_args,output_args,output_meta)
 

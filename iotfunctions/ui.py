@@ -13,6 +13,8 @@ import datetime as dt
 logger = logging.getLogger(__name__)
 
 class BaseUIControl(object):
+    
+    is_ui_control = True
 
     def convert_datatype(self,from_datatype):
         conversions = {bool: 'BOOLEAN',

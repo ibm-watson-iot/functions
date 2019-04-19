@@ -1606,11 +1606,11 @@ class JobController(object):
                 if produces_output_items:
                     if new_cols is None or len(new_cols) ==0:
                         raise AttributeError((
-                                ' Function did not provide a list of columns produced'
+                                ' Function %s did not provide a list of columns produced'
                                 ' when the get_output_list() method was called to'
                                 ' inspect the stage prior to execution. This is a '
                                 ' mandatory method. It should return a list with at '
-                                ' least one data item name' 
+                                ' least one data item name. (%s)'  %(s.name, new_cols)
                                 ))
                     
                     #execute the merge                

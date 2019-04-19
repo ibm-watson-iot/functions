@@ -585,6 +585,7 @@ class EntityType(object):
                 #as a legacy quirk, a preload stage may have 
                 # dummy input items that should always be ignored
                 obj._input_set = set()
+            
             obj._output_list = self.get_stage_output_item_list(
                                 arg_meta = s.get('output',[]))
             

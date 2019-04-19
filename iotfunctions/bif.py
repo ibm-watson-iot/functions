@@ -72,11 +72,6 @@ class IoTAlertExpression(BaseEvent):
         self.expression = expression
         self.alert_name = alert_name
         super().__init__()
-        # registration metadata
-        self.inputs = ['input_items', 'expression']
-        self.constants = ['expression']
-        self.outputs = ['alert_name']
-        self.tags = ['EVENT']
         
     def _calc(self,df):
         '''
@@ -158,31 +153,31 @@ class IoTAlertOutOfRange(BaseEvent):
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['input_item'] = UISingleItem(name = 'input_item',
+        inputs = []
+        inputs.append(UISingleItem(name = 'input_item',
                                               datatype=None,
                                               description = 'Item to alert on'
-                                              )
-        inputs['lower_threshold'] = UISingle(name = 'lower_threshold',
+                                              ))
+        inputs.append(UISingle(name = 'lower_threshold',
                                               datatype=float,
                                               description = 'Alert when item value is lower than this value',
                                               required = False,
-                                              )
-        inputs['upper_threshold'] = UISingle(name = 'upper_threshold',
+                                              ))
+        inputs.append(UISingle(name = 'upper_threshold',
                                               datatype=float,
                                               description = 'Alert when item value is higher than this value',
                                               required = False,
-                                              )  
+                                              ))
         #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['output_alert_lower'] = UIFunctionOutSingle(name = 'output_alert_lower',
-                                                     datatype=bool,
-                                                     description='Output of alert function'
-                                                     )
-        outputs['output_alert_upper'] = UIFunctionOutSingle(name = 'output_alert_upper',
-                                                     datatype=bool,
-                                                     description='Output of alert function'
-                                                     )
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_alert_lower',
+                                           datatype=bool,
+                                           description='Output of alert function'
+                                           ))
+        outputs.append(UIFunctionOutSingle(name = 'output_alert_upper',
+                                           datatype=bool,
+                                           description='Output of alert function'
+                                           ))
     
         return (inputs,outputs)    
     
@@ -265,22 +260,21 @@ class IoTAlertLowValue(BaseEvent):
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['input_item'] = UISingleItem(name = 'input_item',
+        inputs = []
+        inputs.append(UISingleItem(name = 'input_item',
                                               datatype=None,
                                               description = 'Item to alert on'
-                                              )
-        inputs['lower_threshold'] = UISingle(name = 'upper_threshold',
+                                              ))
+        inputs.append(UISingle(name = 'lower_threshold',
                                               datatype=float,
                                               description = 'Alert when item value is lower than this value'
-                                              )  
+                                              ))
         #define arguments that behave as function outputs
-        outputs = OrderedDict()       
-        outputs['alert_name'] = UIFunctionOutSingle(name = 'alert_name',
+        outputs = []       
+        outputs.append(UIFunctionOutSingle(name = 'alert_name',
                                                      datatype=bool,
                                                      description='Output of alert function'
-                                                     )
-    
+                                                     ))
         return (inputs,outputs)    
 
 
@@ -465,7 +459,7 @@ class IoTCalcSettings(BaseMetadataProvider):
         return (inputs,outputs)  
     
     
-class IoTCoalesceDimension(BaseTransformer):
+class Coalesce(BaseTransformer):
     """
     Return first non-null value from a list of data items.
     """
@@ -1371,6 +1365,42 @@ class IoTRandomNormal(BaseTransformer):
     
         return (inputs,outputs)  
                  
+
+class RandomNull(BaseTransformer):
+    """
+    Occassionally replace random values with null values for selected items.
+    """
+    
+    def __init__ (self, input_items, output_items ):
+        
+        super().__init__()
+        self.input_items = input_items
+        self.output_items = output_items
+        
+    def execute(self,df):
+        
+        for counter,item in enumerate(self.input_items):
+            choice = np.random.choice([True,False],len(df.index))
+            df[self.output_items[counter]] = np.where(
+                    choice,None,df[item]
+                    )
+        
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name = 'input_items',
+                                  datatype=None,
+                                  description = 'Select items to apply null replacement to',
+                                  output_item = 'output_items',
+                                  is_output_datatype_derived = True,
+                                  output_datatype = None
+                                  ))
+        outputs = []
+        return (inputs,outputs)  
+
 
 class IoTRandomChoice(BaseTransformer):
     """
