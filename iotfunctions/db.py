@@ -1073,7 +1073,6 @@ class Database(object):
             functions = [functions]
             
         for f in functions:
-            
             if isinstance(f,type):
                 name = f.__name__
             else:
