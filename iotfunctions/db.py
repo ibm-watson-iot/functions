@@ -1074,7 +1074,10 @@ class Database(object):
             
         for f in functions:
             
-            name = f.__name__
+            if isinstance(f,type):
+                name = f.__name__
+            else:
+                name = f.__class__.__name__
             module = f.__module__
             if module == '__main__':
                 raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
