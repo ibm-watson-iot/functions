@@ -1073,7 +1073,8 @@ class Database(object):
             functions = [functions]
             
         for f in functions:
-            name = f.__class__.__name__
+            
+            name = f.__name__
             module = f.__module__
             if module == '__main__':
                 raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
@@ -1084,9 +1085,10 @@ class Database(object):
             try:
                 exec (exec_str)
             except ImportError:
-                raise ValueError('Unable to register function as local import failed. Make sure it is installed locally and importable. %s ' %exec_str)
-            msg = 'Test import succeeded for function using %s' %(exec_str)
-
+                raise ValueError(
+                    ('Unable to register function as local import failed.'
+                     ' Make sure it is installed locally and '
+                     ' importable. %s ' %exec_str) )
             try:
                 category = f.category
             except AttributeError:
