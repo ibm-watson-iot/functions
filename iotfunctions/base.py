@@ -83,6 +83,7 @@ class BaseFunction(object):
     merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
     _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
+    is_system_function = False #system functions are internal to AS, cannot be used as custom functions
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
@@ -155,6 +156,34 @@ class BaseFunction(object):
         for o in self.outputs:
             df[o] = True
         return df
+    
+    def build_arg_metadata(self):
+        
+        try:
+            (inputs,outputs) = self.build_ui()
+        except (AttributeError,NotImplementedError):
+            msg = ('Cant get function metadata for %s. Implement the'
+                   ' build_metadata() method.' %name)
+            raise NotImplementedError (msg)
+            
+        input_args ={}
+        output_args ={}
+        output_meta = {}
+        
+        for i in inputs:
+            try:
+                meta = i.to_metadata()
+            except AttributeError:
+                meta = i
+            input_args[meta['name']] = getattr(self,meta['name'])
+        for o in outputs:
+            try:
+                meta = o.to_metadata()
+            except AttributeError:
+                meta = o                        
+            output_args[meta['name']] = getattr(self,meta['name'])
+            
+        return(input_args,output_args,output_meta)
 
     @classmethod
     def build_ui(cls):
@@ -291,7 +320,7 @@ class BaseFunction(object):
         name = '.'.join(name)
         return name     
         
-    def _get_arg_metadata(self):
+    def _get_arg_metadata(self,isoformat_dates=True):
         
         metadata = {}    
         args = (getargspec(self.__init__))[0][1:]        
@@ -301,7 +330,13 @@ class BaseFunction(object):
             except KeyError:
                 msg = 'Programming error. All arguments must have a corresponding instance variable of the same name. This function has no instance variable: %s' %a
                 logger.exception(msg)
-                raise 
+                raise
+            
+            if ((isoformat_dates) and  
+                (isinstance(metadata[a],dt.datetime) or isinstance(metadata[a],dt.date))):
+                
+                metadata[a] = metadata[a].isoformat()
+            
         return metadata
     
     def get_custom_calendar(self):
@@ -1637,7 +1672,7 @@ class BaseDBActivityMerge(BaseDataSource):
         
     def execute(self,df):
         
-        self.execute_by = [self._entity_type._entity_type_id]
+        self.execute_by = [self._entity_type._entity_id]
         df = super().execute(df)
         return df
         
