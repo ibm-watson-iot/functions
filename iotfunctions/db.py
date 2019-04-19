@@ -1027,7 +1027,6 @@ class Database(object):
                        'metadata': meta})
         self.http_request(object_type='defaultConstants',object_name=None, request = "POST", payload=payload)
             
-
     def register_functions(self,functions,url=None):
         '''
         Register one or more class for use with AS
@@ -1037,24 +1036,24 @@ class Database(object):
             functions = [functions]
             
         for f in functions:
-            module = f.__module__    
+            if isinstance(f,type):
+                name = f.__name__
+            else:
+                name = f.__class__.__name__
+            module = f.__module__
             if module == '__main__':
                 raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
             if url is None:
                 url = f.url
-            module_and_target = '%s.%s' %(module,f.__name__)
-            exec_str = 'from %s import %s as import_test' %(module,f.__name__)
+            module_and_target = '%s.%s' %(module,name)
+            exec_str = 'from %s import %s as import_test' %(module,name)
             try:
                 exec (exec_str)
             except ImportError:
-                raise ValueError('Unable to register function as local import failed. Make sure it is installed locally and importable. %s ' %exec_str)
-            msg = 'Test import succeeded for function using %s' %(exec_str)
-            try:
-                name = f.name
-            except AttributeError:
-                name = None
-            if name is None:
-                name = f.__name__
+                raise ValueError(
+                    ('Unable to register function as local import failed.'
+                     ' Make sure it is installed locally and '
+                     ' importable. %s ' %exec_str) )
             try:
                 category = f.category
             except AttributeError:
