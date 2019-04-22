@@ -64,6 +64,13 @@ class TestBed(EntityType):
         args.append(Column('x_3',Float()))
         args.append(Column('date_1',DateTime))
         args.append(Column('date_2',DateTime))
+        args.append(bif.IoTShiftCalendar(
+                shift_definition=None,
+                period_start_date = 'shift_start_date',
+                period_end_date = 'shift_end_date',
+                shift_day = 'shift_day',
+                shift_id = 'shift_id'
+                ))
         args.append(bif.IoTEntityDataGenerator(
                 ids=['A01','A02','A03','A04','A05','B01']
                 ))
