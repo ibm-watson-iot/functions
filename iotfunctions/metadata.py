@@ -232,7 +232,7 @@ class EntityType(object):
     log_table = 'KPI_LOGGING' #deprecated, to be removed
     checkpoint_table = 'KPI_CHECKPOINT' #deprecated,to be removed
     default_backtrack = None
-    trace_df_changes = False
+    trace_df_changes = True
     # These two columns will be available in the dataframe of a pipeline
     _entity_id = 'deviceid' #identify the instance
     _timestamp_col = '_timestamp' #copy of the event timestamp from the index
@@ -1720,7 +1720,7 @@ class Trace(object)    :
             self.auto_save_thread = None
             logger.debug('Stopping autosave on trace %s',self.name)
             
-    def update_last_entry(self,msg,log_method = None,**kw):
+    def update_last_entry(self,msg,log_method = None,df=None,**kw):
         '''
         Update the last trace entry. Include the contents of **kw.
         '''
@@ -1738,6 +1738,10 @@ class Trace(object)    :
                 last[key] = 'Ignored dataframe object that was included in trace'
             elif not isinstance(value,str):
                 last[key] = str(value)
+                
+        if df is not None:
+            df_info = self._df_as_dict(df=df)
+            last = {**last,**df_info}                
 
         last['text'] = last['text'] + msg
         self.data.append(last)
@@ -1789,6 +1793,10 @@ class Trace(object)    :
             
     def _df_as_dict(self,df):
         
+        '''
+        Gather stats about changes to the dataframe between trace entries
+        '''
+        
         data = {}
         if df is None:
             data['df'] = 'Ignored null dataframe'
@@ -1806,17 +1814,18 @@ class Trace(object)    :
                 self.df_cols = set(df.columns)
                 # stats
                 data['df_count'] = self.df_count
-                data['df_index'] = self.df_index
-                data['df_columns'] = self.df_cols        
+                data['df_index'] = list(self.df_index)
+                data['df_columns'] = str(self.df_cols)
                 #look at changes
                 if self.df_count != prev_count:
                     data['df_rowcount_change'] = self.df_count - prev_count
                 if len(self.df_cols-prev_cols)>0:
-                    data['df_added_columns'] = self.df_cols-prev_cols
+                    data['df_added_columns'] = list(self.df_cols-prev_cols)
                 if len(prev_cols-self.df_cols)>0:
-                    data['df_added_columns'] = prev_cols-self.df_cols
+                    data['df_added_columns'] = list(prev_cols-self.df_cols)
             else:
                 data['df'] = 'Empty dataframe'
+                
             
         return data
     

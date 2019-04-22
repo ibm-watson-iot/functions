@@ -2629,17 +2629,21 @@ class JobController(object):
                           wait_for, next_execution)
             time.sleep(wait_for)
     
-    def trace_add(self,msg,created_by = None, log_method = None, **kwargs):
+    def trace_add(self,msg,created_by = None, log_method = None,df=None, **kwargs):
         '''
         Add a new trace entry to the payload
         '''
         if created_by is None:
             created_by = self
+
+        if not self.get_payload_param('trace_df_changes',False):
+            df = None            
         
         try:
             self.payload.trace_append(created_by=created_by,
                                       msg = msg,
                                       log_method=log_method,
+                                      df = df,
                                       **kwargs)
         except AttributeError:
             logger.debug(('Payload has no trace_append() method.'
@@ -2669,6 +2673,9 @@ class JobController(object):
         '''
         if created_by is None:
             created_by = self
+            
+        if not self.get_payload_param('trace_df_changes',False):
+            df = None            
         
         error = {
                 'exception_type' : exception.__class__.__name__,
@@ -2697,6 +2704,9 @@ class JobController(object):
         '''
         Update the most recent trace entry
         '''
+        
+        if not self.get_payload_param('trace_df_changes',False):
+            df = None
         
         trace = self.get_payload_param('_trace',None)
         if trace is None:
