@@ -51,7 +51,7 @@ class BaseFunction(object):
     # this will give the function access to all of the properties and methods of the entity type
     _entity_type = None 
     # metadata data parameters are instance variables to be added to the entity type
-    _metadata_params = {}
+    _metadata_params = None
     #function registration metadata 
     name = None # name of function
     description =  None # description of function shows as help text
@@ -84,6 +84,11 @@ class BaseFunction(object):
     _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
     is_system_function = False #system functions are internal to AS, cannot be used as custom functions
+    requires_input_items = True
+    produces_output_items = True
+    # internal work variables set by AS job processing
+    _output_list = None
+    _input_set = None
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
@@ -139,6 +144,8 @@ class BaseFunction(object):
             self.tags = []             
         if self._entity_scd_dict is None:
             self._entity_scd_dict= {}
+        if self._metadata_params is None:
+            self._metadata_params = {}
 
         #if cos credentials are not explicitly  provided use environment variable
         if self.bucket is None:
@@ -429,6 +436,15 @@ class BaseFunction(object):
         '''
         Get the EntityType object assigned to the function instance
         '''
+        
+        if self._entity_type is None:
+            raise ValueError (
+                ('Function %s has no entity type associated with it.'
+                 ' The entity type will be automatically assigned when'
+                 ' functions are run as part of an AS job. If you are'
+                 ' running this function outside an AS job, assign the'
+                 ' _entity_type property before executing.' %self.__class__.__name__))
+        
         return self._entity_type
     
     def get_entity_type_param(self,param):
@@ -436,8 +452,6 @@ class BaseFunction(object):
         Get a metadata parameter from the entity type
         '''
         entity_type = self.get_entity_type()
-        if entity_type is None:
-            raise RuntimeError ('This function has no entity type associated with it. This is a programatic error. After creating a function instance, use set_entity_type to assign an entity type')
         out = entity_type.get_param(param)
         return out
     
@@ -502,9 +516,18 @@ class BaseFunction(object):
     
     def get_input_set(self):
         
-        ins = set(self._input_set)
-        ins |= set(self.get_input_items())
+        '''
+        Return a set of input items requited by this function. Input items may
+        implicitly infered from the function metadata by the AS job process or
+        may be added by the get_input_items() method of a custom function.
+        '''
         
+        if self.requires_input_items:
+            ins = set(self._input_set)
+            ins |= set(self.get_input_items())
+        else:
+            ins = set()
+            
         return ins
     
     def get_timestamp_series(self,df):
@@ -826,7 +849,26 @@ class BaseFunction(object):
     
     def get_output_list(self):
         
-        return self._output_list
+        '''
+        Returns the list of columns produced as outputs to the function.
+        '''
+        
+        if self.produces_output_items:
+            out = self._output_list
+            if out is None:
+                raise RuntimeError(
+                        ('The _output_list property of function %s is None.'
+                         ' This property is set by the AS job build process'
+                         ' A value of None implies that the get_output_list()'
+                         ' method was called before this build process. If you'
+                         ' need access to output items outside of the AS build'
+                         ' process, implement a custom get_output_list for '
+                         ' the function or explicityly set the value of '
+                         ' the _output_list property'))
+        else:
+            out = []
+            
+        return out
     
     def get_bucket_name(self):
         '''
@@ -1219,12 +1261,9 @@ class BaseFunction(object):
                 return encoded_payload
             
         else:
-            if self._entity_type is None:
-                msg ('Unable to register function as there is no _entity_type. Use set_entity_type to assign an EntityType')
-                logger.warning(msg)
-            
+            entity_type = self.get_entity_type()
             try:
-                response = self._entity_type.db.http_request(object_type = 'function',
+                response = entity_type.db.http_request(object_type = 'function',
                                      object_name = name,
                                      request = 'DELETE',
                                      payload = payload)
@@ -1233,7 +1272,7 @@ class BaseFunction(object):
                 raise TypeError(msg)
             msg = 'Unregistered function with response %s' %response
             logger.debug(msg)
-            response = self._entity_type.db.http_request(object_type = 'function',
+            response = entity_type.db.http_request(object_type = 'function',
                                  object_name = name,
                                  request = 'PUT',
                                  payload = payload)
@@ -1257,11 +1296,18 @@ class BaseFunction(object):
         """
         Set the _entity_type property of the function
         """
+        warnings.warn(
+              ('BaseFunction.set_entity_type is deprecated.'
+               ' All function properties are set by EntityType.build_stages'),
+              DeprecationWarning)
+    
         self._entity_type = entity_type
         if self._metadata_params is not None and self._metadata_params != {}:
             self._entity_type.set_params(**self._metadata_params)
-            msg = 'Metadata provider added parameters to entity type: %s' %self._metadata_params
-            logger.debug(msg)
+            self._entity_type.trace_append(created_by = self,
+                   msg = 'Adding metadata provider params',
+                   log_method=logger.debug,
+                   **self._metadata_params)
     
     def set_params(self, **params):
         '''
@@ -2068,6 +2114,7 @@ class BasePreload(BaseTransformer):
     They are monitored. Excessive resource consumption will be billed by estimating an equivalent number of function executions. 
     """
     is_preload = True
+    requires_input_items = False
     
     def __init__(self, dummy_items, output_item = None):
         super().__init__()
@@ -2114,7 +2161,7 @@ class BaseMetadataProvider(BasePreload):
         '''
         A metadata provider does not do anything except set _metadata_params
         _metadata_params are automatically copied to the _entity_type when the
-        _entity_type is set using set_entity_type
+        function is added to an AS job
         '''
         return True
     

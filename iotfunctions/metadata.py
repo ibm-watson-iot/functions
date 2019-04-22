@@ -17,6 +17,7 @@ import importlib
 import time
 import threading
 import warnings
+import traceback
 from collections import OrderedDict, defaultdict
 import pandas as pd
 from collections import OrderedDict
@@ -26,7 +27,7 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 from . import db as db_module
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
-from .pipeline import CalcPipeline, DataReader
+from .pipeline import CalcPipeline, DataReader, DropNull
 from .util import MemoryOptimizer, StageException
 
 logger = logging.getLogger(__name__)
@@ -272,6 +273,8 @@ class EntityType(object):
     _abort_on_fail = False
     _auto_save_trace = 30
     save_trace_to_file = False
+    drop_null_class = DropNull
+    enable_downcast = False
     
     def __init__ (self,name,db, *args, **kwargs):
         self.name = name.lower()
@@ -576,14 +579,40 @@ class EntityType(object):
                 stage_metadata[(stage_type,granularity)].append(obj)
             except KeyError:
                 stage_metadata[(stage_type,granularity)]=[obj]
+                
+            #The stage may have metadata parameters that need to be 
+            # copied onto the entity type
+            try:
+                entity_metadata = obj._metadata_params
+            except KeyError:
+                entity_metadata = {}
+                logger.debug(('Function %s has no _metadata_params'
+                              ' property. This property allows the stage'
+                              ' to add properties to the entity type.'
+                              ' Using default of %s'),
+                                obj.name, entity_metadata)                
+            if entity_metadata is not None and entity_metadata:
+                self.set_params(**entity_metadata)
+                self.trace_append(created_by = obj,
+                       msg = 'Adding entity type properties from function',
+                       log_method=logger.debug,
+                       **entity_metadata)
+                
             #add input and output items
-            if stage_type != 'preload':
+            try:
+                requires_input_items = obj.requires_input_items
+            except AttributeError:
+                requires_input_items =True
+                logger.debug(('Function %s has no requires_input_items'
+                              ' property. This property determines whether'
+                              ' inputs should be considered in the'
+                              ' dependency model. Using default of %s'),
+                                obj.name, requires_input_items)
+            if requires_input_items:
                 obj._input_set = self.get_stage_input_item_set(
                                 stage=obj,
                                 arg_meta = s.get('input',{}))
             else:
-                #as a legacy quirk, a preload stage may have 
-                # dummy input items that should always be ignored
                 obj._input_set = set()
             
             obj._output_list = self.get_stage_output_item_list(
@@ -766,7 +795,7 @@ class EntityType(object):
         if entities is None:
             tw['entity_filter'] = 'all'
         else:
-            tw['entity_filter'] = '% entities' %len(entities)
+            tw['entity_filter'] = '%s entities' %len(entities)
         
         if self._pre_aggregate_time_grain is None:    
             df = self.db.read_table(
@@ -837,8 +866,8 @@ class EntityType(object):
 
         # Optimizing the data frame size using downcasting
         memo = MemoryOptimizer()
-
-        #df = memo.downcastNumeric(df)
+        if self.enable_downcast:
+            df = memo.downcastNumeric(df)
         df = self.index_df(df)
         
         return df
@@ -882,7 +911,6 @@ class EntityType(object):
         
         items = [x.get('columnName') for x in self._data_items
                  if x.get('type') == 'METRIC']
-        logger.debug('Data items for entity type are %s' %items)
     
         return items
     
@@ -1331,20 +1359,20 @@ class EntityType(object):
         '''
         Raise an exception. Append a message and the current trace to the stacktrace.
         '''
-        msg = msg + ' Trace follows: ' + str(self._trace)
+        msg = ('Execution of function %s failed due to %s'
+               ' Error message: %s '
+               ' Stack trace : %s '
+               ' Execution trace : %s'
+               %(stageName,exception.__class__.__name__,msg,traceback.format_exc(),
+                 str(self._trace))
+               )
          
-        msg = 'Execution of stage %s failed because of %s: %s - %s ' %(stageName,type(exception).__name__,str(exception),msg)
         if abort_on_fail:
-            try:
-                tb = sys.exc_info()[2]
-            except TypeError:
-                raise StageException(msg, stageName)
-            else:
-                raise StageException(msg, stageName).with_traceback(tb)
+            raise StageException(msg, stageName)
         else:
             logger.warning(msg)
-            msg = 'An exception occurred during execution of the pipeline stage %s. The stage is configured to continue after an execution failure' % (stageName)
-            logger.warning(msg)
+            
+        return msg
 
     def register(self,publish_kpis=False):
         '''
@@ -1414,13 +1442,14 @@ class EntityType(object):
         return response
     
         
-    def trace_append(self,created_by,msg,log_method=None,**kwargs):
+    def trace_append(self,created_by,msg,log_method=None,df=None,**kwargs):
         '''
         Write to entity type trace
         '''
         self._trace.write(created_by = created_by,
                           log_method = log_method,
                           text = msg,
+                          df = df,
                           **kwargs)
         
     def separate_args(self,args):
@@ -1480,10 +1509,8 @@ class EntityType(object):
         return df
     
     def __str__(self):
-        out = self.name
+        out = '%s:%s'%(self.__class__.__name__,self.name)
         return out
-    
-
     
     def set_params(self, **params):
         '''
@@ -1576,9 +1603,8 @@ class Trace(object)    :
     Gather status and diagnostic information to report back in the UI
     '''
     
-    save_trace_to_file = False
+    save_trace_to_file = False 
     
-    primary_df = 'df'
     def __init__(self,name=None,parent=None,db=None):
         if parent is None:
             parent = self
@@ -1601,7 +1627,8 @@ class Trace(object)    :
         self.write(created_by=parent,text='Trace started. ')
         
         
-    def as_json(self):        
+    def as_json(self):      
+                
         return json.dumps(self.data,indent=4)        
         
     def build_trace_name(self):
@@ -1693,7 +1720,7 @@ class Trace(object)    :
             self.auto_save_thread = None
             logger.debug('Stopping autosave on trace %s',self.name)
             
-    def update_last_entry(self,last,**kw):
+    def update_last_entry(self,msg,log_method = None,**kw):
         '''
         Update the last trace entry. Include the contents of **kw.
         '''
@@ -1705,13 +1732,27 @@ class Trace(object)    :
             last = {}
             logger.debug(('Tried to update the last entry of an empty trace.'
                           ' Nothing to update. New entry will be inserted.'))
-        last = {**last,**kw}
+                
+        for key,value in list(kw.items()):            
+            if isinstance(value,pd.DataFrame):
+                last[key] = 'Ignored dataframe object that was included in trace'
+            elif not isinstance(value,str):
+                last[key] = str(value)
+
+        last['text'] = last['text'] + msg
         self.data.append(last)
+        
+        #write trace update to the log
+        if log_method is not None:
+            if msg is not None:
+                log_method('Trace message: %s',msg)
+            if len(kw) > 0:
+                log_method('Trace payload: %s', kw)
         
         return last
           
         
-    def write(self,created_by,text,log_method=None,**kwargs):
+    def write(self,created_by,text,log_method=None,df=None,**kwargs):
         ts = dt.datetime.utcnow()
         text = str(text)
         elapsed = (ts - self.prev_ts).total_seconds()
@@ -1732,11 +1773,9 @@ class Trace(object)    :
         entry = {**entry,**kwargs}
         
         # The trace can track changes in a dataframe between writes
-        # The dataframe my ne passed using the df argument
-        df = kwargs.get(self.primary_df,None)
         
         if df is not None:
-            (df_info,msg) = self._df_as_dict(df=df,prefix=self.primary_df)
+            df_info = self._df_as_dict(df=df)
             entry = {**entry,**df_info}
         
         self.data.append(entry)
@@ -1748,42 +1787,38 @@ class Trace(object)    :
             msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' %text
             logger.warning(msg)
             
-    def _df_as_dict(self,df,prefix):
+    def _df_as_dict(self,df):
         
+        data = {}
         if df is None:
-            logger.warning('Trace info ignoring null dateframe')
-            df = pd.DataFrame()
+            data['df'] = 'Ignored null dataframe'
         elif not isinstance(df,pd.DataFrame):
-            logger.warning('Trace info ignoring non dataframe %s of type %s', df, type(df))
-            df = pd.DataFrame()
-        
-        if len(df.index)>0:
-            msg = ''
-            data = {}
-            prev_count = self.df_count
-            prev_cols = self.df_cols  
-            self.df_count = len(df.index)
-            if df.index.names is None:
-                self.df_index = {}
+            data['df'] = 'Ignored non dataframe of type %s' %df.__class__.__name__
+        else:        
+            if len(df.index)>0:
+                prev_count = self.df_count
+                prev_cols = self.df_cols  
+                self.df_count = len(df.index)
+                if df.index.names is None:
+                    self.df_index = {}
+                else:
+                    self.df_index = set(df.index.names)
+                self.df_cols = set(df.columns)
+                # stats
+                data['df_count'] = self.df_count
+                data['df_index'] = self.df_index
+                data['df_columns'] = self.df_cols        
+                #look at changes
+                if self.df_count != prev_count:
+                    data['df_rowcount_change'] = self.df_count - prev_count
+                if len(self.df_cols-prev_cols)>0:
+                    data['df_added_columns'] = self.df_cols-prev_cols
+                if len(prev_cols-self.df_cols)>0:
+                    data['df_added_columns'] = prev_cols-self.df_cols
             else:
-                self.df_index = set(df.index.names)
-            self.df_cols = set(df.columns)
-            # stats
-            data['%s_count' %prefix] = self.df_count
-            data['%s_index' %prefix] = self.df_index
-            data['%s_columns' %prefix] = self.df_cols        
-            #look at changes
-            if self.df_count != prev_count:
-                data['%s_rowcount_change' %prefix] = self.df_count - prev_count
-            if len(self.df_cols-prev_cols)>0:
-                data['%s_added_columns' %prefix] = self.df_cols-prev_cols
-            if len(prev_cols-self.df_cols)>0:
-                data['%s_added_columns' %prefix] = prev_cols-self.df_cols
-        else:
-            data = {'df': None}
-            msg = ''
+                data['df'] = 'Empty dataframe'
             
-        return(data,msg)
+        return data
     
     def __str__(self):
         

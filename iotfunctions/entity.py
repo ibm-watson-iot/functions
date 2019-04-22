@@ -64,11 +64,27 @@ class TestBed(EntityType):
         args.append(Column('x_3',Float()))
         args.append(Column('date_1',DateTime))
         args.append(Column('date_2',DateTime))
-        args.append(bif.IoTEntityDataGenerator(ids=None))
+        args.append(bif.IoTEntityDataGenerator(
+                ids=['A01','A02','A03','A04','A05','B01']
+                ))
+        args.append(bif.IoTDeleteInputData(
+                dummy_items=[],
+                older_than_days=5,
+                output_item='delete_done'
+                ))
+        args.append(bif.IoTDropNull(
+                exclude_items = ['str_1','str_2'],
+                drop_all_null_rows = True,
+                output_item = 'nulls_dropped'
+                ))
+        args.append(bif.IoTEntityFilter(
+                entity_list = ['A01','A02','A03']
+                ))
         args.append(bif.IoTAlertExpression(
                 input_items=['x_1','x_2','x_3'],
                 expression = "df['x_1']>3*df['x_2']",
-                alert_name = 'alert_1'))
+                alert_name = 'alert_1'
+                ))
         args.append(bif.IoTAlertOutOfRange(
                 input_item = 'x_1',
                 lower_threshold=.25,
@@ -91,9 +107,27 @@ class TestBed(EntityType):
                 output_items = ['x_1_null','x_2_null','str_1_null',
                                'str_2_null','date_1_null','date_2_null'], 
                 ))
-        args.append(bif.TimestampCol(dummy_items = None, output_item = 'timestamp_col'))
-        args.append(bif.DateDifferenceReference(date_1='timestamp_col',ref_date=dt.datetime.utcnow()))
-        
+        args.append(bif.Coalesce(
+                data_items = ['x_1_null','x_2_null'],
+                output_item = 'x_1_2'
+                ))
+        args.append(bif.IoTConditionalItems(
+                conditional_expression = "df['alert_1']==True",
+                conditional_items = ['x_1','x_2'],
+                output_items = ['x_1_alert_1','x_2_alert_1']
+                ))
+        args.append(bif.TimestampCol(
+                dummy_items = None,
+                output_item = 'timestamp_col'))
+        args.append(bif.DateDifference(
+                date_1='date_1',
+                date_2='date_2',
+                num_days='date_diff_2_1'))
+        args.append(bif.DateDifferenceReference(
+                date_1='timestamp_col',
+                ref_date=dt.datetime.utcnow(),
+                num_days = 'date_diff_ts_now'
+                ))
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema
               }

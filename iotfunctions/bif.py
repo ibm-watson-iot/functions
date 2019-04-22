@@ -479,7 +479,34 @@ class Coalesce(BaseTransformer):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem('input_items'))
+        inputs.append(UIMultiItem('data_items'))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle('output_item'))
+
+        return (inputs,outputs)
+
+class CoalesceDimension(BaseTransformer):
+    """
+    Return first non-null value from a list of data items.
+    """
+    def __init__(self,data_items, output_item = 'output_item'):
+        
+        super().__init__()
+        self.data_items = data_items
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        df[self.output_item] = df[self.data_items].bfill(axis=1).iloc[:, 0]
+        
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem('data_items'))
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle('output_item', tags = ['DIMENSION']))
@@ -511,22 +538,24 @@ class IoTConditionalItems(BaseTransformer):
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['conditional_expression'] = UISingle(name = 'conditional_expression',
-                                              datatype=str,
-                                              description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
-                                              )
-        inputs['conditional_items'] = UIMultiItem(name = 'conditional_items',
-                                              datatype=None,
-                                              description = 'Data items that have conditional values, e.g. temp and pressure'
-                                              )        
+        inputs = []
+        inputs.append(UISingle(
+                name = 'conditional_expression',
+                datatype=str,
+                description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
+                ))
+        inputs.append(UIMultiItem(
+                name = 'conditional_items',
+                datatype=None,
+                description = 'Data items that have conditional values, e.g. temp and pressure'
+                ))
         #define arguments that behave as function outputs
-        outputs = OrderedDict()
-        outputs['output_items'] = UIFunctionOutMulti(name = 'output_items',
+        outputs = []
+        outputs.append(UIFunctionOutMulti(name = 'output_items',
                                                      cardinality_from = 'conditional_items',
                                                      is_datatype_derived = False,
                                                      description='Function output items'
-                                                     )
+                                                     ))
         
         return (inputs,outputs)
     
@@ -1003,7 +1032,8 @@ class IoTEntityFilter(BaseMetadataProvider):
         dummy_items = ['deviceid']
         kwargs = { '_entity_filter_list' : entity_list
                  }
-        super().__init__(dummy_items, output_item = 'is_parameters_set', **kwargs)
+        super().__init__(dummy_items, output_item = output_item, **kwargs)
+        self.entity_list = entity_list
         
     @classmethod
     def build_ui(cls):

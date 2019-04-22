@@ -22,6 +22,8 @@ import datetime as dt
 import numpy as np
 import time
 import sys
+import traceback
+import timer
 from collections import OrderedDict
 
 import ibm_db
@@ -262,24 +264,31 @@ class DataMerge(object):
     
         '''
         if obj is None:
-            raise RuntimeError(('DataMerge is attempting to merge a null'
+            raise MergeError(('DataMerge is attempting to merge a null'
                                 ' object with a dataframe. Object to be '
                                 ' merged must be a dataframe, series,'
                                 ' constant or numpy array. Unable to merge'
                                 ' None'))
+ 
+        existing = 'df'       
         
         if self.df is None:
             self.df = pd.DataFrame()
+            
         if len(self.df.index)>0:
             logger.debug(('Input dataframe has columns %s and index %s'), 
                      list(self.df.columns),
                      self.get_index_names())
+            existing = 'empty df'
+            
         job_constants = list(self.constants.keys())
+        
         if len(job_constants) > 0:
-            logger.debug(('The job also has constant output items %s'), 
+            logger.debug(('The job has constant output items %s'), 
                      [x for x in job_constants])        
+            
         if isinstance(obj, (dict,OrderedDict)):
-            raise TypeError(('Function error.'
+            raise MergeError(('Function error.'
                              ' A failure occured when attempting to merge a'
                              ' dictionary with a dataframe. Convert the dictionary'
                              ' to a dataframe or series and provide appropriate'
@@ -295,27 +304,30 @@ class DataMerge(object):
                                          col_names=col_names,
                                          index=self.df.index)
             except Exception:
-                raise                    
+                raise
             
         if isinstance(obj,(pd.DataFrame,pd.Series)):
             self.merge_dataframe(df=obj,
                                  col_names= col_names,
-                                 force_overwrite=force_overwrite)            
+                                 force_overwrite=force_overwrite)
+          
         else: 
             logger.debug((
                     'Merging dataframe with object of type %s'
                     ),type(obj))             
             self.merge_non_dataframe(obj,col_names = col_names)
+
             
         #test that df has expected columns
-        if not self.df.empty and not set(col_names).issubset(self.get_cols()):
-            raise ValueError( ('Error in auto merge. Resulting df does not '
+        df_cols = self.get_cols()
+        if not self.df.empty and not set(col_names).issubset(df_cols):
+            raise MergeError( ('Error in auto merge. Resulting df does not '
                     ' contain the expected output columns %s that should have'
                     ' been delivered through merge. It has columns %s'
-                    %(col_names, list(self.df.columns))
+                    %(col_names, df_cols)
                     ))
             
-        return self.df
+        return 'existing %s with new %s' %(existing,obj.__class__.__name__)
     
     def merge_dataframe(self,df,col_names,force_overwrite=True):
                 
@@ -475,6 +487,38 @@ class DataMerge(object):
                     ' %s' %(obj,col_names)
                     ))    
             
+
+class DropNull(object):
+    '''
+    System function that drops null data
+    '''
+    
+    is_system_function = True
+    produces_output_items = False
+    requires_input_items = False
+    name = 'drop_null'
+    
+    def __init__(self,exclude_cols=None):
+        
+        if exclude_cols is None:
+            exclude_cols = []
+        self.exclude_cols = exclude_cols
+        
+    def execute(self,df):
+
+        msg = 'columns excluded when dropping null rows %s' %self.exclude_cols
+        logger.debug(msg)
+        subset = [x for x in df.columns if x not in self.exclude_cols]
+        msg = 'columns considered when dropping null rows %s' %subset
+        logger.debug(msg)
+        for col in subset:
+            count = df[col].count()
+            msg = '%s count not null: %s' %(col,count)
+            logger.debug(msg)
+        df = df.dropna(how='all', subset = subset )
+
+        return df        
+        
     
 class DataWriterFile(object):
     '''
@@ -482,6 +526,7 @@ class DataWriterFile(object):
     '''
     
     is_system_function = True
+    requires_input_items = False
     produces_output_items = False
     
     def __init__(self,name,**params):
@@ -510,6 +555,7 @@ class DataReader(object):
     '''
     is_system_function = True
     is_data_source = True
+    requires_input_items = False
     #will be added by job controller
     _projection_list = None
     
@@ -525,7 +571,6 @@ class DataReader(object):
                                  entities=entities,
                                  columns = self._projection_list)
         
-        print ('TBD - Do we need alaising of columns? Data item names are currently derived automatically by pandas from physical columns names')
         
     def get_input_set(self):
         
@@ -533,29 +578,34 @@ class DataReader(object):
         
     def get_output_list(self):
         
-        
-        try:
+        if not self._projection_list is None:
             outputs = self._projection_list
-        except AttributeError:
-            raise AttributeError(
-                    ('The payload is missing a mandatory method'
-                     ' get_data_items_list() returns a list of'
-                     ' data items delivered by the get_data method'
-                     ' of the payload. If the get_data method of the'
-                     ' payload was not supposed to be called, set the'
-                     ' payloads _auto_read_from_ts_table property to False'
-                     ))
-        
-    
-        if len(outputs) == 0:
-            logger.warning(
-                ('The payloads get_data_items_list() methor returned no'
-                 ' data items'
-                 ))               
+            logger.debug(('The get_data() method of the payload will return'
+                          ' data items %s using a projection list set by'
+                          ' the job controller'),outputs)
             
-        logger.debug(('Data items %s will will be automatically'
-                      ' retrieved by the get_data method of the payload'),
-                      outputs)
+        else:                
+            try:
+                outputs = self.obj.get_output_items()
+            except AttributeError:
+                raise StageException(
+                        ('The payload is missing a mandatory method'
+                         ' get_data_items_list() returns a list of'
+                         ' data items delivered by the get_data method'
+                         ' of the payload. If the get_data method of the'
+                         ' payload was not supposed to be called, set the'
+                         ' payloads _auto_read_from_ts_table property to False'
+                         ),self)
+            else:
+                logger.debug(('The payload has candidate'
+              ' data items %s. The DataReader has no projection list'),outputs)
+            
+        if len(outputs) == 0:
+            raise StageException(
+                ('The data reader get_data_items_list() methor returned no'
+                 ' data items'
+                 ),self)               
+            
             
         return outputs
     
@@ -908,7 +958,7 @@ class JobController(object):
     default_is_schedule_progressive = True
     keep_alive_duration = None #'2min'
     recursion_limit = 99
-    save_trace_to_file = False
+    log_save_retries = [1,1,1,5,10,30,60,300]
     # Most of the work performed when executing a job is done by
     # executing the execute method of one or more stages defined in
     # the payload. There are however certain default classes that
@@ -1033,11 +1083,25 @@ class JobController(object):
                                                     granularity = None,
                                                     meta = build_metadata)
         
+        #Add a system function to remove null rows
+        if self.get_payload_param('_drop_all_null_rows',False):
+            drop_null_class = self.get_payload_param('drop_null_class',DropNull)
+            
+            exclude_cols = self.get_payload_param('_system_columns',[])
+            custom_exclude = self.get_payload_param(
+                            '_custom_exclude_col_from_auto_drop_nulls',[])
+            exclude_cols.extend(custom_exclude)
+            null_remover = drop_null_class(
+                    exclude_cols = exclude_cols
+                    )
+            build_metadata['spec'].append(null_remover)  
+        
         # Add transform stages to spec
         build_metadata = self.build_stages_of_type(stage_type= 'transform',
                                                     granularity = None,
                                                     meta = build_metadata)
         
+        # Add a data write to spec
         params = {
             'db_connection' : self.get_payload_param('db',None).connection,
             'schema_name' : self.get_payload_param('_db_schema',None),
@@ -1045,7 +1109,6 @@ class JobController(object):
             'data_item_metadata' : self.get_payload_param('_data_items',None)
             }
         
-        # Add a data write to spec
         data_writer = self.data_writer(name = 'data_writer_input_level_',
                                        **params)
         build_metadata['spec'].append(data_writer)
@@ -1204,26 +1267,31 @@ class JobController(object):
             else:
                 logger.debug('Added stages of type %s: %s', stage_type, 
                              [x.name for x in stages_added])
+                logger.debug('New stages provide data items %s', columns_added)
+                logger.debug('New stages require inputs %s', required_inputs)
             #maintain a set of cols for each data source stage
-            for stage,cols in list(data_source_col_list.items()):
+            for stage,cols in data_source_col_list.items():
                 existing_cols = meta['data_source_projection_list'].get(stage,set())
-                cols |= existing_cols
+                cols = set(cols)
+                cols |= set(existing_cols)
                 meta['data_source_projection_list'][stage] = cols
                 
                 
-        #work out which stages and data items were skipped
+        #log which stages and data items were skipped
         (all_stages,all_cols) = self.get_stages(stage_type=stage_type,
                                                 granularity=granularity,
                                                 available_columns = None,
                                                 exclude_stages = [])
-        logger.debug((
-                'Built stages of type %s. Skipped stages: %s.'
-                ' Data items omitted due to skipped stages: %s. '),
-                stage_type,
-                [x.name for x in set(all_stages)-set(meta['spec'])],
-                set(all_cols)-set(meta['available_columns'])
-                )
-        
+        logger.debug('Built stages of type %s',stage_type)
+        logger.debug('Available columns: %s', meta['available_columns']) 
+        skipped = [x.name for x in set(all_stages)-set(meta['spec'])]
+        for s in skipped:
+            logger.debug('Skipped stage %s',skipped)
+            logger.debug('Skipped data items %s',
+                         self.exec_stage_method(
+                            s,
+                            'get_data_item_list',
+                            'No data items'))
         return meta
     
     def build_trace_name(self,execute_date):
@@ -1305,12 +1373,12 @@ class JobController(object):
         '''
         Call the execute method on the payload object. If the payload has 
         multiple schedules decide which of them should be executed on this run.
-        If data must be processed in chunks, figure out the start and end date
+        If data must be processed in chunks, deteremine the start and end date
         of the chunks and execute each chunk. Adjust the start date of each
         chunk to match a calendar period boundary if the payload indicates that
         this is neccessary.
         '''
-        logger.debug(str(self))
+        
         execute_date = dt.datetime.utcnow()
         if self.keep_alive_duration is not None:
             execute_until = execute_date + freq_to_timedelta(self.keep_alive_duration)
@@ -1324,11 +1392,11 @@ class JobController(object):
 
         EngineLogging.finish_setup_log()
 
-        #process continuously while job until time is up
-        #after time is up, job will be end. An external scheduler can create
+        # process continuously until execute_until date is reached
+        # after time is up, job will be end. An external scheduler will create
         # a new one to replace it.
-        # There will be no code changes or metadata changes recognised
-        # during execution
+        # catlog code changes are recognised during execution
+        
         execution_counter = 0
         constants = {}
         while execute_date <= execute_until:
@@ -1338,36 +1406,46 @@ class JobController(object):
                     'Starting execution number: %s with execution date: %s'),
                     execution_counter, execute_date
                     )
-            # evalute the all candiadate schedules that were indentified when
+            
+            
+            # evalute the all candidate schedules that were indentified when
             # the job controller was initialized. 
             # The resulting dictionary contains a dictionary of status items
             # about each schedule
             try:
                 schedule_metadata = self.evaluate_schedules(execute_date)
             except BaseException as e:
-                msg = 'Error evaluating schedules. Aborting job: %s' %e
-                self.trace_append(msg,self,logger.warning)
                 meta = {'execution_date':execute_date,
                         'previous_execution_date': None,
                         'next_future_execution': None}
-                self.log_failed_start(meta,exception=e,status ='aborted')
-                self.raise_error(exception=e,msg='',stageName='evaluate_schedules')
+                #can't recover from errors evaluating the schedule 
+                self.handle_failed_start(
+                        meta,
+                        exception=e,
+                        stage_name = 'evaluate_schedules',
+                        raise_error = True, #force an error to be raised
+                        **meta
+                        )
                 
+            can_proceed = True
             # look for schedules that were flagged 'is_due'.
             # These will be executed.
+            
             for (schedule,meta) in list(schedule_metadata.items()):
+                
                 if not meta['is_due']:
                     try:
-                        self.log_schedule_non_exec(schedule=schedule,
+                        self.log_schedule_not_due(schedule=schedule,
                                                schedule_metadata = meta)
                     except BaseException as e:
                         logger.warning('Error logging non-execution data: %s',e)
-                else:
+                        
+                    can_proceed = False
+                        
+                if can_proceed:
                     self.log_start(
                        meta,
-                       status='running',
-                       startup_log = EngineLogging.get_setup_log_cos_path(),
-                       execution_log = EngineLogging.get_current_run_log_cos_path())
+                       status='running')
                     try:
                         (preload_stages,cols) = self.get_stages(
                                             stage_type = 'preload',
@@ -1375,31 +1453,49 @@ class JobController(object):
                                             available_columns = set(),
                                             exclude_stages = [])
                     except BaseException as e:
-                        msg = 'Aborted execution. Error getting preload stages: %s' %e
-                        self.trace_append(msg,self,logger.debug)
-                        if self.get_payload_param('_abort_on_fail',False):
-                            self.log_completion(self,meta,status='aborted')
-                            continue
-                        else:
-                            preload_stages = []
-                            cols = []
+                        msg = 'Aborted execution. Error getting preload stages'
+                        self.handle_failed_execution(
+                                meta,
+                                message = msg,
+                                exception = e,
+                                stage_name = 'get_stages("preload")',
+                                raise_error = False
+                                )
+                        #preload stages are considered critical to successful
+                        #execution. If a preload stage is optional, handle the
+                        #error inside the preload stage
+                        can_proceed = False
                         
                     # the output of a preload stage is a boolean column
                     # until we retrieve data, it has nowhere to go, 
                     # for now we will declare it as a constant
-                    can_proceed = True
-                    if len(preload_stages) != 0:
-                        logger.debug('Executing preload stages:')
+                    
+                if can_proceed and len(preload_stages) != 0:
+                    
+                    logger.debug('Executing preload stages:')
+                    try:
                         (df,can_proceed) = self.execute_stages(preload_stages,
                                             start_ts=meta['prev_checkpoint'],
                                             end_ts=execute_date,
                                             df=None)
-                        if not can_proceed:
-                            continue
+                    except BaseException as e:
+                        msg = 'Aborted execution. Error getting preload stages'
+                        can_proceed = self.handle_failed_execution(
+                            meta,
+                            message = msg,
+                            exception = e,
+                            stage_name = 'execute_stages("preload")'        
+                            )
+                        df = None
+                        can_proceed = False
+                        
+                    else:
+                        
                         for c in cols:
                             constants[c] =True
-                        
                         logger.debug('Preload stages complete')
+                        
+                if can_proceed:
                         
                     # build a job specification
                     try:
@@ -1407,11 +1503,17 @@ class JobController(object):
                                 schedule=schedule,
                                 subsumed=meta['mark_complete'])
                     except BaseException as e:
-                        msg = 'Aborted execution. Error building job spec: %s' %e
-                        self.trace_append(msg,self,logger.debug)
-                        self.log_completion(self,meta,status='aborted')
-                        continue                       
+                        self.handle_failed_execution(
+                                meta,
+                                message = 'Failed when building job spec',
+                                exception = e,
+                                raise_error = False,
+                                stage_name = 'build_job_spec)'        
+                                )
+                        can_proceed = False                       
                     
+                    
+                if can_proceed:
                     # divide up the date range to be processed into chunks
                     try:
                         chunks = self.get_chunks(
@@ -1421,67 +1523,107 @@ class JobController(object):
                                     round_min = meta['round_min'],
                                     schedule = schedule)
                     except BaseException as e:
-                        msg = 'Aborted execution. Error identifying chunks: %s' %e
-                        self.trace_append(msg,self,logger.debug)
-                        self.log_completion(self,meta,status='aborted')
-                        continue                         
+                         self.handle_failed_execution(
+                                meta,
+                                message = 'Error identifying chunks',
+                                exception = e,
+                                raise_error = False,
+                                stage_name = 'get_chunks)'        
+                                )
+                         can_proceed = False
+                         chunks = []
+                
                     
-                    for i,(chunk_start,chunk_end) in enumerate(chunks):
-                                
-                        # execute the job spec for each chunk.
-                        # add the constants that were produced by
-                        # the preload stages
+                for i,(chunk_start,chunk_end) in enumerate(chunks):
+                            
+                    # execute the job spec for each chunk.
+                    # add the constants that were produced by
+                    # the preload stages
+                    
+                    if can_proceed:
 
                         kwargs = {'chunk' : i,
                                   'start_date':chunk_start,
                                   'end_date': chunk_end}                                  
 
                         if len(chunks) > 1 :
-                            self.trace_append('Processing in chunks',
-                                          created_by = None,
+                            self.trace_add('Processing in chunks',
                                           log_method = logger.debug,
                                           **kwargs)
                         else: 
-                            self.trace_append('Processing as a single chunk',
-                                          created_by = None,
+                            self.trace_add('Processing as a single chunk',
                                           log_method = logger.debug,
                                           **kwargs)
+                                                
+                        # execute input level stages
                         
-                        if can_proceed:
+                        try:
                             (df,can_proceed) = self.execute_stages(
                                     stages = job_spec['input_level'],
                                     start_ts=chunk_start,
                                     end_ts=chunk_end,
                                     df=None,
-                                    constants = constants)                        
-                            if not can_proceed:
-                                msg = 'Aborted execution. Error executing stages'
-                                self.trace_append(msg,self,logger.debug)
-                                self.log_completion(self,meta,status='aborted')                            
-                                continue
-                            else:
-                                for (grain,stages) in list(job_spec.items()):
-                                    if can_proceed:
-                                        if grain != 'input_level':                             
-                                            (result,can_proceed) = self.execute_stages(
-                                                    stages = stages,
-                                                    start_ts=chunk_start,
-                                                    end_ts=chunk_end,
-                                                    df=df)
-                                            if not can_proceed:
-                                                msg = 'Aborted execution. Error executing stages'
-                                                self.trace_append(msg,self,logger.debug)
-                                                self.log_completion(self,meta,status='aborted')                            
-                                                continue                                    
+                                    constants = constants)
+                        except BaseException as e:
+                             self.handle_failed_execution(
+                                    meta,
+                                    message = 'Error executing stage',
+                                    exception = e,
+                                    raise_error = False
+                                    )
+                             can_proceed = False
+                             
+                                                            
+                    for (grain,stages) in list(job_spec.items()):
+                        
+                        if can_proceed and grain != 'input_level':
+                            
+                                try:
+                                    (result,can_proceed) = self.execute_stages(
+                                            stages = stages,
+                                            start_ts=chunk_start,
+                                            end_ts=chunk_end,
+                                            df=df)
+                                except BaseException as e:
+                                     self.handle_failed_execution(
+                                            meta,
+                                            message = 'Error executing stage',
+                                            exception = e,
+                                            raise_error = False
+                                            )
+                                     can_proceed = False
+                                        
+                
+                #write results of this execution to the log
+                
+                if can_proceed:
+                    status = 'complete'
+                else:
+                    status = 'aborted'
                     
-                    next_execution = self.get_next_future_execution(schedule_metadata)                    
-                    meta['next_future_execution'] = next_execution
+                try:
                     self.log_completion(metadata = meta,
-                                        status = 'complete')
-                    
+                                    status = status)
+                except BaseException as e:
+                    # an error writing to the jo log could invalidate
+                    #future runs. Abort on error.
+                     self.handle_failed_execution(
+                            meta,
+                            message = 'Error writing execution results to log',
+                            exception = e,
+                            raise_error = True
+                            ) 
             
-            #if nothing was processed this round wait until the next 
-            # scheduled execution
+            try:
+                next_execution = self.get_next_future_execution(schedule_metadata)
+            except BaseException as e:
+                raise_error(exception=e,
+                            msg = 'Error getting next future scheduled execution',
+                            stageName = 'get_next_future_execution',
+                            raise_error = True
+                            )
+            meta['next_future_execution'] = next_execution
+            
             # if there is no future execution that fits withing the timeframe
             # of this job, no need to hang around and wait
             
@@ -1519,8 +1661,8 @@ class JobController(object):
         can_proceed = True
         
         for s in stages:
-            
-            #get metadata
+
+            #get stage processing metadata
             new_cols = self.exec_stage_method(s,'get_output_list',None)            
             produces_output_items  = self.get_stage_param(
                                             s,'produces_output_items',True)
@@ -1528,110 +1670,115 @@ class JobController(object):
                                             s,'_discard_prior_on_merge',False)
             
             #build initial trace info
-            tsg = 'Executed stage %s' %s.name
-            tw = {'produces_data_items' : produces_output_items,
+            tw = {'produces_output_items' : produces_output_items,
                   'output_items': new_cols,
-                  'discard_prior_data' : discard_prior_data }
+                  'discard_prior_data' : discard_prior_data }            
             
-            #halt execution if no data 
-            if not self.get_stage_param(s,'_allow_empty_df',True) and (
-                    merge.df is None or len(df.index)==0):
-                can_proceed = False
-                tsg = tsg + (' This function received an empty dataframe as'
-                             ' input. Processing will halt as this function'
-                             ' is configured to only run when there is data'
-                             ' to process')
-                self.trace_append(msg=tsg,created_by=s,
-                              log_method=logger.info,**tw)
-                break
+            ssg = 'completed stage'
             
-            
-            is_error = True
-            msg = ''
-            try:
-                result = self.execute_stage(stage=s,
-                                        df=merge.df,
-                                        start_ts=start_ts,
-                                        end_ts=end_ts)
+            if not can_proceed:
+                ssg = ''
+                self.trace_add(
+                        msg= 'Skipping stage %s' %s.name,
+                        created_by = s,
+                        log_method = logger.debug,
+                        **tw
+                        )
                 
-            except AttributeError as e:
-                msg = tsg + (' The function %s makes a reference to an'
-                       ' object property that does not exist. ') %s.name
-                self.trace_error(exception=e,msg=msg,created_by=s,**tw)
-            except SyntaxError as e:
-                msg = tsg + (' The function %s contains a syntax error.'
-                       ' If the function configuration includes a type-in'
-                       ' expression, make sure that this expression is '
-                       ' correct. ') %s.name
-                self.trace_error(exception=e,msg=msg,created_by=s,**tw)
-            except (ValueError,TypeError) as e:
-                msg = tsg + (' The function %s is operating on data that has an'
-                       ' unexpected value or data type.') %s.name
-                self.trace_error(exception=e,msg=msg,created_by=s,**tw)
-            except KeyError as e:
-                msg = tsg + (' The function %s is refering to a dictionary key or'
-                       ' dataframe column that doesnt exist') %s.name
-                self.trace_error(exception=e,msg=msg,created_by=s,**tw)
-            except NameError as e:
-                msg = tsg + (' The function %s referred to an object that does not'
-                       ' exist. You may be referring to data items in pandas'
-                       ' expressions, ensure that you refer to them by name,'
-                       ' ie: as a quoted string. ') %s.name
-                self.trace_error(exception=e,msg=msg,created_by=s,**tw)
-            except BaseException as e:
-                msg = tsg + (' The function %s failed to execute.') %s.name
-                self.trace_error(exception=e,msg=msg,created_by=s,**tw)
             else:
-                is_error = False
+        
+                self.trace_add(
+                        msg= 'Executing stage %s' %s.name,
+                        created_by = s,
+                        log_method = logger.debug,
+                        **tw
+                        )
                 
-            if is_error:
-                df = merge.df
-                abort = self.get_payload_param('_abort_on_fail',False)
-                if abort:
+                #halt execution if no data 
+                if not self.get_stage_param(s,'_allow_empty_df',True) and (
+                        merge.df is None or len(df.index)==0):
                     can_proceed = False
-                    break
-                else:
-                    new_cols = self.exec_stage_method(s,'get_output_list',None)
-                    for c in new_cols:
-                        df[c] = None
-            else:
-                #combine result with data from prior stages
-                #merge behavior influenced by stage params and cols delivered
-
-                if discard_prior_data:
-                    merge.clear_data()
-                    tsg = tsg + ('Prior data will be replaced by the results'
-                                  ' of the function. Cleared prior data')
+                    ssg = ( ' Unable to execute stage.'
+                            ' Function received an empty dataframe as'
+                            ' input. Processing will halt as this function'
+                            ' is configured to only run when there is data'
+                            ' to process'
+                            )
+                    
+            if can_proceed:
+                #execute stage and handle errors
                 
-                if produces_output_items:
+                try:
+                
+                    result = self.execute_stage(stage=s,
+                                            df=merge.df,
+                                            start_ts=start_ts,
+                                            end_ts=end_ts)
+                except BaseException as e:
+                    
+                    (can_proceed,df) = self.handle_failed_stage(
+                            stage = s,
+                            exception = e,
+                            df = result,
+                            status='aborted',
+                            raise_error = False,
+                            **tw)
+                    
+                    merge.df = df
+                                    
+                    
+            if can_proceed:
+                    
+                #combine result with data from prior stages
+    
+                if discard_prior_data:
+                    tw['merge_result'] = 'replaced prior data'
+                    merge.df = result
+                
+                elif produces_output_items:
                     if new_cols is None or len(new_cols) ==0:
-                        raise AttributeError((
+                        msg = (
                                 ' Function %s did not provide a list of columns produced'
                                 ' when the get_output_list() method was called to'
                                 ' inspect the stage prior to execution. This is a '
                                 ' mandatory method. It should return a list with at '
-                                ' least one data item name. (%s)'  %(s.name, new_cols)
-                                ))
+                                ' least one data item name. (%s).'  %(s.name, new_cols)
+                                )
+                        raise StageException(msg,s.name)
                     
-                    #execute the merge                
-                    merge.execute(obj=result,col_names = new_cols)
-                    
+                    #execute the merge
+                    else:
+                        try:
+                            tw['merge_result'] = merge.execute(
+                                    obj=result,
+                                    col_names = new_cols)
+                        except BaseException as e:
+                            (can_proceed,df) = self.handle_failed_stage(
+                                    exception = e,
+                                    message = 'Merge error',
+                                    stage = s,
+                                    df = df,
+                                    **tw)
+                            merge.df = df
+                            ssg = 'Error during merge'
+                            
                 else:
-                    tsg = tsg + (' Function did not contribute any new data as'
-                                 ' the stage param produces_output_items was'
-                                 ' set to False' )
-                
-                #look for changes in the dataframe since last trace
-                if self.get_payload_param('trace_df_changes',False):
-                    tw['df'] = merge.df
-                    
-                    
-                #Write results of execution to trace
-                self.trace_append(msg=tsg,created_by=s,
-                              log_method=logger.info,**tw)                   
-                df = merge.df
+                    tw['new_data_items_info'] = ('Function is configured not to'
+                                                 ' produce any new data items '
+                                                 ' during execution' )
+             
+            #Write results of execution to trace
+            tw['can_proceed'] = can_proceed
             
-        return df, can_proceed
+            self.trace_update(
+                    msg=ssg,
+                    df = merge.df,
+                    log_method=logger.info,
+                    **tw)                   
+            
+            df = merge.df
+            
+        return (df, can_proceed)
     
     def execute_stage(self,stage,df,start_ts,end_ts):
         
@@ -1642,13 +1789,18 @@ class JobController(object):
         # 3. You get a boolean value. An explict False means halt processing.
         # 4. A boolean True will be treated as an empty dataframe
         
+        # The payload may optionally supply a specific list of 
+        # entities to retrieve data from
+        entities = self.exec_payload_method('get_entity_filter',None)
+        
         # There are two possible signatures for the execute method
         try:
-            result = stage.execute(df=df,start_ts=start_ts,end_ts=end_ts)
+            result = stage.execute(df=df,
+                                   start_ts=start_ts,
+                                   end_ts=end_ts,
+                                   entities = entities)
         except TypeError:
             is_executed = False
-        except BaseException as e:
-            raise e
         else:
             is_executed = True
         
@@ -1656,10 +1808,7 @@ class JobController(object):
         # the type error showing up in the stack trace when there is an
         # error executing
         if not is_executed:
-            try:
-                result = stage.execute(df=df)
-            except BaseException as e:
-                raise e
+            result = stage.execute(df=df)
         
         if isinstance(result,bool) and result:
             result = pd.DataFrame()
@@ -1805,26 +1954,22 @@ class JobController(object):
                                              exclude_stages = prev_stages
                                              )
         for s in candidate_stages:
-            #attach the payload to the stage
-            self.exec_stage_method(s,
-                                   'set_entity_type'
-                                   ,None,
-                                   **{'entity_type':self.payload})
+            #set the schedule
             if self.get_stage_param(s,'schedule',None) is None:
                 self.set_stage_param(s,'schedule',self.default_schedule[0])
+                
         stages = [s for s in candidate_stages if s.schedule in schedules]
         new_cols = set()
         for s in stages:
-            added_cols = set(s._output_list)
-            new_cols |= added_cols
-            required_input_set |= s._input_set
-            #gather metadata and process metadata from stages
-            #metadata providers add properties to the payload
-            payload_params = self.get_stage_param(s,'_metadata_params',None)
-            if payload_params is not None and len(payload_params) != 0:
-                self.set_payload_params(**payload_params)
-                logger.debug('Stage %s added properties to the payload %s',
-                             s.name,payload_params)
+            added_cols = self.exec_stage_method(
+                    stage = s,
+                    method_name = 'get_output_list',
+                    default_output = [])
+            new_cols |= set(added_cols)
+            required_input_set |= self.exec_stage_method(
+                    stage = s,
+                    method_name = 'get_input_set',
+                    default_output = [])
             #data sources have projection lists that the job controller
             # needs to underdstand as later on it will trim projection lists
             # to match data required based on schedule
@@ -2030,10 +2175,13 @@ class JobController(object):
         return out
 
     
-    def log_completion(self,metadata,status='complete',**kw):
+    def log_completion(self,metadata,status='complete',retries=None,**kw):
         '''
         Log job completion
         '''
+        
+        if retries is None:
+            retries = self.log_save_retries
         
         trace = self.get_payload_param('_trace',None)
         if trace is not None:
@@ -2049,33 +2197,204 @@ class JobController(object):
                     **tw
                     )
             trace.save()
+            
+        failed_log_updates = []
                     
         for m in metadata['mark_complete']:
-            self.job_log.update(name = self.name,
-                                schedule = m,
-                                execution_date = metadata['execution_date'],
-                                status = status,
-                                next_execution_date = metadata['next_future_execution']
-                                )
+            wrote_log = False
+            for i in retries:
+                try:
+                    self.job_log.update(name = self.name,
+                                    schedule = m,
+                                    execution_date = metadata['execution_date'],
+                                    status = status,
+                                    next_execution_date = metadata['next_future_execution']
+                                    )
+                except BaseException as e:
+                    logger.warning(('Unable to write completed execution'
+                                    ' status to the log. Will try again in'
+                                    ' %s seconds' %i))
+                    timer.sleep(i)
+                else:
+                    wrote_log = True
+                    break
+                
+            if not wrote_log and status == 'complete':
+                entry = {'schedule':m,
+                         'name':self.name,
+                         'execution_date':metadata['execution_date'],
+                         'status': status,
+                         next_execution_date : metadata['next_future_execution']
+                         }
+                failed_log_updates.append(entry)
+                
+        if failed_log_updates:
+            logger.warning('***********************************************')
+            logger.warning('Error writing completed job to the job log')
+            logger.warning(entry)
+            logger.warning('***********************************************')    
+            raise RuntimeError('Failed to update completion status of job')
+                
             
-    def log_failed_start(self,metadata,exception,status='aborted',
-                         startup_log = None, **kw):
+    def handle_failed_execution(self,
+                            metadata,
+                            exception,
+                            status='aborted',
+                            message = None,
+                            stage_name = None,
+                            startup_log = None,
+                            execution_log = None,
+                            raise_error = None,
+                            **kw):
         '''
-        Log a job that was unable to start
+        Log an execution that failed to complete successfully
+        Reflect in trace.
+        Save the trace and stop autosave.
+        Raise the error
         '''
-        lw = {}
-        lw['execution_date'] = metadata['execution_date']
-        execution_log = self.exec_payload_method('log_save',None,**lw)        
-        tw = { 
-                'next_future_execution' : metadata['next_future_execution']
+        
+        try:
+            stage_name = exception.stageName
+        except AttributeError:
+            pass
+        
+        if stage_name is None:
+            stage_name = self.name
+            
+        if message is None:
+            message = 'Execution failed'
+        if startup_log is None:
+            startup_log = EngineLogging.get_setup_log_cos_path()
+        if execution_log is None:
+            execution_log = EngineLogging.get_current_run_log_cos_path()
+            
+        tw = {  'execution_date' : metadata['execution_date'],
+                'next_future_execution' : metadata['next_future_execution'],
+                'startup_log' : startup_log,
+                'execution_log' : execution_log
             }
-        tw = {**kw,**lw,**tw}
+        tw = {**kw,**tw}
+
         trace = self.get_payload_param('_trace',None)
+        
         if not trace is None:
             self.trace_error(
                 exception = exception,
                 created_by = self,
-                msg = 'Execution failed during startup',
+                msg = message,
+                **tw
+                    )
+            trace.save()
+            trace.stop()
+                    
+        for m in self._schedules:
+            
+            self.job_log.update(
+                    name = self.name,
+                    schedule = m[0],
+                    execution_date = metadata['execution_date'],
+                    status = status,
+                    next_execution_date = metadata['next_future_execution']
+                    )
+            
+        can_proceed = self.raise_error(exception=exception,
+                         msg=message,
+                         stageName=stage_name,
+                         raise_error = raise_error)
+        
+        return can_proceed
+
+    def handle_failed_stage(self,
+                            stage,
+                            exception,
+                            df,
+                            status='aborted',
+                            message = None,
+                            raise_error = None,
+                            **kw):
+        '''
+        Handle the failure of a single stage
+        Reflect in trace.
+        Raise the error if the execution cannot continue
+        Return a tuple containing a bool (can_continue) and a dataframe
+        '''
+
+        err_info = {
+            'AttributeError' : 'The function makes reference to an object property that does not exist',
+            'SyntaxError' : 'The function contains a syntax error. If the function includes a type-in expression, make sure this is correct',
+            'ValueError' : 'The function is operating on a data that has an unexpected value for its data type',
+            'TypeError' : 'The function is operating on a data that has an unexpected data type',
+            'KeyError' : 'The function is refering to a dictionary key or dataframe column name that doesnt exist',
+            'NameError' : 'The function is refering to an object that doesnt exist. If refering to data items in a pandas dataframe, ensure that you quote them, e.g. df["temperature"]',
+        }
+        
+        if message is None:
+            message = 'Execution of stage %s failed. ' %stage.name
+            
+        message = message + err_info.get(exception.__class__.__name__,'')
+    
+        trace = self.get_payload_param('_trace',None)
+        if not trace is None:
+            self.trace_error(
+                exception = exception,
+                created_by = stage,
+                msg = message,
+                **kw
+                )
+            
+        can_proceed = self.raise_error(exception=exception,
+                         msg=message,
+                         stageName=stage.name,
+                         raise_error = raise_error)
+        
+        if can_proceed and kw['produces_output_items'] and isinstance(df,pd.DataFrame):
+            new_cols = kw['output_items']
+            for c in new_cols:
+                df[c] = None
+            if trace is not None:
+                kw['added_null_columns'] = new_cols 
+                trace.update_last_entry(**kw)
+            
+        return (can_proceed,df)
+
+
+    def handle_failed_start(self,metadata,
+                            exception,
+                            status='aborted',
+                            message = None,
+                            stage_name = None,
+                            startup_log = None,
+                            execution_log = None,
+                            **kw):
+        '''
+        Log a job that was unable to start.
+        Reflect in trace.
+        Raise the error
+        '''
+        
+        if stage_name is None:
+            stage_name = self.name
+        if message is None:
+            message = 'Execution failed during startup'
+        if startup_log is None:
+            startup_log = EngineLogging.get_setup_log_cos_path()
+        if execution_log is None:
+            execution_log = EngineLogging.get_current_run_log_cos_path()
+            
+        tw = {  'execution_date' : metadata['execution_date'],
+                'next_future_execution' : metadata['next_future_execution'],
+                'startup_log' : startup_log,
+                'execution_log' : execution_log
+            }
+        tw = {**kw,**tw}
+        
+        trace = self.get_payload_param('_trace',None)
+        
+        if not trace is None:
+            self.trace_error(
+                exception = exception,
+                created_by = self,
+                msg = message,
                 **tw
                     )
             trace_name = trace.name
@@ -2093,11 +2412,15 @@ class JobController(object):
                     next_execution_date =  metadata['next_future_execution'],
                     status = status,
                     startup_log = startup_log,
-                    execution_log = None,
+                    execution_log = execution_log,
                     trace = trace_name)
             
+        self.raise_error(exception=exception,
+                         msg=message,
+                         stageName=stage_name)
+            
         
-    def log_schedule_non_exec(self,schedule,schedule_metadata):
+    def log_schedule_not_due(self,schedule,schedule_metadata):
         '''
         Describe why schedule was skipped
         '''
@@ -2117,12 +2440,17 @@ class JobController(object):
                 
 
     def log_start(self,metadata,
-                  status='complete',
+                  status='running',
                   startup_log = None,
                   execution_log = None):
         '''
         Log the start of a job. Reset the trace.
         '''
+        
+        if startup_log is None:
+            startup_log = EngineLogging.get_setup_log_cos_path()
+        if execution_log is None:
+            execution_log = EngineLogging.get_current_run_log_cos_path()
         
         tm={
             'execution_date' : metadata['execution_date'],
@@ -2137,8 +2465,7 @@ class JobController(object):
         
         if metadata['backtrack'] is None:
             tm['backtrack_info'] = ('The backtrack setting for this execution'
-                                    ' is null. When the backtrack setting is'
-                                    ' null, the job retrieves all available'
+                                    ' is null. The job retrieves all available'
                                     ' data on each execution. To change this'
                                     ' behavior, explicitly set period of time'
                                     ' to backtrack or set the entity constant'
@@ -2210,21 +2537,31 @@ class JobController(object):
                                 trace = trace_name)
                         
             
-    def raise_error(self,exception,msg='',stageName=None):
+    def raise_error(self,exception,msg='',stageName=None, raise_error=None):
         '''
         Raise an exception, Include message and stage name.
         '''
-        msg = 'Execution of job %s failed during stage %s because of %s: %s - %s ' %(
-                self.name,stageName,type(exception).__name__,str(exception),msg)
-        try:
-            tb = sys.exc_info()[2]
-        except TypeError:
+        
+        if raise_error is None:
+            raise_error = self.get_payload_param('abort_on_fail',True)
+        
+        can_proceed = False
+        
+        msg = ('Execution of job failed. %s failed due to %s'
+               ' Error message: %s '
+               ' Stack trace : %s '
+               ' Execution trace : %s'
+               %(stageName,exception.__class__.__name__,msg,traceback.format_exc(),
+                 str(self.get_payload_param('_trace','None provided')))
+               )
+         
+        if raise_error:
             raise StageException(msg, stageName)
-            tb = None
         else:
-            raise StageException(msg, stageName).with_traceback(tb)
+            logger.warning(msg)
+            can_proceed = True
             
-        return tb
+        return can_proceed
                       
     
     def remove_stage(self,job_spec,stage):
@@ -2292,9 +2629,9 @@ class JobController(object):
                           wait_for, next_execution)
             time.sleep(wait_for)
     
-    def trace_append(self,msg,created_by = None, log_method = None, **kwargs):
+    def trace_add(self,msg,created_by = None, log_method = None, **kwargs):
         '''
-        Append to the trace information collected the entity type
+        Add a new trace entry to the payload
         '''
         if created_by is None:
             created_by = self
@@ -2308,7 +2645,7 @@ class JobController(object):
             logger.debug(('Payload has no trace_append() method.'
                           ' Trace will be written to log instead'))
             logger.debug('Trace:%s',msg)
-            raise
+            logger.debug('Payload:%s',kwargs)
 
     def trace_end(self):
         '''
@@ -2325,51 +2662,53 @@ class JobController(object):
                     msg,
                     created_by = None,
                     log_method = logger.warning,
+                    df = None,
                     **kwargs):
         '''
         Log the occurance of an error to the trace
         '''
         if created_by is None:
             created_by = self
-            
-        try:
-            tb = sys.exc_info()[2]
-            tb = str(StageException(exception, created_by.name).with_traceback(tb))
-            print('****',tb)
-            raise
-        except TypeError:
-            tb = None
-            logger.debug('Unable to obtain stack trace for exception')
-            print('*******',tb)
-            raise
         
         error = {
                 'exception_type' : exception.__class__.__name__,
                 'exception': str(exception),
-                'stack_trace' : tb
+                'stack_trace' : traceback.format_exc()
                 }
         
         kwargs = {**error,**kwargs}
         
         trace = self.get_payload_param('_trace',None)
         if trace is None:
-            log_method(('Payload has no trace object. An error occured.'
+            logger.debug(('Payload has no trace object. An error occured.'
                             ' Error will be written to the log instead'))
-            log_method('Trace:%s',msg)
-            log_method('Error:%s',error)            
+            logger.debug('Trace:%s',msg)
+            logger.warning('Error:%s',error)            
         else:
-            try:
-                trace.write(
-                        created_by=created_by,
-                        text = msg,
-                        log_method=log_method,
-                        **kwargs)
-            except AttributeError:
-                log_method(('Payload has no trace_append() method.'
-                          ' Error will be written to log instead'))
-                log_method('Trace:%s',msg)
-                log_method('Error:%s',error)
+            trace.write(
+                    created_by=created_by,
+                    text = msg,
+                    log_method=log_method,
+                    df = df,
+                    **kwargs)
+                
+                
+    def trace_update(self,msg, log_method = None, df = None, **kwargs):
+        '''
+        Update the most recent trace entry
+        '''
         
+        trace = self.get_payload_param('_trace',None)
+        if trace is None:
+            logger.debug('The payload has no trace object. Writing to log')
+            logger.debug('message' ,msg)
+            logger.debug('payload', kwargs)
+        else:
+            trace.update_last_entry(
+                    msg = msg,
+                    log_method = log_method,
+                    df = df,
+                    **kwargs)      
         
 class JobLog(object):
     
@@ -2519,6 +2858,11 @@ class JobLog(object):
         result = self.db.connection.execute(query).first()
         
         return result[0]
+    
+class MergeError(Exception):
+    
+    def __init__(self, msg):
+        super().__init__(msg)
             
     
 class ExpressionExecutor(object):
@@ -2621,7 +2965,7 @@ class CalcPipeline:
                 msg = 'Stage %s :' %p.__class__.__name__
                 status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
                 msg = '%s completed as pre-load. ' %p.__class__.__name__
-                self.trace_append(msg)
+                self.trace_add(msg)
                 if register:
                     p.register(df=None)
                 try:
@@ -2631,7 +2975,7 @@ class CalcPipeline:
                     raise AttributeError (msg)
                 if not status:
                     msg = 'Preload stage %s returned with status of False. Aborting execution. ' %p.__class__.__name__
-                    self.trace_append(msg)
+                    self.trace_add(msg)
                     stages = []
                     break
         self.entity_type._is_preload_complete = True
@@ -2687,7 +3031,7 @@ class CalcPipeline:
                     dropna = dropna,
                     abort_on_fail = True)
                 msg = 'Replaced incoming dataframe with custom data source %s. ' %s.__class__.__name__
-                self.trace_append(msg, df = df)
+                self.trace_add(msg, df = df)
                 
             elif is_data_source and merge_method == 'outer':
                 '''
@@ -2706,7 +3050,7 @@ class CalcPipeline:
         if len(secondary_sources) > 0:
             for s in secondary_sources:
                 msg = 'Processing secondary data source %s. ' %s.__class__.__name__
-                self.trace_append(msg)
+                self.trace_add(msg)
                 df = self._execute_stage(stage=s,
                     df = df,
                     start_ts = start_ts,
@@ -2721,7 +3065,7 @@ class CalcPipeline:
         if not df.empty and len(special_lookup_stages) > 0:                
             for s in special_lookup_stages:
                 msg = 'Processing special lookup stage %s. ' %s.__class__.__name__
-                self.trace_append(msg)
+                self.trace_add(msg)
                 df = self._execute_stage(stage=s,
                     df = df,
                     start_ts = start_ts,
@@ -2760,10 +3104,10 @@ class CalcPipeline:
         if is_initial_transform:
             if not start_ts is None:
                 msg = 'Start timestamp: %s.' % start_ts
-                self.trace_append(msg)
+                self.trace_add(msg)
             if not end_ts is None:
                 msg = 'End timestamp: %s.' % end_ts
-                self.trace_append(msg)                
+                self.trace_add(msg)                
             #process preload stages first if there are any
             (stages,preload_item_names) = self._execute_preload_stages(start_ts = start_ts, end_ts = end_ts, entities = entities,register=register)
             preloaded_item_names.extend(preload_item_names)
@@ -2837,7 +3181,7 @@ class CalcPipeline:
                 self.entity_type.write_unmatched_members(df)
             except Exception as e:
                 msg = 'Error while writing unmatched members to dimension. See log.' 
-                self.trace_append(msg,created_by = self)
+                self.trace_add(msg,created_by = self)
                 raise
                 self.entity_type.raise_error(exception = e,abort_on_fail = False)
             self.mark_initial_transform_complete()
@@ -2860,34 +3204,34 @@ class CalcPipeline:
             pass
         except KeyError as e:
             msg = 'KeyError while conforming index prior to execution of function %s. ' %name
-            self.trace_append(msg,created_by = stage, df = df)
+            self.trace_add(msg,created_by = stage, df = df)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         #there are two signatures for the execute method
         msg = 'Stage %s :' % name
-        self.trace_append(msg=msg,df=df)
+        self.trace_add(msg=msg,df=df)
         try:
             try:
                 newdf = stage.execute(df=df,start_ts=start_ts,end_ts=end_ts,entities=entities)
             except TypeError:
                 newdf = stage.execute(df=df)
         except AttributeError as e:
-            self.trace_append('The function %s makes a reference to an object property that does not exist. ' %name,
+            self.trace_add('The function %s makes a reference to an object property that does not exist. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         except SyntaxError as e:
-            self.trace_append('The function %s contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct. ' %name,
+            self.trace_add('The function %s contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         except (ValueError,TypeError) as e:
-            self.trace_append('The function %s is operating on data that has an unexpected value or data type. ' %name,
+            self.trace_add('The function %s is operating on data that has an unexpected value or data type. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         except NameError as e:
-            self.trace_append('The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' %name,
+            self.trace_add('The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' %name,
                               created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         except BaseException as e:
-            self.trace_append('The function %s failed to execute. ' %name, created_by = stage)
+            self.trace_add('The function %s failed to execute. ' %name, created_by = stage)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         #validate that stage has not violated any pipeline processing rules
         try:
@@ -2909,7 +3253,7 @@ class CalcPipeline:
             newdf.to_csv('debugPipelineOut_%s.csv' %stage.__class__.__name__)
 
         msg = 'Completed stage %s. ' %name
-        self.trace_append(msg,created_by=stage, df = newdf)
+        self.trace_add(msg,created_by=stage, df = newdf)
         return newdf 
 
     def get_custom_calendar(self):
@@ -3022,7 +3366,7 @@ class CalcPipeline:
         
         return self.__class__.__name__
             
-    def trace_append(self,msg,created_by = None, log_method = None, **kwargs):
+    def trace_add(self,msg,created_by = None, log_method = None, **kwargs):
         '''
         Append to the trace information collected the entity type
         '''

@@ -145,7 +145,7 @@ class CosClient:
                                 signed_headers + '\n' +
                                 payload_hash)
 
-        logging.debug('standardized_request=\n%s' % standardized_request)
+        #logging.debug('standardized_request=\n%s' % standardized_request)
 
         # assemble string-to-sign
         hashing_algorithm = 'AWS4-HMAC-SHA256'
@@ -155,7 +155,7 @@ class CosClient:
                credential_scope + '\n' +
                hashlib.sha256(str.encode(standardized_request)).hexdigest())
 
-        logging.debug('string-to-sign=\n%s' % sts)
+        #logging.debug('string-to-sign=\n%s' % sts)
 
         # generate the signature
         signature_key = self._create_signature_key(self._cod_hmac_secret_access_key, datestamp, self._cos_region, 's3')
@@ -163,7 +163,7 @@ class CosClient:
                              (sts).encode('utf-8'),
                              hashlib.sha256).hexdigest()
 
-        logging.debug('signature=\n%s' % signature)
+        #logging.debug('signature=\n%s' % signature)
 
         # assemble all elements into the 'authorization' header
         v4auth_header = (hashing_algorithm + ' ' +
@@ -171,7 +171,7 @@ class CosClient:
                          'SignedHeaders=' + signed_headers + ', ' +
                          'Signature=' + signature)
 
-        logging.debug('v4auth_header=\n%s' % v4auth_header)
+        #logging.debug('v4auth_header=\n%s' % v4auth_header)
 
         # the 'requests' package autmatically adds the required 'host' header
         headers = all_headers.copy()
@@ -184,7 +184,7 @@ class CosClient:
         else:
             request_url = self._cos_endpoint + standardized_resource + '?' + standardized_querystring
 
-        logging.debug('request_url=%s' % request_url)
+        #logging.debug('request_url=%s' % request_url)
 
         if http_method == 'GET':
             resp = requests.get(request_url, headers=headers, timeout=30)
@@ -513,5 +513,8 @@ class StageException(Exception):
     STAGEINFO = 'stageInfo'
     def __init__(self, msg, stageName=None, stageInfo=None):
         super().__init__(msg)
-        setattr(self, StageException.EXTENSION_DICT, {StageException.STAGENAME: stageName, StageException.STAGEINFO: stageInfo})
+        setattr(self,
+                StageException.EXTENSION_DICT,
+                {StageException.STAGENAME: stageName,
+                 StageException.STAGEINFO: stageInfo})
            
