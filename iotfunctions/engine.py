@@ -27,12 +27,10 @@ def run(args):
         logger.info('tenant id = %s, entity type = %s' % (args['tenant_id'], args['entity_type']))
         
         database = db.Database(start_session=True, echo=True, tenant_id=args['tenant_id'])
-        database.execute_job(entity_type_logical_name=args['entity_type'])
-        # kohlmann dblogging.lastupdate(success)
+        database.execute_job(entity_type=args['entity_type'])
          
     except Exception as ex:
         logger.error('The engine stopped execution with the following exception: %s' % str(ex), exc_info=True)
-        # kohlmann dblogging.lastupdate(error)
         return -1
     finally:   
         EngineLogging.finish_setup_log()
