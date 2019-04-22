@@ -135,6 +135,15 @@ class TestBed(EntityType):
                 ref_date=dt.datetime.utcnow(),
                 num_days = 'date_diff_ts_now'
                 ))
+        args.append(bif.IoTExpression(
+                expression = 'df["x1"]+df["x1"]+df["x3"]',
+                output_name = 'x_4_invalid'
+                ))
+        args.append(bif.IoTExpression(
+                expression = 'df["x_1"]+df["x_1"]+df["x_3"]',
+                output_name = 'x_4'
+                ))
+        
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema
               }

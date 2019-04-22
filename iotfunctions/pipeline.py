@@ -2353,7 +2353,7 @@ class JobController(object):
                 df[c] = None
             if trace is not None:
                 kw['added_null_columns'] = new_cols 
-                trace.update_last_entry(**kw)
+                trace.update_last_entry(msg = message ,**kw)
             
         return (can_proceed,df)
 
