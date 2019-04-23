@@ -23,7 +23,6 @@ import numpy as np
 import time
 import sys
 import traceback
-import timer
 from collections import OrderedDict
 
 import ibm_db
@@ -1438,6 +1437,8 @@ class JobController(object):
             
             for (schedule,meta) in list(schedule_metadata.items()):
                 
+                chunks = []
+                
                 if not meta['is_due']:
                     try:
                         self.log_schedule_not_due(schedule=schedule,
@@ -1515,7 +1516,7 @@ class JobController(object):
                                 raise_error = False,
                                 stage_name = 'build_job_spec)'        
                                 )
-                        can_proceed = False                       
+                        can_proceed = False
                     
                     
                 if can_proceed:
@@ -1536,7 +1537,6 @@ class JobController(object):
                                 stage_name = 'get_chunks)'        
                                 )
                          can_proceed = False
-                         chunks = []
                 
                     
                 for i,(chunk_start,chunk_end) in enumerate(chunks):
@@ -2219,7 +2219,7 @@ class JobController(object):
                     logger.warning(('Unable to write completed execution'
                                     ' status to the log. Will try again in'
                                     ' %s seconds' %i))
-                    timer.sleep(i)
+                    time.sleep(i)
                 else:
                     wrote_log = True
                     break
@@ -2229,7 +2229,7 @@ class JobController(object):
                          'name':self.name,
                          'execution_date':metadata['execution_date'],
                          'status': status,
-                         next_execution_date : metadata['next_future_execution']
+                         'next_execution_date' : metadata['next_future_execution']
                          }
                 failed_log_updates.append(entry)
                 

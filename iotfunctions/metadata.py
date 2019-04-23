@@ -571,6 +571,7 @@ class EntityType(object):
                 meta = {**meta,**s['output']}
                 
                 cls = getattr(mod,s['functionName'])
+                
                 try:
                     obj = cls(**meta)
                 except TypeError as e:
