@@ -20,8 +20,8 @@ import gzip
 import pandas as pd
 import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine, Float, func, and_, or_
-from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, Boolean, ForeignKey, create_engine, Float, func, and_, or_ 
+from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR, BOOLEAN, NullType
 from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
@@ -434,12 +434,15 @@ class Database(object):
         '''
         
         data_type = column_object.type
+        
         if isinstance(data_type,DOUBLE) or isinstance(data_type,Float) or isinstance(data_type,Integer):
                 data_type = 'NUMBER'
         elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
             data_type = 'LITERAL'
         elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
             data_type = 'TIMESTAMP'
+        elif isinstance(data_type,BOOLEAN) or isinstance(data_type,NullType) or isinstance(data_type,Boolean):
+            data_type = 'BOOLEAN'            
         else:
             data_type = str(data_type)
             logger.warning('Unknown datatype %s for column %s' %(data_type,column_object.name))

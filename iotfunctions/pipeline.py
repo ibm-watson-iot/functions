@@ -2761,6 +2761,7 @@ class JobLog(object):
                 Column('startup_log',String(255)),
                 Column('execution_log',String(255)),
                 Column('trace',String(2000)),
+                extend_existing = True,
                 **kw
                 )
         
