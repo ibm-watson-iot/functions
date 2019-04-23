@@ -32,6 +32,102 @@ except (ImportError,ModuleNotFoundError):
 else:
     IBMBOTO_INSTALLED = True
     
+    
+def build_grouper(freq,
+                  timestamp,
+                  entity_id=None,
+                  dimensions=None,
+                  custom_calendar_keys=None,
+                  ):
+    '''
+    Build a pandas grouper from columns and frequecy metadata.
+    
+    Parameters
+    -----------
+    
+    freq : str
+    pandas frequency string
+    
+    timestamp: str
+    name of timestamp column to group by
+    
+    entity_id: str
+    column name for the entity_id if entity id is included in group by
+    e.g. device_id
+
+    dimensions: list of strs
+    column names for the dimensions to be included in group by
+    e.g. ['company','city']
+
+    custom_calendar_keys: list of strs
+    column names for the custom calendar keys to be included in group by
+    e.g. ['shift']
+    
+    '''
+    
+    grouper = []
+    
+    if dimensions is None:
+        dimensions = []
+    
+    if entity_id is not None:
+        grouper.append(pd.Grouper(key=entity_id))
+        
+    grouper.append(pd.Grouper(key = timestamp,
+                              freq = freq))
+    for d in dimensions:
+        grouper.append(pd.Grouper(key=d))
+        
+    return grouper    
+
+
+def categorize_args(categories,catch_all,*args):
+    '''
+    Separate objects passed as arguments into a dictionary of categories
+    
+    members of categories are identified by a bool property or by
+    being instances of a class
+    
+    example:
+    
+    categories = [('constant','is_ui_control',None),
+                  ('granularity','is_granularity',None),
+                  ('function','is_function',None),
+                  ('column',None,Column)]
+    '''
+    
+    meta = {}
+    if catch_all is not None:
+        meta[catch_all] = set()
+    logger.debug('categorizing arguments')
+    uncat = set(args)
+    for (group,attr,cls) in categories:
+        meta[group] = set()
+        
+        for a in args:
+            if attr is not None:
+                try:
+                    is_group = getattr(a,attr)
+                except AttributeError:
+                    is_group = False
+            else:
+                is_group = False
+                        
+            if is_group:
+                meta[group].add(a)
+                logger.debug('Added %s to category %s (%s)',a,group,attr)
+                uncat.remove(a)
+            elif cls is not None and isinstance(a,cls):
+                meta[group].add(a)
+                logger.debug('Added %s to category %s (%s)',a,group,cls)
+                uncat.remove(a)
+            
+    for a in uncat:           
+        meta[catch_all].add(a)
+        logger.debug('Added %s to category %s (catch_all)',a,group)
+            
+    return meta
+    
 def compare_dataframes(dfl,dfr,cols=None):
     '''
     Explain the differences between 2 dataframes

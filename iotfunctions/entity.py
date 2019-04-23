@@ -15,9 +15,10 @@ The entity module contains sample entity types
 import logging
 import datetime as dt
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from .metadata import EntityType
+from .metadata import EntityType, Granularity
 from . import bif
 from . import ui
+from . import aggregate as agg
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,6 @@ class Boiler(EntityType):
         args.append(bif.IoTEntityDataGenerator(ids=None))
         args.append(bif.TimestampCol(dummy_items = None, output_item = 'timestamp_col'))
         args.append(bif.DateDifferenceReference(date_1='timestamp_col',ref_date=dt.datetime.utcnow()))
-        
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema
               }
@@ -163,7 +163,18 @@ class TestBed(EntityType):
                 false_expression = 'df["x_2"]',
                 output_item = 'x_1_or_2'
                 ))
-        
+        args.append(Granularity(
+                 name = 'day',
+                 dimensions = [],
+                 timestamp = 'evt_timestamp',
+                 freq = '1D',
+                 entity_name = name,
+                 entity_id = 'deviceid'
+                 )
+                )
+        args.append(agg.Sum(
+                'x_1'
+                ))
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema
               }

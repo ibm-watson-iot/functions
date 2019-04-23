@@ -47,6 +47,7 @@ class BaseFunction(object):
     """
     Base class for AS functions. Do not inherit directly from this class. Inherit from BaseTransformer or BaseAggregator
     """
+    is_function = True
     # _entity_type, An EntityType object will be added to the pipeline 
     # this will give the function access to all of the properties and methods of the entity type
     _entity_type = None 
@@ -172,7 +173,7 @@ class BaseFunction(object):
             (inputs,outputs) = self.build_ui()
         except (AttributeError,NotImplementedError) as e:
             msg = ('Cant get function metadata for %s. Implement the'
-                   ' build_metadata() method.' %(name,str(e)))
+                   ' build_metadata() method. %s' %(name,str(e)))
             raise NotImplementedError (msg)
 
         

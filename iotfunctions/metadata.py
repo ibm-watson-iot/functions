@@ -28,7 +28,7 @@ from ibm_db_sa.base import DOUBLE
 from . import db as db_module
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline, DataReader, DropNull
-from .util import MemoryOptimizer, StageException
+from .util import MemoryOptimizer, StageException, build_grouper, categorize_args
 
 logger = logging.getLogger(__name__)
 
@@ -314,9 +314,24 @@ class EntityType(object):
             self.logical_name = self.name
         self._mandatory_columns = [self._timestamp,self._entity_id]
         
-        (cols,functions,constants) = self.separate_args(args)
+        #separate args into categories
+        categories = [('constant','is_ui_control',None),
+                  ('granularity','is_granularity',None),
+                  ('function','is_function',None),
+                  ('column',None,Column)]
         
-        #create a database table if needed
+        categorized = categorize_args(
+                categories,
+                'functions',
+                *args
+                )
+    
+        cols = list(categorized.get('column',[]))
+        functions = list(categorized.get('function',[]))
+        constants = list(categorized.get('constant',[]))
+        grains = list(categorized.get('grains',[]))
+        
+        #create a database table if needed using cols
         if name is not None and db is not None:            
             try:
                 self.table = self.db.get_table(self.name,self._db_schema)
@@ -341,12 +356,38 @@ class EntityType(object):
                     'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'
                     ))
             
-        #add contants
+        # add granularities
+        for g in grains:
+            logger.debug('Adding granularity %s to entity type',g.name)
+            self._granularies_dict[g.name] = g
+        
+        # attach granularity to function
+        # functions are assumed to be input level (None)
+        # until a grain change is signified by a new 
+        # Granularity object
+        
+        granularity = None
+        for a in args:
+            
+            #if argument is a grain, change the grain
+            # for all functions after this one
+            if a in grains:
+                granularity = a
+            
+            if granularity is None:
+                a.granularity = None
+            #if argument is function, set grain                
+            elif a in functions:
+                a.granularity = granularity.name
+        
+        #add constants
         self.ui_constants = constants
         self.build_ui_constants()
             
         #add functions
         self.build_stage_metadata(*functions)
+        
+        
             
     def add_activity_table(self, name, activities, *args, **kwargs):
         '''
@@ -485,6 +526,8 @@ class EntityType(object):
                     name= g['name'],
                     grouper = grouper,
                     dimensions = dimensions,
+                    entity_name = self.logical_name,
+                    timestamp = self._timestamp,
                     entity_id = entity_id,
                     custom_calendar_keys = custom_calendar_keys,
                     freq = freq,
@@ -493,6 +536,7 @@ class EntityType(object):
             out[g['name']] = granularity
             
         return out
+    
     
     def build_item_metadata(self,table):
         '''
@@ -672,7 +716,7 @@ class EntityType(object):
             fn['execStatus'] = False
             fn['schedule'] = None
             fn['backtrack'] = None
-            fn['granularity'] = None
+            fn['granularity'] = f.granularity
             (fn['input'],fn['output'],fn['outputMeta']) = f.build_arg_metadata()
             fn['inputMeta'] : None
             metadata.append(fn)
@@ -1501,26 +1545,6 @@ class EntityType(object):
                           df = df,
                           **kwargs)
         
-    def separate_args(self,args):
-        '''
-        Separate arguments into columns and functions
-        '''
-        
-        cols = []
-        functions = []
-        constants = []
-        for a in args:
-            if isinstance(a,Column):
-                cols.append(a)
-            else:
-                try:
-                    a.is_ui_control
-                except AttributeError:
-                    functions.append(a)
-                else:
-                    constants.append(a)
-            
-        return (cols,functions,constants)
             
     def set_custom_calendar(self,custom_calendar):
         '''
@@ -1631,22 +1655,54 @@ class Granularity(object):
     
     '''
     
+    is_granularity = True
+    
     def __init__(self,
                  name,
-                 grouper,
                  dimensions,
-                 entity_id,
+                 timestamp,
                  freq,
-                 custom_calendar_keys,
-                 custom_calendar=None):
+                 entity_name,
+                 entity_id = None,
+                 table_name = None,
+                 grouper = None,
+                 custom_calendar_keys = None,
+                 custom_calendar= None,
+                 description = None):
                      
         self.name = name
-        self.grouper = grouper
+        self.entity_name = entity_name
+        self.timestamp = timestamp
+        
+        if table_name is None:
+            table_name = (('dm_%s_%s') %(self.entity_name,self.name)).lower()
+        self.table_name = table_name
+        
+        if dimensions is None:
+            dimensions = []
+        if custom_calendar_keys is None:
+            custom_calendar_keys = []
+        if description is None:
+            description = self.name
+        
         self.dimensions = dimensions
         self.entity_id = entity_id
-        self.custom_calendar_key = custom_calendar_keys
         self.freq = freq
         self.custom_calendar = custom_calendar
+        self.custom_calendar_keys = custom_calendar_keys
+        self.description = description
+        
+        if grouper is None:
+            grouper = build_grouper(
+                freq = self.freq,
+                timestamp = self.timestamp,
+                entity_id = self.entity_id,
+                dimensions = self.dimensions,
+                custom_calendar_keys = self.custom_calendar_keys
+                    )
+        
+        self.grouper = grouper
+
         
     def __str__(self):
         

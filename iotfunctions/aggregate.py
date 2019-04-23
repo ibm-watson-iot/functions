@@ -1,9 +1,8 @@
 import re
 
-from .catalog import CATEGORY_AGGREGATOR
 from iotfunctions.base import BaseAggregator
 
-CATALOG_CATEGORY = CATEGORY_AGGREGATOR
+CATALOG_CATEGORY = 'AGGREGATOR'
 
 
 def _general_aggregator_input():
@@ -52,6 +51,9 @@ def _generate_metadata(cls, metadata):
 
 
 class Aggregator(BaseAggregator):
+    
+    is_function = True
+    
     def __init__(self):
         super().__init__()
 
