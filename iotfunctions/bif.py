@@ -1249,7 +1249,7 @@ class IoTIfThenElse(BaseTransformer):
         return (inputs,outputs)
     
     def get_input_items(self):
-        items = self.get_expression_items(self.conditional_expression, self.true_expression, self.false_expression)
+        items = self.get_expression_items( [self.conditional_expression, self.true_expression, self.false_expression])
         return items    
                 
 class IoTPackageInfo(BaseTransformer):

@@ -143,6 +143,12 @@ class TestBed(EntityType):
                 expression = 'df["x_1"]+df["x_1"]+df["x_3"]',
                 output_name = 'x_4'
                 ))
+        args.append(bif.IoTIfThenElse(
+                conditional_expression = 'df["x_1"]>df["x_2"]',
+                true_expression = 'df["x_1"]',
+                false_expression = 'df["x_2"]',
+                output_item = 'x_1_or_2'
+                ))
         
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema
