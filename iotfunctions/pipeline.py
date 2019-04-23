@@ -1101,12 +1101,16 @@ class JobController(object):
                                                     granularity = None,
                                                     meta = build_metadata)
         
+        data_items_dict = {}
+        for d in self.get_payload_param('_data_items',None):
+            data_items_dict[d['name']] = d
+        
         # Add a data write to spec
         params = {
             'db_connection' : self.get_payload_param('db',None).connection,
             'schema_name' : self.get_payload_param('_db_schema',None),
             'grains_metadata' : self.get_payload_param('_granularities_dict',None),
-            'data_item_metadata' : self.get_payload_param('_data_items',None)
+            'data_item_metadata' : data_items_dict
             }
         
         data_writer = self.data_writer(name = 'data_writer_input_level_',
@@ -1157,7 +1161,8 @@ class JobController(object):
                                                     meta = build_metadata)
             
             # Add a data writer for grain
-            data_writer = DataWriter(name = 'data_writer_ouput_%s' %g.name)
+            data_writer = self.data_writer(name = 'data_writer_ouput_%s' %g.name,
+                                       **params)
             build_metadata['spec'].append(data_writer)         
             
             logger.debug('Completed job spec build for grain: %s', g.name )
@@ -1674,12 +1679,12 @@ class JobController(object):
                   'output_items': new_cols,
                   'discard_prior_data' : discard_prior_data }            
             
-            ssg = 'completed stage'
+            ssg = ' Completed stage.'
             
             if not can_proceed:
                 ssg = ''
                 self.trace_add(
-                        msg= 'Skipping stage %s' %s.name,
+                        msg= 'Skipping stage %s.' %s.name,
                         created_by = s,
                         log_method = logger.debug,
                         **tw
@@ -1688,7 +1693,7 @@ class JobController(object):
             else:
         
                 self.trace_add(
-                        msg= 'Executing stage %s' %s.name,
+                        msg= 'Executing stage %s.' %s.name,
                         created_by = s,
                         log_method = logger.debug,
                         **tw

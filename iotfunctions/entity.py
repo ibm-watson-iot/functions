@@ -17,6 +17,7 @@ import datetime as dt
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .metadata import EntityType
 from . import bif
+from . import ui
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,11 @@ class TestBed(EntityType):
         args.append(Column('x_3',Float()))
         args.append(Column('date_1',DateTime))
         args.append(Column('date_2',DateTime))
+        args.append(ui.UISingle(name='alpha',
+                 description = 'Sample single valued parameter',
+                 datatype= float,
+                 default = 0.3)
+                )
         args.append(bif.IoTShiftCalendar(
                 shift_definition=None,
                 period_start_date = 'shift_start_date',
@@ -139,6 +145,14 @@ class TestBed(EntityType):
                 expression = 'df["x1"]+df["x1"]+df["x3"]',
                 output_name = 'x_4_invalid'
                 ))
+        args.append(bif.IoTExpression(
+                expression = 'df["x_1"]*c["alpha"]',
+                output_name = 'x1_alpha'
+                ))
+        args.append(bif.IoTExpression(
+                expression = 'df["x_1"]*c["not_existing_constant"]',
+                output_name = 'x1_non_existing_constant'
+                ))        
         args.append(bif.IoTExpression(
                 expression = 'df["x_1"]+df["x_1"]+df["x_3"]',
                 output_name = 'x_4'

@@ -240,11 +240,13 @@ class EntityType(object):
     _df_index_entity_id = 'id'
     # when automatically creating a new dimension, use this suffix
     _auto_dim_suffix = '_auto_dim'
+    # constants declared as part of an entity type definition
+    ui_constants = None
     # generator
     _scd_frequency = '2D'
     _activity_frequency = '3D'
     _start_entity_id = 73000 #used to build entity ids
-    _auto_entity_count = 5 #default number of entities to generate data for
+    _auto_entity_count = 5 #default number of entities to generate data fo
 
     # variabes that will be set when loading from the server
     _entity_type_id = None
@@ -312,7 +314,7 @@ class EntityType(object):
             self.logical_name = self.name
         self._mandatory_columns = [self._timestamp,self._entity_id]
         
-        (cols,functions) = self.separate_args(args)
+        (cols,functions,constants) = self.separate_args(args)
         
         #create a database table if needed
         if name is not None and db is not None:            
@@ -338,6 +340,10 @@ class EntityType(object):
             logger.warning((
                     'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'
                     ))
+            
+        #add contants
+        self.ui_constants = constants
+        self.build_ui_constants()
             
         #add functions
         self.build_stage_metadata(*functions)
@@ -395,6 +401,24 @@ class EntityType(object):
     def _add_scd_pipeline_stage(self, scd_lookup):
         
         self._scd_stages.append(scd_lookup)
+        
+    def build_ui_constants(self):
+        '''
+        Build attributes for each ui constants declared with the entity type
+        '''
+        
+        if self.ui_constants is None:
+            logger.debug('No constants declared in entity definition')
+            self.ui_constants = []
+        params = {}
+        for c in self.ui_constants:
+            try:
+                params[c.name] = c.default
+            except AttributeError:
+                logger.warning(('Cannot set value of parameter %s as it does'
+                                ' not have a default value'),c.name)
+        self.set_params(**params)
+                
         
     def build_flat_stage_list(self):
         '''
@@ -1461,6 +1485,7 @@ class EntityType(object):
         logger.debug(msg)
         if publish_kpis:
             self.publish_kpis()
+            self.db.register_constants(self.ui_constants)
         
         return response
     
@@ -1482,13 +1507,19 @@ class EntityType(object):
         
         cols = []
         functions = []
+        constants = []
         for a in args:
             if isinstance(a,Column):
                 cols.append(a)
             else:
-                functions.append(a)
+                try:
+                    a.is_ui_control
+                except AttributeError:
+                    functions.append(a)
+                else:
+                    constants.append(a)
             
-        return (cols,functions)
+        return (cols,functions,constants)
             
     def set_custom_calendar(self,custom_calendar):
         '''
