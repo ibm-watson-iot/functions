@@ -167,7 +167,7 @@ class UISingleItem(BaseUIControl):
         if self.datatype is None:
             datatype = None
         else:
-            datatype = [self.convert_datatype(self.datatype)]
+            datatype = self.convert_datatype(self.datatype)
         
         meta = {
                 'name' : self.name,
@@ -177,7 +177,8 @@ class UISingleItem(BaseUIControl):
                 'description' : self.description,
                 'tags' : self.tags
                 }
-        return meta     
+        
+        return meta
     
 class UIMultiItem(BaseUIControl):
     '''

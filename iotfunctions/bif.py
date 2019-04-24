@@ -1315,6 +1315,52 @@ class IoTPackageInfo(BaseTransformer):
         #define arguments that behave as function outputs
         outputs = []
     
+        return (inputs,outputs)
+    
+class PythonFunctionSingleOutput(BaseTransformer):
+    """
+    Execute a paste in function that returns a single output.
+    """        
+    
+    def __init__(self,function_name,function_code,input_items,
+                 output_item='output_item',
+                 parameters=None):
+        
+        self.function_name = function_name
+        self.function_code = function_code
+        self.input_items = input_items
+        self.output_item = output_item
+        super().__init__()
+        if parameters is None:
+            parameters = {}
+        self.parameters = parameters
+        
+    def execute(self,df):
+        db = self.get_db()
+        rf = function(df,self.parameters)
+        #rf will contain the orginal columns along with a single new output column.
+        return rf
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem('input_items'))
+        inputs.append(UISingle(name = 'function_name',
+                                              datatype=float,
+                                              description = 'Name of function object. Function object must be serialized to COS before you can use it'
+                                              )
+                     )
+        inputs.append(UISingle(name = 'parameters',
+                                              datatype=dict,
+                                              required=False,
+                                              description = 'Parameters required by the function are provides as json.'
+                                              )
+                    )
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle('output_item'))
+
         return (inputs,outputs)    
 
 class IoTRaiseError(BaseTransformer):

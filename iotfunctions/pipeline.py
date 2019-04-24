@@ -2410,7 +2410,10 @@ class JobController(object):
                 **tw
                     )
             trace_name = trace.name
-            trace.save()
+            try:
+                trace.save()
+            except BaseException as e:
+                logger.warning('Error saving trace: %s' %str(e))
             trace.stop()
         else:
             trace_name = None
