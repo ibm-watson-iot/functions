@@ -299,6 +299,8 @@ class EntityType(object):
         self._is_preload_complete = False
         if self._data_items is None:
             self._data_items = []
+        if self._granularities_dict is None:
+            self._granularities_dict = {}
 
         #additional params set from kwargs
         self.set_params(**kwargs)
@@ -329,7 +331,7 @@ class EntityType(object):
         cols = list(categorized.get('column',[]))
         functions = list(categorized.get('function',[]))
         constants = list(categorized.get('constant',[]))
-        grains = list(categorized.get('grains',[]))
+        grains = list(categorized.get('granularity',[]))
         
         #create a database table if needed using cols
         if name is not None and db is not None:            
@@ -358,8 +360,8 @@ class EntityType(object):
             
         # add granularities
         for g in grains:
-            logger.debug('Adding granularity %s to entity type',g.name)
-            self._granularies_dict[g.name] = g
+            logger.debug('Adding granularity to entity type: %s',g.name)
+            self._granularities_dict[g.name] = g
         
         # attach granularity to function
         # functions are assumed to be input level (None)
@@ -379,6 +381,8 @@ class EntityType(object):
             #if argument is function, set grain                
             elif a in functions:
                 a.granularity = granularity.name
+                logger.debug('%s assigned to grain %s',a.name,a.granularity)
+                
         
         #add constants
         self.ui_constants = constants
@@ -796,8 +800,8 @@ class EntityType(object):
         return [ ('preload', 'is_preload'), 
                  ('get_data', 'is_data_source'),
                  ('transform', 'is_transformer'),
-                 ('simple_aggregate', 'is_simple_aggregate'),
-                 ('complex_aggregate', 'is_complex_aggregate'),
+                 ('simple_aggregate', 'is_simple_aggregator'),
+                 ('complex_aggregate', 'is_complex_aggregator'),
                 ]
         
     def df_sort_timestamp(self,df):
@@ -2025,3 +2029,4 @@ class Model(object):
         if out['expiry_date'] is not None:
             out['expiry_date'] = out['expiry_date'].isoformat()
         return json.dumps(out,indent=1)
+    

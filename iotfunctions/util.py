@@ -115,16 +115,13 @@ def categorize_args(categories,catch_all,*args):
                         
             if is_group:
                 meta[group].add(a)
-                logger.debug('Added %s to category %s (%s)',a,group,attr)
                 uncat.remove(a)
             elif cls is not None and isinstance(a,cls):
                 meta[group].add(a)
-                logger.debug('Added %s to category %s (%s)',a,group,cls)
                 uncat.remove(a)
             
     for a in uncat:           
         meta[catch_all].add(a)
-        logger.debug('Added %s to category %s (catch_all)',a,group)
             
     return meta
     

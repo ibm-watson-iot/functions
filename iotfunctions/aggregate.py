@@ -1,6 +1,7 @@
 import re
 
 from iotfunctions.base import BaseAggregator
+from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
 
 CATALOG_CATEGORY = 'AGGREGATOR'
 
@@ -71,6 +72,55 @@ class ComplexAggregator(Aggregator):
 
 class DirectAggregator(Aggregator):
     is_direct_aggregator = True
+    
+
+class AggregateItems(SimpleAggregator):
+    
+    def __init__(self,input_items,aggregation_function,output_items=None):
+            
+        self.input_items = input_items
+        self.aggregation_function = aggregation_function
+        
+        if output_items is None:
+            output_items = ['%s_%s' %(x,aggregation_function) for x in self.input_items]
+        
+        self.output_items = output_items
+        
+    def get_aggregation_method(self):
+        
+        return self.aggregation_function
+        
+    @classmethod
+    def build_ui(cls):
+        
+        inputs = []
+        inputs.append(UIMultiItem(name = 'input_items',
+                                  datatype= None,
+                                  description = ('Choose the data items'
+                                                 ' that you would like to'
+                                                 ' aggregate'),
+                                  output_item = 'output_items',
+                                  is_output_datatype_derived = True
+                                          ))
+        inputs.append(UISingle(name = 'aggregation_function',
+                               description = ('Choose aggregation function'),
+                               values = cls.get_string_aggregates()))
+        
+        return (inputs,[])
+                                  
+    @classmethod
+    def get_string_aggregates(cls):
+        
+        return  [
+                'sum',
+                'count',
+                'min',
+                'max',
+                'mean',
+                'std',
+                'first',
+                'last'
+                ]
 
 
 class Sum(SimpleAggregator):

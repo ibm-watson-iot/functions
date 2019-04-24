@@ -1198,7 +1198,7 @@ class JobController(object):
             logger.debug('Job spec: %s has stages %s',
                          key, [x.name for x in value])
             
-        print('TBD - Add stages for usage stats and write to MessageHub')
+        print('TBD ***** - Add stages for usage stats and write to MessageHub')
             
         return job_spec
     
@@ -1343,7 +1343,14 @@ class JobController(object):
             # the aggregation function is either a string that is understood 
             # by pandas or a method that accepts a series
             # and returns a constant. 
-            aggregation_method = self.get_stage_param(s,'_agg_function',s.execute)
+            aggregation_method = self.exec_stage_method(
+                    s,
+                    'get_aggregation_function',None)
+            if aggregation_method is None:
+                msg = ('Error building aggregation function %s.'
+                       ' An aggregation stages requires a method called'
+                       ' get_aggregation_function()') %(s.name)
+                raise StageException(msg,s.name)
             try:
                 agg_dict[input_items[0]].append(aggregation_method)
             except KeyError:

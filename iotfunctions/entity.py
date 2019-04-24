@@ -142,17 +142,19 @@ class TestBed(EntityType):
                 num_days = 'date_diff_ts_now'
                 ))
         args.append(bif.IoTExpression(
-                expression = 'df["x1"]+df["x1"]+df["x3"]',
-                output_name = 'x_4_invalid'
-                ))
-        args.append(bif.IoTExpression(
                 expression = 'df["x_1"]*c["alpha"]',
                 output_name = 'x1_alpha'
                 ))
+        '''
+        args.append(bif.IoTExpression(
+                expression = 'df["x1"]+df["x1"]+df["x3"]',
+                output_name = 'x_4_invalid'
+                ))        
         args.append(bif.IoTExpression(
                 expression = 'df["x_1"]*c["not_existing_constant"]',
                 output_name = 'x1_non_existing_constant'
                 ))        
+        '''
         args.append(bif.IoTExpression(
                 expression = 'df["x_1"]+df["x_1"]+df["x_3"]',
                 output_name = 'x_4'
@@ -172,9 +174,10 @@ class TestBed(EntityType):
                  entity_id = 'deviceid'
                  )
                 )
-        args.append(agg.Sum(
-                'x_1'
-                ))
+        args.append(agg.AggregateItems(
+                input_items = ['x_1','x_2'],
+                aggregation_function = 'sum',
+                output_items = ['x_1_sum_day','x_2_sum_day']))
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema
               }
