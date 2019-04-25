@@ -518,7 +518,7 @@ class BaseFunction(object):
     def get_input_set(self):
         
         '''
-        Return a set of input items requited by this function. Input items may
+        Return a set of input items required by this function. Input items may
         implicitly infered from the function metadata by the AS job process or
         may be added by the get_input_items() method of a custom function.
         '''

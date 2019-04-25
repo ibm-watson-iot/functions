@@ -22,6 +22,13 @@ from . import aggregate as agg
 
 logger = logging.getLogger(__name__)
 
+SAMPLE_FN_1 = '''
+def f(df,parameters):
+    series = df[parameters["input_items"][0]]
+    out = series*parameters['param_1']
+    return(out)
+'''
+
 
 class EmptyEntityType(EntityType):
     is_entity_type = True
@@ -94,7 +101,7 @@ class TestBed(EntityType):
                 entity_list = ['A01','A02','A03']
                 ))
         args.append(bif.IoTAlertExpression(
-                input_items=['x_1','x_2','x_3'],
+                input_items=['x_1','x_2'],
                 expression = "df['x_1']>3*df['x_2']",
                 alert_name = 'alert_1'
                 ))
@@ -164,6 +171,12 @@ class TestBed(EntityType):
                 true_expression = 'df["x_1"]',
                 false_expression = 'df["x_2"]',
                 output_item = 'x_1_or_2'
+                ))
+        args.append(bif.PythonFunction(
+                function_code = SAMPLE_FN_1,
+                input_items = ['x_1'],
+                parameters = {'param_1': 3},
+                output_item = 'fn_out',
                 ))
         args.append(Granularity(
                  name = 'day',

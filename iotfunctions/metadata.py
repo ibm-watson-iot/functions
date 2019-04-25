@@ -1930,7 +1930,6 @@ class Trace(object)    :
                 # stats
                 data['df_count'] = self.df_count
                 data['df_index'] = list(self.df_index)
-                data['df_columns'] = str(self.df_cols)
                 #look at changes
                 if self.df_count != prev_count:
                     data['df_rowcount_change'] = self.df_count - prev_count
