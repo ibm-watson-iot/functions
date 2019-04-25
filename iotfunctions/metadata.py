@@ -104,7 +104,7 @@ def make_sample_entity(db,schema=None,
                       string_cols = None,
                       drop_existing = True):
     """
-    Get a sample entity to use for testing
+    Get a sample entity to use for testing. Deprecated.
     
     Parameters
     ----------
@@ -123,6 +123,9 @@ def make_sample_entity(db,schema=None,
     string_cols : list
         Name of string columns to add
     """
+    
+    warnings.warn('make_sample_entity() is deprecated. Use the entity module.',
+                      DeprecationWarning)
     
     if float_cols is None:
         float_cols = ['temp', 'grade', 'throttle' ]
@@ -279,7 +282,15 @@ class EntityType(object):
     enable_downcast = False
     
     def __init__ (self,name,db, *args, **kwargs):
-        self.name = name.lower()
+        self.logical_name = name
+        name = name.lower()
+        name = name.replace(' ','_')
+        self.name = name
+        self.description = kwargs.get('description',None)
+        if self.description is None:
+            self.description = ''
+        else:
+            del(kwargs['description'])
         self.activity_tables = {}
         self.scd = {}
         self.db = db
@@ -312,8 +323,7 @@ class EntityType(object):
         if self._db_schema is None:
             logger.warning(('No _db_schema specified in **kwargs. Using'
                              'default database schema.'))
-        if self.logical_name is None:
-            self.logical_name = self.name
+        
         self._mandatory_columns = [self._timestamp,self._entity_id]
         
         #separate args into categories
@@ -339,7 +349,10 @@ class EntityType(object):
                 self.table = self.db.get_table(self.name,self._db_schema)
             except KeyError:
                 if self.auto_create_table:
-                    ts = db_module.TimeSeriesTable(self.name ,self.db, *cols, **kwargs)
+                    ts = db_module.TimeSeriesTable(self.name ,
+                                                   self.db,
+                                                   *cols,
+                                                   **kwargs)
                     self.table = ts.table
                     self.db.create()
                     msg = 'Create table %s' %self.name
@@ -415,6 +428,7 @@ class EntityType(object):
         except KeyError:
             table.create()
         self.activity_tables[name] = table
+        
         
     def add_slowly_changing_dimension(self,property_name,datatype,**kwargs):
         '''
@@ -563,8 +577,6 @@ class EntityType(object):
                 self._data_items.append(item)
                 
         return self._data_items
-
-        
     
     def build_stages(self, function_meta, granularities_dict):
         '''
@@ -1485,6 +1497,7 @@ class EntityType(object):
         table = {}
         table['name'] = self.logical_name
         table['metricTableName'] = self.name
+        table['description'] = self.description
         table['metricTimestampColumn'] = self._timestamp
         for c in self.db.get_column_names(self.table, schema = self._db_schema):
             cols.append((self.table,c,'METRIC'))
