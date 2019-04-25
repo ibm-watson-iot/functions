@@ -57,7 +57,7 @@ class Boiler(EntityType):
         args.append(Column('air_flow_rate',Float()))
         args.append(bif.IoTEntityDataGenerator(ids=None))
         # args.append(bif.TimestampCol(dummy_items = None, output_item = 'timestamp_col'))
-        args.append(bif.DateDifferenceReference(date_1='timestamp_col',ref_date=dt.datetime.utcnow()))
+        args.append(bif.DateDifferenceReference(date_1='evt_timestamp',ref_date=dt.datetime.utcnow()))
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema,
               'description' : description
