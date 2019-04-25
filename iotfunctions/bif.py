@@ -24,6 +24,7 @@ import iotfunctions as iotf
 from .metadata import EntityType
 from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
+from .util import StageException
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -92,6 +93,10 @@ class IoTAlertExpression(BaseEvent):
         df[self.alert_name] = np.where(eval(expr), True, False)
         return df
     
+    def get_input_items(self):
+        items = self.get_expression_items(self.expression)
+        return items    
+    
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
@@ -149,6 +154,7 @@ class IoTAlertOutOfRange(BaseEvent):
             df[self.output_alert_upper] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
             
         return df  
+    
     
     @classmethod
     def build_ui(cls):
@@ -565,8 +571,12 @@ class IoTConditionalItems(BaseTransformer):
 
 class IoTCosFunction(BaseTransformer):
     """
-    Execute a serialized function retrieved from cloud object storage. Function returns a single output.
-    """        
+    Execute a serialized function retrieved from cloud object storage.
+    Function returns a single output.
+    
+    Function is replaced by PythonFunction
+    
+    """
     
     def __init__(self,function_name,input_items,output_item='output_item',parameters=None):
         
@@ -585,6 +595,10 @@ class IoTCosFunction(BaseTransformer):
             parameters = {}
         parameters = {**parameters, **self.__dict__}
         self.parameters = parameters
+        
+        warnings.warn('IoTCosFunction is deprecated. Use PythonFunction.',
+                      DeprecationWarning)
+        
         
     def execute(self,df):
         db = self.get_db()
@@ -1317,16 +1331,32 @@ class IoTPackageInfo(BaseTransformer):
     
         return (inputs,outputs)
     
-class PythonFunctionSingleOutput(BaseTransformer):
+class PythonFunction(BaseTransformer):
     """
-    Execute a paste in function that returns a single output.
-    """        
+    Execute a paste-in function. A paste-in function is python function declaration
+    code block. The function must be called 'custom_function' and accept two inputs:
+    df (a pandas DataFrame) and parameters (a dict that you can use
+    to externalize the configuration of the function).
     
-    def __init__(self,function_name,function_code,input_items,
-                 output_item='output_item',
+    The function can return a DataFrame,Series,NumpyArray or scalar value. 
+    
+    Example:
+    def custom_function(df,parameters)
+        #generate an 2-D array of random numbers
+        #
+        output = np.random.normal(1,0.1,len(df.index))
+        return output
+        
+    PythonFunction is currently experimental.
+    """
+    
+    function_name = 'f'
+    
+    def __init__(self,function_code,
+                 input_items,
+                 output_item,
                  parameters=None):
         
-        self.function_name = function_name
         self.function_code = function_code
         self.input_items = input_items
         self.output_item = output_item
@@ -1336,26 +1366,68 @@ class PythonFunctionSingleOutput(BaseTransformer):
         self.parameters = parameters
         
     def execute(self,df):
-        db = self.get_db()
-        rf = function(df,self.parameters)
-        #rf will contain the orginal columns along with a single new output column.
-        return rf
+        
+        filename = '%s_%s_%s' %(self.function_name,
+                                self._entity_type.name,
+                                self.output_item)
+        
+        #function may have already been serialized to cos
+        
+        if self.function_code == filename:
+            bucket = self.get_bucket_name()
+            fn = self._entity_type.db.cos_load(
+                        filename = filename,
+                        bucket = bucket,
+                        binary = True
+                        )
+            self.parameters['source'] = 'cos'
+            if fn is None:
+                msg = ('Cant locate function %s in cos. Make sure this '
+                       ' function exists in the %s bucket' %(filename,bucket))
+                raise RuntimeError(msg)   
+        
+        else:
+            fn = self._entity_type.db.make_function(
+                    function_name = self.function_name,
+                    function_code = self.function_code
+                    )
+            self.parameters['source'] = 'paste-in code'
+        
+        self.parameters['filename'] = filename,
+        self.parameters['input_items'] = self.input_items
+        self.parameters['output_item'] = self.output_item
+        self.parameters['entity_type'] = self._entity_type
+        self.parameters['db'] = self._entity_type.db
+        self.parameters['c'] = self._entity_type.get_attributes_dict()
+        self.parameters['logger'] = logger
+        self.trace_append(
+                msg = self.function_code,
+                log_method = logger.debug,
+                **self.parameters
+                )
+
+        result = fn(
+                df=df,
+                parameters = self.parameters
+                )
+        
+        return result
     
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMultiItem('input_items'))
-        inputs.append(UISingle(name = 'function_name',
-                                              datatype=float,
-                                              description = 'Name of function object. Function object must be serialized to COS before you can use it'
-                                              )
+        inputs.append(UISingle(name = 'function_code',
+                               datatype=str,
+                               description = 'Paste in your function definition'
+                               )
                      )
         inputs.append(UISingle(name = 'parameters',
-                                              datatype=dict,
-                                              required=False,
-                                              description = 'Parameters required by the function are provides as json.'
-                                              )
+                               datatype=dict,
+                               required=False,
+                               description = 'optional parameters specified in json format'
+                               )
                     )
         #define arguments that behave as function outputs
         outputs = []

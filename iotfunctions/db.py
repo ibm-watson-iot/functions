@@ -841,7 +841,22 @@ class Database(object):
         et = md.EntityType(db=self,**params)
         et.load_entity_type_functions()
         
-        return et        
+        return et
+
+    def make_function(self,function_name, function_code,
+                      filename=None, bucket =None):
+        
+        exec (function_code)
+        
+        fn = locals()[function_name]
+        if filename is not None and bucket is not None:
+            self.cos_save(fn,
+                          filename = filename,
+                          bucket = bucket,
+                          binary = True)
+            
+        return fn
+    
     
     
     def subquery_join(self,left_query,right_query,*args,**kwargs):
