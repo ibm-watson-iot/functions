@@ -401,7 +401,7 @@ class EntityType(object):
             #if argument is function, set grain                
             elif a in functions:
                 a.granularity = granularity.name
-                logger.debug('%s assigned to grain %s',a.name,a.granularity)
+                logger.debug('%s assigned to grain %s',a.__class__.__name__,a.granularity)
                 
         
         #add constants
@@ -629,7 +629,8 @@ class EntityType(object):
                     continue
                 else:
                     logger.debug('Using local function instance %s',
-                                 s.get('name','unknown'))
+                                 obj.__class__.__name__
+                                 )
             else:
                 meta['__module__'] = '%s.%s' %(package,module)
                 meta['__class__'] =  s['functionName']
@@ -664,7 +665,15 @@ class EntityType(object):
             stage_type = self.get_stage_type(obj)
             granularity_name = s.get('granularity',None)
             if granularity_name is not None:
-                granularity = granularities_dict.get(granularity_name,None)
+                granularity = granularities_dict.get(granularity_name,False)
+                if not granularity:
+                    msg = ('Cannot build stage metdata. The granularity metadata'
+                           ' is invalid. Granularity of function is %s. Valid '
+                           ' granularities are %s' %(
+                            granularity_name,
+                            list(granularities_dict.keys())
+                            ))
+                    raise StageException(msg,obj.name)
             else:
                 granularity = None
             try:
@@ -709,14 +718,19 @@ class EntityType(object):
             
             obj._output_list = self.get_stage_output_item_list(
                                 arg_meta = s.get('output',[]))
-            
-        logger.debug('skipping disabled stages: %s . Ignoring outputs: %s' , 
-                     [s['functionName'] for s in disabled],
-                     [s['output'] for s in disabled]
-                     )
-        logger.debug('skipping invalid stages: %s Ignoring outputs: %s' , 
-                     [s['functionName'] for s in invalid],
-                     [s['output'] for s in disabled])
+
+        if len(disabled) > 0 or len(invalid) > 0:
+         self.trace_append(
+                 created_by = obj,
+                 msg = 'Skipping disabled and invalid stages',
+                 log_method = logger.info,
+                 **{
+                         'skipped_disabled_stages': [s['functionName'] for s in disabled],
+                         'skipped_disabled_data_items': [s['output'] for s in disabled],
+                         'skipped_invalid_stages': [s['functionName'] for s in invalid],
+                         'skipped_invalid_data_items': [s['output'] for s in invalid]
+                    }
+                 )           
         
         return stage_metadata
     
@@ -726,6 +740,7 @@ class EntityType(object):
         '''
         metadata = []
         for f in args:
+            
             fn = {}
             try:
                 name = f.name
@@ -744,8 +759,10 @@ class EntityType(object):
             fn['inputMeta'] : None
             metadata.append(fn)
             
-        self._stages = self.build_stages(function_meta = metadata,
-                                         granularities_dict = {})
+        self._stages = self.build_stages(
+                function_meta = metadata,
+                granularities_dict = self._granularities_dict)
+    
         return metadata
     
     def index_df(self,df):

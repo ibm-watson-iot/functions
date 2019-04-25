@@ -1116,6 +1116,28 @@ class JobController(object):
                                        **params)
         build_metadata['spec'].append(data_writer)
         
+        # Look for aggregation stages incorrectly defined at the input level
+        invalid_stages = []
+        invalid_cols = set()
+        for st in self.get_agg_stage_types():
+            (stages,cols) = self.get_stages(
+                    stage_type = st,
+                    available_columns = build_metadata['available_columns'],
+                    granularity = None,
+                    exclude_stages = [])
+            invalid_stages.extend(stages)
+            invalid_cols |= cols
+        if len(invalid_cols) > 0:
+            msg = 'Skipped aggregate stages with no granularity'
+            kw = {'skipped_stages': [x.__class__.__name__ for x in invalid_stages],
+                  'skipped_data_items': list(invalid_cols)}
+            self.trace_add(
+                    msg = msg,
+                    created_by = self,
+                    log_method = logger.warning,
+                    **kw
+                    )
+        
         # build of input level is complete
         job_spec['input_level'] = build_metadata['spec']
         
@@ -1192,6 +1214,7 @@ class JobController(object):
                 required_cols = list(required_cols)
                 self.set_stage_param(stage,'_projection_list',required_cols)
                 self.set_stage_param(stage,'_output_list',required_cols)
+                
         
         logger.debug('Build of job spec is complete.')
         for key,value in list(job_spec.items()):
@@ -1332,7 +1355,7 @@ class JobController(object):
             if len(input_items) != 1:
                 raise ValueError((
                         'A simple aggregator must take a single input item.'
-                        ' %s has items: %s' %s.name,input_items
+                        ' %s has items: %s' %(s.name,input_items)
                         ))
             output_items = s._output_list
             if len(output_items) != 1:
@@ -1520,7 +1543,7 @@ class JobController(object):
                                 meta,
                                 message = 'Failed when building job spec',
                                 exception = e,
-                                raise_error = False,
+                                raise_error = None,
                                 stage_name = 'build_job_spec)'        
                                 )
                         can_proceed = False
@@ -2005,6 +2028,10 @@ class JobController(object):
         
         return stages,new_cols,required_input_set, data_source_projection_list       
 
+    
+    @classmethod
+    def get_agg_stage_types(cls):
+        return (['simple_aggregate','complex_aggregate'])
         
     def get_chunks(self,
                    start_date,
@@ -2558,7 +2585,7 @@ class JobController(object):
         '''
         
         if raise_error is None:
-            raise_error = self.get_payload_param('abort_on_fail',True)
+            raise_error = self.get_payload_param('_abort_on_fail',True)
         
         can_proceed = False
         

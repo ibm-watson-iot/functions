@@ -60,6 +60,7 @@ class Aggregator(BaseAggregator):
 
 
 class SimpleAggregator(Aggregator):
+    
     is_simple_aggregator = True
 
     def __init__(self):
@@ -67,8 +68,8 @@ class SimpleAggregator(Aggregator):
 
 
 class ComplexAggregator(Aggregator):
+    
     is_complex_aggregator = True
-
 
 class DirectAggregator(Aggregator):
     is_direct_aggregator = True
@@ -77,7 +78,9 @@ class DirectAggregator(Aggregator):
 class AggregateItems(SimpleAggregator):
     
     def __init__(self,input_items,aggregation_function,output_items=None):
-            
+        
+        super().__init__()
+        
         self.input_items = input_items
         self.aggregation_function = aggregation_function
         
