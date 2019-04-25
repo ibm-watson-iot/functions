@@ -32,16 +32,19 @@ def f(df,parameters):
 
 class EmptyEntityType(EntityType):
     is_entity_type = True
-    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp'):
+    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
+                 description = ''):
         args = []
         kw = {'_timestamp' : 'evt_timestamp',
-              '_db_schema' : db_schema
+              '_db_schema' : db_schema,
+              'description' : description
               }        
         super().__init__(name,db, *args,**kw)
 
 class Boiler(EntityType):
 
-    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp'):
+    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
+                 description = 'Industrial boiler'):
         args = []
         args.append(Column('company_code',String(50)))
         args.append(Column('temp_set_point',Float()))
@@ -56,14 +59,16 @@ class Boiler(EntityType):
         args.append(bif.TimestampCol(dummy_items = None, output_item = 'timestamp_col'))
         args.append(bif.DateDifferenceReference(date_1='timestamp_col',ref_date=dt.datetime.utcnow()))
         kw = {'_timestamp' : timestamp,
-              '_db_schema' : db_schema
+              '_db_schema' : db_schema,
+              'description' : description
               }
         
         super().__init__(name,db, *args,**kw)
         
 class TestBed(EntityType):
 
-    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp'):
+    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
+                 description = 'Test entity type'):
         args = []
         args.append(Column('str_1',String(50)))
         args.append(Column('str_2',String(50)))
@@ -191,8 +196,10 @@ class TestBed(EntityType):
                 input_items = ['x_1','x_2'],
                 aggregation_function = 'sum',
                 output_items = ['x_1_sum_day','x_2_sum_day']))
+        
         kw = {'_timestamp' : timestamp,
-              '_db_schema' : db_schema
+              '_db_schema' : db_schema,
+              'description' : description
               }
         
         super().__init__(name,db, *args,**kw)        

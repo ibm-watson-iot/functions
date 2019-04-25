@@ -1737,7 +1737,6 @@ class SystemLogTable(BaseTable):
         self.timestamp = Column(self._timestamp,DateTime)
         super().__init__(name,database,self.timestamp,*args, **kw)
         
-                    
 
 class ActivityTable(BaseTable):
     """
@@ -1786,7 +1785,8 @@ class TimeSeriesTable(BaseTable):
     """
     A time series table contains a timestamp and one or more metrics.
     """
-    def __init__ (self,name,database,*args, **kw):        
+    def __init__ (self,name,database,*args, **kw):
+        
         self.set_params(**kw)
         self.id_col = Column(self._entity_id,String(256))
         self.evt_timestamp = Column(self._timestamp,DateTime)
@@ -1796,7 +1796,8 @@ class TimeSeriesTable(BaseTable):
         self.format = Column('format',String(32))
         self.updated_timestamp = Column('updated_utc',DateTime)
         super().__init__(name,database,self.id_col,self.evt_timestamp,
-                 self.device_type, self.logical_interface, self.event_type, self.format, 
+                 self.device_type, self.logical_interface, self.event_type,
+                 self.format, 
                  self.updated_timestamp,
                  *args, **kw)
         
