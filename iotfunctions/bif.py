@@ -1373,6 +1373,8 @@ class PythonFunction(BaseTransformer):
         
         #function may have already been serialized to cos
         
+        kw = {}
+        
         if self.function_code == filename:
             bucket = self.get_bucket_name()
             fn = self._entity_type.db.cos_load(
@@ -1380,7 +1382,7 @@ class PythonFunction(BaseTransformer):
                         bucket = bucket,
                         binary = True
                         )
-            self.parameters['source'] = 'cos'
+            kw['source'] = 'cos'
             if fn is None:
                 msg = ('Cant locate function %s in cos. Make sure this '
                        ' function exists in the %s bucket' %(filename,bucket))
@@ -1391,24 +1393,24 @@ class PythonFunction(BaseTransformer):
                     function_name = self.function_name,
                     function_code = self.function_code
                     )
-            self.parameters['source'] = 'paste-in code'
+            kw['source'] = 'paste-in code'
         
-        self.parameters['filename'] = filename,
-        self.parameters['input_items'] = self.input_items
-        self.parameters['output_item'] = self.output_item
-        self.parameters['entity_type'] = self._entity_type
-        self.parameters['db'] = self._entity_type.db
-        self.parameters['c'] = self._entity_type.get_attributes_dict()
-        self.parameters['logger'] = logger
+        kw['filename'] = filename,
+        kw['input_items'] = self.input_items
+        kw['output_item'] = self.output_item
+        kw['entity_type'] = self._entity_type
+        kw['db'] = self._entity_type.db
+        kw['c'] = self._entity_type.get_attributes_dict()
+        kw['logger'] = logger
         self.trace_append(
                 msg = self.function_code,
                 log_method = logger.debug,
-                **self.parameters
+                **kw
                 )
 
         result = fn(
                 df=df,
-                parameters = self.parameters
+                parameters = {**kw,**self.parameters}
                 )
         
         return result

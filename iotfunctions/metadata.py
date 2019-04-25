@@ -151,7 +151,7 @@ def make_sample_entity(db,schema=None,
         entity.register()
     return entity
 
-def retrieve_entity_type_metadata(**kwargs):
+def retrieve_entity_type_metadata(raise_error = True,**kwargs):
     '''
     Get server metadata for entity type
     '''
@@ -159,7 +159,8 @@ def retrieve_entity_type_metadata(**kwargs):
     # get kpi functions metadata
     meta = db.http_request(object_type = 'engineInput',
                                 object_name = kwargs['logical_name'],
-                                request= 'GET')
+                                request= 'GET',
+                                raise_error = raise_error)
     try:
         meta = json.loads(meta)
     except (TypeError, json.JSONDecodeError):
@@ -168,6 +169,12 @@ def retrieve_entity_type_metadata(**kwargs):
         raise RuntimeError((
                 'API call to server did not retrieve valid entity '
                 ' type properties for %s.' %kwargs['logical_name']))
+    
+    if meta['kpiDeclarations'] is None:
+        meta['kpiDeclarations'] = []
+        logger.warning((
+                'This entity type has no calculated kpis'
+                ))
         
     #cache function catalog metadata in the db object
     function_list = [x['functionName'] for x in meta['kpiDeclarations']] 
@@ -1367,9 +1374,12 @@ class EntityType(object):
                 raise RuntimeError((
                         'API call to server did not retrieve valid entity '
                         ' type properties. No metadata received.'))
-                    
+                
         #build a dictionary of the schedule objects keyed by freq
-        schedules_dict = build_schedules(meta.get('kpiDeclarations',[]))
+        kpis = meta.get('kpiDeclarations',[])
+        if kpis is None:
+            kpis = []
+        schedules_dict = build_schedules(kpis)
         
         #build a dictionary of granularity objects keyed by granularity name
         grains_metadata = self.build_granularities(
@@ -1425,7 +1435,7 @@ class EntityType(object):
             msg = 'Creates dimension table %s' %self._dimension_table_name
             logger.debug(msg)
             
-    def publish_kpis(self):
+    def publish_kpis(self,raise_error = True):
         '''
         Publish the stages assigned to this entity type to the AS Server
         '''   
@@ -1460,7 +1470,8 @@ class EntityType(object):
         response = self.db.http_request(object_type = 'kpiFunctions',
                                         object_name = self.logical_name,
                                         request = 'POST',
-                                        payload = export)    
+                                        payload = export,
+                                        raise_error = raise_error)    
         return response
 
     def raise_error(self,exception,msg='',abort_on_fail=False,stageName=None):
