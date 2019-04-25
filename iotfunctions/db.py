@@ -631,7 +631,7 @@ class Database(object):
         self.url[('kpiFunction','DELETE')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2]) 
         self.url[('kpiFunction','GET')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type])         
         self.url[('kpiFunction','PUT')] = '/'.join([base_url,'kpi','v1',self.tenant_id,'entityType',object_name,object_type,object_name_2])
-        
+
         encoded_payload = json.dumps(payload).encode('utf-8')        
         headers = {
             'Content-Type': "application/json",
@@ -1054,7 +1054,7 @@ class Database(object):
             df = resample(df=df,time_frequency=pandas_aggregate,timestamp=timestamp,dimensions=groupby,agg=agg_dict)
         return df
     
-    def register_constants(self,constants):
+    def register_constants(self,constants, raise_error = True):
         '''
         Register one or more server properties that can be used as entity type 
         properties in the AS UI
@@ -1079,10 +1079,14 @@ class Database(object):
                        'enabled' : True,
                        'value' : default,
                        'metadata': meta})
-        self.http_request(object_type='defaultConstants',object_name=None, request = "POST", payload=payload)
+        self.http_request(object_type='defaultConstants',
+                          object_name=None,
+                          request = "POST",
+                          payload=payload,
+                          raise_error = True)
             
 
-    def register_functions(self,functions,url=None):
+    def register_functions(self,functions,url=None, raise_error = True):
         '''
         Register one or more class for use with AS
         '''
@@ -1134,10 +1138,18 @@ class Database(object):
                 'incremental_update': True if category == 'AGGREGATOR' else None,
                 'tags' : tags
              }            
-            self.http_request(object_type='function',object_name=name, request = "DELETE", payload=payload)
-            self.http_request(object_type='function',object_name=name, request = "PUT", payload=payload)
+            self.http_request(object_type='function',
+                              object_name=name,
+                              request = "DELETE",
+                              payload=payload,
+                              raise_error = False)
+            self.http_request(object_type='function',
+                              object_name=name,
+                              request = "PUT",
+                              payload=payload,
+                              raise_error = raise_error)
 
-    def register_module(self,module,url=None):
+    def register_module(self,module,url=None,raise_error=True):
         '''
         Register all of the functions contained within a python module
         '''
@@ -1145,7 +1157,7 @@ class Database(object):
             if inspect.isclass(cls):
                 if cls.__module__ == module.__name__:
                     try:
-                        self.register_functions(cls)
+                        self.register_functions(cls,raise_error = raise_error)
                     except (AttributeError,NotImplementedError):
                         msg = 'Did not register %s as it is not a registerable function' %name
                         logger.debug(msg)
