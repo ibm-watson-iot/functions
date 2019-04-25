@@ -1817,7 +1817,7 @@ class TimestampCol(BaseTransformer):
     def __init__(self,dummy_items=None,output_item = 'timestamp_col'):
         
         super().__init__()
-        self.dummy_items = None
+        self.dummy_items = dummy_items
         self.output_item = output_item
         
     def execute(self,df):
