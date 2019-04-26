@@ -1585,6 +1585,31 @@ class BaseAggregator(BaseFunction):
     def __init__(self):
         super().__init__()
         
+class BaseSimpleAggregator(BaseAggregator):
+    
+    is_simple_aggregator = True
+
+    def __init__(self):
+        super().__init__()
+        
+    def get_aggregation_method(self):
+        
+        return self.aggregate
+
+    def aggregate(self,x):
+
+        msg = ('Implement the aggregate() method')
+        raise NotImplementedError(msg)
+
+
+class BaseComplexAggregator(BaseAggregator):
+    
+    is_complex_aggregator = True
+    
+    def __init__(self):
+        super().__init__()
+       
+        
 class BaseDatabaseLookup(BaseTransformer):
     """
     Base class for lookup functions.

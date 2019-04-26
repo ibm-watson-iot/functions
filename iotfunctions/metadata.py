@@ -632,6 +632,9 @@ class EntityType(object):
                                  obj.__class__.__name__
                                  )
             else:
+                result = self.redirect_fn_class(s['functionName'],s['input'],s['output'])
+                if result:
+                    (s['function_name'],s['input'],s['output']) = result    
                 meta['__module__'] = '%s.%s' %(package,module)
                 meta['__class__'] =  s['functionName']
                 mod = importlib.import_module('%s.%s' %(package,module))
@@ -1509,6 +1512,10 @@ class EntityType(object):
             logger.warning(msg)
             
         return msg
+    
+    def redirect_fn_class(self,class_name,input_meta,output_meta):
+        
+        return None
 
     def register(self,publish_kpis=False):
         '''

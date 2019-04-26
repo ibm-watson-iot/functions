@@ -1159,9 +1159,10 @@ class JobController(object):
             build_metadata['required_inputs'] |= set(inputs)
             build_metadata['available_colums'] |= set(outputs)
             
-            logger.debug(('Collapsed aggregation stages %s down to a single'),
+            logger.debug(('Collapsed aggregation stages %s down to a single"'),
                          [x.name for x in collapsed_stages]
                           )
+            logger.debug(agg_dict)
             
             # The job controller uses a generic DataAggregator to perform simple 
             # aggregations using an agg_dict and complex aggregators using apply
@@ -1341,8 +1342,8 @@ class JobController(object):
     
         '''
         agg_dict = OrderedDict()
+        o_dict = OrderedDict()
         inputs = set()
-        outputs = []
         all_stages = []
         
         #simple aggregators
@@ -1369,13 +1370,21 @@ class JobController(object):
                 # by pandas or a method that accepts a series
                 # and returns a constant. 
                 
+                output = s._output_list[i]
+                
                 try:
                     agg_dict[item].append(aggregation_method)
                 except KeyError:
                     agg_dict[item] = [aggregation_method]
+                    o_dict[item] = [output]
+                else:
+                    o_dict[item].append(output)
                     
             inputs |= s._input_set
-            outputs.extend(s._output_list)
+            
+        outputs = []
+        for o in o_dict.values():
+            outputs.extend(o)
             
         #complex aggregators
         complex_aggregators,cols = self.get_stages(stage_type='complex_aggregate',
