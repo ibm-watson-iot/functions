@@ -832,6 +832,21 @@ class Database(object):
     
     def load_entity_type(self,logical_name,schema=None,**params):
         
+        '''
+        Build an entity type object using AS server metadata. The logical name
+        is the name shown in the AS UI. Specify a database schema name when the
+        tenant is not using the default schema.
+        
+        Any keyword args that you pass as **parmas will be copied as instance
+        variable onto the entity type. Use these to override the various class
+        variables of the entity type that determine its behavior.
+        
+        Returns
+        -------
+        Entity type object
+        
+        '''
+        
         extras = {}
         extras['_db'] = self
         extras['_schema'] = schema

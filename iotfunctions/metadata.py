@@ -1218,7 +1218,7 @@ class EntityType(object):
                 if o not in df.columns:
                     df[o] = None
             df['logicalinterface_id'] = ''
-            df['devicetype'] = self.name
+            df['devicetype'] = self.logical_name
             df['format'] = ''
             df['updated_utc'] = None
             self.db.write_frame(table_name = self.name, df = df, 
