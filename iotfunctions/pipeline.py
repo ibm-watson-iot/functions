@@ -1143,6 +1143,7 @@ class JobController(object):
         
         # Aggregation
         input_level_items = build_metadata['available_columns']
+        
         for g in self.get_granularities():
             logger.debug('Building job spec for aggregation to grain: %s', g.name)
             build_metadata['spec'] = []
@@ -1339,7 +1340,7 @@ class JobController(object):
         and a set of inputs and list of outputs
     
         '''
-        agg_dict = {}
+        agg_dict = OrderedDict()
         inputs = set()
         outputs = []
         all_stages = []
@@ -1351,35 +1352,30 @@ class JobController(object):
                                          exclude_stages = []) 
         all_stages.extend(stages)
         for s in stages:
-            input_items = list(s._input_set)
-            if len(input_items) != 1:
-                raise ValueError((
-                        'A simple aggregator must take a single input item.'
-                        ' %s has items: %s' %(s.name,input_items)
-                        ))
-            output_items = s._output_list
-            if len(output_items) != 1:
-                raise ValueError((
-                        'A simple aggregator must produce a single output '
-                        ' %s has items: %s' %s.name,output_items))            
-            # aggregation is performed using a the pandas agg function
-            # the aggregation function is either a string that is understood 
-            # by pandas or a method that accepts a series
-            # and returns a constant. 
             aggregation_method = self.exec_stage_method(
-                    s,
-                    'get_aggregation_function',None)
+                                    s,
+                                    'get_aggregation_method',None)
             if aggregation_method is None:
                 msg = ('Error building aggregation function %s.'
                        ' An aggregation stages requires a method called'
-                       ' get_aggregation_function()') %(s.name)
+                       ' get_aggregation_method()') %(s.name)
                 raise StageException(msg,s.name)
-            try:
-                agg_dict[input_items[0]].append(aggregation_method)
-            except KeyError:
-                agg_dict[input_items[0]] = [aggregation_method]
-            inputs.add(input_items[0])
-            outputs.append(output_items[0])
+            
+            input_items = list(s._input_set)
+            for i,item in enumerate(input_items):
+                
+                # aggregation is performed using a the pandas agg function
+                # the aggregation function is either a string that is understood 
+                # by pandas or a method that accepts a series
+                # and returns a constant. 
+                
+                try:
+                    agg_dict[item].append(aggregation_method)
+                except KeyError:
+                    agg_dict[item] = [aggregation_method]
+                    
+            inputs |= s._input_set
+            outputs.extend(s._output_list)
             
         #complex aggregators
         complex_aggregators,cols = self.get_stages(stage_type='complex_aggregate',
@@ -1608,7 +1604,7 @@ class JobController(object):
                                     )
                              can_proceed = False
                              
-                                                            
+                    df = df.reset_index()                                                            
                     for (grain,stages) in list(job_spec.items()):
                         
                         if can_proceed and grain != 'input_level':
@@ -1754,7 +1750,6 @@ class JobController(object):
                     (can_proceed,df) = self.handle_failed_stage(
                             stage = s,
                             exception = e,
-                            df = result,
                             status='aborted',
                             raise_error = False,
                             **tw)
