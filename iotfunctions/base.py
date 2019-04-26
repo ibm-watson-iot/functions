@@ -48,6 +48,7 @@ class BaseFunction(object):
     Base class for AS functions. Do not inherit directly from this class. Inherit from BaseTransformer or BaseAggregator
     """
     is_function = True
+    is_deprecated = False
     # _entity_type, An EntityType object will be added to the pipeline 
     # this will give the function access to all of the properties and methods of the entity type
     _entity_type = None 
