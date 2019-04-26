@@ -721,7 +721,7 @@ class EntityType(object):
 
         if len(disabled) > 0 or len(invalid) > 0:
          self.trace_append(
-                 created_by = obj,
+                 created_by = self,
                  msg = 'Skipping disabled and invalid stages',
                  log_method = logger.info,
                  **{

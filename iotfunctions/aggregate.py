@@ -77,6 +77,11 @@ class DirectAggregator(Aggregator):
 
 class AggregateItems(SimpleAggregator):
     
+    '''
+    Use common aggregation methods to aggregate one or more data items
+    
+    '''
+    
     def __init__(self,input_items,aggregation_function,output_items=None):
         
         super().__init__()
@@ -91,7 +96,12 @@ class AggregateItems(SimpleAggregator):
         
     def get_aggregation_method(self):
         
-        return self.aggregation_function
+        out = self.get_available_methods().get(self.aggregation_function,None)
+        if out is None:
+            raise ValueError('Invalid aggregation function specified: %s'
+                             %self.aggregation_function)
+        
+        return out 
         
     @classmethod
     def build_ui(cls):
@@ -105,25 +115,39 @@ class AggregateItems(SimpleAggregator):
                                   output_item = 'output_items',
                                   is_output_datatype_derived = True
                                           ))
+                                  
+        aggregate_names = list(cls.get_available_methods().keys())
+                                  
         inputs.append(UISingle(name = 'aggregation_function',
-                               description = ('Choose aggregation function'),
-                               values = cls.get_string_aggregates()))
+                               description = 'Choose aggregation function',
+                               values = aggregate_names))
         
         return (inputs,[])
-                                  
+    
     @classmethod
-    def get_string_aggregates(cls):
+    def count_distinct(cls,series):
         
-        return  [
-                'sum',
-                'count',
-                'min',
-                'max',
-                'mean',
-                'std',
-                'first',
-                'last'
-                ]
+        return len(series.dropna().unique())
+                                  
+        
+    @classmethod
+    def get_available_methods(cls):
+        
+        return {
+                'sum' : 'sum',
+                'count' : 'count',
+                'count_distinct' : cls.count_distinct,
+                'min' : 'min',
+                'max' : 'max',
+                'mean' : 'mean',
+                'median' : 'median',
+                'std' : 'std',
+                'var' : 'var',
+                'first': 'first',
+                'last': 'last',
+                'product' : 'product'
+                }
+        
 
 
 class Sum(SimpleAggregator):

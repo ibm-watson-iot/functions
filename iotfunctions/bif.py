@@ -1334,14 +1334,14 @@ class IoTPackageInfo(BaseTransformer):
 class PythonFunction(BaseTransformer):
     """
     Execute a paste-in function. A paste-in function is python function declaration
-    code block. The function must be called 'custom_function' and accept two inputs:
+    code block. The function must be called 'f' and accept two inputs:
     df (a pandas DataFrame) and parameters (a dict that you can use
     to externalize the configuration of the function).
     
     The function can return a DataFrame,Series,NumpyArray or scalar value. 
     
     Example:
-    def custom_function(df,parameters)
+    def f(df,parameters)
         #generate an 2-D array of random numbers
         #
         output = np.random.normal(1,0.1,len(df.index))
