@@ -29,7 +29,6 @@ def f(df,parameters):
     return(out)
 '''
 
-
 class EmptyEntityType(EntityType):
     is_entity_type = True
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
@@ -46,17 +45,54 @@ class Boiler(EntityType):
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
                  description = 'Industrial boiler'):
         args = []
+        #columns
         args.append(Column('company_code',String(50)))
         args.append(Column('temp_set_point',Float()))
-        args.append(Column('temperature',Float()))
         args.append(Column('pressure',Float()))
         args.append(Column('input_flow_rate',Float()))
-        args.append(Column('output_flow_rate',Float()))
-        args.append(Column('discharge_rate',Float()))
         args.append(Column('fuel_flow_rate',Float()))
         args.append(Column('air_flow_rate',Float()))
-        args.append(bif.IoTEntityDataGenerator(ids=None))
-        args.append(bif.TimestampCol(dummy_items = ['pressure'], output_item = 'timestamp_col'))
+        
+        #simulation settings
+        sim = { 
+                'data_item_mean' :{'temp_set_point':200,
+                                   'pressure': 400,
+                                   'input_flow_rate' :10,
+                                   'fuel_flow_rate' : 5,
+                                   'air_flow_rate' : 2
+                                   }
+                }
+        args.append(bif.EntityDataGenerator(ids=None,**sim))
+        # temperature depends on set point
+        args.append(bif.RandomNoise(input_items=['temp_set_point'],
+                                    standard_deviation = 1,
+                                    output_items = ['temperature']))
+        # discharge percent is a uniform random value
+        args.append(bif.RandomUniform(min_value = 0.1,
+                                      max_value = 0.2,
+                                      output_item = 'discharge_perc'))
+        # discharge_rate
+        args.append(bif.PythonExpression(
+                expression = 'df["input_flow_rate"] * df["discharge_perc"]',
+                output_name = 'discharge_flow_rate'
+                ))
+        # output_flow_rate
+        args.append(bif.PythonExpression(
+                expression = 'df["input_flow_rate"] * df["discharge_flow_rate"]',
+                output_name = 'output_flow_rate'
+                ))
+        
+        # roughing out design of entity with fake recommendations
+        args.append(bif.RandomDiscreteNumeric(
+                discrete_values = [0.0001,
+                                   0.0002,
+                                   0.01,
+                                   0.5,
+                                   0.7],
+                probabilities = [0.9,0.05,0.02,0.02,0.01],                                   
+                output_item = 'p_leak'
+                ))        
+        
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema,
               'description' : description
@@ -64,6 +100,89 @@ class Boiler(EntityType):
         
         super().__init__(name,db, *args,**kw)
         
+        self.make_dimension(
+            None,
+            Column('firmware',String(50)),
+            Column('manufacturer',String(50))
+                            )
+        
+class Robot(EntityType):
+    
+    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
+                 description = 'Industrial robot',generate_days = 0):
+        
+        args = []
+        #columns
+        args.append(Column('plant_code',String(50)))
+        args.append(Column('torque',Float()))
+        args.append(Column('load',Float()))
+        
+        #simulation settings
+        sim = { 
+                'freq' : '5min',
+                'scd_frequency' : '90min',
+                'activity_frequency' : '1D',                            
+                'data_item_mean' :{'torque':12,
+                                   'load' : 375,
+                                   },
+                'scds' : { 'operator' : ['Fred K',
+                                         'Mary J',
+                                         'Jane S',
+                                         'Jeff H',
+                                         'Harry L',
+                                         'Steve S']
+                        },
+                'activities' : {
+                        'maintenance' : ['scheduled_maint',
+                                          'unscheduled_maint',
+                                          'firmware_upgrade',
+                                          'testing'],
+                        'setup' : ['normal_setup','reconfiguration'],
+                        }
+                }
+        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        args.append(generator)
+        
+        
+        args.append(bif.RandomDiscreteNumeric(
+                discrete_values = [0,1,2,3,4,5,6,7,8],
+                probabilities = [0.2,0.05,0.05,.2,.3,0.05,0.05,0.05,0.05],
+                output_item = 'completed_movement_count'
+                ))
+        
+        args.append(bif.RandomDiscreteNumeric(
+                discrete_values = [0,1,2,4,5],
+                probabilities = [.8,0.05,0.05,0.05,0.05],
+                output_item = 'abnormal_stop_count'
+                ))        
+        
+        args.append(bif.RandomDiscreteNumeric(
+                discrete_values = [0,3,5,9,12],
+                probabilities = [.9,0.25,0.25,0.25,0.25],
+                output_item = 'safety_stop_count'
+                ))        
+        
+        args.append(bif.RandomUniform(min_value = 0.8,
+                                      max_value = 0.95,
+                                      output_item = 'percent_meeting_target_duration'))        
+        
+        kw = {'_timestamp' : timestamp,
+              '_db_schema' : db_schema,
+              'description' : description
+              }
+        
+        super().__init__(name,db, *args,**kw)
+        
+        self.make_dimension(
+            None,
+            Column('firmware',String(50)),
+            Column('manufacturer',String(50))
+            )
+        
+        if generate_days > 0:
+            start = dt.datetime.utcnow() - dt.timedelta(days = generate_days)
+            generator.execute(df=None,start_ts = start)
+            
 class TestBed(EntityType):
 
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',

@@ -20,16 +20,15 @@ import numpy as np
 import re
 import pandas as pd
 import logging
-import iotfunctions as iotf
-from .metadata import EntityType
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
-from .util import StageException
+from .util import adjust_probabilities
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 
-class IoTActivityDuration(BaseDBActivityMerge):
+class ActivityDuration(BaseDBActivityMerge):
     '''
     Merge data from multiple tables containing activities. An activity table
     must have a deviceid, activity_code, start_date and end_date. The
@@ -967,21 +966,53 @@ class IoTDropNull(BaseMetadataProvider):
         return (inputs,outputs)    
 
 
-class IoTEntityDataGenerator(BasePreload):
+class EntityDataGenerator(BasePreload):
     """
     Automatically load the entity input data table using new generated data.
     Time series columns defined on the entity data table will be populated
     with random data.
+    
+    Optional parameters:
+        
+    freq: pandas frequency string. Time series frequency.
+    scd_frequency: pandas frequency string.  Dimension change frequency.
+    activity_frequency: pandas frequency string. Activity frequency.
+    data_item_mean: dictionary keyed by data item name. Mean value.
+    data_item_sd: dictionary keyed by data item name. Standard deviation.
+    data_item_domain: dictionary keyed by data item name. List of values.
+    
     """
     
     freq = '5min' 
+    scd_frequency = '1D'
+    activity_frequency = '3D'
+    start_entity_id = 73000 #used to build entity ids
+    auto_entity_count = 5 #default number of entities to generate data fo
+    data_item_mean = None
+    data_item_sd = None
+    data_item_domain = None
+    activities = None
+    scds = None
     # ids of entities to generate. Change the value of the range() function to change the number of entities
     
-    def __init__ (self, ids = None, output_item = 'entity_data_generator'):
+    def __init__ (self, ids = None,
+                  output_item = 'entity_data_generator',
+                  **parameters):
         if ids is None:
             ids = self.get_entity_ids()
         super().__init__(dummy_items = [], output_item = output_item)
         self.ids = ids
+        self.set_params(**parameters)
+        if self.data_item_mean is None:
+            self.data_item_mean = {}
+        if self.data_item_sd is None:
+            self.data_item_sd = {}
+        if self.data_item_domain is None:
+            self.data_item_domain = {}
+        if self.activities is None:
+            self.activities = {}
+        if self.scds is None:
+            self.scds = {}
         
     def execute(self,
                  df,
@@ -989,17 +1020,39 @@ class IoTEntityDataGenerator(BasePreload):
                  end_ts= None,
                  entities = None):
         
-        #This sample builds data with the TimeSeriesGenerator.
+        # Define simulation related metadata on the entity type
         
         if entities is None:
             entities = self.ids
             
+        # Add scds
+        for key,values in list(self.scds.items()):
+            self._entity_type.add_slowly_changing_dimension(
+                    key,String())
+            self.data_item_domain[key] = values
+            
+        # Add activities metadata to entity type        
+        for key,codes in list(self.activities.items()):
+            name = '%s_%s' %(self._entity_type.name,key)
+            self._entity_type.add_activity_table(name,codes)
+  
+        # Generate data
+        
         if not start_ts is None:
             seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
         else:
             seconds = pd.to_timedelta(self.freq).total_seconds()
         
-        df = self._entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)
+        df = self._entity_type.generate_data(
+                entities=entities,
+                days=0,
+                seconds = seconds,
+                freq = self.freq,
+                scd_freq = self.scd_frequency,
+                write=True,
+                data_item_mean = self.data_item_mean,
+                data_item_sd = self.data_item_sd,
+                data_item_domain = self.data_item_domain)
         
         kw = {'rows_generated' : len(df.index),
               'start_ts' : start_ts,
@@ -1036,6 +1089,8 @@ class IoTEntityDataGenerator(BasePreload):
         
         return (inputs,outputs)            
 
+        
+
 class IoTEntityFilter(BaseMetadataProvider):
     '''
     Filter data source results on a list of entity ids
@@ -1069,7 +1124,7 @@ class IoTEntityFilter(BaseMetadataProvider):
         return (inputs,outputs) 
     
     
-class IoTExpression(BaseTransformer):
+class PythonExpression(BaseTransformer):
     '''
     Create a new item from an expression involving other items
     '''
@@ -1481,8 +1536,83 @@ class IoTRaiseError(BaseTransformer):
     
         return (inputs,outputs)
     
+class RandomNoise(BaseTransformer):
+    '''
+    Add random noise to one or more data items
+    '''
     
-class IoTRandomNormal(BaseTransformer):
+    def __init__ (self, input_items, standard_deviation, output_items):
+        
+        super().__init__()
+        self.input_items = input_items
+        self.standard_deviation = standard_deviation
+        self.output_items = output_items
+        
+    def execute(self,df):
+        
+        for i,item in enumerate(self.input_items):
+            output = self.output_items[i]
+            df[output] = df[item] + np.random.normal(
+                      0,
+                      self.standard_deviation,
+                      len(df.index)
+                      )
+            
+        return df    
+   
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name = 'standard_deviation',
+                               datatype=float,
+                               description = "Standard deviation of noise")
+                      )
+        inputs.append(UIMultiItem(name = 'input_items',
+                               datatype=str,
+                               description = "Chose data items to add noise to",
+                               output_item = 'output_items',
+                               is_output_datatype_derived = True)
+                      )
+        outputs = []
+    
+        return (inputs,outputs)      
+        
+
+class RandomUniform(BaseTransformer):
+    """
+    Generate a uniformally distributed random number.
+    """
+    
+    def __init__ (self, min_value, max_value, output_item = 'output_item'):
+        
+        super().__init__()
+        self.min_value = min_value
+        self.max_value = max_value
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        df[self.output_item] = np.random.uniform(self.min_value,self.max_value,len(df.index))
+        
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle(name='min_value',datatype=float))
+        inputs.append(UISingle(name='max_value',datatype=float))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                             datatype=float,
+                                             description='Random output'
+                                             ))
+    
+        return (inputs,outputs)  
+    
+class RandomNormal(BaseTransformer):
     """
     Generate a normally distributed random number.
     """
@@ -1552,20 +1682,24 @@ class RandomNull(BaseTransformer):
         return (inputs,outputs)  
 
 
-class IoTRandomChoice(BaseTransformer):
+class RandomChoiceString(BaseTransformer):
     """
-    Generate a random categorical value.
+    Generate random categorical values.
     """
     
-    def __init__ (self, domain_of_values, output_item = 'output_item'):
+    def __init__ (self, domain_of_values, probabilities = None,output_item = 'output_item'):
         
         super().__init__()
         self.domain_of_values = domain_of_values
+        self.probabilities = adjust_probabilities(probabilities)
         self.output_item = output_item
         
     def execute(self,df):
         
-        df[self.output_item] = np.random.choice(self.domain_of_values,len(df.index))
+        df[self.output_item] = np.random.choice(
+                a = self.domain_of_values,
+                p = self.probabilities,
+                size = len(df.index))
         
         return df
     
@@ -1573,7 +1707,10 @@ class IoTRandomChoice(BaseTransformer):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMulti(name='domain_of_values',datatype=str))
+        inputs.append(UIMulti(name='domain_of_values',
+                              datatype=str,
+                              required = False))
+        inputs.append(UIMulti(name='probabilities',datatype=float))
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_item',
@@ -1584,6 +1721,43 @@ class IoTRandomChoice(BaseTransformer):
     
         return (inputs,outputs)   
 
+
+class RandomDiscreteNumeric(BaseTransformer):
+    """
+    Generate random discrete numeric values.
+    """
+    
+    def __init__ (self, discrete_values, probabilities = None,output_item = 'output_item'):
+        
+        super().__init__()
+        self.discrete_values = discrete_values
+        self.probabilities = adjust_probabilities(probabilities)
+        self.output_item = output_item
+        
+    def execute(self,df):
+        
+        df[self.output_item] = np.random.choice(
+                a = self.discrete_values,
+                p = self.probabilities,
+                size = len(df.index))
+        
+        return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMulti(name='discrete_values',datatype=float))
+        inputs.append(UIMulti(name='probabilities',datatype=float,
+                              required = False))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                             datatype=float,
+                                             description='Random output'
+                                             ))
+    
+        return (inputs,outputs)
 
 class IoTSaveCosDataFrame(BaseTransformer):
     """
@@ -1847,9 +2021,37 @@ class TimestampCol(BaseTransformer):
                                            ))     
         
         return (inputs,outputs)
-                    
+
+# Renamed functions
+
+IoTExpression = PythonExpression      
+IoTRandomChoice = RandomChoiceString
+IoTRandonNormal = RandomNormal
+IoTActivityDuration = ActivityDuration
         
+# Deprecated functions
         
+class IoTEntityDataGenerator(BasePreload):
+    """
+    Automatically load the entity input data table using new generated data.
+    Time series columns defined on the entity data table will be populated
+    with random data.
+    """
+    
+    is_deprecated = True
         
-   
+    def __init__ (self, ids = None,
+                  output_item = 'entity_data_generator'):
+        self.ids = ids
+        self.output_item = output_item
+        
+    def get_replacement(self):
+        
+        new = EntityDataGenerator(
+            ids = self.ids,
+            output_item = self.output_item
+                )
+        
+        return new    
+    
     

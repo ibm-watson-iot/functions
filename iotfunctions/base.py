@@ -54,6 +54,8 @@ class BaseFunction(object):
     _entity_type = None 
     # metadata data parameters are instance variables to be added to the entity type
     _metadata_params = None
+    # default granularity at which function operates. None implies no aggregation.
+    granularity = None
     #function registration metadata 
     name = None # name of function
     description =  None # description of function shows as help text

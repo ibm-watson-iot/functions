@@ -75,6 +75,8 @@ class CategoricalGenerator(object):
         
         if self.name in ['company','company_id','company_code']:
             return ['ABC','ACME','JDI']
+        if self.name in ['plant','plant_id','plant_code']:
+            return ['Zhongshun','Holtsburg','Midway']                
         elif self.name in ['country','country_id','country_code']:
             return ['US','CA','UK','DE']
         elif self.name in ['firmware','firmware_version']:
@@ -191,7 +193,8 @@ class TimeSeriesGenerator(object):
                       noise = 0.1 ,
                       day_harmonic = 0.2,
                       day_of_week_harmonic = 0.2,
-                      timestamp = None
+                      timestamp = None,
+                      domains = None,
                       ):
         
         if timestamp is not None:
@@ -221,8 +224,8 @@ class TimeSeriesGenerator(object):
         self.seconds = seconds
         self.freq = freq
         #optionally scale using dict keyed on metric name
-        self.mean = {}
-        self.sd = {}
+        self.data_item_mean = {}
+        self.data_item_sd = {}
         
         self.increase_per_day = increase_per_day
         self.noise = noise
@@ -231,7 +234,9 @@ class TimeSeriesGenerator(object):
         
         #domain is a dictionary of lists keyed on categorical item names
         #the list contains that values of the categoricals 
-        self.domain = {}
+        if domains is None:
+            domains = {}
+        self.domain = domains
  
         
     def get_data(self,start_ts=None,end_ts=None,entities=None):
@@ -258,14 +263,14 @@ class TimeSeriesGenerator(object):
         
         for m in y_cols:
             try:
-                df[m] = df[m] * self.sd[m]
+                df[m] = df[m] * self.data_item_sd[m]
             except KeyError:
                 pass            
             df[m] = df[m] + days_from_ref * self.increase_per_day
             df[m] = df[m] + np.sin(day*4*math.pi/364.25) * self.day_harmonic
             df[m] = df[m] + np.sin(day_of_week*2*math.pi/6) * self.day_of_week_harmonic
             try:
-                df[m] = df[m] + self.mean[m]
+                df[m] = df[m] + self.data_item_mean[m]
             except KeyError:
                 pass
             
@@ -296,19 +301,27 @@ class TimeSeriesGenerator(object):
         '''
         Set the mean value of generated numeric item
         '''        
-        self.mean[metric] = mean
+        self.data_item_mean[metric] = mean
         
     def set_sd(self,metric,sd):
         '''
         Set the standard deviation of a generated numeric item
         '''                
-        self.sd[metric] = sd
+        self.data_item_sd[metric] = sd
         
     def set_domain(self,item_name,values):
         '''
         Set the values for a generated categorical item
         '''
         self.domain[item_name] = values
+        
+    def set_params(self, **params):
+        '''
+        Set parameters based using supplied dictionary
+        '''
+        for key,value in list(params.items()):
+            setattr(self, key, value)
+        return self        
     
 
 

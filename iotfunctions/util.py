@@ -33,6 +33,25 @@ else:
     IBMBOTO_INSTALLED = True
     
     
+def adjust_probabilities(p_list):
+    
+    '''
+    Adjust a list of probabilties to ensure that they sum to 1
+    '''
+    
+    if p_list is None or len(p_list) == 0:
+        out = None
+    else:
+        total = sum(p_list)
+        if total == 1:
+            out = p_list
+        elif total == 0:
+            raise ValueError('Probabilities may not sum to zero')
+        else:
+            out = [x/total for x in p_list]
+            
+    return out
+    
 def build_grouper(freq,
                   timestamp,
                   entity_id=None,

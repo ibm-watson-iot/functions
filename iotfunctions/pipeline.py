@@ -1759,11 +1759,12 @@ class JobController(object):
                     (can_proceed,df) = self.handle_failed_stage(
                             stage = s,
                             exception = e,
+                            df = df,
                             status='aborted',
                             raise_error = False,
                             **tw)
                     
-                    merge.df = df
+                    result = df
                                     
                     
             if can_proceed:
@@ -2356,9 +2357,10 @@ class JobController(object):
                             raise_error = None,
                             **kw):
         '''
-        Handle the failure of a single stage
-        Reflect in trace.
-        Raise the error if the execution cannot continue
+        Reflect failure in trace.
+        Add null columns to the dataframe to represent function output
+        Decide whether execution of the next stage can go ahead
+        Decide whether exception should be raised
         Return a tuple containing a bool (can_continue) and a dataframe
         '''
 

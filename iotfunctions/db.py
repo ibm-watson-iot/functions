@@ -1114,6 +1114,14 @@ class Database(object):
                 name = f.__name__
             else:
                 name = f.__class__.__name__
+                
+            try:
+                is_deprecated = f.is_deprecated
+            except AttributeError:
+                is_deprecated = False
+            if is_deprecated:
+                logger.warning('Registering deprecated function %s', name)
+            
             module = f.__module__
             if module == '__main__':
                 raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
@@ -1170,7 +1178,11 @@ class Database(object):
         '''
         for name, cls in inspect.getmembers(module):
             if inspect.isclass(cls):
-                if cls.__module__ == module.__name__:
+                try:
+                    is_deprecated = cls.is_deprecated
+                except AttributeError:
+                    is_deprecated = False
+                if not is_deprecated and cls.__module__ == module.__name__:
                     try:
                         self.register_functions(cls,raise_error = raise_error)
                     except (AttributeError,NotImplementedError):

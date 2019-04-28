@@ -253,10 +253,10 @@ class EntityType(object):
     # constants declared as part of an entity type definition
     ui_constants = None
     # generator
-    _scd_frequency = '2D'
-    _activity_frequency = '3D'
-    _start_entity_id = 73000 #used to build entity ids
-    _auto_entity_count = 5 #default number of entities to generate data fo
+    _scd_frequency = '2D' #deprecated. Use parameters on EntityDataGenerator
+    _activity_frequency = '3D' #deprecated. Use parameters on EntityDataGenerator
+    _start_entity_id = 73000 #deprecated. Use parameters on EntityDataGenerator
+    _auto_entity_count = 5 #deprecated. Use parameters on EntityDataGenerator
 
     # variabes that will be set when loading from the server
     _entity_type_id = None
@@ -318,8 +318,8 @@ class EntityType(object):
         if self._data_items is None:
             self._data_items = []
         if self._granularities_dict is None:
-            self._granularities_dict = {}
-
+            self._granularities_dict = {}           
+            
         #additional params set from kwargs
         self.set_params(**kwargs)
         
@@ -598,7 +598,7 @@ class EntityType(object):
         disabled = []
         invalid = []
         
-        # Execute the payload's get data method using the data_reader
+        # Add a data_reader stage. This will read entity data.
         if self._auto_read_from_ts_table:
             auto_reader = self._data_reader(name='read_entity_data',
                                            obj = self)
@@ -613,14 +613,18 @@ class EntityType(object):
                           ' payload does not have _auto_read_from_ts_table'
                           ' set to True'))
         
+        # Look at the supplied metadata. Build a stage for each function.
         for s in function_meta:
             if not s.get('enabled', False):
               disabled.append(s)              
               continue
             meta = {}
+            #look for function in the catalog
             try:
                 (package,module) = self.db.get_catalog_module(s['functionName'])
             except KeyError:
+                # Can't build an instance of this function, but can use
+                # an existing instance if there is one on the metadata
                 obj = s.get('object_instance',None)
                 if obj is None:
                     msg = 'Function %s not found in the catalog metadata' %s['functionName']
@@ -632,15 +636,14 @@ class EntityType(object):
                                  obj.__class__.__name__
                                  )
             else:
-                result = self.redirect_fn_class(s['functionName'],s['input'],s['output'])
-                if result:
-                    (s['function_name'],s['input'],s['output']) = result    
+                
+                # Build a new object using metadata supplied
+                
                 meta['__module__'] = '%s.%s' %(package,module)
                 meta['__class__'] =  s['functionName']
                 mod = importlib.import_module('%s.%s' %(package,module))
                 meta = {**meta,**s['input']}
                 meta = {**meta,**s['output']}
-                
                 cls = getattr(mod,s['functionName'])
                 
                 try:
@@ -654,6 +657,9 @@ class EntityType(object):
                                  )
                     invalid.append(s)
                     continue
+            
+            # replace deprecated function
+            obj = self.get_replacement(obj)
 
             #add metadata to stage
             try:
@@ -743,7 +749,8 @@ class EntityType(object):
         '''
         metadata = []
         for f in args:
-            
+            # if function is deprecated it may have a replacement
+            f = self.get_replacement(f)
             fn = {}
             try:
                 name = f.name
@@ -1069,9 +1076,14 @@ class EntityType(object):
         last = last.to_dict('records')[0]
         return last
     
-    def get_param(self,param):
+    def get_param(self,param,default=None):
         
-        return getattr(self, param)
+        try:
+            out = getattr(self, param)
+        except AttributeError:
+            out = default
+
+        return 
 
     def get_end_ts_override(self):
         if self._end_ts_override is not None:
@@ -1164,8 +1176,36 @@ class EntityType(object):
         return None
         
     
+    def get_replacement(self,obj):
+        '''
+        Get replacement for deprecated function
+        ''' 
+        try:
+            is_deprecated = obj.is_deprecated
+        except AttributeError:
+            is_deprecated = False
+            
+        if is_deprecated:
+            try:
+                obj = obj.get_replacement()
+            except AttributeError:
+                msg = ('Skipped deprecated function. The function'
+                       ' %s has no designated replacement. Provide a'
+                       ' replacement by implementing the get_replacement()'
+                       ' method or rework entity type to remove the reference'
+                       ' to the deprecated function' %obj.__class__.__name__)
+                raise StageException(msg,obj.__class__.__name__)
+            else:
+                logger.debug('Entity Type has a reference to a deprecated'
+                             ' function. This function was automatically'
+                             ' replaced by %s',
+                             obj.__class__.__name__)
+        return obj
+    
     def generate_data(self, entities = None, days=0, seconds = 300, 
-                      freq = '1min', write=True, drop_existing = False):
+                      freq = '1min', scd_freq = '1D', write=True, drop_existing = False,
+                      data_item_mean = None, data_item_sd = None,
+                      data_item_domain = None):
         '''
         Generate random time series data for entities
         
@@ -1181,6 +1221,14 @@ class EntityType(object):
             Pandas frequency string - interval of time between subsequent rows of data
         write: bool
             write generated data back to table with same name as entity
+        drop_existing: bool
+            drop existing time series, dimension, activity and scd table
+        data_item_mean: dict
+            mean values for generated data items. dict is keyed on data item name
+        data_item_sd: dict
+            std values for generated data items. dict is keyed on data item name
+        data_item_domain: dict
+            domains of values for categorical data items. dict is keyed on data item name            
         
         '''
         if entities is None:
@@ -1189,6 +1237,13 @@ class EntityType(object):
         categoricals = []
         dates = []
         others = []
+        
+        if data_item_mean is None:
+            data_item_mean = {}
+        if data_item_sd is None:
+            data_item_sd = {}
+        if data_item_domain is None:
+            data_item_domain = {}            
 
         if drop_existing:
             self.db.drop_table(self.name, schema = self._db_schema)
@@ -1210,7 +1265,11 @@ class EntityType(object):
         ts = TimeSeriesGenerator(metrics=metrics,ids=entities,
                                  days=days,seconds=seconds,
                                  freq=freq, categoricals = categoricals,
-                                 dates = dates, timestamp = self._timestamp)    
+                                 dates = dates, timestamp = self._timestamp,
+                                 domains = data_item_domain)
+        ts.data_item_mean = data_item_mean
+        ts.data_item_sd = data_item_sd
+        ts.data_item_domain = data_item_domain
         df = ts.execute()
         
         if self._dimension_table_name is not None:
@@ -1229,12 +1288,23 @@ class EntityType(object):
                                 timestamp_col = self._timestamp)
             
         for (at_name,at_table) in list(self.activity_tables.items()):
-            adf = self.generate_activity_data(table_name = at_name, activities = at_table._activities,entities = entities, days = days, seconds = seconds, write = write)            
+            adf = self.generate_activity_data(table_name = at_name,
+                                              activities = at_table._activities,
+                                              entities = entities,
+                                              days = days,
+                                              seconds = seconds,
+                                              write = write)            
             msg = 'generated data for activity table %s' %at_name
             logger.debug(msg)
             
         for scd in list(self.scd.values()):
-            sdf = self.generate_scd_data(scd_obj = scd, entities = entities, days = days, seconds = seconds, write = write)
+            sdf = self.generate_scd_data(scd_obj = scd,
+                                         entities = entities,
+                                         days = days,
+                                         seconds = seconds,
+                                         write = write,
+                                         freq = scd_freq,
+                                         domains = data_item_domain)
             msg = 'generated data for scd table %s' %scd.name
             logger.debug(msg)
         
@@ -1316,19 +1386,35 @@ class EntityType(object):
         return query.scalar()
                 
     
-    def generate_scd_data(self,scd_obj,entities,days,seconds,write=True):
+    def generate_scd_data(self,
+                          scd_obj,
+                          entities,days,
+                          seconds,
+                          freq,
+                          write=True,
+                          domains=None):
+        
+        if domains is None:
+            domains = {}
         
         table_name = scd_obj.name
         msg = 'generating data for %s for %s days and %s seconds' %(table_name,days,seconds)
         (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
         msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
         logger.debug(msg)
-        ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
-                                 ids = entities, days = days, seconds = seconds, freq = self._scd_frequency)
+        ts = TimeSeriesGenerator(metrics=metrics,
+                                 dates = dates,
+                                 categoricals=categoricals,
+                                 ids = entities,
+                                 days = days,
+                                 seconds = seconds,
+                                 freq = freq,
+                                 domains = domains)
+        
         df = ts.execute()
         df['start_date'] = df[self._timestamp]
         # probability that a change took place in the interval
-        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(self._scd_frequency).total_seconds() 
+        p_activity = (days*60*60*24 +seconds) / pd.to_timedelta(freq).total_seconds() 
         is_activity = p_activity >= np.random.uniform(0,1,len(df.index))
         df = df[is_activity]
         cols = [x for x in df.columns if x not in [self._timestamp]]
@@ -1452,7 +1538,7 @@ class EntityType(object):
                 )
             self._dimension_table = dim.table
             dim.create()
-            msg = 'Creates dimension table %s' %self._dimension_table_name
+            msg = 'Created dimension table %s' %self._dimension_table_name
             logger.debug(msg)
             
     def publish_kpis(self,raise_error = True):
@@ -1513,9 +1599,6 @@ class EntityType(object):
             
         return msg
     
-    def redirect_fn_class(self,class_name,input_meta,output_meta):
-        
-        return None
 
     def register(self,publish_kpis=False):
         '''
@@ -1999,10 +2082,6 @@ class Trace(object)    :
             
         return out
     
-
-                
-    
-
 
 class Model(object):
     '''
