@@ -37,28 +37,31 @@ class ActivityDuration(BaseDBActivityMerge):
     
     _is_instance_level_logged = False
     def __init__(self,table_name,activity_codes, activity_duration=None):
+        
         super().__init__(input_activities=activity_codes,
                          activity_duration=activity_duration )
         
+        self.table_name = table_name
+        self.activity_codes = activity_codes
         self.activities_metadata[table_name] = activity_codes
         self.activities_custom_query_metadata = {}
         
     @classmethod
     def build_ui(cls):
         #define arguments that behave as function inputs
-        inputs = OrderedDict()
-        inputs['table_name'] = UISingle(name = 'table_name',
+        inputs = []
+        inputs.append(UISingle(name = 'table_name',
                                         datatype = str,
                                         description = 'Source table name',
-                                        )
-        inputs['activity_codes'] = UIMulti(name = 'activity_codes',
-                                              datatype=str,
-                                              description = 'Comma separated list of activity codes',
-                                              output_item = 'activity_duration',
-                                              is_output_datatype_derived = False,
-                                              output_datatype = float
-                                              )
-        outputs = OrderedDict()
+                                        ))
+        inputs.append(UIMulti(name = 'activity_codes',
+                              datatype=str,
+                              description = 'Comma separated list of activity codes',
+                              output_item = 'activity_duration',
+                              is_output_datatype_derived = False,
+                              output_datatype = float
+                    ))
+        outputs = []
 
         return (inputs,outputs)        
 
@@ -977,10 +980,13 @@ class EntityDataGenerator(BasePreload):
     freq: pandas frequency string. Time series frequency.
     scd_frequency: pandas frequency string.  Dimension change frequency.
     activity_frequency: pandas frequency string. Activity frequency.
-    data_item_mean: dictionary keyed by data item name. Mean value.
-    data_item_sd: dictionary keyed by data item name. Standard deviation.
+    activities = dict keyed on activity name containing list of activities codes
+    scds = dict keyes on scd property name containing list of string domain items
+    data_item_mean: dict keyed by data item name. Mean value.
+    data_item_sd: dict keyed by data item name. Standard deviation.
     data_item_domain: dictionary keyed by data item name. List of values.
-    
+    drop_existing: bool. Drop existing input tables and generate new for each run.
+        
     """
     
     freq = '5min' 
@@ -993,6 +999,7 @@ class EntityDataGenerator(BasePreload):
     data_item_domain = None
     activities = None
     scds = None
+    drop_existing = False
     # ids of entities to generate. Change the value of the range() function to change the number of entities
     
     def __init__ (self, ids = None,
@@ -1052,7 +1059,8 @@ class EntityDataGenerator(BasePreload):
                 write=True,
                 data_item_mean = self.data_item_mean,
                 data_item_sd = self.data_item_sd,
-                data_item_domain = self.data_item_domain)
+                data_item_domain = self.data_item_domain,
+                drop_existing = self.drop_existing)
         
         kw = {'rows_generated' : len(df.index),
               'start_ts' : start_ts,
@@ -1805,9 +1813,9 @@ class IoTSaveCosDataFrame(BaseTransformer):
         return (inputs,outputs)
          
     
-class IoTSCDLookup(BaseSCDLookup):
+class SCDLookup(BaseSCDLookup):
     '''
-    Lookup an scd property from a scd lookup table containing: 
+    Lookup an slowly changing dimension property from a scd lookup table containing: 
     Start_date, end_date, device_id and property. End dates are not currently used.
     Previous lookup value is assumed to be valid until the next.
     '''
@@ -1816,7 +1824,7 @@ class IoTSCDLookup(BaseSCDLookup):
         self.table_name = table_name
         super().__init__(table_name = table_name, output_item = output_item)    
     
-class IoTShiftCalendar(BaseTransformer):
+class ShiftCalendar(BaseTransformer):
     '''
     Generate data for a shift calendar using a shift_definition in the form of a dict keyed on shift_id
     Dict contains a tuple with the start and end hours of the shift expressed as numbers. Example:
@@ -2028,6 +2036,8 @@ IoTExpression = PythonExpression
 IoTRandomChoice = RandomChoiceString
 IoTRandonNormal = RandomNormal
 IoTActivityDuration = ActivityDuration
+IoTSCDLookup = SCDLookup
+IoTShiftCalendar = ShiftCalendar
         
 # Deprecated functions
         

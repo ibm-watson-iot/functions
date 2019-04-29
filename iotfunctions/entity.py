@@ -43,7 +43,8 @@ class EmptyEntityType(EntityType):
 class Boiler(EntityType):
 
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
-                 description = 'Industrial boiler'):
+                 description = 'Industrial boiler',
+                 generate_days = 0, drop_existing = False):
         args = []
         #columns
         args.append(Column('company_code',String(50)))
@@ -60,9 +61,13 @@ class Boiler(EntityType):
                                    'input_flow_rate' :10,
                                    'fuel_flow_rate' : 5,
                                    'air_flow_rate' : 2
-                                   }
+                                   },
+                'drop_existing' : False
                 }
-        args.append(bif.EntityDataGenerator(ids=None,**sim))
+
+        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        args.append(generator)
+
         # temperature depends on set point
         args.append(bif.RandomNoise(input_items=['temp_set_point'],
                                     standard_deviation = 1,
@@ -106,10 +111,18 @@ class Boiler(EntityType):
             Column('manufacturer',String(50))
                             )
         
+        if generate_days > 0:
+            start = dt.datetime.utcnow() - dt.timedelta(days = generate_days)
+            generator.drop_existing = drop_existing
+            generator.execute(df=None,start_ts = start) 
+            generator.drop_existing = False
+        
 class Robot(EntityType):
     
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
-                 description = 'Industrial robot',generate_days = 0):
+                 description = 'Industrial robot',
+                 generate_days = 0,
+                 drop_existing = False):
         
         args = []
         #columns
@@ -121,7 +134,7 @@ class Robot(EntityType):
         sim = { 
                 'freq' : '5min',
                 'scd_frequency' : '90min',
-                'activity_frequency' : '1D',                            
+                'activity_frequency' : '4H',                            
                 'data_item_mean' :{'torque':12,
                                    'load' : 375,
                                    },
@@ -138,11 +151,40 @@ class Robot(EntityType):
                                           'firmware_upgrade',
                                           'testing'],
                         'setup' : ['normal_setup','reconfiguration'],
-                        }
+                        },
+                'drop_existing' : False
                 }
         generator = bif.EntityDataGenerator(ids=None,**sim)                
         args.append(generator)
         
+        args.append(bif.ShiftCalendar(
+                shift_definition= {
+                                   "1": [5.5, 14],
+                                   "2": [14, 21],
+                                   "3": [21, 29.5]
+                               },
+                period_start_date = 'shift_start_date',
+                period_end_date = 'shift_end_date',
+                shift_day = 'shift_day',
+                shift_id = 'shift_id'
+                ))
+        
+        args.append(bif.SCDLookup(
+                table_name = '%s_scd_operator' %name,
+                output_item = 'operator',
+                ))
+        
+        args.append(bif.ActivityDuration(
+                table_name = '%s_maintenance' %name,
+                activity_codes = ['scheduled_maint',
+                                  'unscheduled_maint',
+                                  'firmware_upgrade',
+                                  'testing'],
+                activity_duration = ['scheduled_maint',
+                                     'unscheduled_maint',
+                                     'firmware_upgrade',
+                                     'testing']
+                ))
         
         args.append(bif.RandomDiscreteNumeric(
                 discrete_values = [0,1,2,3,4,5,6,7,8],
@@ -181,7 +223,9 @@ class Robot(EntityType):
         
         if generate_days > 0:
             start = dt.datetime.utcnow() - dt.timedelta(days = generate_days)
+            generator.drop_existing = drop_existing
             generator.execute(df=None,start_ts = start)
+            generator.drop_existing = False
             
 class TestBed(EntityType):
 
@@ -200,7 +244,7 @@ class TestBed(EntityType):
                  datatype= float,
                  default = 0.3)
                 )
-        args.append(bif.IoTShiftCalendar(
+        args.append(bif.ShiftCalendar(
                 shift_definition=None,
                 period_start_date = 'shift_start_date',
                 period_end_date = 'shift_end_date',

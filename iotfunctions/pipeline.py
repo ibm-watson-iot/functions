@@ -984,16 +984,9 @@ class JobController(object):
         
         #create a job log
         self.job_log = JobLog(self)
+        #get metadata from payload
         self.stage_metadata = self.get_payload_param('_stages',None)
-        
-        if self.stage_metadata is None:
-            raise ValueError((
-                    'The playload for this job does not have valid metadata.'
-                    ' To execute a payload using the JobController, the '
-                    ' payload must have a "_stages" property that'
-                    ' returns an appropriate dict containing all of the'
-                    ' metadata for the job stages that will be executed. '
-                    ))
+
         # Assemble a collection of candidate schedules to execute
         # If the payload does not have a schedule use the default
         schedules = self.get_payload_param('_schedules_dict',{})
@@ -1005,6 +998,18 @@ class JobController(object):
                           ' payload. You can set schedules on each data source'
                           ' explicitly to overide the default schedule'),
                           self.default_schedule[0])
+        
+        if self.stage_metadata is None:
+            raise ValueError((
+                    'The playload for this job does not have valid metadata.'
+                    ' To execute a payload using the JobController, the '
+                    ' payload must have a "_stages" property that'
+                    ' returns an appropriate dict containing all of the'
+                    ' metadata for the job stages that will be executed. '
+                    ))
+        else:
+            logger.info(str((self)))
+            
         
     def __str__(self):
         
@@ -1193,35 +1198,49 @@ class JobController(object):
             
         
         #Trim data sources to retieve only the data items required as inputs
-        for stage,cols in list(build_metadata['data_source_projection_list'].items()):
-            required_cols = set(build_metadata['required_inputs'])
-            # The payload may designate that certain columns are not allowed to be
-            # trimmed
-            required_cols |= set(self.get_payload_param('_mandatory_columns',[]))
-            required_cols = set(cols).intersection(required_cols)
-            logger.debug((
-                    'Evaluating data source %s. Data items required from this'
-                    ' source for this execution are %s'), stage.name,required_cols
-                    )
-            if len(required_cols) == 0:
-                logger.debug(('Data source %s is not required for this'
-                              ' execution as none of its data items used.'),
-                                stage.name)
-                job_spec = self.remove_stage(job_spec,stage)
-            elif len(required_cols) != len(cols):
-                logger.debug(('Trimming data source %s down to columns %s as'
-                              ' remaining columns %s are not used'),
-                              stage.name, required_cols,
-                              set(cols)-required_cols )
-                required_cols = list(required_cols)
-                self.set_stage_param(stage,'_projection_list',required_cols)
-                self.set_stage_param(stage,'_output_list',required_cols)
-                
+        allow_trim = self.get_payload_param('allow_projection_list_trim',False)
+        if allow_trim:
+            for stage,cols in list(build_metadata['data_source_projection_list'].items()):
+                required_cols = set(build_metadata['required_inputs'])
+                # The payload may designate that certain columns are not allowed to be
+                # trimmed
+                required_cols |= set(self.get_payload_param('_mandatory_columns',[]))
+                required_cols = set(cols).intersection(required_cols)
+                logger.debug((
+                        'Evaluating data source %s. Data items required from this'
+                        ' source for this execution are %s'), stage.name,required_cols
+                        )
+                if len(required_cols) == 0:
+                    job_spec = self.remove_stage(job_spec,stage)
+                    msg = ('Data source %s is not required for this execution'
+                           ' as none of its data items used.' % stage.name)
+                    self.trace_add(msg = msg,
+                                   created_by = stage,
+                                   log_method = logger.info)
+                elif len(required_cols) != len(cols):
+                    required_cols = list(required_cols)
+                    self.set_stage_param(stage,'_projection_list',required_cols)
+                    self.set_stage_param(stage,'_output_list',required_cols)
+                    msg = ('Trimmed data source %s down to columns %s as'
+                           ' remaining columns %s are not used' %(
+                            stage.name, required_cols,
+                            set(cols)-set(required_cols) ))
+                    self.trace_add(msg = msg,
+                                   created_by = stage,
+                                   log_method = logger.info)
+        else:
+            logger.debug(('Projection list trimming is disabled for the entity type.'
+                         ' Retrieving all source items. To enable'
+                         ' trimming set allow_projection_list_trim to True'))
         
         logger.debug('Build of job spec is complete.')
-        for key,value in list(job_spec.items()):
-            logger.debug('Job spec: %s has stages %s',
-                         key, [x.name for x in value])
+        logger.debug('-------------------------------')
+        for section,stages in list(job_spec.items()):
+            logger.debug('%s' %(section))
+            for s in stages:
+                logger.info(str(s))
+        logger.debug('-------------------------------')
+        
             
         print('TBD ***** - Add stages for usage stats and write to MessageHub')
             
@@ -1551,8 +1570,7 @@ class JobController(object):
                                 raise_error = None,
                                 stage_name = 'build_job_spec)'        
                                 )
-                        can_proceed = False
-                    
+                        can_proceed = False                    
                     
                 if can_proceed:
                     # divide up the date range to be processed into chunks
@@ -1861,11 +1879,10 @@ class JobController(object):
         try:
             return(getattr(self.payload,method_name)(**kwargs))
         except (TypeError,AttributeError):
-            logger.debug(('Error attempting to execute method %s() on'
-                          ' payload %s %s. This method does'
-                          ' not appear to be present. Returning'
-                          ' default value %s'),method_name,
-                          type(self.payload.name),self.payload.name,
+            logger.debug(('Returned default output for %s() on'
+                          ' payload %s %s. '
+                          ' Default value is: %s'),method_name,
+                          self.payload.__class__.__name__,self.payload.name,
                           default_output)
             return(default_output)
             

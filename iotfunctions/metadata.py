@@ -287,6 +287,7 @@ class EntityType(object):
     save_trace_to_file = False
     drop_null_class = DropNull
     enable_downcast = False
+    allow_projection_list_trim = False
     
     def __init__ (self,name,db, *args, **kwargs):
         self.logical_name = name

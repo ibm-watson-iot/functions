@@ -162,6 +162,23 @@ class BaseFunction(object):
                     except KeyError:
                         pass
                     
+    def __str__ (self):
+        
+        out = self.__class__.__name__
+        try:
+            out = out + ' produces output ' + str(self.get_output_list())
+            out = out + ' using inputs ' + str(self.get_input_set())
+            out = out + ' at granularity ' + str(self.granularity)
+        except AttributeError:
+            out = out + ' unknown inputs, outputs and granularity'
+
+        try:
+            out = out + ' on schedule ' + str(self.schedule)
+        except AttributeError:
+            out = out + ' unknown schedule'
+        
+        return out
+                    
     def _add_explicit_outputs(self,df):
         
         for o in self.outputs:
@@ -468,6 +485,7 @@ class BaseFunction(object):
         all_items = set()
         for e in expressions:
             #get all quoted strings in expression
+            e = e.replace("'",'"')
             possible_items = re.findall('"([^"]*)"', e)
             #check if they have df[] wrapped around them
             all_items |= set([x for x in possible_items if 'df["%s"]'%x in e])
@@ -1320,10 +1338,6 @@ class BaseFunction(object):
         for key,value in list(params.items()):
             setattr(self, key, value)
         return self
-    
-    def __str__(self):
-        
-        return self.name
  
 
     def trace_append(self,msg,log_method=None,df=None,**kwargs):
