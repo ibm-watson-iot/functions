@@ -43,7 +43,10 @@ class EmptyEntityType(EntityType):
 class Boiler(EntityType):
 
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
-                 description = 'Industrial boiler',
+                 description = ('This sample shows simulated time series data '
+                                ' for an industrial boiler. It demostrates how '
+                                ' to perform Monte Carlo simulation. It also'
+                                ' shows how to apply heuristics to detect leaks' ),
                  generate_days = 0, drop_existing = False):
         args = []
         #columns
@@ -120,7 +123,14 @@ class Boiler(EntityType):
 class Robot(EntityType):
     
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
-                 description = 'Industrial robot',
+                 description = ('Sample entity type based on data commonly'
+                                ' available for industrial robots. This'
+                                ' sample illustrates the ability to combine'
+                                ' timeseries sensor data with other data. '
+                                ' It shows how to calculate activity'
+                                ' durations from an activity log, map'
+                                ' timestamps to shifts time align changes'
+                                ' to slowly changing dimensions'),
                  generate_days = 0,
                  drop_existing = False):
         
@@ -226,6 +236,57 @@ class Robot(EntityType):
             generator.drop_existing = drop_existing
             generator.execute(df=None,start_ts = start)
             generator.drop_existing = False
+            
+class PackagingHopper(EntityType):
+
+    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
+                 description = ('This sample demostrates anomaly detection'
+                                ' on simulated data from a cereal packaging',
+                                ' plant.'),
+                 generate_days = 0, drop_existing = False):
+        args = []
+        #columns
+        args.append(Column('company_code',String(50)))
+        args.append(Column('product_code',String(50)))
+        args.append(Column('ambient_temp',Float()))
+        args.append(Column('ambient_humidity',Float()))
+        
+        #simulation settings
+        sim = { 
+                'data_item_mean' :{'ambient_temp':20,
+                                   'ambient_humidity': 60
+                                   },
+                'drop_existing' : False
+                }
+
+        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        args.append(generator)
+
+        # fill rate depends on temp
+        args.append(bif.PythonExpression(
+                expression = '502 + 9 * df["ambient_temp"]/20',
+                output_name = 'dispensed_mass_work'))
+        args.append(bif.RandomNoise(input_items=['dispensed_mass_work'],
+                                    standard_deviation = 0.5,
+                                    output_items = ['dispensed_mass_actual']))
+                
+        kw = {'_timestamp' : timestamp,
+              '_db_schema' : db_schema,
+              'description' : description
+              }
+        
+        super().__init__(name,db, *args,**kw)
+        
+        self.make_dimension(
+            None,
+            Column('manufacturer',String(50))
+                            )
+        
+        if generate_days > 0:
+            start = dt.datetime.utcnow() - dt.timedelta(days = generate_days)
+            generator.drop_existing = drop_existing
+            generator.execute(df=None,start_ts = start) 
+            generator.drop_existing = False            
             
 class TestBed(EntityType):
 
