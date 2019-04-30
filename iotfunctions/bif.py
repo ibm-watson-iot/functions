@@ -1174,7 +1174,7 @@ class PythonExpression(BaseTransformer):
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_name',
-                                                     datatype=None,
+                                                     datatype=float,
                                                      description='Output of expression'
                                                      ))
     
@@ -1497,7 +1497,7 @@ class PythonFunction(BaseTransformer):
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle('output_item',
-                       datatype = None))
+                       datatype = float))
 
         return (inputs,outputs)    
 
