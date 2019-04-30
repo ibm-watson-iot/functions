@@ -1513,6 +1513,10 @@ class EntityType(object):
                     'args' : args
                     }
             export.append(metadata)
+            
+        
+        logger.debug('Published kpis to entity type')
+        logger.debug(export)
                 
         response = self.db.http_request(object_type = 'kpiFunctions',
                                         object_name = self.logical_name,
@@ -1520,7 +1524,7 @@ class EntityType(object):
                                         payload = export,
                                         raise_error = raise_error) 
         
-        logger.debug('Published kpis to entity type')
+        
         logger.debug(response)
         
         return response
