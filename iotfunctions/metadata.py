@@ -605,8 +605,6 @@ class EntityType(object):
                                            obj = self)
             stage_type = self.get_stage_type(auto_reader)
             stage_metadata[(stage_type,None)] = [auto_reader]
-            auto_reader._input_set = set()
-            auto_reader._output_list = self.get_output_items()
             auto_reader._schedule = None
             auto_reader._entity_type = self
         else:
@@ -708,26 +706,6 @@ class EntityType(object):
                        msg = 'Adding entity type properties from function',
                        log_method=logger.debug,
                        **entity_metadata)
-                
-            #add input and output items
-            try:
-                requires_input_items = obj.requires_input_items
-            except AttributeError:
-                requires_input_items =True
-                logger.debug(('Function %s has no requires_input_items'
-                              ' property. This property determines whether'
-                              ' inputs should be considered in the'
-                              ' dependency model. Using default of %s'),
-                                obj.name, requires_input_items)
-            if requires_input_items:
-                obj._input_set = self.get_stage_input_item_set(
-                                stage=obj,
-                                arg_meta = s.get('input',{}))
-            else:
-                obj._input_set = set()
-            
-            obj._output_list = self.get_stage_output_item_list(
-                                arg_meta = s.get('output',[]))
 
         if len(disabled) > 0 or len(invalid) > 0:
          self.trace_append(
@@ -1091,49 +1069,6 @@ class EntityType(object):
             date_time_obj = dt.datetime.strptime(self._end_ts_override[0], '%Y-%m-%d %H:%M:%S')
             return date_time_obj
         return None
-    
-    def get_stage_input_item_set(self,stage,arg_meta):
-        
-        try:
-            candidate_items = stage.get_input_items()
-            if len(candidate_items) > 0:
-                logger.debug(('Stage %s requested additional input items %s'
-                              ' using the get_input_items() method,' ),
-                              stage.name, candidate_items)
-        except AttributeError:
-            logger.debug(('Stage %s has no get_input_items() method so it'
-                          ' can only request data items through its '
-                          ' arguments. Implement a get_input_items() method'
-                          ' to request items programatically'),
-                            stage.name, candidate_items)            
-            candidate_items = set()
-            
-        for arg,value in list(arg_meta.items()):
-            
-            if isinstance(value,str):
-                candidate_items.add(value)
-            elif isinstance(value,(list,set)):
-                candidate_items |= set(value)
-            else:
-                logger.debug(
-                    ('Argument %s was not considered as a data item as it has'
-                     ' a type %s' ), arg, type(value)
-                    )
-                
-        items = set([x['name'] for x in self._data_items])
-            
-        return items.intersection(candidate_items)
-    
-    def get_stage_output_item_list(self,arg_meta):
-        
-        items = []
-        for arg,value in list(arg_meta.items()):
-            if not isinstance(value,list):
-                items.append(value)
-            else:
-                items.extend(value)
-        
-        return items
     
     def get_stage_type(self,stage):
         '''

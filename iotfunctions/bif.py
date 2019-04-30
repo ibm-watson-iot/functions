@@ -190,7 +190,7 @@ class IoTAlertOutOfRange(BaseEvent):
         return (inputs,outputs)    
     
     
-class IoTAlertHighValue(BaseEvent):
+class AlertHighValue(BaseEvent):
     """
     Fire alert when metric exceeds an upper threshold'.
     """
@@ -240,7 +240,7 @@ class IoTAlertHighValue(BaseEvent):
         return self.build_ui()
 
     
-class IoTAlertLowValue(BaseEvent):
+class AlertLowValue(BaseEvent):
     """
     Fire alert when metric goes below a threshold'.
     """
@@ -1496,7 +1496,8 @@ class PythonFunction(BaseTransformer):
                     )
         #define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle('output_item'))
+        outputs.append(UIFunctionOutSingle('output_item',
+                       datatype = None))
 
         return (inputs,outputs)    
 
@@ -2038,6 +2039,8 @@ IoTRandonNormal = RandomNormal
 IoTActivityDuration = ActivityDuration
 IoTSCDLookup = SCDLookup
 IoTShiftCalendar = ShiftCalendar
+IoTAlertHighValue = AlertHighValue
+IoTAlertLow = AlertLowValue
         
 # Deprecated functions
         

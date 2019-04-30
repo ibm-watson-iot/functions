@@ -166,11 +166,19 @@ class BaseFunction(object):
         
         out = self.__class__.__name__
         try:
-            out = out + ' produces output ' + str(self.get_output_list())
-            out = out + ' using inputs ' + str(self.get_input_set())
             out = out + ' at granularity ' + str(self.granularity)
         except AttributeError:
-            out = out + ' unknown inputs, outputs and granularity'
+            out = out + ' unknown granularity'
+            
+        if self._input_set is not None:
+            out = out + ' requires inputs %s' % self._input_set
+        else:
+            out = out + ' required inputs not evaluated yet'
+            
+        if self._output_list is not None:
+            out = out + ' produces outputs %s' % self._output_list
+        else:
+            out = out + ' outputs produced not evaluated yet'
 
         try:
             out = out + ' on schedule ' + str(self.schedule)
@@ -185,7 +193,18 @@ class BaseFunction(object):
             df[o] = True
         return df
     
+    
     def build_arg_metadata(self):
+        
+        '''
+        Examine the metadata provided by build_ui() to understand more about
+        the arguments to the function.
+        
+        Rebuild the _input_set and _output list
+        Place the values of inputs and outputs into 2 dicts
+        Return these two dicts in a tuple along with an unused output_meta dict
+        
+        '''
         
         name = self.__class__.__name__
         
@@ -195,12 +214,13 @@ class BaseFunction(object):
             msg = ('Cant get function metadata for %s. Implement the'
                    ' build_metadata() method. %s' %(name,str(e)))
             raise NotImplementedError (msg)
-
         
-            
         input_args ={}
         output_args ={}
         output_meta = {}
+        
+        self._input_set = set()
+        self._output_list = []
         
         if not isinstance(inputs,list):
              raise TypeError(('Function registration metadata must be defined',
@@ -222,20 +242,40 @@ class BaseFunction(object):
             if is_ui:
                 meta = i.to_metadata()
                 input_args[meta['name']] = getattr(self,meta['name'])
+
+                #build up the _input_set adding anything that is a dataitem
+
+                if meta.get('type','DATA_ITEM') == 'DATA_ITEM':
+                    if isinstance(input_args[meta['name']],list):
+                        self._input_set |= set(input_args[meta['name']])
+                    else:
+                        self._input_set.add(input_args[meta['name']])
+                    logger.debug('Using client input items %s for %s',
+                                 input_args[meta['name']], meta['name'])
+                
                 #some inputs implicitly describe outputs
                 try:
                     out_meta = i.to_output_metadata()
                 except AttributeError:
                     pass
-                else:
+                else:                                        
                     if out_meta is not None:
-                        output_args[out_meta['name']] = getattr(self,out_meta['name'])    
+                        output_args[out_meta['name']] = getattr(self,out_meta['name'])
+                        # build up the output list                        
+                        if out_meta.get('type','DATA_ITEM') == 'DATA_ITEM':
+                            if isinstance(output_args[out_meta['name']],list):
+                                self._output_list.extend(output_args[out_meta['name']])
+                            else:
+                                self._output_list.append(output_args[out_meta['name']])
+                        logger.debug('Using client output items %s', 
+                                     output_args[out_meta['name']])                                
+
             else:
                 raise TypeError(('Function registration metadata must be defined',
                                  ' using objects derived from iotfunctions',
                                  ' BaseUIControl. Check metadata for %s'
                                  ' %s ' %(name,i) ))
-            
+                
         for o in outputs:
             try:
                 is_ui = o.is_ui_control
@@ -243,13 +283,22 @@ class BaseFunction(object):
                 is_ui = False
             
             if is_ui:
-                meta = o.to_metadata()
-                output_args[meta['name']] = getattr(self,meta['name'])
+                out_meta = o.to_metadata()
+                output_args[out_meta['name']] = getattr(self,out_meta['name'])
             else:
                 raise TypeError(('Function registration metadata must be defined',
                                  ' using objects derived from iotfunctions',
                                  ' BaseUIControl. Check metadata for %s'
                                  ' %s ' %(name,i) ))
+                
+            # build up the output list                        
+            if out_meta.get('type','DATA_ITEM') == 'DATA_ITEM':
+                if isinstance(output_args[out_meta['name']],list):
+                    self._output_list.extend(output_args[out_meta['name']])
+                else:
+                    self._output_list.append(output_args[out_meta['name']])
+                logger.debug('Using client output items %s', 
+                             output_args[out_meta['name']])                     
                 
         #output_meta is present in the AS metadata structure, but not 
         #currently produced for local functions
@@ -542,15 +591,35 @@ class BaseFunction(object):
         Return a set of input items required by this function. Input items may
         implicitly infered from the function metadata by the AS job process or
         may be added by the get_input_items() method of a custom function.
+        
+        As with output_list, build the set the first time it is asked for
         '''
         
-        if self.requires_input_items:
-            ins = set(self._input_set)
-            ins |= set(self.get_input_items())
-        else:
-            ins = set()
+        if self._input_set is None:
+            #not all functions require input items
+            try:
+                requires_input_items = self.requires_input_items
+            except AttributeError:
+                requires_input_items =True
+                logger.debug(('Function %s has no requires_input_items'
+                              ' property. This property determines whether'
+                              ' inputs should be considered in the'
+                              ' dependency model. Using default of %s'),
+                                self.name, requires_input_items)
             
-        return ins
+            # build the _input_set the first time it is needed
+            if self.requires_input_items:
+                if self._input_set is None:
+                    # The set of inputs needed for a function
+                    # is the set infered from the arguments
+                    # along with any that are delivered by the
+                    # get_input_items method
+                    self.build_arg_metadata()
+                    self._input_set |= set(self.get_input_items())
+            else:
+                self._input_set = set()
+            
+        return self._input_set
     
     def get_timestamp_series(self,df):
         '''
@@ -873,24 +942,20 @@ class BaseFunction(object):
         
         '''
         Returns the list of columns produced as outputs to the function.
+        
+        When the function is initialized, neither the _output_list or _input_set
+        are initialized automatically. 
+        
+        The are initialized the first time they are needed.
         '''
         
-        if self.produces_output_items:
-            out = self._output_list
-            if out is None:
-                raise RuntimeError(
-                        ('The _output_list property of function %s is None.'
-                         ' This property is set by the AS job build process'
-                         ' A value of None implies that the get_output_list()'
-                         ' method was called before this build process. If you'
-                         ' need access to output items outside of the AS build'
-                         ' process, implement a custom get_output_list for '
-                         ' the function or explicityly set the value of '
-                         ' the _output_list property'))
-        else:
-            out = []
-            
-        return out
+        if self._output_list is None:
+            if self.produces_output_items:
+                self.build_arg_metadata()        
+            else: 
+                self._output_list = []
+                
+        return self._output_list
     
     def get_bucket_name(self):
         '''
@@ -2143,7 +2208,8 @@ class BaseSCDLookup(BaseTransformer):
                                               ))
         #define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item'))    
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype = None))    
         return (inputs,outputs)   
     
     

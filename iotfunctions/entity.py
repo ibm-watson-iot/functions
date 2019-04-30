@@ -256,6 +256,9 @@ class PackagingHopper(EntityType):
                 'data_item_mean' :{'ambient_temp':20,
                                    'ambient_humidity': 60
                                    },
+                'data_item_sd' :{'ambient_temp':5,
+                                 'ambient_humidity': 5
+                                   },                                   
                 'drop_existing' : False
                 }
 
@@ -265,10 +268,23 @@ class PackagingHopper(EntityType):
         # fill rate depends on temp
         args.append(bif.PythonExpression(
                 expression = '502 + 9 * df["ambient_temp"]/20',
-                output_name = 'dispensed_mass_work'))
-        args.append(bif.RandomNoise(input_items=['dispensed_mass_work'],
+                output_name = 'dispensed_mass_predicted'))
+        
+        args.append(bif.RandomNoise(input_items=['dispensed_mass_predicted'],
                                     standard_deviation = 0.5,
                                     output_items = ['dispensed_mass_actual']))
+        
+        # difference between prediction and actual
+        args.append(bif.PythonExpression(
+                expression = ('(df["dispensed_mass_predicted"]-'
+                              ' df["dispensed_mass_actual"]).abs()'),
+                output_name = 'prediction_abs_error'))
+        
+        # alert
+        args.append(bif.AlertHighValue(
+                input_item = 'prediction_error',
+                upper_threshold = 3,
+                alert_name = 'anomaly_in_fill_detected'))
                 
         kw = {'_timestamp' : timestamp,
               '_db_schema' : db_schema,
@@ -286,7 +302,56 @@ class PackagingHopper(EntityType):
             start = dt.datetime.utcnow() - dt.timedelta(days = generate_days)
             generator.drop_existing = drop_existing
             generator.execute(df=None,start_ts = start) 
-            generator.drop_existing = False            
+            generator.drop_existing = False
+            
+
+class SourdoughLeavening(EntityType):
+    
+    def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
+                 description = ('This sample demostrates using AI to make '
+                                ' recommendations about the leavening process'
+                                ' during the production of bread'),
+                 generate_days = 0, drop_existing = False):
+        args = []
+        #columns
+        args.append(Column('company_code',String(50)))
+        args.append(Column('product_code',String(50)))
+        args.append(Column('ambient_temp',Float()))
+        args.append(Column('ambient_humidity',Float()))
+
+        #simulation settings
+        sim = { 
+                'data_item_mean' :{'ambient_temp':20,
+                                   'ambient_humidity': 60
+                                   },
+                'data_item_sd' :{'ambient_temp':5,
+                                 'ambient_humidity': 5
+                                   },                                   
+                'drop_existing' : False
+                }
+
+        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        args.append(generator)
+
+        args.append(bif.RandomNormal(mean=6,
+                    standard_deviation = 1,
+                    output_item = 'predicted_hours_till_bake'))
+        
+        args.append(bif.RandomNoise(
+                    input_items=['predicted_hours_till_bake'],
+                    standard_deviation = 0.5,
+                    output_items = ['target_hours_till_bake']))
+        
+        args.append(bif.RandomChoiceString(
+                    domain_of_values = ['bake now',
+                                  'wait for futher instructions',
+                                  'refrigerate now',
+                                  'place in warmer location',
+                                  'discard dough'
+                                  ],
+                    probabilities = [1,10,0.2,1,0.2],
+                    output_item = 'recommendation'
+                ))
             
 class TestBed(EntityType):
 
@@ -312,7 +377,7 @@ class TestBed(EntityType):
                 shift_day = 'shift_day',
                 shift_id = 'shift_id'
                 ))
-        args.append(bif.IoTEntityDataGenerator(
+        args.append(bif.EntityDataGenerator(
                 ids=['A01','A02','A03','A04','A05','B01']
                 ))
         args.append(bif.IoTDeleteInputData(
@@ -340,12 +405,12 @@ class TestBed(EntityType):
                 output_alert_upper = 'alert_2_upper',
                 output_alert_lower = 'alert_2_lower'
                 ))
-        args.append(bif.IoTAlertHighValue(
+        args.append(bif.AlertHighValue(
                 input_item = 'x_1',
                 upper_threshold=3,
                 alert_name = 'alert_3'
                 ))
-        args.append(bif.IoTAlertLowValue(
+        args.append(bif.AlertLowValue(
                 input_item = 'x_1',
                 lower_threshold=0.25,
                 alert_name = 'alert_4'
@@ -376,21 +441,21 @@ class TestBed(EntityType):
                 ref_date=dt.datetime.utcnow(),
                 num_days = 'date_diff_ts_now'
                 ))
-        args.append(bif.IoTExpression(
+        args.append(bif.PythonExpression(
                 expression = 'df["x_1"]*c["alpha"]',
                 output_name = 'x1_alpha'
                 ))
         '''
-        args.append(bif.IoTExpression(
+        args.append(bif.PythonExpression(
                 expression = 'df["x1"]+df["x1"]+df["x3"]',
                 output_name = 'x_4_invalid'
                 ))        
-        args.append(bif.IoTExpression(
+        args.append(bif.PythonExpression(
                 expression = 'df["x_1"]*c["not_existing_constant"]',
                 output_name = 'x1_non_existing_constant'
                 ))        
         '''
-        args.append(bif.IoTExpression(
+        args.append(bif.PythonExpression(
                 expression = 'df["x_1"]+df["x_1"]+df["x_3"]',
                 output_name = 'x_4'
                 ))

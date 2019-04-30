@@ -83,11 +83,11 @@ class DataAggregator(object):
                  output_items):
         
         self.name = name
-        self._input_set = input_items
-        self._output_list = output_items
         self._agg_dict = agg_dict
         self._granularity = granularity
         self._complex_aggregators = complex_aggregators
+        self.input_items = input_items
+        self.output_items = output_items
         
     def __str__(self):
         
@@ -114,18 +114,18 @@ class DataAggregator(object):
             gfs.append(gf)
         df = pd.concat(gfs,axis=1)
         
-        df.columns = self._output_list
+        df.columns = self.output_items
         
         logger.info('Completed aggregation: %s', self._granularity.name)
         return df
         
     def get_input_set(self):
         
-        return self._input_set
+        return set(self.input_items)
         
     def get_output_list(self):
         
-        return self._output_list
+        return self.output_items
 
 class DataMerge(object):
     '''
@@ -156,6 +156,13 @@ class DataMerge(object):
         self.constants = kwargs.get('constants',None)
         if self.constants is None:
             self.constants = {}
+            
+    def __str__(self):
+        
+        out = ('DataMerge object has data structures: dataframe with %s rows'
+               ' and %s constants ' % (len(df.index),len(constants)))
+        
+        return out
         
     def add_constant(self,name,value):
         '''
@@ -503,6 +510,10 @@ class DropNull(object):
             exclude_cols = []
         self.exclude_cols = exclude_cols
         
+    def __str__(self):
+        
+        return 'System generated DropNull stage'
+        
     def execute(self,df):
 
         msg = 'columns excluded when dropping null rows %s' %self.exclude_cols
@@ -533,6 +544,10 @@ class DataWriterFile(object):
         self.name = name
         self.set_params(**params)
         
+    def __str__(self):
+        
+        return 'System generated FileDataWriter stage: %s' %self.name        
+        
     def execute(self,df=None,start_ts=None,end_ts=None,entities=None):
                 
         filename = 'data_writer_%s.csv' %self.name
@@ -562,6 +577,18 @@ class DataReader(object):
         
         self.name = name
         self.obj = obj
+        
+    def __str__(self):
+        
+        try:
+            obj_name = self.obj.name
+        except AttributeError:
+            obj_name = self.obj.__class__.__name__
+        
+        out = ('System generated DataReader stage: %s. Reads data from'
+               ' objects: %s' %(self.name,obj_name) )
+    
+        return out
         
     def execute(self,df=None,start_ts = None,end_ts=None,entities=None):
         
@@ -633,6 +660,10 @@ class Db2DataWriter():
         self.table_props = None
         self.insert_statements = dict()
         self.row_lists = dict()
+        
+    def __str__(self):
+        
+        return 'System generated Db2DataWriter stage: %s' %self.name   
 
     def execute(self, df=None, start_ts=None, end_ts=None, entities=None):
 
@@ -1021,9 +1052,8 @@ class JobController(object):
         for key,value in list(self.stage_metadata.items()):
             out += 'Stages of type: %s at grain %s: \n' %(key[0],key[1])
             for v in value:
-                out += '   %s on schedule %s requires %s produces %s\n' %(
-                        v.name,v._schedule,
-                        v._input_set,v._output_list )
+                out += '   %s on schedule %s ' %(
+                        v.name,v._schedule)
         out += '\n'
         
         return out
@@ -1236,9 +1266,9 @@ class JobController(object):
         logger.debug('Build of job spec is complete.')
         logger.debug('-------------------------------')
         for section,stages in list(job_spec.items()):
-            logger.debug('%s' %(section))
+            logger.debug('%s:>>>' %(section))
             for s in stages:
-                logger.info(str(s))
+                logger.info('  %s',str(s))
         logger.debug('-------------------------------')
         
             
@@ -1313,10 +1343,8 @@ class JobController(object):
             if len(stages_added) == 0:
                 break
             else:
-                logger.debug('Added stages of type %s: %s', stage_type, 
-                             [x.name for x in stages_added])
-                logger.debug('New stages provide data items %s', columns_added)
-                logger.debug('New stages require inputs %s', required_inputs)
+                logger.debug(('Gathered stages of type %s. Iteration %s: %s'),
+                             stage_type, i, [str(x) for x in stages_added])
             #maintain a set of cols for each data source stage
             for stage,cols in data_source_col_list.items():
                 existing_cols = meta['data_source_projection_list'].get(stage,set())
@@ -1332,13 +1360,13 @@ class JobController(object):
                                                 exclude_stages = [])
         logger.debug('Built stages of type %s',stage_type)
         logger.debug('Available columns: %s', meta['available_columns']) 
-        skipped = [x.name for x in set(all_stages)-set(meta['spec'])]
+        skipped = [x for x in set(all_stages)-set(meta['spec'])]
         for s in skipped:
             logger.debug('Skipped stage %s',skipped)
             logger.debug('Skipped data items %s',
                          self.exec_stage_method(
                             s,
-                            'get_data_item_list',
+                            'get_output_list',
                             'No data items'))
         return meta
     
@@ -1381,7 +1409,9 @@ class JobController(object):
                        ' get_aggregation_method()') %(s.name)
                 raise StageException(msg,s.name)
             
-            input_items = list(s._input_set)
+            input_items = list(s.get_input_set())
+            output_list = s.get_output_list()
+            
             for i,item in enumerate(input_items):
                 
                 # aggregation is performed using a the pandas agg function
@@ -1389,7 +1419,7 @@ class JobController(object):
                 # by pandas or a method that accepts a series
                 # and returns a constant. 
                 
-                output = s._output_list[i]
+                output = output_list[i]
                 
                 try:
                     agg_dict[item].append(aggregation_method)
@@ -1399,7 +1429,7 @@ class JobController(object):
                 else:
                     o_dict[item].append(output)
                     
-            inputs |= s._input_set
+            inputs |= input_items
             
         outputs = []
         for o in o_dict.values():
@@ -1414,8 +1444,8 @@ class JobController(object):
         
         all_stages.extend(complex_aggregators)
         for s in complex_aggregators:
-            inputs |= s._input_set
-            outputs.extend(s._output_list)
+            inputs |= s.get_input_set()
+            outputs.extend(s.get_output_list())
                 
         return (agg_dict,complex_aggregators,all_stages,inputs,outputs)
     
@@ -2211,9 +2241,9 @@ class JobController(object):
         for s in stages:
             if s not in exclude_stages and (
                     available_columns is None or
-                    len(s._input_set - available_columns) == 0):
+                    len(s.get_input_set() - available_columns) == 0):
                 out.append(s)
-                new_cols = set(s._output_list)
+                new_cols = set(s.get_output_list())
                 if available_columns is not None:
                      new_cols = new_cols - available_columns    
                 cols |= new_cols
@@ -2940,38 +2970,6 @@ class MergeError(Exception):
     def __init__(self, msg):
         super().__init__(msg)
             
-    
-class ExpressionExecutor(object):
-    '''
-    Create a new item from an expression involving other items
-    '''
-    def __init__(self, expression , name, input_items = None):
-        self.expression = expression
-        self.name = name
-        if input_items is None:
-            input_items = set()
-        self._input_set = input_items
-                
-    def execute(self, df):
-        self.infer_inputs(df)
-        if '${' in self.expression:
-            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
-        else:
-            expr = self.expression
-        try:
-            df[self.name] = eval(expr)
-        except SyntaxError:
-            msg = 'Syntax error while evaluating expression %s' %expr
-            raise SyntaxError (msg)
-        
-        return df
-    
-    def infer_inputs(self,df):
-        #get all quoted strings in expression
-        possible_items = re.findall('"([^"]*)"', self.expression)
-        possible_items.extend(re.findall("'([^']*)'", self.expression))
-        self.input_items = [x for x in possible_items if x in list(df.columns)]          
-
 
 class CalcPipeline:
     '''
