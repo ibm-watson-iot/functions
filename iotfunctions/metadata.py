@@ -29,6 +29,7 @@ from . import db as db_module
 from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
 from .pipeline import CalcPipeline, DataReader, DropNull
 from .util import MemoryOptimizer, StageException, build_grouper, categorize_args
+import iotfunctions as iotf
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +291,10 @@ class EntityType(object):
     allow_projection_list_trim = False
     
     def __init__ (self,name,db, *args, **kwargs):
+        
+        logger.debug('Initializing new entity type using iotfunctions %s',
+                     iotf.__version__)
+        
         self.logical_name = name
         name = name.lower()
         name = name.replace(' ','_')
@@ -1513,7 +1518,11 @@ class EntityType(object):
                                         object_name = self.logical_name,
                                         request = 'POST',
                                         payload = export,
-                                        raise_error = raise_error)    
+                                        raise_error = raise_error) 
+        
+        logger.debug('Published kpis to entity type')
+        logger.debug(response)
+        
         return response
 
     def raise_error(self,exception,msg='',abort_on_fail=False,stageName=None):
