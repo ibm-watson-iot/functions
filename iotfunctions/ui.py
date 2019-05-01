@@ -344,6 +344,7 @@ class UIMulti(BaseUIControl):
             raise ValueError(msg)
         else:
             datatype = [self.convert_datatype(self.datatype)]
+            schema_datatype = datatype[0].lower()
         
         meta = {
                 'name' : self.name,
@@ -359,7 +360,7 @@ class UIMulti(BaseUIControl):
                                 "type" : "array",
                                 "minItems" : self.min_items,
                                 "maxItems" : self.max_items,
-                                "items" : {"type": "string"}
+                                "items" : {"type": schema_datatype }
                                 }
                 }
         return meta 

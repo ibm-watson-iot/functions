@@ -490,7 +490,8 @@ class Coalesce(BaseTransformer):
         inputs.append(UIMultiItem('data_items'))
         #define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle('output_item'))
+        outputs.append(UIFunctionOutSingle('output_item',
+                                           datatype = float))
 
         return (inputs,outputs)
 
@@ -517,7 +518,9 @@ class CoalesceDimension(BaseTransformer):
         inputs.append(UIMultiItem('data_items'))
         #define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle('output_item', tags = ['DIMENSION']))
+        outputs.append(UIFunctionOutSingle('output_item', 
+                                           datatype = 'str',
+                                           tags = ['DIMENSION']))
 
         return (inputs,outputs)
 
