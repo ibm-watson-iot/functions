@@ -92,9 +92,9 @@ class Boiler(EntityType):
         
         # roughing out design of entity with fake recommendations
         args.append(bif.RandomDiscreteNumeric(
-                discrete_values = [0.0001,
-                                   0.0002,
-                                   0.01,
+                discrete_values = [0.001,
+                                   0.001,
+                                   0.001,
                                    0.5,
                                    0.7],
                 probabilities = [0.9,0.05,0.02,0.02,0.01],                                   
