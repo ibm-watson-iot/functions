@@ -575,7 +575,9 @@ class TestBed(BaseCustomEntityType):
     '''
 
     def __init__(self,name,db,db_schema=None,
-                 description = None):
+                 description = None,
+                 generate_days = 0,
+                 drop_existing = False):
         
         columns = []
         columns.append(Column('str_1',String(50)))
@@ -713,7 +715,7 @@ class TestBed(BaseCustomEntityType):
                 output_items = ['x_1_sum_day','x_2_sum_day']))
             
         for f in day_functions:
-            f.granularity = day
+            f.granularity = day.name
             
         functions.extend(day_functions)
         
