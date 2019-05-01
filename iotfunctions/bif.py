@@ -20,6 +20,7 @@ import numpy as np
 import re
 import pandas as pd
 import logging
+import warnings
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
@@ -336,6 +337,12 @@ class IoTCalcSettings(BaseMetadataProvider):
     """
     Overide default calculation settings for the entity type
     """
+    
+    warnings.warn(('IoTCalcSettings is deprecated. Use entity type constants'
+                   ' instead of a metadata provider to set entity type properties'
+                  ))
+    
+    is_deprecated = True
     
     def __init__ (self, 
                   checkpoint_by_entity = False,
