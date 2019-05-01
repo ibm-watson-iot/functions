@@ -519,7 +519,7 @@ class CoalesceDimension(BaseTransformer):
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle('output_item', 
-                                           datatype = 'str',
+                                           datatype = str,
                                            tags = ['DIMENSION']))
 
         return (inputs,outputs)

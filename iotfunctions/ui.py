@@ -30,6 +30,20 @@ class BaseUIControl(object):
         except KeyError:
             msg = 'couldnt convert type %s ' %from_datatype
             raise TypeError(msg)
+            
+    def convert_schema_datatype(self,from_datatype):
+        conversions = {bool: 'boolean',
+                       str: 'string',
+                       float: 'number',
+                       int: 'number',
+                       dt.datetime: 'number',
+                       None : None
+                       }
+        try:
+            return conversions[from_datatype]
+        except KeyError:
+            msg = 'couldnt convert type %s ' %from_datatype
+            raise TypeError(msg)            
                 
 class UIFunctionOutSingle(BaseUIControl):
     '''
@@ -344,7 +358,7 @@ class UIMulti(BaseUIControl):
             raise ValueError(msg)
         else:
             datatype = [self.convert_datatype(self.datatype)]
-            schema_datatype = datatype[0].lower()
+            schema_datatype = self.convert_schema_datatype(self.datatype)
         
         meta = {
                 'name' : self.name,
