@@ -165,13 +165,7 @@ class BaseCustomEntityType(EntityType):
                     'args' : args
                     }
             export.append(metadata)
-            
-
-                
                     
-                
-                    
-            
         
         logger.debug('Published kpis to entity type')
         logger.debug(export)
@@ -457,22 +451,22 @@ class PackagingHopper(BaseCustomEntityType):
         functions = []
 
         # fill rate depends on temp
-        columns.append(bif.PythonExpression(
+        functions.append(bif.PythonExpression(
                 expression = '502 + 9 * df["ambient_temp"]/20',
                 output_name = 'dispensed_mass_predicted'))
         
-        columns.append(bif.RandomNoise(input_items=['dispensed_mass_predicted'],
+        functions.append(bif.RandomNoise(input_items=['dispensed_mass_predicted'],
                                     standard_deviation = 0.5,
                                     output_items = ['dispensed_mass_actual']))
         
         # difference between prediction and actual
-        columns.append(bif.PythonExpression(
+        functions.append(bif.PythonExpression(
                 expression = ('(df["dispensed_mass_predicted"]-'
                               ' df["dispensed_mass_actual"]).abs()'),
                 output_name = 'prediction_abs_error'))
         
         # alert
-        columns.append(bif.AlertHighValue(
+        functions.append(bif.AlertHighValue(
                 input_item = 'prediction_abs_error',
                 upper_threshold = 3,
                 alert_name = 'anomaly_in_fill_detected'))
