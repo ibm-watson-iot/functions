@@ -999,6 +999,7 @@ class EntityDataGenerator(BasePreload):
         
     """
     
+    is_data_generator = True
     freq = '5min' 
     scd_frequency = '1D'
     activity_frequency = '3D'

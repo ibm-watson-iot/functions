@@ -389,27 +389,7 @@ class EntityType(object):
             logger.debug('Adding granularity to entity type: %s',g.name)
             self._granularities_dict[g.name] = g
         
-        # attach granularity to function
-        # functions are assumed to be input level (None)
-        # until a grain change is signified by a new 
-        # Granularity object
-        
-        granularity = None
-        for a in args:
-            
-            #if argument is a grain, change the grain
-            # for all functions after this one
-            if a in grains:
-                granularity = a
-            
-            if granularity is None:
-                a.granularity = None
-            #if argument is function, set grain                
-            elif a in functions:
-                a.granularity = granularity.name
-                logger.debug('%s assigned to grain %s',a.__class__.__name__,a.granularity)
-                
-        
+
         #add constants
         self.ui_constants = constants
         self.build_ui_constants()
@@ -1483,6 +1463,11 @@ class EntityType(object):
             logger.debug(msg)
             
     def publish_kpis(self,raise_error = True):
+        
+        warnings.warn(('publish_kpis() is deprecated for EntityType. Instead'
+                       ' use an EntityType inherited from BaseCustomEntityType'),
+                      DeprecationWarning)
+    
         '''
         Publish the stages assigned to this entity type to the AS Server
         '''   
@@ -1549,7 +1534,7 @@ class EntityType(object):
         return msg
     
 
-    def register(self,publish_kpis=False):
+    def register(self,publish_kpis=False,raise_error=False):
         '''
         Register entity type so that it appears in the UI. Create a table for input data.
         
@@ -1608,12 +1593,12 @@ class EntityType(object):
                                      object_type = 'entityType',
                                      object_name = self.name,
                                      payload = payload,
-                                     raise_error = True)
+                                     raise_error = raise_error)
 
         msg = 'Metadata registered for table %s '%self.name
         logger.debug(msg)
         if publish_kpis:
-            self.publish_kpis()
+            self.publish_kpis(raise_error=raise_error)
             self.db.register_constants(self.ui_constants)
         
         return response
