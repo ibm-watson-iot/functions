@@ -153,9 +153,10 @@ class BaseCustomEntityType(EntityType):
                 else:
                     arg_values = value
                 for av in arg_values:
-                    extended = self._output_items_extended_metadata.get(av,None)
-                    if extended is not None:
-                        output_meta[av] = extended
+                    if isinstance(av,str):
+                        extended = self._output_items_extended_metadata.get(av,None)
+                        if extended is not None:
+                            output_meta[av] = extended
             if output_meta:
                 args['outputMeta'] = output_meta
                 
