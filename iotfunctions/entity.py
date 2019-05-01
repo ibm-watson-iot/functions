@@ -282,7 +282,7 @@ class PackagingHopper(EntityType):
         
         # alert
         args.append(bif.AlertHighValue(
-                input_item = 'prediction_error',
+                input_item = 'prediction_abs_error',
                 upper_threshold = 3,
                 alert_name = 'anomaly_in_fill_detected'))
                 

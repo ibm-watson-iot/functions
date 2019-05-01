@@ -384,8 +384,10 @@ class UIMulti(BaseUIControl):
         if self.output_item is not None:        
             if self.output_datatype is not None:
                 datatype = [self.convert_datatype(self.output_datatype)]
+                schema_type = self.convert_schema_datatype(self.output_datatype)
             else:
                 datatype= None
+                schema_type = None
                         
             meta = {
                     'name' : self.output_item,
@@ -396,7 +398,7 @@ class UIMulti(BaseUIControl):
                     'jsonSchema' : {
                                     "$schema" : "http://json-schema.org/draft-07/schema#",
                                     "type" : "array",
-                                    "items" : {"type": "string"}
+                                    "items" : {"type": schema_type}
                                     }
                     }
                     
