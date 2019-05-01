@@ -203,7 +203,8 @@ class BaseFunction(object):
         
         Rebuild the _input_set and _output list
         Place the values of inputs and outputs into 2 dicts
-        Return these two dicts in a tuple along with an unused output_meta dict
+        Return these two dicts in a tuple along with an output_meta dict
+        that contains argument values and types
         
         '''
         
@@ -269,7 +270,7 @@ class BaseFunction(object):
                             else:
                                 self._output_list.append(output_args[out_meta['name']])
                         logger.debug('Using client output items %s', 
-                                     output_args[out_meta['name']])                                
+                                     output_args[out_meta['name']])                              
 
             else:
                 raise TypeError(('Function registration metadata must be defined',
@@ -299,7 +300,7 @@ class BaseFunction(object):
                 else:
                     self._output_list.append(output_args[out_meta['name']])
                 logger.debug('Using client output items %s', 
-                             output_args[out_meta['name']])                     
+                             output_args[out_meta['name']])               
                 
         #output_meta is present in the AS metadata structure, but not 
         #currently produced for local functions

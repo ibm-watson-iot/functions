@@ -63,6 +63,7 @@ class BaseCustomEntityType(EntityType):
                   drop_existing = False,
                   db_schema = None,
                   description = None,
+                  output_items_extended_metadata = None,
                   **kwargs):
         
         if columns is None:
@@ -75,11 +76,14 @@ class BaseCustomEntityType(EntityType):
             dimension_columns = []
         if granularities is None:
             granularities = []
+        if output_items_extended_metadata is None:
+            output_items_extended_metadata = {}
             
         self._columns = columns
         self._constants = constants
         self._functions = functions
         self._dimension_columns = dimension_columns
+        self._output_items_extended_metadata = output_items_extended_metadata
             
         args = []
         args.extend(self._columns)
@@ -138,12 +142,34 @@ class BaseCustomEntityType(EntityType):
                        ' Function %s has no _get_arg_spec() method.'
                        ' It cannot be published' ) %name
                 raise NotImplementedError(msg)
+            
+            # the entity type may have extended metadata
+            # find relevant extended metadata and add it to argument values
+            
+            output_meta = {}
+            for (a,value) in list(args.items()):
+                if not isinstance(value,list):
+                    arg_values = [value]
+                else:
+                    arg_values = value
+                for av in arg_values:
+                    extended = self._output_items_extended_metadata.get(av,None)
+                    if extended is not None:
+                        output_meta[av] = extended
+            if output_meta:
+                args['outputMeta'] = output_meta
                 
             metadata  = { 
                     'name' : name ,
                     'args' : args
                     }
             export.append(metadata)
+            
+
+                
+                    
+                
+                    
             
         
         logger.debug('Published kpis to entity type')
@@ -359,13 +385,21 @@ class Robot(BaseCustomEntityType):
         
         functions.append(bif.RandomUniform(min_value = 0.8,
                         max_value = 0.95,
-                        output_item = 'percent_meeting_target_duration'))        
+                        output_item = 'percent_meeting_target_duration'))
+        
+        # data type for operator cannot be infered automatically
+        # state it explicitley
+        
+        output_items_extended_metadata = {
+                'operator' : { "dataType" : "NUMBER" }
+                }
         
         #dimension columns
         dimension_columns = [
             Column('firmware',String(50)),
             Column('manufacturer',String(50))
             ]
+        
         
         super().__init__(name=name,
                          db = db,
@@ -374,6 +408,7 @@ class Robot(BaseCustomEntityType):
                          columns=columns,
                          functions = functions,
                          dimension_columns = dimension_columns,
+                         output_items_extended_metadata = output_items_extended_metadata,
                          generate_days = 0,
                          drop_existing = False,
                          description = description,
