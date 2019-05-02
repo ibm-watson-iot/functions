@@ -395,6 +395,11 @@ class Robot(BaseCustomEntityType):
             Column('manufacturer',String(50))
             ]
         
+        output_items_extended_metadata = {
+                'scheduled_maint' : 'NUMBER',
+                'unscheduled_maint' : 'NUMBER',
+                'firmware_upgrade' : 'NUMBER',
+                'testing' : 'NUMBER'}
         
         super().__init__(name=name,
                          db = db,
