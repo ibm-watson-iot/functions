@@ -19,6 +19,7 @@ from .metadata import EntityType, Granularity
 from . import bif
 from . import ui
 from . import aggregate as agg
+from . import pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -109,25 +110,47 @@ class BaseCustomEntityType(EntityType):
             *self._dimension_columns)
         
         if generate_days > 0:
-            generators = [x for x in self.functions if x.is_data_generator]
+            generators = [x for x in self._functions if x.is_data_generator]
             start = dt.datetime.utcnow() - dt.timedelta(days = generate_days)
             for g in generators:
+                logger.debug(('Running generator %s with start date %s.'
+                              ' Drop existing %s'),
+                             g.__class__.__name__,
+                             start,
+                             drop_existing)
                 g.drop_existing = drop_existing
                 g.execute(df=None,start_ts = start) 
                 g.drop_existing = False
                 
-    def exec_pipeline(self, *args, to_csv = False, register = False,
-                      start_ts = None, publish = False):
+    def exec_local_pipeline(self,
+                      register = False,
+                      start_ts = None,
+                      publish = False,
+                      **kw):
         '''
-        Test an AS function instance using entity data.
-        Provide one or more functions as args.
+        Test the functions included on a predefined entity type.
+        Test will be run on local metadata. It will not use the server
+        job log. Results will be written to file.
         '''
-        stages = []
-        stages.extend(self.functions)
-        stages.extend(args)
         
-        return df                
+        params = {
+        'data_writer' :  pipeline.DataWriterFile,
+        'keep_alive_duration' : None,
+        'save_trace_to_file' : True,
+        'default_backtrack' : 'checkpoint',
+        'trace_df_changes' : True,
+        '_abort_on_fail' : True,
+        'job_log_class' : pipeline.JobLogNull,
+        '_auto_save_trace' : None
+        }
         
+        kw = {**kw,**params}
+        
+        job = pipeline.JobController(payload=self,**kw)
+        job.execute()
+        if register:
+            self.register(publish_kpis=publish,
+                          raise_error = params['_abort_on_fail'])
         
     def publish_kpis(self,raise_error = True):
         
@@ -219,6 +242,7 @@ class Boiler(BaseCustomEntityType):
         columns.append(Column('fuel_flow_rate',Float()))
         columns.append(Column('air_flow_rate',Float()))
         
+        functions = []
         #simulation settings
         sim = { 
                 'data_item_mean' :{'temp_set_point':200,
@@ -231,9 +255,7 @@ class Boiler(BaseCustomEntityType):
                 }
 
         generator = bif.EntityDataGenerator(ids=None,**sim)                
-        columns.append(generator)
-        
-        functions = []
+        functions.append(generator)
 
         # temperature depends on set point
         functions.append(bif.RandomNoise(input_items=['temp_set_point'],
@@ -278,10 +300,10 @@ class Boiler(BaseCustomEntityType):
                          columns=columns,
                          functions = functions,
                          dimension_columns = dimension_columns,
-                         generate_days = 0,
-                         drop_existing = False,
+                         generate_days = generate_days,
+                         drop_existing = drop_existing,
                          description = description,
-                         db_schema = None)
+                         db_schema = db_schema)
 
         
 class Robot(BaseCustomEntityType):
@@ -416,10 +438,10 @@ class Robot(BaseCustomEntityType):
                          functions = functions,
                          dimension_columns = dimension_columns,
                          output_items_extended_metadata = output_items_extended_metadata,
-                         generate_days = 0,
-                         drop_existing = False,
+                         generate_days = generate_days,
+                         drop_existing = drop_existing,
                          description = description,
-                         db_schema = None)
+                         db_schema = db_schema)
          
 class PackagingHopper(BaseCustomEntityType):
     
@@ -445,6 +467,8 @@ class PackagingHopper(BaseCustomEntityType):
         columns.append(Column('product_code',String(50)))
         columns.append(Column('ambient_temp',Float()))
         columns.append(Column('ambient_humidity',Float()))
+
+        functions = []
         
         #simulation settings
         sim = { 
@@ -458,9 +482,7 @@ class PackagingHopper(BaseCustomEntityType):
                 }
 
         generator = bif.EntityDataGenerator(ids=None,**sim)                
-        columns.append(generator)
-        
-        functions = []
+        functions.append(generator)
 
         # fill rate depends on temp
         functions.append(bif.PythonExpression(
@@ -498,10 +520,10 @@ class PackagingHopper(BaseCustomEntityType):
                          columns= columns,
                          functions = functions,
                          dimension_columns = dimension_columns,
-                         generate_days = 0,
-                         drop_existing = False,
+                         generate_days = generate_days,
+                         drop_existing = drop_existing,
                          description = description,
-                         db_schema = None)
+                         db_schema = db_schema)
 
 
 class SourdoughLeavening(BaseCustomEntityType):
@@ -575,10 +597,10 @@ class SourdoughLeavening(BaseCustomEntityType):
                          columns= columns,
                          functions = functions,
                          dimension_columns = dimension_columns,
-                         generate_days = 0,
-                         drop_existing = False,
+                         generate_days = generate_days,
+                         drop_existing = drop_existing,
                          description = description,
-                         db_schema = None)       
+                         db_schema = db_schema)       
             
 class TestBed(BaseCustomEntityType):
     
@@ -619,6 +641,10 @@ class TestBed(BaseCustomEntityType):
                 )
         
         functions = []
+
+        generator = bif.EntityDataGenerator(ids=None)                
+        functions.append(generator)        
+        
         functions.append(bif.ShiftCalendar(
                 shift_definition=None,
                 period_start_date = 'shift_start_date',
@@ -630,7 +656,7 @@ class TestBed(BaseCustomEntityType):
                 ids=['A01','A02','A03','A04','A05','B01']
                 ))
         functions.append(bif.IoTDeleteInputData(
-                dummy_items=[],
+                dummy_items=['x_1'],
                 older_than_days=5,
                 output_item='delete_done'
                 ))
@@ -746,9 +772,9 @@ class TestBed(BaseCustomEntityType):
                          columns= columns,
                          functions = functions,
                          dimension_columns = dimension_columns,
-                         generate_days = 0,
-                         drop_existing = False,
+                         generate_days = generate_days,
+                         drop_existing = drop_existing,
                          description = description,
-                         db_schema = None)          
+                         db_schema = db_schema)          
         
     

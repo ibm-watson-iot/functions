@@ -378,7 +378,8 @@ class EntityType(object):
                            ' to create a table. ' %(name) )
                     raise ValueError (msg)
             #populate the data items metadata from the supplied columns
-            self._data_items = self.build_item_metadata(self.table)
+            if len(self._data_items) == 0:
+                self._data_items = self.build_item_metadata(self.table)
         else:
             logger.warning((
                     'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'
