@@ -935,6 +935,157 @@ class Db2DataWriter():
         stmt = '%s WHERE %s AND %s' % (stmt, where1, where2)
 
         return stmt
+    
+class JobLog(object):
+    
+    '''
+    Create and manage a database table to store job execution history.
+    
+    A job log entry is created at the start of job execution with a default
+    status of 'running'. This job log entry may be updated at various times
+    during the process. Each update may update the status, trace or log 
+    references.
+    
+    '''
+    
+    def __init__(self,job,table_name='job_log'):
+        
+        self.job = job
+        self.table_name = table_name
+        self.db = self.job.get_payload_param('db',None)
+        if self.db is None:
+            raise RuntimeError(('The job payload does not have a valid'
+                                ' db object. Unable to establish a database'
+                                ' connection'))
+        kw = {
+             'schema' : self.job.get_payload_param('_db_schema',None)
+             }
+        
+        self.table = Table(self.table_name, self.db.metadata,
+                Column('object_type', String(255)),
+                Column('object_name', String(255)),
+                Column('schedule', String(255)),
+                Column('execution_date', DateTime()),
+                Column('previous_execution_date',DateTime()),
+                Column('next_execution_date',DateTime()),
+                Column('status',String(30)),
+                Column('startup_log',String(255)),
+                Column('execution_log',String(255)),
+                Column('trace',String(2000)),
+                extend_existing = True,
+                **kw
+                )
+        
+        self.db.metadata.create_all(self.db.connection)
+
+    def clear_old_running(self,
+                          name,
+                          schedule):
+        
+        q = self.table.select().\
+            where(and_(
+                self.table.c.object_type == self.job.payload.__class__.__name__,
+                self.table.c.object_name == name,
+                self.table.c.schedule == schedule,
+                self.table.c.status == 'running'                  
+                    ))
+        df = pd.read_sql(sql=q,con=self.db.connection)
+        
+        if len(df.index)>0:
+            upd = self.table.update().values(status='abandoned').\
+            where(and_(
+                self.table.c.object_type == self.job.payload.__class__.__name__,
+                self.table.c.object_name == name,
+                self.table.c.schedule == schedule,
+                self.table.c.status == 'running'                  
+                    ))
+            
+            self.db.connection.execute(upd)
+            logger.debug(
+                    'Marked existing running jobs as abandoned  (%s,%s)',
+                    name,schedule
+                    )
+            logger.debug(df)
+            self.db.commit()            
+        
+
+    def insert (self,name,schedule,execution_date,status='running',
+                previous_execution_date = None, next_execution_date = None,
+                startup_log=None,execution_log=None,trace=None):
+        
+        self.db.start_session()
+        ins = self.table.insert().values(object_type = self.job.payload.__class__.__name__,
+                               object_name = name,
+                               schedule = schedule,
+                               execution_date = execution_date,
+                               previous_execution_date = previous_execution_date,
+                               next_execution_date = next_execution_date,
+                               status = status,
+                               startup_log = startup_log,
+                               execution_log = execution_log,
+                               trace = trace
+                               )
+        self.db.connection.execute(ins)
+        logger.debug((
+                'Created job log entry (%s,%s): %s'),
+                name,schedule,execution_date
+                )
+        self.db.commit()
+
+        
+    def update (self,name,schedule,execution_date, next_execution_date = None,
+                status=None, execution_log=None,trace=None):
+        
+        self.db.start_session()
+        
+        values = {}
+        if status is not None:
+            values['status'] = status
+        if execution_log is not None:
+            values['execution_log'] = execution_log            
+        if trace is not None:
+            values['trace'] = trace
+        if next_execution_date is not None:
+            values['next_execution_date'] = next_execution_date
+        if values:        
+            upd = self.table.update().\
+                where(and_(
+                        self.table.c.object_type == self.job.payload.__class__.__name__,
+                        self.table.c.object_name == name,
+                        self.table.c.schedule == schedule,
+                        self.table.c.execution_date == execution_date
+                        )).\
+                values(**values)
+            
+            self.db.connection.execute(upd)
+            logger.debug((
+                    'Updated job log (%s,%s): %s'),
+                    name,schedule,execution_date
+                    )
+            self.db.commit()
+        else:
+            logger.debug((
+                    'No non-null values supplied. job log was not updated (%s,%s): %s'),
+                    name,schedule,execution_date
+                    )                    
+        
+    def get_last_execution_date( self,name, schedule):
+        
+        '''
+        Last execution date for payload object name for particular schedule
+        '''
+        
+        col = func.max(self.table.c['execution_date'])
+        query = select([col.label('last_execution')]).where(and_(
+                self.table.c['object_type'] == self.job.payload.__class__.__name__,
+                self.table.c['object_name'] == name,
+                self.table.c['schedule'] == schedule,
+                self.table.c['status'] == 'complete'
+                ))
+        result = self.db.connection.execute(query).first()
+        
+        return result[0]
+    
 
         
 class JobController(object):
@@ -998,6 +1149,7 @@ class JobController(object):
     data_aggregator = DataAggregator
     data_writer = DataWriterFile
     data_merge = DataMerge
+    job_log_class = JobLog
     
     def __init__ (self,payload,**kwargs):
         
@@ -1014,7 +1166,7 @@ class JobController(object):
         self.set_payload_params(**kwargs)
         
         #create a job log
-        self.job_log = JobLog(self)
+        self.job_log = self.job_log_class(self)
         #get metadata from payload
         self.stage_metadata = self.get_payload_param('_stages',None)
 
@@ -2304,7 +2456,7 @@ class JobController(object):
                 except BaseException as e:
                     logger.warning(('Unable to write completed execution'
                                     ' status to the log. Will try again in'
-                                    ' %s seconds' %i))
+                                    ' %s seconds: %s' %(i,e)))
                     time.sleep(i)
                 else:
                     wrote_log = True
@@ -2815,138 +2967,43 @@ class JobController(object):
                     df = df,
                     **kwargs)      
         
-class JobLog(object):
+
+
+class JobLogNull(object):
     
     '''
-    Create and manage a database table to store job execution history.
-    
-    A job log entry is created at the start of job execution with a default
-    status of 'running'. This job log entry may be updated at various times
-    during the process. Each update may update the status, trace or log 
-    references.
-    
+    Log execution history to the log so as not to interfere with server
+    metadata.
+        
     '''
     
-    def __init__(self,job,table_name='job_log'):
+    def __init__(self,job,table_name='job_log_null'):
         
         self.job = job
         self.table_name = table_name
-        self.db = self.job.get_payload_param('db',None)
-        if self.db is None:
-            raise RuntimeError(('The job payload does not have a valid'
-                                ' db object. Unable to establish a database'
-                                ' connection'))
-        kw = {
-             'schema' : self.job.get_payload_param('_db_schema',None)
-             }
-        
-        self.table = Table(self.table_name, self.db.metadata,
-                Column('object_type', String(255)),
-                Column('object_name', String(255)),
-                Column('schedule', String(255)),
-                Column('execution_date', DateTime()),
-                Column('previous_execution_date',DateTime()),
-                Column('next_execution_date',DateTime()),
-                Column('status',String(30)),
-                Column('startup_log',String(255)),
-                Column('execution_log',String(255)),
-                Column('trace',String(2000)),
-                extend_existing = True,
-                **kw
-                )
-        
-        self.db.metadata.create_all(self.db.connection)
 
     def clear_old_running(self,
                           name,
                           schedule):
         
-        q = self.table.select().\
-            where(and_(
-                self.table.c.object_type == self.job.payload.__class__.__name__,
-                self.table.c.object_name == name,
-                self.table.c.schedule == schedule,
-                self.table.c.status == 'running'                  
-                    ))
-        df = pd.read_sql(sql=q,con=self.db.connection)
-        
-        if len(df.index)>0:
-            upd = self.table.update().values(status='abandoned').\
-            where(and_(
-                self.table.c.object_type == self.job.payload.__class__.__name__,
-                self.table.c.object_name == name,
-                self.table.c.schedule == schedule,
-                self.table.c.status == 'running'                  
-                    ))
-            
-            self.db.connection.execute(upd)
-            logger.debug(
-                    'Marked existing running jobs as abandoned  (%s,%s)',
-                    name,schedule
-                    )
-            logger.debug(df)
-            self.db.commit()            
+        logger.debug('Null Job Log has no old running job log entries to clear')
         
 
     def insert (self,name,schedule,execution_date,status='running',
                 previous_execution_date = None, next_execution_date = None,
                 startup_log=None,execution_log=None,trace=None):
         
-        self.db.start_session()
-        ins = self.table.insert().values(object_type = self.job.payload.__class__.__name__,
-                               object_name = name,
-                               schedule = schedule,
-                               execution_date = execution_date,
-                               previous_execution_date = previous_execution_date,
-                               next_execution_date = next_execution_date,
-                               status = status,
-                               startup_log = startup_log,
-                               execution_log = execution_log,
-                               trace = trace
-                               )
-        self.db.connection.execute(ins)
-        logger.debug((
-                'Created job log entry (%s,%s): %s'),
+        logger.info( 'Null job log entry created (%s,%s): %s',
                 name,schedule,execution_date
                 )
-        self.db.commit()
-
         
     def update (self,name,schedule,execution_date, next_execution_date = None,
                 status=None, execution_log=None,trace=None):
         
-        self.db.start_session()
-        
         values = {}
-        if status is not None:
-            values['status'] = status
-        if execution_log is not None:
-            values['execution_log'] = execution_log            
-        if trace is not None:
-            values['trace'] = trace
-        if next_execution_date is not None:
-            values['next_execution_date'] = next_execution_date
-        if values:        
-            upd = self.table.update().\
-                where(and_(
-                        self.table.c.object_type == self.job.payload.__class__.__name__,
-                        self.table.c.object_name == name,
-                        self.table.c.schedule == schedule,
-                        self.table.c.execution_date == execution_date
-                        )).\
-                values(**values)
-            
-            self.db.connection.execute(upd)
-            logger.debug((
-                    'Updated job log (%s,%s): %s'),
-                    name,schedule,execution_date
-                    )
-            self.db.commit()
-        else:
-            logger.debug((
-                    'No non-null values supplied. job log was not updated (%s,%s): %s'),
-                    name,schedule,execution_date
-                    )                    
+        logger.info('Updated job log (%s,%s): %s' ,name,schedule,execution_date )
+        logger.info(values)
+        
         
     def get_last_execution_date( self,name, schedule):
         
@@ -2954,16 +3011,9 @@ class JobLog(object):
         Last execution date for payload object name for particular schedule
         '''
         
-        col = func.max(self.table.c['execution_date'])
-        query = select([col.label('last_execution')]).where(and_(
-                self.table.c['object_type'] == self.job.payload.__class__.__name__,
-                self.table.c['object_name'] == name,
-                self.table.c['schedule'] == schedule,
-                self.table.c['status'] == 'complete'
-                ))
-        result = self.db.connection.execute(query).first()
+        logger.debug('No last execution date to return from null job log')
         
-        return result[0]
+        return None
     
 class MergeError(Exception):
     
