@@ -7,10 +7,9 @@ import numpy as np
 import pandas as pd
 import pandas.core.index
 
-from .catalog import CATEGORY_TRANSFORMER
 from .util import asList, check_time_frequency
 
-CATALOG_CATEGORY = CATEGORY_TRANSFORMER
+CATALOG_CATEGORY = 'TRANSFORMER'
 
 logger = logging.getLogger(__name__)
 
