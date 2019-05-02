@@ -115,6 +115,18 @@ class BaseCustomEntityType(EntityType):
                 g.drop_existing = drop_existing
                 g.execute(df=None,start_ts = start) 
                 g.drop_existing = False
+                
+    def exec_pipeline(self, *args, to_csv = False, register = False,
+                      start_ts = None, publish = False):
+        '''
+        Test an AS function instance using entity data.
+        Provide one or more functions as args.
+        '''
+        stages = []
+        stages.extend(self.functions)
+        stages.extend(args)
+        
+        return df                
         
         
     def publish_kpis(self,raise_error = True):
@@ -395,11 +407,6 @@ class Robot(BaseCustomEntityType):
             Column('manufacturer',String(50))
             ]
         
-        output_items_extended_metadata = {
-                'scheduled_maint' : 'NUMBER',
-                'unscheduled_maint' : 'NUMBER',
-                'firmware_upgrade' : 'NUMBER',
-                'testing' : 'NUMBER'}
         
         super().__init__(name=name,
                          db = db,
