@@ -15,7 +15,7 @@ from .ui import UIMultiItem, UISingle ,UISingleItem, UIFunctionOutSingle, UIFunc
 logger = logging.getLogger(__name__)
 
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
-
+_IS_PREINSTALLED = True
 
 class SimpleAnomaly(BaseRegressor):
     '''

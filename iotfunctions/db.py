@@ -40,8 +40,6 @@ except ImportError:
     DB2_INSTALLED = False
     msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
     logger.warning(msg)
-    
-
 
 class Database(object):
     '''
@@ -56,6 +54,9 @@ class Database(object):
     echo: bool
         Output sql to log
     '''
+    
+    system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
+    
     def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
         
         self.function_catalog = {} #metadata for functions in catalog
@@ -1101,7 +1102,10 @@ class Database(object):
                           raise_error = True)
             
 
-    def register_functions(self,functions,url=None, raise_error = True):
+    def register_functions(self,functions,
+                           url=None,
+                           raise_error = True,
+                           force_preinstall=False):
         '''
         Register one or more class for use with AS
         '''
@@ -1110,6 +1114,10 @@ class Database(object):
             functions = [functions]
             
         for f in functions:
+            
+            if url is None:
+                url = f.url
+            
             if isinstance(f,type):
                 name = f.__name__
             else:
@@ -1123,10 +1131,44 @@ class Database(object):
                 logger.warning('Registering deprecated function %s', name)
             
             module = f.__module__
+            module_obj = sys.modules[module]
+            
+            
+            # the _IS_PREINSTALLED module variable is reserved for 
+            # AS system functions
+            try:
+                is_preinstalled = getattr(module_obj,'_IS_PREINSTALLED')
+            except AttributeError:
+                is_preinstalled = False
+                
+            if is_preinstalled:
+                if force_preinstall :
+                    if url != self.system_package_url:
+                        msg = ('Cannot register function %s. This '
+                         ' module has _IS_PREINSTALLED = True'
+                         ' but its catalog source is not the'
+                         ' iotfunctions catalog url' %name)
+                        if raise_error:
+                            raise RuntimeError(msg)
+                        else:
+                            logger.debug(msg)
+                            continue
+                    else:
+                        # URL should not be set for preinstalled functions
+                        url = None
+                else:
+                    if raise_error:
+                        msg = ('Cannot register function %s. This is a'
+                               ' preinstalled function' %name )
+                        if raise_error:
+                            raise RuntimeError(msg)
+                        else:
+                            logger.debug(msg)
+                            continue
+            
             if module == '__main__':
                 raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
-            if url is None:
-                url = f.url
+
             module_and_target = '%s.%s' %(module,name)
             exec_str = 'from %s import %s as import_test' %(module,name)
             try:
@@ -1136,6 +1178,7 @@ class Database(object):
                     ('Unable to register function as local import failed.'
                      ' Make sure it is installed locally and '
                      ' importable. %s ' %exec_str) )
+
             try:
                 category = f.category
             except AttributeError:
@@ -1172,24 +1215,36 @@ class Database(object):
                               payload=payload,
                               raise_error = raise_error)
 
-    def register_module(self,module,url=None,raise_error=True):
+    def register_module(self,module,url=None,raise_error=True,force_preinstall=False):
         '''
         Register all of the functions contained within a python module
         '''
+        
+        registered = set()
         for name, cls in inspect.getmembers(module):
-            if inspect.isclass(cls):
+            if inspect.isclass(cls) and cls not in registered:
                 try:
                     is_deprecated = cls.is_deprecated
                 except AttributeError:
                     is_deprecated = False
                 if not is_deprecated and cls.__module__ == module.__name__:
                     try:
-                        self.register_functions(cls,raise_error = raise_error)
+                        self.register_functions(cls,
+                                                raise_error = True,
+                                                url = url,
+                                                force_preinstall = force_preinstall)
                     except (AttributeError,NotImplementedError):
                         msg = 'Did not register %s as it is not a registerable function' %name
                         logger.debug(msg)
-                else:
-                    print(name,cls.__module__)                       
+                    except BaseException as e:
+                        if raise_error:
+                            raise
+                        else:
+                            logger.debug('Error registering function: %s',str(e))
+                    else:
+                        registered.add(cls)
+                        
+        return registered
                       
     def _ts_col_rounded_to_minutes(self,table_name,schema,column_name,minutes,label):
         '''

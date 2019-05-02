@@ -1838,7 +1838,7 @@ class Trace(object)    :
             name = self._trace.build_trace_name()
         self.name = name
         logger.debug('Started a new trace %s ', self.name)
-        if self.auto_save is not None:
+        if self.auto_save is not None and self.auto_save > 0:
             logger.debug('Initiating auto save for trace')
             self.stop_event = threading.Event()
             self.auto_save_thread = threading.Thread(

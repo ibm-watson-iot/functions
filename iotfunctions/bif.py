@@ -28,6 +28,7 @@ from .util import adjust_probabilities
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
+_IS_PREINSTALLED = True
 
 class ActivityDuration(BaseDBActivityMerge):
     '''
