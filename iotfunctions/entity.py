@@ -655,25 +655,25 @@ class TestBed(BaseCustomEntityType):
         functions.append(bif.EntityDataGenerator(
                 ids=['A01','A02','A03','A04','A05','B01']
                 ))
-        functions.append(bif.IoTDeleteInputData(
+        functions.append(bif.DeleteInputData(
                 dummy_items=['x_1'],
                 older_than_days=5,
                 output_item='delete_done'
                 ))
-        functions.append(bif.IoTDropNull(
+        functions.append(bif.DropNull(
                 exclude_items = ['str_1','str_2'],
                 drop_all_null_rows = True,
                 output_item = 'nulls_dropped'
                 ))
-        functions.append(bif.IoTEntityFilter(
+        functions.append(bif.EntityFilter(
                 entity_list = ['A01','A02','A03']
                 ))
-        functions.append(bif.IoTAlertExpression(
+        functions.append(bif.AlertExpression(
                 input_items=['x_1','x_2'],
                 expression = "df['x_1']>3*df['x_2']",
                 alert_name = 'alert_1'
                 ))
-        functions.append(bif.IoTAlertOutOfRange(
+        functions.append(bif.AlertOutOfRange(
                 input_item = 'x_1',
                 lower_threshold=.25,
                 upper_threshold= 3,
@@ -699,7 +699,7 @@ class TestBed(BaseCustomEntityType):
                 data_items = ['x_1_null','x_2_null'],
                 output_item = 'x_1_2'
                 ))
-        functions.append(bif.IoTConditionalItems(
+        functions.append(bif.ConditionalItems(
                 conditional_expression = "df['alert_1']==True",
                 conditional_items = ['x_1','x_2'],
                 output_items = ['x_1_alert_1','x_2_alert_1']
@@ -732,7 +732,7 @@ class TestBed(BaseCustomEntityType):
                 expression = 'df["x_1"]+df["x_1"]+df["x_3"]',
                 output_name = 'x_4'
                 ))
-        functions.append(bif.IoTIfThenElse(
+        functions.append(bif.IfThenElse(
                 conditional_expression = 'df["x_1"]>df["x_2"]',
                 true_expression = 'df["x_1"]',
                 false_expression = 'df["x_2"]',

@@ -9,8 +9,7 @@
 # *****************************************************************************
 
 '''
-The Built In Functions module contains extensions to the function catalog that
-you may register and use.
+The Built In Functions module contains preinstalled functions
 '''
 
 import datetime as dt
@@ -68,7 +67,7 @@ class ActivityDuration(BaseDBActivityMerge):
         return (inputs,outputs)        
 
 
-class IoTAlertExpression(BaseEvent):
+class AlertExpression(BaseEvent):
     '''
     Create alerts that are triggered when data values reach a particular range.
     '''
@@ -122,7 +121,7 @@ class IoTAlertExpression(BaseEvent):
         return (inputs,outputs)    
     
     
-class IoTAlertOutOfRange(BaseEvent):
+class AlertOutOfRange(BaseEvent):
     """
     Fire alert when metric exceeds an upper threshold or drops below a lower_theshold. Specify at least one threshold.
     """
@@ -289,11 +288,13 @@ class AlertLowValue(BaseEvent):
 
 
 
-class IoTAutoTest(BaseTransformer):
+class AutoTest(BaseTransformer):
     '''
     Test the results of pipeline execution against a known test dataset. 
     The test will compare columns calculated values with values in the test dataset.
     Discepancies will the written to a test output file.
+    
+    Note: This function is experimental
     '''
     
     def __init__(self,test_datset_name,columns_to_test,result_col='test_result'):
@@ -332,147 +333,6 @@ class IoTAutoTest(BaseTransformer):
         outputs = OrderedDict()
 
         return (inputs,outputs)
-
-
-class IoTCalcSettings(BaseMetadataProvider):
-    """
-    Overide default calculation settings for the entity type
-    """
-    
-    warnings.warn(('IoTCalcSettings is deprecated. Use entity type constants'
-                   ' instead of a metadata provider to set entity type properties'
-                  ))
-    
-    is_deprecated = True
-    
-    def __init__ (self, 
-                  checkpoint_by_entity = False,
-                  pre_aggregate_time_grain = None,
-                  auto_read_from_ts_table = True,
-                  sum_items = None,
-                  mean_items = None,
-                  min_items = None,
-                  max_items = None,
-                  count_items = None,
-                  sum_outputs = None,
-                  mean_outputs = None,
-                  min_outputs = None,
-                  max_outputs = None,
-                  count_outputs = None,                  
-                  output_item = 'output_item'):
-        
-        #metadata for pre-aggregation:
-        #pandas aggregate dict containing a list of aggregates for each item
-        self._pre_agg_rules = {}
-        #dict containing names of aggregate items produced for each item
-        self._pre_agg_outputs = {}
-        #assemble these metadata structures
-        self._apply_pre_agg_metadata('sum',items = sum_items, outputs = sum_outputs)
-        self._apply_pre_agg_metadata('mean',items = mean_items, outputs = mean_outputs)
-        self._apply_pre_agg_metadata('min',items = min_items, outputs = min_outputs)
-        self._apply_pre_agg_metadata('max',items = max_items, outputs = max_outputs)
-        self._apply_pre_agg_metadata('count',items = count_items, outputs = count_outputs)
-        #pass metadata to the entity type
-        kwargs = {
-                '_checkpoint_by_entity' : checkpoint_by_entity,
-                '_pre_aggregate_time_grain' : pre_aggregate_time_grain,
-                '_auto_read_from_ts_table' : auto_read_from_ts_table,
-                '_pre_agg_rules' : self._pre_agg_rules,
-                '_pre_agg_outputs' : self._pre_agg_outputs
-                }
-        super().__init__(dummy_items=[],output_item=output_item, **kwargs)
-    
-    def _apply_pre_agg_metadata(self,aggregate,items,outputs):
-        '''
-        convert UI inputs into a pandas aggregate dictioonary and a separate dictionary containing names of aggregate items
-        '''
-        if items is not None:
-            if outputs is None:
-                outputs = ['%s_%s'%(x,aggregate) for x in items]
-            for i,item in enumerate(items):
-                try:
-                    self._pre_agg_rules[item].append(aggregate)
-                    self._pre_agg_outputs[item].append(outputs[i])
-                except KeyError:
-                    self._pre_agg_rules[item] = [aggregate]
-                    self._pre_agg_outputs[item] = [outputs[i]]
-                except IndexError:
-                    msg = 'Metadata for aggregate %s is not defined correctly. Outputs array should match length of items array.' %aggregate
-                    raise ValueError(msg)
-        
-        return None
-        
-    @classmethod
-    def build_ui(cls):
-        #define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingle( 
-                        name = 'auto_read_from_ts_table',
-                        datatype=bool,
-                        required = False,
-                        description = 'By default, data retrieved is from the designated input table. Use this setting to disable.',
-                                              ))
-        inputs.append(UISingle(
-                        name = 'checkpoint_by_entity',
-                        datatype = bool,
-                        required = False,
-                        description = 'By default a single '
-                    ))
-        inputs.append(UISingle( 
-                        name = 'pre_aggregate_time_grain',
-                        datatype=str,
-                        required = False,
-                        description = 'By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
-                        values = ['1min','5min','15min','30min','1H','2H','4H','8H','12H','day','week','month','year']
-                                              ))
-        inputs.append(UIMultiItem(
-                        name = 'sum_items',
-                        datatype = float,
-                        required = False,
-                        description = 'Choose items that should be added when aggregating',
-                        output_item = 'sum_outputs',
-                        is_output_datatype_derived = True
-                ))
-        inputs.append(UIMultiItem(
-                        name = 'mean_items',
-                        datatype = float,
-                        required = False,
-                        description = 'Choose items that should be averaged when aggregating',
-                        output_item = 'mean_outputs',
-                        is_output_datatype_derived = True
-                ))        
-        inputs.append(UIMultiItem(
-                        name = 'min_items',
-                        datatype = float,
-                        required = False,
-                        description = 'Choose items that the system should choose the smallest value when aggregating',
-                        output_item = 'mean_outputs',
-                        is_output_datatype_derived = True
-                ))  
-        inputs.append(UIMultiItem(
-                        name = 'max_items',
-                        datatype = float,
-                        required = False,
-                        description = 'Choose items that the system should choose the smallest value when aggregating',
-                        output_item = 'mean_outputs',
-                        is_output_datatype_derived = True
-                ))   
-        inputs.append(UIMultiItem(
-                        name = 'count_items',
-                        datatype = float,
-                        required = False,
-                        description = 'Choose items that the system should choose the smallest value when aggregating',
-                        output_item = 'mean_outputs',
-                        is_output_datatype_derived = True
-                ))         
-        #define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item',
-                                                     datatype=bool,
-                                                     description='Dummy function output'
-                                                     ))
-    
-        return (inputs,outputs)  
     
     
 class Coalesce(BaseTransformer):
@@ -532,7 +392,7 @@ class CoalesceDimension(BaseTransformer):
 
         return (inputs,outputs)
 
-class IoTConditionalItems(BaseTransformer):
+class ConditionalItems(BaseTransformer):
     """
     Set the value of a data item based on the value of a conditional expression 
     eg. if df["sensor_is_valid"]==True then df["temp"] and df["pressure"] are valid else null
@@ -582,78 +442,7 @@ class IoTConditionalItems(BaseTransformer):
         items = self.get_expression_items(self.conditional_expression)
         return items  
 
-class IoTCosFunction(BaseTransformer):
-    """
-    Execute a serialized function retrieved from cloud object storage.
-    Function returns a single output.
-    
-    Function is replaced by PythonFunction
-    
-    """
-    
-    def __init__(self,function_name,input_items,output_item='output_item',parameters=None):
-        
-        # the function name may be passed as a function object or function name (string)
-        # if a string is provided, it is assumed that the function object has already been serialized to COS
-        # if a function onbject is supplied, it will be serialized to cos 
-        self.input_items = input_items
-        self.output_item = output_item
-        super().__init__()
-        # get the cos bucket
-        # if function object, serialize and get name
-        self.function_name = function_name
-        # The function called during execution accepts a single dictionary as input
-        # add all instance variables to the parameters dict in case the function needs them
-        if parameters is None:
-            parameters = {}
-        parameters = {**parameters, **self.__dict__}
-        self.parameters = parameters
-        
-        warnings.warn('IoTCosFunction is deprecated. Use PythonFunction.',
-                      DeprecationWarning)
-        
-        
-    def execute(self,df):
-        db = self.get_db()
-        bucket = self.get_bucket_name()    
-        #first test execution could include a fnction object
-        #serialize it
-        if callable(self.function_name):
-            db.cos_save(persisted_object=self.function_name,
-                        filename=self.function_name.__name__,
-                        bucket=bucket, binary=True)
-            self.function_name = self.function_name.__name__
-        # retrieve
-        function = db.cos_load(filename=self.function_name,
-                               bucket=bucket,
-                               binary=True)
-        #execute
-        df = df.copy()
-        rf = function(df,self.parameters)
-        #rf will contain the orginal columns along with a single new output column.
-        return rf
-    
-    @classmethod
-    def build_ui(cls):
-        #define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UIMultiItem('input_items'))
-        inputs.append(UISingle(name = 'function_name',
-                                              datatype=float,
-                                              description = 'Name of function object. Function object must be serialized to COS before you can use it'
-                                              )
-                     )
-        inputs.append(UISingle(name = 'parameters',
-                                              datatype=dict,
-                                              required=False,
-                                              description = 'Parameters required by the function are provides as json.'
-                                              )
-                    )
-        #define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle('output_item'))
 
-        return (inputs,outputs)
     
 class DateDifference(BaseTransformer):
     """
@@ -840,7 +629,7 @@ class DateDifferenceConstant(BaseTransformer):
         return (inputs,outputs)    
 
     
-class IoTDatabaseLookup(BaseDatabaseLookup):
+class DatabaseLookup(BaseDatabaseLookup):
     """
     Lookup Company information from a database table        
     """
@@ -897,7 +686,7 @@ class IoTDatabaseLookup(BaseDatabaseLookup):
         
 
     
-class IoTDeleteInputData(BasePreload):
+class DeleteInputData(BasePreload):
     '''
     Delete data from time series input table for entity type
     '''
@@ -943,7 +732,7 @@ class IoTDeleteInputData(BasePreload):
         return (inputs,outputs)            
         
     
-class IoTDropNull(BaseMetadataProvider):
+class DropNull(BaseMetadataProvider):
     '''
     Drop any row that has all null metrics
     '''
@@ -1111,7 +900,7 @@ class EntityDataGenerator(BasePreload):
 
         
 
-class IoTEntityFilter(BaseMetadataProvider):
+class EntityFilter(BaseMetadataProvider):
     '''
     Filter data source results on a list of entity ids
     '''
@@ -1193,12 +982,14 @@ class PythonExpression(BaseTransformer):
         return (inputs,outputs)   
     
     
-class IoTGetEntityData(BaseDataSource):
+class GetEntityData(BaseDataSource):
     """
     Get time series data from an entity type. Provide the table name for the entity type and
     specify the key column to use for mapping the source entity type to the destination. 
     e.g. Add temperature sensor data to a location entity type by selecting a location_id
-    as the mapping key on the source entity type'
+    as the mapping key on the source entity type
+    
+    Note: This function is experimental
     """
     
     merge_method = 'outer'
@@ -1250,7 +1041,7 @@ class IoTGetEntityData(BaseDataSource):
     
         return (inputs,outputs)          
 
-class IoTEntityId(BaseTransformer):
+class EntityId(BaseTransformer):
     """
     Deliver a data item containing the id of each entity. Optionally only return the entity
     id when one or more data items are populated, else deliver a null value.
@@ -1291,7 +1082,7 @@ class IoTEntityId(BaseTransformer):
     
         return (inputs,outputs)          
     
-class IoTIfThenElse(BaseTransformer):
+class IfThenElse(BaseTransformer):
     """
     Set the value of a data item based on the value of a conditional expression
     """
@@ -1341,7 +1132,7 @@ class IoTIfThenElse(BaseTransformer):
         items = self.get_expression_items( [self.conditional_expression, self.true_expression, self.false_expression])
         return items    
                 
-class IoTPackageInfo(BaseTransformer):
+class PackageInfo(BaseTransformer):
     """
     Show the version of a list of installed packages. Optionally install packages that are not installed.
     """
@@ -1513,7 +1304,7 @@ class PythonFunction(BaseTransformer):
 
         return (inputs,outputs)    
 
-class IoTRaiseError(BaseTransformer):
+class RaiseError(BaseTransformer):
     """
     Halt execution of the pipeline raising an error that will be shown. This function is 
     useful for testing a pipeline that is running to completion but not delivering the expected results.
@@ -1780,7 +1571,7 @@ class RandomDiscreteNumeric(BaseTransformer):
     
         return (inputs,outputs)
 
-class IoTSaveCosDataFrame(BaseTransformer):
+class SaveCosDataFrame(BaseTransformer):
     """
     Serialize dataframe to COS
     """
@@ -1922,7 +1713,7 @@ class ShiftCalendar(BaseTransformer):
     
         return (inputs,outputs)    
     
-class IoTSleep(BaseTransformer):
+class Sleep(BaseTransformer):
     
     """
     Wait for the designated number of seconds
@@ -1964,7 +1755,7 @@ class IoTSleep(BaseTransformer):
         return (inputs,outputs)
     
 
-class IoTTraceConstants(BaseTransformer):
+class TraceConstants(BaseTransformer):
 
     """
     Write the values of available constants to the trace
@@ -2053,6 +1844,22 @@ IoTSCDLookup = SCDLookup
 IoTShiftCalendar = ShiftCalendar
 IoTAlertHighValue = AlertHighValue
 IoTAlertLow = AlertLowValue
+IoTAlertExpression = AlertExpression
+IoTAlertOutOfRange = AlertOutOfRange
+IoTAutoTest = AutoTest
+IoTConditionalItems = ConditionalItems
+IoTDatabaseLookup = DatabaseLookup
+IoTDeleteInputData = DeleteInputData
+IoTDropNull = DropNull
+IoTEntityFilter = EntityFilter
+IoTGetEntityId = EntityId
+IoTIfThenElse = IfThenElse
+IoTPackageInfo = PackageInfo
+IoTRaiseError = RaiseError
+IoTSaveCosDataFrame = SaveCosDataFrame
+IoTSleep = Sleep
+IoTTraceConstants = TraceConstants
+
         
 # Deprecated functions
         
@@ -2079,4 +1886,217 @@ class IoTEntityDataGenerator(BasePreload):
         
         return new    
     
+class IoTCalcSettings(BaseMetadataProvider):
+    """
+    Overide default calculation settings for the entity type
+    """
     
+    warnings.warn(('IoTCalcSettings is deprecated. Use entity type constants'
+                   ' instead of a metadata provider to set entity type properties'
+                  ))
+    
+    is_deprecated = True
+    
+    def __init__ (self, 
+                  checkpoint_by_entity = False,
+                  pre_aggregate_time_grain = None,
+                  auto_read_from_ts_table = True,
+                  sum_items = None,
+                  mean_items = None,
+                  min_items = None,
+                  max_items = None,
+                  count_items = None,
+                  sum_outputs = None,
+                  mean_outputs = None,
+                  min_outputs = None,
+                  max_outputs = None,
+                  count_outputs = None,                  
+                  output_item = 'output_item'):
+        
+        #metadata for pre-aggregation:
+        #pandas aggregate dict containing a list of aggregates for each item
+        self._pre_agg_rules = {}
+        #dict containing names of aggregate items produced for each item
+        self._pre_agg_outputs = {}
+        #assemble these metadata structures
+        self._apply_pre_agg_metadata('sum',items = sum_items, outputs = sum_outputs)
+        self._apply_pre_agg_metadata('mean',items = mean_items, outputs = mean_outputs)
+        self._apply_pre_agg_metadata('min',items = min_items, outputs = min_outputs)
+        self._apply_pre_agg_metadata('max',items = max_items, outputs = max_outputs)
+        self._apply_pre_agg_metadata('count',items = count_items, outputs = count_outputs)
+        #pass metadata to the entity type
+        kwargs = {
+                '_checkpoint_by_entity' : checkpoint_by_entity,
+                '_pre_aggregate_time_grain' : pre_aggregate_time_grain,
+                '_auto_read_from_ts_table' : auto_read_from_ts_table,
+                '_pre_agg_rules' : self._pre_agg_rules,
+                '_pre_agg_outputs' : self._pre_agg_outputs
+                }
+        super().__init__(dummy_items=[],output_item=output_item, **kwargs)
+    
+    def _apply_pre_agg_metadata(self,aggregate,items,outputs):
+        '''
+        convert UI inputs into a pandas aggregate dictioonary and a separate dictionary containing names of aggregate items
+        '''
+        if items is not None:
+            if outputs is None:
+                outputs = ['%s_%s'%(x,aggregate) for x in items]
+            for i,item in enumerate(items):
+                try:
+                    self._pre_agg_rules[item].append(aggregate)
+                    self._pre_agg_outputs[item].append(outputs[i])
+                except KeyError:
+                    self._pre_agg_rules[item] = [aggregate]
+                    self._pre_agg_outputs[item] = [outputs[i]]
+                except IndexError:
+                    msg = 'Metadata for aggregate %s is not defined correctly. Outputs array should match length of items array.' %aggregate
+                    raise ValueError(msg)
+        
+        return None
+        
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingle( 
+                        name = 'auto_read_from_ts_table',
+                        datatype=bool,
+                        required = False,
+                        description = 'By default, data retrieved is from the designated input table. Use this setting to disable.',
+                                              ))
+        inputs.append(UISingle(
+                        name = 'checkpoint_by_entity',
+                        datatype = bool,
+                        required = False,
+                        description = 'By default a single '
+                    ))
+        inputs.append(UISingle( 
+                        name = 'pre_aggregate_time_grain',
+                        datatype=str,
+                        required = False,
+                        description = 'By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
+                        values = ['1min','5min','15min','30min','1H','2H','4H','8H','12H','day','week','month','year']
+                                              ))
+        inputs.append(UIMultiItem(
+                        name = 'sum_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that should be added when aggregating',
+                        output_item = 'sum_outputs',
+                        is_output_datatype_derived = True
+                ))
+        inputs.append(UIMultiItem(
+                        name = 'mean_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that should be averaged when aggregating',
+                        output_item = 'mean_outputs',
+                        is_output_datatype_derived = True
+                ))        
+        inputs.append(UIMultiItem(
+                        name = 'min_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that the system should choose the smallest value when aggregating',
+                        output_item = 'mean_outputs',
+                        is_output_datatype_derived = True
+                ))  
+        inputs.append(UIMultiItem(
+                        name = 'max_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that the system should choose the smallest value when aggregating',
+                        output_item = 'mean_outputs',
+                        is_output_datatype_derived = True
+                ))   
+        inputs.append(UIMultiItem(
+                        name = 'count_items',
+                        datatype = float,
+                        required = False,
+                        description = 'Choose items that the system should choose the smallest value when aggregating',
+                        output_item = 'mean_outputs',
+                        is_output_datatype_derived = True
+                ))         
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                                     datatype=bool,
+                                                     description='Dummy function output'
+                                                     ))
+    
+        return (inputs,outputs)    
+    
+class IoTCosFunction(BaseTransformer):
+    """
+    Execute a serialized function retrieved from cloud object storage.
+    Function returns a single output.
+    
+    Function is replaced by PythonFunction
+    
+    """
+    
+    is_deprecated = True
+    
+    def __init__(self,function_name,input_items,output_item='output_item',parameters=None):
+        
+        # the function name may be passed as a function object or function name (string)
+        # if a string is provided, it is assumed that the function object has already been serialized to COS
+        # if a function onbject is supplied, it will be serialized to cos 
+        self.input_items = input_items
+        self.output_item = output_item
+        super().__init__()
+        # get the cos bucket
+        # if function object, serialize and get name
+        self.function_name = function_name
+        # The function called during execution accepts a single dictionary as input
+        # add all instance variables to the parameters dict in case the function needs them
+        if parameters is None:
+            parameters = {}
+        parameters = {**parameters, **self.__dict__}
+        self.parameters = parameters
+        
+        warnings.warn('IoTCosFunction is deprecated. Use PythonFunction.',
+                      DeprecationWarning)
+        
+        
+    def execute(self,df):
+        db = self.get_db()
+        bucket = self.get_bucket_name()    
+        #first test execution could include a fnction object
+        #serialize it
+        if callable(self.function_name):
+            db.cos_save(persisted_object=self.function_name,
+                        filename=self.function_name.__name__,
+                        bucket=bucket, binary=True)
+            self.function_name = self.function_name.__name__
+        # retrieve
+        function = db.cos_load(filename=self.function_name,
+                               bucket=bucket,
+                               binary=True)
+        #execute
+        df = df.copy()
+        rf = function(df,self.parameters)
+        #rf will contain the orginal columns along with a single new output column.
+        return rf
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem('input_items'))
+        inputs.append(UISingle(name = 'function_name',
+                                              datatype=float,
+                                              description = 'Name of function object. Function object must be serialized to COS before you can use it'
+                                              )
+                     )
+        inputs.append(UISingle(name = 'parameters',
+                                              datatype=dict,
+                                              required=False,
+                                              description = 'Parameters required by the function are provides as json.'
+                                              )
+                    )
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle('output_item'))
+
+        return (inputs,outputs)    
