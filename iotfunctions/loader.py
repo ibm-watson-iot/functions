@@ -3,9 +3,8 @@ import logging
 import pandas as pd
 
 from . import dbhelper
-from .catalog import CATEGORY_TRANSFORMER
 
-CATALOG_CATEGORY = CATEGORY_TRANSFORMER
+CATALOG_CATEGORY = 'TRANSFORMER'
 
 
 class LoaderPipeline:
