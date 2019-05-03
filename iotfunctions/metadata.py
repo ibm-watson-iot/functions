@@ -380,7 +380,7 @@ class EntityType(object):
                            ' to create a table. ' %(name) )
                     raise ValueError (msg)
             #populate the data items metadata from the supplied columns
-            if len(self._data_items) == 0:
+            if isinstance(self._data_items, list) and len(self._data_items) == 0:
                 self._data_items = self.build_item_metadata(self.table)
         else:
             logger.warning((
