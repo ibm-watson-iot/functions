@@ -18,7 +18,6 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .metadata import EntityType, Granularity
 from . import bif
 from . import ui
-from . import aggregate as agg
 from . import pipeline
 
 logger = logging.getLogger(__name__)
@@ -718,7 +717,7 @@ class TestBed(BaseCustomEntityType):
 
         #aggregates
         day_functions = []        
-        day_functions.append(agg.AggregateItems(
+        day_functions.append(bif.AggregateItems(
                 input_items = ['x_1','x_2'],
                 aggregation_function = 'sum',
                 output_items = ['x_1_sum_day','x_2_sum_day']))

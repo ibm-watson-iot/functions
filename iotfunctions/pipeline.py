@@ -3304,10 +3304,9 @@ class CalcPipeline:
             try:
                 self.entity_type.write_unmatched_members(df)
             except Exception as e:
-                msg = 'Error while writing unmatched members to dimension. See log.' 
-                self.trace_add(msg,created_by = self)
-                raise
-                self.entity_type.raise_error(exception = e,abort_on_fail = False)
+                msg = 'Error while writing unmatched members to dimension. %s' %e 
+                self.trace_add(msg,created_by = self,log_method=logger.warning)
+                #self.entity_type.raise_error(exception = e,abort_on_fail = False)
             self.mark_initial_transform_complete()
 
         return df
