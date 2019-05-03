@@ -101,7 +101,7 @@ print(df)
 
 '''
 Constants do not have to be hard-coded into your expression. You can
-reference contants defined in the AS UI using a dictionary named c.
+reference constants defined in the AS UI using a dictionary named c.
 
 You have a AS constant called 'range' defined. You can use this to
 calculated the number of refueling fuel stops.
