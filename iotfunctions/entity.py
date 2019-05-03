@@ -122,35 +122,6 @@ class BaseCustomEntityType(EntityType):
                 g.execute(df=None,start_ts = start) 
                 g.drop_existing = False
                 
-    def exec_local_pipeline(self,
-                      register = False,
-                      start_ts = None,
-                      publish = False,
-                      **kw):
-        '''
-        Test the functions included on a predefined entity type.
-        Test will be run on local metadata. It will not use the server
-        job log. Results will be written to file.
-        '''
-        
-        params = {
-        'data_writer' :  pipeline.DataWriterFile,
-        'keep_alive_duration' : None,
-        'save_trace_to_file' : True,
-        'default_backtrack' : 'checkpoint',
-        'trace_df_changes' : True,
-        '_abort_on_fail' : True,
-        'job_log_class' : pipeline.JobLogNull,
-        '_auto_save_trace' : None
-        }
-        
-        kw = {**kw,**params}
-        
-        job = pipeline.JobController(payload=self,**kw)
-        job.execute()
-        if register:
-            self.register(publish_kpis=publish,
-                          raise_error = params['_abort_on_fail'])
         
     def publish_kpis(self,raise_error = True):
         

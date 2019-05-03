@@ -26,8 +26,10 @@ from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, F
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 from . import db as db_module
-from .automation import TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator
-from .pipeline import CalcPipeline, DataReader, DropNull
+from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator,
+                         CategoricalGenerator)
+from .pipeline import (CalcPipeline, DataReader, DropNull,
+                       JobController, DataWriterFile,JobLogNull)
 from .util import MemoryOptimizer, StageException, build_grouper, categorize_args
 import iotfunctions as iotf
 
@@ -851,18 +853,30 @@ class EntityType(object):
         msg = 'dropped tables %s' %tables
         logger.info(msg)
         
-    def exec_pipeline(self, *args, to_csv = False, register = False,
-                      start_ts = None, publish = False):
+    def exec_local_pipeline(self,
+                      start_ts = None,
+                      **kw):
         '''
-        Test an AS function instance using entity data.
-        Provide one or more functions as args.
+        Test the functions on an entity type
+        Test will be run on local metadata. It will not use the server
+        job log. Results will be written to file.
         '''
-        stages = list(args)
-        pl = self.get_calc_pipeline(stages=stages)
-        df = pl.execute(to_csv = to_csv, register = register, start_ts = start_ts)
-        if publish:
-            pl.publish()
-        return df
+        
+        params = {
+        'data_writer' : DataWriterFile,
+        'keep_alive_duration' : None,
+        'save_trace_to_file' : True,
+        'default_backtrack' : 'checkpoint',
+        'trace_df_changes' : True,
+        '_abort_on_fail' : True,
+        'job_log_class' : JobLogNull,
+        '_auto_save_trace' : None
+        }
+        
+        kw = {**kw,**params}
+        
+        job = JobController(payload=self,**kw)
+        job.execute()
     
     
     def get_attributes_dict(self):
