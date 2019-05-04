@@ -61,6 +61,8 @@ class UIFunctionOutSingle(BaseUIControl):
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
     
+    type_ = 'OUTPUT_DATA_ITEM'
+    
     def __init__(self,name, datatype=None, description=None, tags = None):
         
         self.name = name
@@ -101,6 +103,9 @@ class UIFunctionOutMulti(BaseUIControl):
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
+    
+    type_ = 'OUTPUT_DATA_ITEM'
+    
     def __init__(self,name, cardinality_from,
                  is_datatype_derived = False,
                  datatype = None,
@@ -163,6 +168,9 @@ class UISingleItem(BaseUIControl):
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
+    
+    type_ = 'DATA_ITEM'
+    
     def __init__(self,name, datatype=None, description=None, required = True,
                  tags = None):
         
@@ -185,7 +193,7 @@ class UISingleItem(BaseUIControl):
         
         meta = {
                 'name' : self.name,
-                'type' : 'DATA_ITEM' ,
+                'type' : self.type_ ,
                 'dataType' : datatype,
                 'required' : self.required,
                 'description' : self.description,
@@ -215,6 +223,9 @@ class UIMultiItem(BaseUIControl):
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT'] 
     '''
+    
+    type_ = 'DATA_ITEM'
+    
     def __init__(self,name, datatype=None, description=None, required = True,
                  min_items = None, max_items = None, tags = None,
                  output_item = None,
@@ -253,7 +264,7 @@ class UIMultiItem(BaseUIControl):
         
         meta = {
                 'name' : self.name,
-                'type' : 'DATA_ITEM' ,
+                'type' : self.type_ ,
                 'dataType' : 'ARRAY',
                 'dataTypeForArray' : datatype,
                 'required' : self.required,
@@ -321,6 +332,9 @@ class UIMulti(BaseUIControl):
     values: list
         Values to display in UI picklist        
     '''
+    
+    type_ = 'CONSTANT'
+    
     def __init__(self,name, datatype, description=None, required = True,
                  min_items = None, max_items = None, tags = None, values = None,
                  output_item = None,
@@ -362,7 +376,7 @@ class UIMulti(BaseUIControl):
         
         meta = {
                 'name' : self.name,
-                'type' : 'CONSTANT' ,
+                'type' : self.type_ ,
                 'dataType' : 'ARRAY',
                 'dataTypeForArray' : datatype,
                 'required' : self.required,
@@ -428,6 +442,9 @@ class UISingle(BaseUIControl):
     values: list
         Values to display in UI picklist        
     '''    
+    
+    type_ = 'CONSTANT'
+    
     def __init__(self,name, datatype=None, description=None, tags = None,
                  required = True, values = None, default = None):
         
@@ -446,7 +463,7 @@ class UISingle(BaseUIControl):
     def to_metadata(self):
         meta = {
                 'name' : self.name,
-                'type' : 'CONSTANT',
+                'type' : self.type_,
                 'dataType' : self.convert_datatype(self.datatype),
                 'description' : self.description,
                 'tags' : self.tags,

@@ -242,13 +242,13 @@ class EntityType(object):
     '''    
     
     auto_create_table = True        
-    log_table = 'KPI_LOGGING' #deprecated, to be removed
-    checkpoint_table = 'KPI_CHECKPOINT' #deprecated,to be removed
+    log_table = 'KPI_LOGGING'  # deprecated, to be removed
+    checkpoint_table = 'KPI_CHECKPOINT'  # deprecated,to be removed
     default_backtrack = None
     trace_df_changes = True
     # These two columns will be available in the dataframe of a pipeline
-    _entity_id = 'deviceid' #identify the instance
-    _timestamp_col = '_timestamp' #copy of the event timestamp from the index
+    _entity_id = 'deviceid'  # identify the instance
+    _timestamp_col = '_timestamp'  # copy of the event timestamp from the index
     # This column will identify an instance in the index
     _df_index_entity_id = 'id'
     # when automatically creating a new dimension, use this suffix
@@ -256,10 +256,10 @@ class EntityType(object):
     # constants declared as part of an entity type definition
     ui_constants = None
     # generator
-    _scd_frequency = '2D' #deprecated. Use parameters on EntityDataGenerator
-    _activity_frequency = '3D' #deprecated. Use parameters on EntityDataGenerator
-    _start_entity_id = 73000 #deprecated. Use parameters on EntityDataGenerator
-    _auto_entity_count = 5 #deprecated. Use parameters on EntityDataGenerator
+    _scd_frequency = '2D'  # deprecated. Use parameters on EntityDataGenerator
+    _activity_frequency = '3D'  # deprecated. Use parameters on EntityDataGenerator
+    _start_entity_id = 73000  #deprecated. Use parameters on EntityDataGenerator
+    _auto_entity_count = 5  # deprecated. Use parameters on EntityDataGenerator
 
     # variabes that will be set when loading from the server
     _entity_type_id = None
@@ -457,6 +457,125 @@ class EntityType(object):
         
         self._scd_stages.append(scd_lookup)
         
+    def build_arg_metadata(self,obj):
+        
+        '''
+        Examine the metadata provided by build_ui() to understand more about
+        the arguments to a function.
+        
+        Place the values of inputs and outputs into 2 dicts
+        Return these two dicts in a tuple along with an output_meta dict
+        that contains argument values and types
+        
+        Build the _input_set and _output list. These descripe the set of
+        data items required as inputs to a function and the list of data
+        items produced by the function.
+        
+        '''
+        
+        name = obj.__class__.__name__
+        
+        try:
+            (inputs,outputs) = obj.build_ui()
+        except (AttributeError,NotImplementedError) as e:
+            msg = ('Cant get function metadata for %s. Implement the'
+                   ' build_metadata() method. %s' %(name,str(e)))
+            raise NotImplementedError (msg)
+        
+        input_args = {}
+        output_args = {}
+        output_meta = {}
+        output_list = []
+        
+        # There are two ways to gather inputs to a function.
+        # 1) from the arguments of the function
+        # 2) from the an explicit list of items returned by the get_input_items
+        #    method
+        
+        try:
+            input_set = set(obj.get_input_items())
+            logger.debug
+        except AttributeError:
+            input_set = set()
+        else:
+            if len(input_set) > 0:
+                logger.debug(('Function %s has explicit required input items '
+                              ' delivered by the get_input_items() method'),
+                                name,input_set)
+        
+        if not isinstance(inputs,list):
+             raise TypeError(('Function registration metadata must be defined',
+                             ' using a list of objects derived from iotfunctions',
+                             ' BaseUIControl. Check metadata for %s'
+                             ' %s ' %(name,inputs) ))           
+
+        if not isinstance(outputs,list):
+             raise TypeError(('Function registration metadata must be defined',
+                             ' using a list of objects derived from iotfunctions',
+                             ' BaseUIControl. Check metadata for %s'
+                             ' %s ' %(name,outputs) ))  
+        
+        args = []
+        args.extend(inputs)
+        args.extend(outputs)
+        
+        for a in args:
+            try:
+                type_ = a.type_
+                arg = a.name
+            except AttributeError as e:
+                msg = ('Error while getting metadata from function. The inputs'
+                       ' and outputs of the function are not described correctly'
+                       ' using UIcontrols with a type_ and name %s' %e)
+                raise TypeError(msg)
+            
+            arg_value = getattr(obj,arg)
+            out_arg = None
+            out_arg_value = None
+            
+            if type_ == 'DATA_ITEM':
+                # the argument is an input that contains a dataitem or
+                # list of data items
+                
+                if isinstance(arg_value,list):
+                    input_set |= set(arg_value)
+                else:
+                    input_set.add(arg_value)
+                    
+                logger.debug('Using input items %s for %s', arg_value, arg)
+
+
+            elif type_ == 'OUTPUT_DATA_ITEM':
+                
+                # the arg is an output item or list of them
+                
+                out_arg = arg
+                out_arg_value = arg_value
+            
+            #some inputs implicitly describe outputs
+            try:
+                out_arg = a.output_item
+            except AttributeError:
+                pass
+            else:
+                if out_arg is not None:
+                    out_arg_value = getattr(obj,out_arg)
+                    
+            # process output args
+            if out_arg is not None:
+        
+                if isinstance(out_arg_value,list):
+                    output_list.extend(out_arg_value)
+                else:
+                    output_list.append(out_arg_value)
+                    
+                logger.debug('Using output items %s for %s', out_arg_value, out_arg)
+                
+        #output_meta is present in the AS metadata structure, but not 
+        #currently produced for local functions
+            
+        return(input_args,output_args,output_meta,input_set,output_list)        
+        
     def build_ui_constants(self):
         '''
         Build attributes for each ui constants declared with the entity type
@@ -532,7 +651,7 @@ class EntityType(object):
             for d in g['dataItems']:
                 grouper.append(pd.Grouper(key=d))
                 if self._custom_calendar is not None:
-                    if d in self._custom_calendar.get_output_list():
+                    if d in self._custom_calendar._output_list:
                         custom_calendar_keys.append(d)
                 dimensions.append(d)
                            
@@ -676,6 +795,12 @@ class EntityType(object):
                 stage_metadata[(stage_type,granularity)].append(obj)
             except KeyError:
                 stage_metadata[(stage_type,granularity)]=[obj]
+            
+            # add input set and output list
+            # these are crital bits of metadata that drive the dependency model
+            obj._input_set = s['input_set']
+            obj._output_list = s['output_list']
+            
                 
             #The stage may have metadata parameters that need to be 
             # copied onto the entity type
@@ -732,15 +857,19 @@ class EntityType(object):
             fn['schedule'] = None
             fn['backtrack'] = None
             fn['granularity'] = f.granularity
-            (fn['input'],fn['output'],fn['outputMeta']) = f.build_arg_metadata()
+            (fn['input'],fn['output'],fn['outputMeta'],
+             fn['input_set'],fn['output_list']) = self.build_arg_metadata(f)
             fn['inputMeta'] : None
             metadata.append(fn)
+            logger.debug(('Added local function instance as job stage: %s'),fn)
             
         self._stages = self.build_stages(
                 function_meta = metadata,
                 granularities_dict = self._granularities_dict)
     
         return metadata
+    
+    
     
     def index_df(self,df):
         '''

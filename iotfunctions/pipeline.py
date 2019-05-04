@@ -89,6 +89,9 @@ class DataAggregator(object):
         self.input_items = input_items
         self.output_items = output_items
         
+        self._input_set = set(self.input_items)
+        self._output_list = self.output_items
+        
     def __str__(self):
         
         msg = 'Aggregator: %s with granularity: %s. ' %(self.name,
@@ -96,7 +99,7 @@ class DataAggregator(object):
         for key,value in list(self._agg_dict.items()):
             msg = msg + ' Aggregates %s using %s .' %(key,value)
         for s in self._complex_aggregators:
-            msg = msg + ' Uses %s to produce %s .' %(s.name,s.get_output_list())
+            msg = msg + ' Uses %s to produce %s .' %(s.name,s._output_list)
             
         return msg
         
@@ -119,13 +122,7 @@ class DataAggregator(object):
         logger.info('Completed aggregation: %s', self._granularity.name)
         return df
         
-    def get_input_set(self):
-        
-        return set(self.input_items)
-        
-    def get_output_list(self):
-        
-        return self.output_items
+        return 
 
 class DataMerge(object):
     '''
@@ -177,6 +174,7 @@ class DataMerge(object):
         '''
         Apply the values of all constants to the dataframe.
         '''
+
         for name,value in list(self.constants.items()):
             self.df[name] = value
             
@@ -264,7 +262,7 @@ class DataMerge(object):
         col_names is a list of string data item names. This list of columns
         will be added or replaced during merge. When obj is a constant,
         tabular array, or series these column names these column names are
-        neccessary to identify the contents. If the obj is a dataframe, if
+        necessary to identify the contents. If the obj is a dataframe, if
         col_names are provided they will be used to rename the obj columns
         before merging.
     
@@ -388,15 +386,18 @@ class DataMerge(object):
             df_valid_names.update(set(self.df.columns))        
             if not set(obj_index_names).issubset(df_valid_names):
                 raise ValueError(('Function error.'
-                              ' Attempting to merge a dataframe that has an'
-                              ' invalid name in the index %s'
-                              %(set(obj_index_names) - df_valid_names)))
+                                  ' Attempting to merge a dataframe that has an'
+                                  ' invalid name in the index %s'
+                                  % (set(obj_index_names) - df_valid_names)))
                 
-        #carry out merge operation based on chosen merge strategy
+        # carry out merge operation based on chosen merge strategy
         if merge_strategy == 'skip':
             # Add a null column for anything that should have been delivered
             missing_cols = [x for x in col_names if x not in self.df.columns]            
             for c in missing_cols:
+                
+                print('***', c)
+                
                 self.df[c] = None
         elif merge_strategy == 'replace':
             self.df = df
@@ -578,6 +579,9 @@ class DataReader(object):
         self.name = name
         self.obj = obj
         
+        self._input_set = set()
+        self._output_list = self.get_output_list()        
+        
     def __str__(self):
         
         try:
@@ -598,10 +602,7 @@ class DataReader(object):
                                  columns = self._projection_list)
         
         
-    def get_input_set(self):
-        
-        return set()
-        
+
     def get_output_list(self):
         
         if not self._projection_list is None:
@@ -1516,10 +1517,7 @@ class JobController(object):
         for s in skipped:
             logger.debug('Skipped stage %s',skipped)
             logger.debug('Skipped data items %s',
-                         self.exec_stage_method(
-                            s,
-                            'get_output_list',
-                            'No data items'))
+                         self.get_stage_param(s,'_output_list','No data items'))
         return meta
     
     def build_trace_name(self,execute_date):
@@ -1561,8 +1559,8 @@ class JobController(object):
                        ' get_aggregation_method()') %(s.name)
                 raise StageException(msg,s.name)
             
-            input_items = list(s.get_input_set())
-            output_list = s.get_output_list()
+            input_items = list(s._input_set)
+            output_list = s._output_list
             
             for i,item in enumerate(input_items):
                 
@@ -1597,7 +1595,7 @@ class JobController(object):
         all_stages.extend(complex_aggregators)
         for s in complex_aggregators:
             inputs |= s.get_input_set()
-            outputs.extend(s.get_output_list())
+            outputs.extend(s._output_list)
                 
         return (agg_dict,complex_aggregators,all_stages,inputs,outputs)
     
@@ -1903,7 +1901,7 @@ class JobController(object):
         for s in stages:
 
             #get stage processing metadata
-            new_cols = self.exec_stage_method(s,'get_output_list',None)            
+            new_cols = self.get_stage_param(s,'_output_list',None)            
             produces_output_items  = self.get_stage_param(
                                             s,'produces_output_items',True)
             discard_prior_data = self.get_stage_param(
@@ -1978,11 +1976,11 @@ class JobController(object):
                 elif produces_output_items:
                     if new_cols is None or len(new_cols) ==0:
                         msg = (
-                                ' Function %s did not provide a list of columns produced'
-                                ' when the get_output_list() method was called to'
-                                ' inspect the stage prior to execution. This is a '
-                                ' mandatory method. It should return a list with at '
-                                ' least one data item name. (%s).'  %(s.name, new_cols)
+                                ' Function %s did not provide a list of columns'
+                                ' from its _output_list property. All functions'
+                                ' should have a list containing at least one'
+                                ' output item. This list is populated automatically '
+                                ' using registration metadata and function args '%(s.name)
                                 )
                         raise StageException(msg,s.name)
                     
@@ -2200,15 +2198,9 @@ class JobController(object):
         stages = [s for s in candidate_stages if s.schedule in schedules]
         new_cols = set()
         for s in stages:
-            added_cols = self.exec_stage_method(
-                    stage = s,
-                    method_name = 'get_output_list',
-                    default_output = [])
+            added_cols = self.get_stage_param(s,'_output_list',[])
             new_cols |= set(added_cols)
-            required_input_set |= self.exec_stage_method(
-                    stage = s,
-                    method_name = 'get_input_set',
-                    default_output = [])
+            required_input_set |= self.get_stage_param(s,'_input_set',set())
             #data sources have projection lists that the job controller
             # needs to underdstand as later on it will trim projection lists
             # to match data required based on schedule
@@ -2393,9 +2385,9 @@ class JobController(object):
         for s in stages:
             if s not in exclude_stages and (
                     available_columns is None or
-                    len(s.get_input_set() - available_columns) == 0):
+                    len(s._input_set - available_columns) == 0):
                 out.append(s)
-                new_cols = set(s.get_output_list())
+                new_cols = set(s._output_list)
                 if available_columns is not None:
                      new_cols = new_cols - available_columns    
                 cols |= new_cols
