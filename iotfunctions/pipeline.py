@@ -395,9 +395,6 @@ class DataMerge(object):
             # Add a null column for anything that should have been delivered
             missing_cols = [x for x in col_names if x not in self.df.columns]            
             for c in missing_cols:
-                
-                print('***', c)
-                
                 self.df[c] = None
         elif merge_strategy == 'replace':
             self.df = df
