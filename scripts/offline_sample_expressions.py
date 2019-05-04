@@ -15,18 +15,21 @@ import numpy as np
 import pandas as pd
 from collections import namedtuple
 
+
 PythonExpression = namedtuple('Exp', 'output expression')
 
 '''
 We will use offline test data to get familiar with python expressions.
 This script will build a pandas dataframe for you representing data for
-a list of entities. We will start with just a couple of data items:
-'speed" and "time". 
+a list of entities. 
+
+
+We will start with just a couple of data items: 'speed" and "travel_time". 
 
 '''
 
 row_count = 5
-data_items = ['speed','time']
+data_items = ["speed","travel_time"]
 entities = ['XA01','XA02','XA03']
 c = {'first_checkpoint': .3,
      'second_checkpoint' : 0.5,
@@ -58,7 +61,7 @@ If you were to do this in python script, you would enter it as follows
 
 '''
 
-df["distance"] = df["speed"] * df["time"]
+df["distance"] = df["speed"] * df["travel_time"]
 print(df)
 
 '''
@@ -71,7 +74,7 @@ expression.
 
 '''
 
-ex1 = PythonExpression('distance','df["speed"]*df["time"]')
+ex1 = PythonExpression('distance','df["speed"]*df["travel_time"]')
 
 '''
 Our tuple describes the column 'distance' as computed from the
@@ -85,8 +88,18 @@ df[ex1.output] = eval(ex1.expression)
 print(df)
 
 '''
+To use the expression in the PythonExpression function in the AS UI, paste
+    
+    df["speed"]*df["travel_time"]
+    
+as the expression and name the output of the expression. 
+
+'''
+
+
+'''
 Not all elements of your python expression have to dataframe columns.
-You can also use constants. These will be broadcast to all rows of the
+You can also use scalar values. These will be broadcast to all rows of the
 dataframe.
 
 You can use the output of one expression in another too.
@@ -100,7 +113,7 @@ df[ex2.output] = eval(ex2.expression)
 print(df)
 
 '''
-Constants do not have to be hard-coded into your expression. You can
+Scalars do not have to be hard-coded into your expression. You can
 reference constants defined in the AS UI using a dictionary named c.
 
 You have a AS constant called 'range' defined. You can use this to
@@ -120,9 +133,109 @@ You can also use numpy arrays.The array must have the same length as the
 dataframe though.
 '''
 
-ex4 = PythonExpression('random_distance','df["distance"] + np.random.normal(10,1,row_count*len(entities))')
+ex4 = PythonExpression(
+        'random_distance',
+        'df["distance"] + np.random.normal(10,1,row_count*len(entities))')
 df[ex4.output] = eval(ex4.expression)
 print(df)
+
+'''
+Since aggregate functions produce scalars, you can mix in aggregate functions
+with vectorized parts of the expression.
+'''
+
+ex5 = PythonExpression(
+        'perc_total_distance',
+        'df["distance"] / df["distance"].sum()'
+        )
+df[ex5.output] = eval(ex5.expression)
+
+'''
+So far all of our expressions involve the use of standard python operators.
+
+Not all standard python operators work in vector expressions as they
+will implicitly convert vectors to scalars and return a scalar results.
+Sometimes you will need to call a vectorized function to replace an
+operator. A good example is the logical operators and, or and not.
+
+'''
+
+'''
+ex6 = PythonExpression(
+        'far_and_fast_broken',
+        'df["distance"]>200 and df["speed"]>200'
+        )
+df[ex6.output] = eval(ex6.expression)
+print(df)
+'''
+
+'''
+
+In the above example pandas is kind enough to return an error. "The truth
+value for a Series ambiguous." In other cases the expression will execute,
+but evaluate as scalars and then broadcast the scalar result back to the
+rows of the dataframe, so you will always need to test your expression to
+be sure that they are behaving as you intended.
+
+In this case you can use you can use the & operator.
+
+'''
+
+ex6 = PythonExpression(
+        'far_and_fast',
+        '(df["distance"]>105) & (df["speed"]>100)'
+        )
+df[ex6.output] = eval(ex6.expression)
+print(df)
+
+'''
+Generally here is no need to get frustrated trying to work these quirks out
+by trial and error. There are so many new users of pandas asking lots of
+questions online. I find that the search engines are really good at surfacing
+valid answers. Search and you shall find!
+
+You can also get familiar with the pandas documumentation for series and
+dataframes. Pandas has all sorts of predefined functions for common analysis 
+problems. 
+
+Here are a few examples:
+
+'''
+
+ex7 = PythonExpression(
+        'is_moderate_speed',
+        'df["speed"].between(95,98)'
+        )
+df[ex7.output] = eval(ex7.expression)
+print(df)
+
+'''
+The next example reminds me of the pranks that the presenters of Top Gear
+used to pull. Was I speeding? No never.
+'''
+
+ex8 = PythonExpression(
+        'speed_clipped',
+        'df["speed"].clip(92,100)'
+        )
+df[ex8.output] = eval(ex8.expression)
+print(df)
+
+'''
+After working through this script you should be comfortable writing and testing
+PythonExpression and using them in the AS UI. You should understand the 
+particular use cases that PythonExpression are suitable:
+    --  transformations of data that produce a single output item
+        in the form of a series or 2D array.
+    --  can operate on vectors / broadcast scalar values
+    --  do not add or remove rows of data.
+
+'''
+
+
+
+
+
 
 
 
