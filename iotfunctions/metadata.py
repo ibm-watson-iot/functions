@@ -1820,10 +1820,10 @@ class EntityType(object):
     
     def __str__(self):
         out = '\n%s:%s'%(self.__class__.__name__,self.name)
-        out = out + '\nData items:'
-        for i in self._data_items:
-            out = out + '\n   %s (%s) of type %s' %(
-                    i.get('name'),i.get('type'),i.get('columnType'))
+        #out = out + '\nData items:'
+        #for i in self._data_items:
+        #    out = out + '\n   %s (%s) of type %s' %(
+        #            i.get('name'),i.get('type'),i.get('columnType'))
         out = out + '\nFunctions:'
         for f in self._functions:
             out = out + '\n' + str(f)

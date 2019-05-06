@@ -152,7 +152,7 @@ class AggregateWithCalculation(BaseSimpleAggregator):
     
     Example:
         
-    x.max() - x(max)
+    x.max() - x.min()
     
     '''
     
