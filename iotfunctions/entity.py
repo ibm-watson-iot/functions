@@ -14,11 +14,13 @@ The entity module contains sample entity types
 
 import logging
 import datetime as dt
+import json
+import importlib
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from .metadata import EntityType, Granularity
+
+from . import metadata
 from . import bif
 from . import ui
-from . import pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +31,7 @@ def f(df,parameters):
     return(out)
 '''
 
-class EmptyEntityType(EntityType):
-    
-    is_entity_type = True
+class EmptyEntityType(metadata.EntityType):
     
     def __init__(self,name,db,db_schema=None,timestamp='evt_timestamp',
                  description = ''):
@@ -41,152 +41,8 @@ class EmptyEntityType(EntityType):
               'description' : description
               }        
         super().__init__(name,db, *args,**kw)
-        
-class BaseCustomEntityType(EntityType):
-    
-    '''
-    Base class for custom entity types
-    '''
-    
-    is_entity_type = True
-    timestamp = 'evt_timestamp'
-    
-    def __init__ (self,
-                  name,
-                  db,
-                  columns=None,
-                  constants=None,
-                  granularities = None,
-                  functions=None,
-                  dimension_columns = None,
-                  generate_days = 0,
-                  drop_existing = False,
-                  db_schema = None,
-                  description = None,
-                  output_items_extended_metadata = None,
-                  **kwargs):
-        
-        if columns is None:
-            columns = []
-        if constants is None:
-            constants = []
-        if functions is None:
-            functions = []
-        if dimension_columns is None:
-            dimension_columns = []
-        if granularities is None:
-            granularities = []
-        if output_items_extended_metadata is None:
-            output_items_extended_metadata = {}
-            
-        self._columns = columns
-        self._constants = constants
-        self._functions = functions
-        self._dimension_columns = dimension_columns
-        self._output_items_extended_metadata = output_items_extended_metadata
-            
-        args = []
-        args.extend(self._columns)
-        args.extend(self._constants)
-        args.extend(self._functions)
-        args.extend(granularities)
-        
-        if description is None:
-            description = self.__doc__
-        
-        kwargs = {'_timestamp' : self.timestamp,
-                  '_db_schema' : db_schema,
-                  'description' : description
-                  } 
-        
-        super().__init__(name,
-                         db,
-                         *args,
-                         **kwargs)
-        
-        self.make_dimension(
-            None, #auto build name
-            *self._dimension_columns)
-        
-        if generate_days > 0:
-            generators = [x for x in self._functions if x.is_data_generator]
-            start = dt.datetime.utcnow() - dt.timedelta(days = generate_days)
-            for g in generators:
-                logger.debug(('Running generator %s with start date %s.'
-                              ' Drop existing %s'),
-                             g.__class__.__name__,
-                             start,
-                             drop_existing)
-                g.drop_existing = drop_existing
-                g.execute(df=None,start_ts = start) 
-                g.drop_existing = False
-                
-        
-    def publish_kpis(self,raise_error = True):
-        
-        '''
-        Publish the function instances assigned to this entity type to the AS Server
-        '''   
-        
-        export = []
-        self.db.register_functions(self._functions)
-                
-        for s in self._functions:
-            try:
-                name = s.name
-            except AttributeError:
-                name = s.__class__.__name__
-                logger.debug(('Function class %s has no name property.'
-                              ' Using the class name'),
-                             name)                                
-             
-            try:
-                args = s._get_arg_metadata()
-            except AttributeError:
-                msg = ('Attempting to publish kpis for an entity type.'
-                       ' Function %s has no _get_arg_spec() method.'
-                       ' It cannot be published' ) %name
-                raise NotImplementedError(msg)
-            
-            # the entity type may have extended metadata
-            # find relevant extended metadata and add it to argument values
-            
-            output_meta = {}
-            for (a,value) in list(args.items()):
-                if not isinstance(value,list):
-                    arg_values = [value]
-                else:
-                    arg_values = value
-                for av in arg_values:
-                    if isinstance(av,str):
-                        extended = self._output_items_extended_metadata.get(av,None)
-                        if extended is not None:
-                            output_meta[av] = extended
-            if output_meta:
-                args['outputMeta'] = output_meta
-                
-            metadata  = { 
-                    'name' : name ,
-                    'args' : args
-                    }
-            export.append(metadata)
-                    
-        
-        logger.debug('Published kpis to entity type')
-        logger.debug(export)
-                
-        response = self.db.http_request(object_type = 'kpiFunctions',
-                                        object_name = self.logical_name,
-                                        request = 'POST',
-                                        payload = export,
-                                        raise_error = raise_error) 
-        
-        
-        logger.debug(response)
-        
-        return response    
 
-class Boiler(BaseCustomEntityType):
+class Boiler(metadata.BaseCustomEntityType):
     
     '''
     This sample shows simulated time series data for an industrial boiler.
@@ -276,7 +132,7 @@ class Boiler(BaseCustomEntityType):
                          db_schema = db_schema)
 
         
-class Robot(BaseCustomEntityType):
+class Robot(metadata.BaseCustomEntityType):
     
     '''
     Sample entity type based on data commonly available for industrial robots.
@@ -413,7 +269,7 @@ class Robot(BaseCustomEntityType):
                          description = description,
                          db_schema = db_schema)
          
-class PackagingHopper(BaseCustomEntityType):
+class PackagingHopper(metadata.BaseCustomEntityType):
     
     '''  
     This sample demostrates anomaly detection on simulated data from a cereal
@@ -496,7 +352,7 @@ class PackagingHopper(BaseCustomEntityType):
                          db_schema = db_schema)
 
 
-class SourdoughLeavening(BaseCustomEntityType):
+class SourdoughLeavening(metadata.BaseCustomEntityType):
     
     '''
     This sample demostrates using AI to make recommendations about the
@@ -572,7 +428,7 @@ class SourdoughLeavening(BaseCustomEntityType):
                          description = description,
                          db_schema = db_schema)       
             
-class TestBed(BaseCustomEntityType):
+class TestBed(metadata.BaseCustomEntityType):
     
     '''
     Test entity type. Excercises a number of functions.
@@ -593,7 +449,7 @@ class TestBed(BaseCustomEntityType):
         columns.append(Column('date_2',DateTime))
 
               
-        day = Granularity(
+        day = metadata.Granularity(
                  name = 'day',
                  dimensions = [],
                  timestamp = 'evt_timestamp',

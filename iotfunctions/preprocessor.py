@@ -123,52 +123,7 @@ class ComputationsOnStringArray(BaseTransformer):
         
         return out    
     
-    
-class EntityDataGenerator(BasePreload):
-    """
-    Automatically load the entity input data table using new generated data.
-    """
-    
-    freq = '5min' 
-    # ids of entities to generate. Change the value of the range() function to change the number of entities
-    
-    def __init__ (self, dummy_items, output_item = None):
-        super().__init__(dummy_items = dummy_items, output_item = output_item)
-        self.inputs = ['dummy_items']
-        self.outputs = ['output_item']
-        warnings.warn(('This sample function is deprecated.'
-                       ' Use bif.IoTEntityDataGenerator.'),
-                      DeprecationWarning)
-        
-    def execute(self,
-                 df,
-                 start_ts= None,
-                 end_ts= None,
-                 entities = None):
-        
-        #This sample builds data with the TimeSeriesGenerator.
-        
-        if entities is None:
-            entities = self.get_entity_ids()
-            
-        if not start_ts is None:
-            seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
-        else:
-            seconds = pd.to_timedelta(self.freq).total_seconds()
-        
-        df = self._entity_type.generate_data(entities=entities, days=0, seconds = seconds, freq = self.freq, write=True)        
-        self.trace_append(msg='%s Generated data. ' %self.__class__.__name__,df=df)
-        
-        return True  
-    
-    
-    def get_entity_ids(self):
-        '''
-        Generate a list of entity ids
-        '''
-        ids = [str(73000 + x) for x in list(range(5))]
-        return (ids)
-    
+
 class FillForwardByEntity(BaseTransformer):    
     '''
     Fill null values forward from last item for the same entity instance

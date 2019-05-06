@@ -325,10 +325,12 @@ class DataMerge(object):
         #test that df has expected columns
         df_cols = self.get_cols()
         if not self.df.empty and not set(col_names).issubset(df_cols):
-            raise MergeError( ('Error in auto merge. Resulting df does not '
+            missing_cols = set(col_names) - df_cols
+            raise MergeError( ('Error in auto merge. Missing columns %s'
+                    ' Post merge dataframe does not'
                     ' contain the expected output columns %s that should have'
                     ' been delivered through merge. It has columns %s'
-                    %(col_names, df_cols)
+                    %(missing_cols,col_names, df_cols)
                     ))
             
         return 'existing %s with new %s' %(existing,obj.__class__.__name__)
@@ -1166,7 +1168,9 @@ class JobController(object):
         #create a job log
         self.job_log = self.job_log_class(self)
         #get metadata from payload
-        self.stage_metadata = self.get_payload_param('_stages',None)
+        self.stage_metadata = self.exec_payload_method(
+                'classify_stages',
+                None)
 
         # Assemble a collection of candidate schedules to execute
         # If the payload does not have a schedule use the default
@@ -1189,8 +1193,9 @@ class JobController(object):
                     ' metadata for the job stages that will be executed. '
                     ))
         else:
+            logger.info('Initialized job.\n')
             logger.info(str((self)))
-            
+
         
     def __str__(self):
         
@@ -1202,8 +1207,7 @@ class JobController(object):
         for key,value in list(self.stage_metadata.items()):
             out += 'Stages of type: %s at grain %s: \n' %(key[0],key[1])
             for v in value:
-                out += '   %s on schedule %s ' %(
-                        v.name,v._schedule)
+                out += '   %s\n' %str(v)
         out += '\n'
         
         return out
@@ -1807,8 +1811,9 @@ class JobController(object):
                                     raise_error = False
                                     )
                              can_proceed = False
-                             
-                    df = df.reset_index()                                                            
+                        else:
+                            df = df.reset_index()
+                            
                     for (grain,stages) in list(job_spec.items()):
                         
                         if can_proceed and grain != 'input_level':

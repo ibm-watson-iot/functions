@@ -422,8 +422,11 @@ class Database(object):
     def execute_job(self,entity_type,schema=None,**kwargs):
         
         if isinstance(entity_type,str):
-            entity_type = self.load_entity_type(entity_type,
-                                            schema = schema, **kwargs)
+            entity_type = md.ServerEntityType(
+                    logical_name = entity_type,
+                    db = self,
+                    db_schema = schema
+                    )
         
         job = pp.JobController(payload=entity_type,**kwargs)
         job.execute()
@@ -829,35 +832,7 @@ class Database(object):
         self.function_catalog = result
                 
         return result
-    
-    
-    def load_entity_type(self,logical_name,schema=None,**params):
-        
-        '''
-        Build an entity type object using AS server metadata. The logical name
-        is the name shown in the AS UI. Specify a database schema name when the
-        tenant is not using the default schema.
-        
-        Any keyword args that you pass as **parmas will be copied as instance
-        variable onto the entity type. Use these to override the various class
-        variables of the entity type that determine its behavior.
-        
-        Returns
-        -------
-        Entity type object
-        
-        '''
-        
-        extras = {}
-        extras['_db'] = self
-        extras['_schema'] = schema
-        extras['logical_name'] = logical_name
-        params = {**extras,**params}
-        (params,meta) = md.retrieve_entity_type_metadata(**params)
-        et = md.EntityType(db=self,**params)
-        et.load_entity_type_functions()
-        
-        return et
+
 
     def make_function(self,function_name, function_code,
                       filename=None, bucket =None):

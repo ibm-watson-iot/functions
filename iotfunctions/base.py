@@ -47,40 +47,17 @@ class BaseFunction(object):
     """
     Base class for AS functions. Do not inherit directly from this class. Inherit from BaseTransformer or BaseAggregator
     """
+    # class variables used to classify functions
     is_function = True
     is_data_generator = False
     is_deprecated = False
-    # _entity_type, An EntityType object will be added to the pipeline 
-    # this will give the function access to all of the properties and methods of the entity type
-    _entity_type = None 
-    # metadata data parameters are instance variables to be added to the entity type
-    _metadata_params = None
+    is_system_function = False #system functions are internal to AS, cannot be used as custom functions
+
     # default granularity at which function operates. None implies no aggregation.
     granularity = None
-    #function registration metadata 
-    name = None # name of function
-    description =  None # description of function shows as help text
-    tags = None #list of stings to tag function with
-    optionalItems = None #list: list of optional parameters
-    inputs = None #list: list of explicit input parameters
-    outputs = None #list: list of explicit output parameters
-    constants = None #list: list of explicit constant parameters
-    array_source = None #str: the input parmeter name that contains a list of items that will correspond with array outputs
-    url = PACKAGE_URL #install url for function
-    category = None 
-    incremental_update = True
-    auto_register_args = None  
-    is_transient = False
-    array_output_datatype_from_input = False
-    # item level metadata for function registration
-    itemDescriptions = None #dict: items descriptions show as help text
-    itemLearnMore = None #dict: item learn more test 
-    itemValues = None #dict: item values are used in pick lists
-    itemJsonSchema = None #dict: schema is used to validate arrays and json type constants
-    itemArraySource = None #dict: output arrays are derived from input arrays. 
-    itemMaxCardinality = None # dict: Maximum number of members in an array
-    itemDatatypes = None #dict: BOOLEAN, NUMBER, LITERAL, DATETIME
-    itemTags = None #dict: Tags to be added to data items
+    # defuallt freq str that function runs on. None implies job defualt.
+    schedule = None
+    
     # processing settings
     execute_by = None #if function should be executed separately for each entity or some other key, capture this key here
     test_rows = 100 #rows of data to use when testing function
@@ -88,12 +65,18 @@ class BaseFunction(object):
     merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
     _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
-    is_system_function = False #system functions are internal to AS, cannot be used as custom functions
     requires_input_items = True
     produces_output_items = True
     # internal work variables set by AS job processing
-    _output_list = None
-    _input_set = None
+    name = None # name of function    
+    _entity_type = None #  EntityType object that this function belongs to
+    _output_list = None #  list: output items produced by stage
+    _input_set = None  #  set: required input items
+    _inputs = None  #  list: list of input parameters
+    _outputs = None  #  list: list of output parameters
+    _output_items_extended_metadata = None  #  dict:additional properties like datatype of outputs
+    # metadata data parameters are instance variables to be added to the entity type
+    _metadata_params = None  # optional dict
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
@@ -108,18 +91,44 @@ class BaseFunction(object):
     _entity_scd_dict = None
     _start_date = 'start_date'
     _end_date = 'end_date'    
+
+    #depricated class variables. Will be removed
+
+    # item level metadata for function registration
+    itemDescriptions = None #dict: items descriptions show as help text
+    itemLearnMore = None #dict: item learn more test 
+    itemValues = None #dict: item values are used in pick lists
+    itemJsonSchema = None #dict: schema is used to validate arrays and json type constants
+    itemArraySource = None #dict: output arrays are derived from input arrays. 
+    itemMaxCardinality = None # dict: Maximum number of members in an array
+    itemDatatypes = None #dict: BOOLEAN, NUMBER, LITERAL, DATETIME
+    itemTags = None #dict: Tags to be added to data items
+    # other registration metadata
+    tags = None #list of stings to tag function with
+    optionalItems = None #list: list of optional parameters
+    constants = None #list: list of explicit constant parameters
+    array_source = None #str: the input parmeter name that contains a list of items that will correspond with array outputs
+    url = PACKAGE_URL #install url for function
+    category = None 
+    incremental_update = True
+    auto_register_args = None  
+    is_transient = False
+    array_output_datatype_from_input = False
+    
     
     def __init__(self):
         
         if self.name is None:
             self.name = self.__class__.__name__
+    
+        self.description = self.__class__.__doc__                    
+    
         if self.out_table_prefix is None:
             self.out_table_prefix = self.name            
-        if self.description is None:
-            self.description = self.__class__.__doc__            
-        if self.inputs is None:
-            self.inputs = []            
-        if self.outputs is None:
+        
+        if self._inputs is None:
+            self._inputs = []            
+        if self._outputs is None:
             self.outputs = []
         if self.constants is None:
             self.constants = []                        
@@ -545,9 +554,9 @@ class BaseFunction(object):
             pass
           
         if inputs is None:
-            inputs = self.inputs
+            inputs = self._inputs
         if outputs is None:
-            outputs = self.outputs        
+            outputs = self._outputs        
         if constants is None:
             constants = self.constants
             
@@ -1119,7 +1128,7 @@ class BaseFunction(object):
         try:
             (metadata_input,metadata_output) = self.build_ui()
         except (AttributeError,NotImplementedError):
-            (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
+            (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self._inputs)
                     
         (input_list, output_list) = self._transform_metadata(metadata_input,metadata_output)
 
@@ -1473,8 +1482,6 @@ class BaseFilter(BaseTransformer):
         super().__init__()
         self.dependent_items = dependent_items
         self.output_item = self.name.lower()
-        self.inputs.extend([self.dependent_items])
-        self.outputs.extend([self.output_item])
         self.optionalItems.extend([self.dependent_items])
         
     def execute(self,df):
@@ -2066,8 +2073,6 @@ class BasePreload(BaseTransformer):
         super().__init__()
         self.dummy_items = dummy_items
         self.output_item = self.name.lower()
-        self.inputs.extend([self.dummy_items])
-        self.outputs.extend([self.output_item])
         self.optionalItems.extend([self.dummy_items])
         self.itemDatatypes['dummy_items'] = None
         self.itemDatatypes['output_items'] = 'BOOLEAN'

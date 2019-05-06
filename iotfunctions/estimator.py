@@ -85,9 +85,7 @@ class SimpleRegressor(BaseRegressor):
     num_rounds_per_estimator = 3
     def __init__(self, features, targets, predictions=None):
         super().__init__(features=features, targets = targets, predictions=predictions)
-        #registration
-        self.inputs = ['features','target']
-        self.outputs = ['predictions']
+
         
 
 class SimpleClassifier(BaseClassifier):
@@ -103,9 +101,7 @@ class SimpleClassifier(BaseClassifier):
     num_rounds_per_estimator = 3
     def __init__(self, features, targets, predictions=None):
         super().__init__(features=features, targets = targets, predictions=predictions)
-        #registration
-        self.inputs = ['features','target']
-        self.outputs = ['predictions']
+
         
 class SimpleBinaryClassifier(BaseClassifier):
     '''
@@ -120,9 +116,6 @@ class SimpleBinaryClassifier(BaseClassifier):
     num_rounds_per_estimator = 3
     def __init__(self, features, targets, predictions=None):
         super().__init__(features=features, targets = targets, predictions=predictions)
-        #registration
-        self.inputs = ['features','target']
-        self.outputs = ['predictions']
         for t in self.targets:
             self.add_training_expression(t,'df[%s]=df[%s].astype(bool)' %(t,t))
 

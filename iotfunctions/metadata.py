@@ -10,7 +10,6 @@
 
 import logging
 import datetime as dt
-import sys
 import numpy as np
 import json
 import importlib
@@ -18,13 +17,12 @@ import time
 import threading
 import warnings
 import traceback
-from collections import OrderedDict, defaultdict
 import pandas as pd
-from collections import OrderedDict
 from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
+
 from . import db as db_module
 from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator,
                          CategoricalGenerator)
@@ -34,69 +32,6 @@ from .util import MemoryOptimizer, StageException, build_grouper, categorize_arg
 import iotfunctions as iotf
 
 logger = logging.getLogger(__name__)
-
-def build_schedules(metadata):
-    '''
-    Build a dictionary of schedule metdata from the schedules contained
-    within function definitions.
-    
-    The schedule dictionary is keyed on a pandas freq string. This
-    frequency denotes the schedule interval. The dictionary contains a
-    tuple (start_hour,start_minute,backtrack_days)
-    
-    Example
-    -------
-    
-    { '5min': [16,3,7] } 
-    5 minute schedule interval with a start time of 4:03pm and backtrack of 7 days.
-    
-    '''
-    
-    freqs = {}
-    
-    for f in metadata:
-        
-        if f['schedule'] is not None:
-            
-            freq = f['schedule']['every']
-            start = time.strptime(f['schedule']['starting_at'],'%H:%M:%S')
-            start_hour = start[3]
-            start_min = start[4]
-            backtrack = f['backtrack']
-            backtrack_days = (backtrack['days'] +
-                              backtrack['hours']/24 +
-                              backtrack['minutes']/1440)
-            
-            
-            existing_schedule = freqs.get(freq,None)
-            if existing_schedule is None:
-                f[freq] = (start_hour,start_min,backtrack_days)
-            else:
-                if existing_schedule[0] > start_hour:
-                    f[freq] = (start_hour,existing_schedule[1],existing_schedule[2])
-                    logger.warning(
-                        ('There is a conflict in the schedule metadata.'
-                         ' Picked the earliest start hour of %s'
-                         ' for schedule %s.' %(freq,start_hour)
-                                    ))
-                if existing_schedule[1] > start_min:
-                    f[freq] = (existing_schedule[0],start_min,existing_schedule[2])
-                    logger.warning(
-                        ('There is a conflict in the schedule metadata.'
-                         ' Picked the earliest start minute of %s'
-                         ' for schedule %s.' %(freq,start_min)
-                                    ))
-                if existing_schedule[1] < backtrack_days:
-                    f[freq] = (existing_schedule[0],existing_schedule[0],backtrack_days)        
-                    logger.warning(
-                        ('There is a conflict in the schedule metadata.'
-                         ' Picked the longest backtrack of %s'
-                         ' for schedule %s.' %(freq,backtrack_days)
-                                    ))
-            freqs[freq] = f[freq] 
-    
-    return freqs
-
 
 
 def make_sample_entity(db,schema=None,
@@ -222,6 +157,39 @@ class EntityType(object):
     it will attempt to connect itself to a table of the same name in the
     database. If no table exists the Entity Type will create one.
     
+    Entity types describe the payload of an AS job. A job is built by a
+    JobController using functions metadata prepared by the Entity Type.
+    Metadata prepared is:
+    
+    _functions: 
+        
+        List of function objects
+        
+    _data_items:
+        
+        List of data items and all of their metadata such as their
+        datatype.
+        
+    _granularities_dict:
+        
+        Dictionary keyed on granularity name. Contains a granularity object
+        that provides access to granularity metadata such as the time
+        level and other dimensions involved in the aggregation.
+        
+    _schedules_dict:
+        
+        Dictionary keyed on a schedule frequency containing other metadata
+        about the operations to be run at this frequency, e.g. how many days
+        should be backtracked when retrieving daat.
+        
+    
+    Entity types may be initialized as client objects for local testing
+    or may be loaded from the server. After initialization all of the 
+    above instance variables will be populated. The metadata looks the same
+    regardless of whether the entity type was loaded from the server
+    or initialized on the client. The logic to build the metadata is 
+    different though.
+    
     Parameters
     ----------
     name: str
@@ -241,6 +209,7 @@ class EntityType(object):
             Overide the timestamp column name from the default of 'evt_timestamp'
     '''    
     
+    is_entity_type = True
     auto_create_table = True        
     log_table = 'KPI_LOGGING'  # deprecated, to be removed
     checkpoint_table = 'KPI_CHECKPOINT'  # deprecated,to be removed
@@ -255,6 +224,7 @@ class EntityType(object):
     _auto_dim_suffix = '_auto_dim'
     # constants declared as part of an entity type definition
     ui_constants = None
+    _functions = None
     # generator
     _scd_frequency = '2D'  # deprecated. Use parameters on EntityDataGenerator
     _activity_frequency = '3D'  # deprecated. Use parameters on EntityDataGenerator
@@ -278,6 +248,8 @@ class EntityType(object):
     _granularities_dict = None
     _input_set = None
     _output_list = None
+    _invalid_stages = None
+    _disabled_stages = None
     # processing defaults
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     _pre_aggregate_time_grain = None # aggregate incoming data before processing
@@ -333,7 +305,25 @@ class EntityType(object):
         
         #Start a trace to record activity on the entity type
         self._trace = Trace(name=None,parent=self,db=db)
-
+        
+        if self._disabled_stages is None:
+            self._disabled_stages = []
+        if self._invalid_stages is None:
+            self._invalid_stages = []            
+        
+        if len(self._disabled_stages) > 0 or len(self._invalid_stages) > 0:
+            self.trace_append(
+                 created_by = self,
+                 msg = 'Skipping disabled and invalid stages',
+                 log_method = logger.info,
+                 **{
+                    'skipped_disabled_stages': [s['functionName'] for s in self._disabled_stages],
+                    'skipped_disabled_data_items': [s['output'] for s in self._disabled_stages],
+                    'skipped_invalid_stages': [s['functionName'] for s in self._invalid_stages],
+                    'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]
+                    }
+                 ) 
+    
         # attach to time series table
         if self._db_schema is None:
             logger.warning(('No _db_schema specified in **kwargs. Using'
@@ -358,7 +348,7 @@ class EntityType(object):
         constants = list(categorized.get('constant',[]))
         grains = list(categorized.get('granularity',[]))
         
-        #create a database table if needed using cols
+        #  create a database table if needed using cols
         if name is not None and db is not None:            
             try:
                 self.table = self.db.get_table(self.name,self._db_schema)
@@ -392,14 +382,18 @@ class EntityType(object):
             logger.debug('Adding granularity to entity type: %s',g.name)
             self._granularities_dict[g.name] = g
         
-
-        #add constants
+        #  add constants
         self.ui_constants = constants
         self.build_ui_constants()
-            
-        #add functions
-        self.build_stage_metadata(*functions)
         
+        #  _functions 
+        #  functions may have been provided as kwarg and may be includes as args
+        #  compbine all
+        if self._functions is None:
+            self._functions = []
+        self._functions.extend(functions)
+        
+        logger.debug(('Initialized entity type %s'),str(self))
         
             
     def add_activity_table(self, name, activities, *args, **kwargs):
@@ -467,7 +461,7 @@ class EntityType(object):
         Return these two dicts in a tuple along with an output_meta dict
         that contains argument values and types
         
-        Build the _input_set and _output list. These descripe the set of
+        Build the _input_set and _output list. These describe the set of
         data items required as inputs to a function and the list of data
         items produced by the function.
         
@@ -500,7 +494,7 @@ class EntityType(object):
         else:
             if len(input_set) > 0:
                 logger.debug(('Function %s has explicit required input items '
-                              ' delivered by the get_input_items() method'),
+                              ' delivered by the get_input_items() method: %s'),
                                 name,input_set)
         
         if not isinstance(inputs,list):
@@ -601,23 +595,20 @@ class EntityType(object):
         
         stages = []
         
-        for s_list in list(self._stages.values()):
-            for stage in s_list:
-                #some functions are automatically added by the system
-                #do not include these
-                try:
-                    is_system = stage.is_system_function
-                except AttributeError:
-                    is_system = False
-                    logger.warning(('Function %s has no is_system_function property.'
-                              ' This means it was not inherited from '
-                              ' an iotfunctions base class. AS authors are'
-                              ' strongly encouraged to always inherit '
-                              ' from iotfunctions base classes' ),
-                             stage.__class__.__name__)
-            
-                if not is_system:
-                    stages.append(stage)
+        for stage in self._functions:
+            try:
+                is_system = stage.is_system_function
+            except AttributeError:
+                is_system = False
+                logger.warning(('Function %s has no is_system_function property.'
+                          ' This means it was not inherited from '
+                          ' an iotfunctions base class. AS authors are'
+                          ' strongly encouraged to always inherit '
+                          ' from iotfunctions base classes' ),
+                         stage.__class__.__name__)
+            if not is_system:
+                stages.append(stage)
+                
         return stages
     
     def build_granularities(self,grain_meta,freq_lookup):
@@ -693,113 +684,152 @@ class EntityType(object):
                 
         return self._data_items
     
-    def build_stages(self, function_meta, granularities_dict):
+    def build_schedules(self,metadata):
+        '''
+        Build a dictionary of schedule metdata from the schedules contained
+        within function definitions.
+        
+        The schedule dictionary is keyed on a pandas freq string. This
+        frequency denotes the schedule interval. The dictionary contains a
+        tuple (start_hour,start_minute,backtrack_days)
+        
+        Example
+        -------
+        
+        { '5min': [16,3,7] } 
+        5 minute schedule interval with a start time of 4:03pm and backtrack of 7 days.
+        
+        '''
+        
+        freqs = {}
+        
+        for f in metadata:
+            
+            if f['schedule'] is not None:
+                
+                freq = f['schedule']['every']
+                start = time.strptime(f['schedule']['starting_at'],'%H:%M:%S')
+                start_hour = start[3]
+                start_min = start[4]
+                backtrack = f['backtrack']
+                backtrack_days = (backtrack['days'] +
+                                  backtrack['hours']/24 +
+                                  backtrack['minutes']/1440)
+                
+                
+                existing_schedule = freqs.get(freq,None)
+                if existing_schedule is None:
+                    f[freq] = (start_hour,start_min,backtrack_days)
+                else:
+                    if existing_schedule[0] > start_hour:
+                        f[freq] = (start_hour,existing_schedule[1],existing_schedule[2])
+                        logger.warning(
+                            ('There is a conflict in the schedule metadata.'
+                             ' Picked the earliest start hour of %s'
+                             ' for schedule %s.' %(freq,start_hour)
+                                        ))
+                    if existing_schedule[1] > start_min:
+                        f[freq] = (existing_schedule[0],start_min,existing_schedule[2])
+                        logger.warning(
+                            ('There is a conflict in the schedule metadata.'
+                             ' Picked the earliest start minute of %s'
+                             ' for schedule %s.' %(freq,start_min)
+                                        ))
+                    if existing_schedule[1] < backtrack_days:
+                        f[freq] = (existing_schedule[0],existing_schedule[0],backtrack_days)        
+                        logger.warning(
+                            ('There is a conflict in the schedule metadata.'
+                             ' Picked the longest backtrack of %s'
+                             ' for schedule %s.' %(freq,backtrack_days)
+                                        ))
+                freqs[freq] = f[freq] 
+        
+        return freqs    
+    
+    def classify_stages(self):
         '''
         Create a dictionary of stage objects. Dictionary is keyed by 
         stage type and a granularity obj. It contains a list of stage
-        objects.
+        objects. Stages are classified by timing of execution, ie: preload, 
+        get_data, transform, aggregate
         '''
     
-        if function_meta is None:
-            function_meta = []
         stage_metadata = dict()
-        disabled = []
-        invalid = []
         
         # Add a data_reader stage. This will read entity data.
+        
         if self._auto_read_from_ts_table:
             auto_reader = self._data_reader(name='read_entity_data',
                                            obj = self)
             stage_type = self.get_stage_type(auto_reader)
-            stage_metadata[(stage_type,None)] = [auto_reader]
-            auto_reader._schedule = None
+            granularity = None  #  input level
+            stage_metadata[(stage_type,granularity)] = [auto_reader]
+            auto_reader.schedule = None
             auto_reader._entity_type = self
         else:
             logger.debug(('Skipped auto read of payload data as'
                           ' payload does not have _auto_read_from_ts_table'
                           ' set to True'))
         
-        # Look at the supplied metadata. Build a stage for each function.
-        for s in function_meta:
-            if not s.get('enabled', False):
-              disabled.append(s)              
-              continue
-            meta = {}
-            #look for function in the catalog
-            try:
-                (package,module) = self.db.get_catalog_module(s['functionName'])
-            except KeyError:
-                # Can't build an instance of this function, but can use
-                # an existing instance if there is one on the metadata
-                obj = s.get('object_instance',None)
-                if obj is None:
-                    msg = 'Function %s not found in the catalog metadata' %s['functionName']
-                    logger.warning(msg)
-                    invalid.append(s)
-                    continue
-                else:
-                    logger.debug('Using local function instance %s',
-                                 obj.__class__.__name__
-                                 )
-            else:
-                
-                # Build a new object using metadata supplied
-                
-                meta['__module__'] = '%s.%s' %(package,module)
-                meta['__class__'] =  s['functionName']
-                mod = importlib.import_module('%s.%s' %(package,module))
-                meta = {**meta,**s['input']}
-                meta = {**meta,**s['output']}
-                cls = getattr(mod,s['functionName'])
-                
-                try:
-                    obj = cls(**meta)
-                except TypeError as e:
-                    logger.warning(
-                        ('Unable build %s object. The arguments are mismatched'
-                         ' with the function metadata. You may need to'
-                         ' re-register the function. %s' %(s['functionName'],str(e))
-                         )
-                                 )
-                    invalid.append(s)
-                    continue
+        # Build a stage for each function.
+        for s in self._functions:
             
-            # replace deprecated function
-            obj = self.get_replacement(obj)
+            #  replace deprecated function
+            obj = self.get_replacement(s)
 
-            #add metadata to stage
+            #  add metadata to stage
             try:
                 obj.name
             except AttributeError:
                 obj.name = obj.__class__.__name__
+            try:
+                obj._schedule
+            except AttributeError:
+                obj._schedule = None
+            try:
+                obj.granularity
+            except AttributeError:
+                obj.granularity = None
+            
+            # the stage needs to know what entity type it belongs to
             obj._entity_type = self
-            schedule = s.get('schedule',None)
-            if schedule is not None:
-                schedule = schedule.get('every',None)
-            obj._schedule = schedule
+            
+            # classify stage
             stage_type = self.get_stage_type(obj)
-            granularity_name = s.get('granularity',None)
-            if granularity_name is not None:
-                granularity = granularities_dict.get(granularity_name,False)
+            granularity = s.granularity
+            
+            if granularity is not None and isinstance(granularity,str):
+                granularity = self.granularities_dict.get(granularity,False)
                 if not granularity:
                     msg = ('Cannot build stage metdata. The granularity metadata'
                            ' is invalid. Granularity of function is %s. Valid '
                            ' granularities are %s' %(
-                            granularity_name,
-                            list(granularities_dict.keys())
+                            granularity,
+                            list(self.granularities_dict.keys())
                             ))
                     raise StageException(msg,obj.name)
+            elif isinstance(granularity,Granularity):
+                pass
             else:
                 granularity = None
             try:
+                #  add to stage_type / granularity
                 stage_metadata[(stage_type,granularity)].append(obj)
             except KeyError:
+                #  start a new stage_type / granularity
                 stage_metadata[(stage_type,granularity)]=[obj]
             
-            # add input set and output list
-            # these are crital bits of metadata that drive the dependency model
-            obj._input_set = s['input_set']
-            obj._output_list = s['output_list']
+            
+            # add metadata derived from function registration and function args
+            # input set and output list are crital metadata for the dependency model
+            
+            (in_,out,out_meta,input_set,output_list) = self.build_arg_metadata(s)
+            
+            obj._inputs = in_
+            obj._outputs = out
+            obj._output_items_extended_metadata = out_meta
+            obj._input_set = input_set
+            obj._output_list = output_list
             
                 
             #The stage may have metadata parameters that need to be 
@@ -818,26 +848,13 @@ class EntityType(object):
                 self.trace_append(created_by = obj,
                        msg = 'Adding entity type properties from function',
                        log_method=logger.debug,
-                       **entity_metadata)
-
-        if len(disabled) > 0 or len(invalid) > 0:
-         self.trace_append(
-                 created_by = self,
-                 msg = 'Skipping disabled and invalid stages',
-                 log_method = logger.info,
-                 **{
-                         'skipped_disabled_stages': [s['functionName'] for s in disabled],
-                         'skipped_disabled_data_items': [s['output'] for s in disabled],
-                         'skipped_invalid_stages': [s['functionName'] for s in invalid],
-                         'skipped_invalid_data_items': [s['output'] for s in invalid]
-                    }
-                 )           
+                       **entity_metadata)        
         
         return stage_metadata
     
     def build_stage_metadata(self,*args):
         '''
-        Make a new JobController payload from a list of local function objects
+        Make a new JobController payload from a list of function objects
         '''
         metadata = []
         for f in args:
@@ -1532,7 +1549,12 @@ class EntityType(object):
         
         '''
         Retrieve AS metadata for entity type. Returns a dict of
-        properties to be set.
+        with elemenents:
+            
+            _functions : list of function objects
+            _schedules_dict : dictionary of relevant schedules
+            _granularities_dict: dictionary of relevant granularities
+            
         '''
         
         if meta is None:
@@ -1550,7 +1572,7 @@ class EntityType(object):
         kpis = meta.get('kpiDeclarations',[])
         if kpis is None:
             kpis = []
-        schedules_dict = build_schedules(kpis)
+        schedules_dict = self.build_schedules(kpis)
         
         #build a dictionary of granularity objects keyed by granularity name
         grains_metadata = self.build_granularities(
@@ -1558,14 +1580,8 @@ class EntityType(object):
                             freq_lookup = meta.get('frequencies')
                             )        
         
-        #build a dictionary of stages
-        stages = self.build_stages(
-                    function_meta = meta.get('kpiDeclarations',[]),
-                    granularities_dict =grains_metadata
-                    )
-        
         params = {
-                '_stages' : stages, 
+                '_functions' : kpis,
                 '_schedules_dict' : schedules_dict,
                 '_granularities_dict' : grains_metadata
                 }
@@ -1803,7 +1819,24 @@ class EntityType(object):
         return df
     
     def __str__(self):
-        out = '%s:%s'%(self.__class__.__name__,self.name)
+        out = '\n%s:%s'%(self.__class__.__name__,self.name)
+        out = out + '\nData items:'
+        for i in self._data_items:
+            out = out + '\n   %s (%s) of type %s' %(
+                    i.get('name'),i.get('type'),i.get('columnType'))
+        out = out + '\nFunctions:'
+        for f in self._functions:
+            out = out + '\n' + str(f)
+        out = out + '\nGranularities:'
+        for g in list(self._granularities_dict.values()):
+            out = out + '\n   ' + str(g)
+        if self._schedules_dict is not None and self._schedules_dict:
+            out = out + '\nSchedules:'            
+            for s in list(self._schedules_dict.keys()):
+                out = out + '\n   ' + str(s)
+        else:
+            out = out + '\nNo schedules metadata'
+            
         return out
     
     def set_params(self, **params):
@@ -1841,7 +1874,290 @@ class EntityType(object):
             self.db.commit()
             return new_ids
 
+ 
     
+class ServerEntityType(EntityType):
+    
+    '''
+    Initialize an entity type using AS Server metadata
+    '''
+    
+    def __init__ (self,logical_name,db,db_schema):
+        
+        #get server metadata
+        server_meta = db.http_request(object_type = 'engineInput',
+                                    object_name = logical_name,
+                                    request= 'GET',
+                                    raise_error = True)
+        try:
+            server_meta = json.loads(server_meta)
+        except (TypeError, json.JSONDecodeError):
+            server_meta = None        
+        if server_meta is None or 'exception' in server_meta:
+            raise RuntimeError((
+                    'API call to server did not retrieve valid entity '
+                    ' type properties for %s.' %logical_name))
+                    
+        #  cache function catalog metadata in the db object
+        function_list = [x['functionName'] for x in server_meta['kpiDeclarations']] 
+        db.load_catalog(install_missing=True, function_list=function_list)
+        
+        # functions
+        kpis = server_meta.get('kpiDeclarations',[])
+        if kpis is None:
+            kpis = []
+            logger.warning((
+                    'This entity type has no calculated kpis'
+                    ))
+            
+        self.db = db
+        (self._functions,
+         self._invalid_stages,
+         self._disabled_stages) = self.build_function_objects(kpis)
+        
+        self._schedules_dict = self.build_schedules(kpis)
+        
+        #build a dictionary of granularity objects keyed by granularity name
+        self._granularities_dict = self.build_granularities(
+                            grain_meta = server_meta['granularities'],
+                            freq_lookup = server_meta.get('frequencies')
+                            )        
+        
+        #  map server properties to entitty type properties
+        self._entity_type_id  =server_meta['entityTypeId']
+        self._db_schema = server_meta['schemaName']
+        self._timestamp = server_meta['metricTimestampColumn']
+        self._dimension_table_name = server_meta['dimensionsTable']
+        
+        #  set the data items metadata directly - no need to create cols
+        #  as table is assumed to exist already since this is a 
+        #  server entity type
+        
+        #  _data_items is a list of dicts. elements are:
+        #   name
+        #   type: METRIC or DERIVED_METRIC
+        #   columnName
+        #   columnType: NUMBER, LITERAL, JSON, BOOLEAN, TIMESTAMP
+        #   sourceTableName
+        #   kpiFunctionDto: May have a all of the metadata for the KPI function
+        #                   That produced the item
+        #   parentDataItemName : None
+        #   tags ['EVENT','DIMENSION']
+        #   tranient
+        
+        self._data_items = server_meta['dataItems']
+        
+        #  constants
+        #    These are arbitrary parmeter values provided by the
+        #    server and copied onto the entity type
+        
+        params = {}
+        c_meta = db.http_request(object_type = 'constants',
+                               object_name = logical_name,
+                               request= 'GET')
+        try:
+            c_meta = json.loads(c_meta)
+        except (TypeError, json.JSONDecodeError):
+            logger.warning(('API call to server did not retrieve valid entity type'
+                          ' constant. No costants set.'))
+        else:
+            for p in c_meta:
+                key = p['name']
+                if isinstance(p['value'],dict):
+                    value = p['value'].get('value',p['value'])
+                else:
+                    value = p['value']
+                params[key] = value
+                logger.debug('Retrieved server constant %s with value%s',key,value)                
+
+        
+        # initialize entity type
+                
+        super().__init__(name=server_meta['metricsTableName'],
+                     db = db,
+                     **params)
+        
+    def build_function_objects(self,server_kpis):
+        '''
+        Create function objects from server kpi definitions 
+        '''
+        
+        functions = []
+        invalid = []
+        disabled = []
+        
+        for f in server_kpis:
+            if not f.get('enabled', False):
+              disabled.append(f)              
+            else:
+                (package,module) = self.db.get_catalog_module(f['functionName'])
+                meta = {}
+                #meta['__module__'] = '%s.%s' %(package,module)
+                #meta['__class__'] =  f['functionName']
+                mod = importlib.import_module('%s.%s' %(package,module))
+                meta = {**meta,**f['input']}
+                meta = {**meta,**f['output']}
+                cls = getattr(mod,f['functionName'])
+                try:
+                    obj = cls(**meta)
+                except TypeError as e:
+                    logger.warning(
+                        ('Unable build %s object. The arguments are mismatched'
+                         ' with the function metadata. You may need to'
+                         ' re-register the function. %s' %(f['functionName'],str(e))
+                         )
+                                 )
+                    invalid.append(f)
+                else:
+                    functions.append(obj)
+            
+        return (functions,invalid,disabled)
+    
+        
+class BaseCustomEntityType(EntityType):
+    
+    '''
+    Base class for custom entity types
+    '''
+    
+    timestamp = 'evt_timestamp'
+    
+    def __init__ (self,
+                  name,
+                  db,
+                  columns=None,
+                  constants=None,
+                  granularities = None,
+                  functions=None,
+                  dimension_columns = None,
+                  generate_days = 0,
+                  drop_existing = False,
+                  db_schema = None,
+                  description = None,
+                  output_items_extended_metadata = None,
+                  **kwargs):
+        
+        if columns is None:
+            columns = []
+        if constants is None:
+            constants = []
+        if functions is None:
+            functions = []
+        if dimension_columns is None:
+            dimension_columns = []
+        if granularities is None:
+            granularities = []
+        if output_items_extended_metadata is None:
+            output_items_extended_metadata = {}
+            
+        self._columns = columns
+        self._constants = constants
+        self._functions = functions
+        self._dimension_columns = dimension_columns
+        self._output_items_extended_metadata = output_items_extended_metadata
+            
+        args = []
+        args.extend(self._columns)
+        args.extend(granularities)
+        args.extend(constants)
+        
+        if description is None:
+            description = self.__doc__
+        
+        kwargs = {'_timestamp' : self.timestamp,
+                  '_db_schema' : db_schema,
+                  'description' : description
+                  } 
+        
+        super().__init__(name,
+                         db,
+                         *args,
+                         **kwargs)
+        
+        self.make_dimension(
+            None, #auto build name
+            *self._dimension_columns)
+        
+        if generate_days > 0:
+            # classify stages is adds entity metdata to the stages
+            # need to run it before executing any stage
+            self.classify_stages()
+            generators = [x for x in self._functions if x.is_data_generator]
+            start = dt.datetime.utcnow() - dt.timedelta(days = generate_days)
+            for g in generators:
+                logger.debug(('Running generator %s with start date %s.'
+                              ' Drop existing %s'),
+                             g.__class__.__name__,
+                             start,
+                             drop_existing)
+                g.drop_existing = drop_existing
+                g.execute(df=None,start_ts = start) 
+                g.drop_existing = False
+                
+        
+    def publish_kpis(self,raise_error = True):
+        
+        '''
+        Publish the function instances assigned to this entity type to the AS Server
+        '''   
+        
+        export = []
+        self.db.register_functions(self._functions,raise_error=raise_error)
+                
+        for s in self._functions:
+            try:
+                name = s.name
+            except AttributeError:
+                name = s.__class__.__name__
+                logger.debug(('Function class %s has no name property.'
+                              ' Using the class name'),
+                             name)                                
+             
+            try:
+                args = s._get_arg_metadata()
+            except AttributeError:
+                msg = ('Attempting to publish kpis for an entity type.'
+                       ' Function %s has no _get_arg_spec() method.'
+                       ' It cannot be published' ) %name
+                raise NotImplementedError(msg)
+            
+            # the entity type may have extended metadata
+            # find relevant extended metadata and add it to argument values
+            
+            output_meta = {}
+            for (a,value) in list(args.items()):
+                if not isinstance(value,list):
+                    arg_values = [value]
+                else:
+                    arg_values = value
+                for av in arg_values:
+                    if isinstance(av,str):
+                        extended = self._output_items_extended_metadata.get(av,None)
+                        if extended is not None:
+                            output_meta[av] = extended
+            if output_meta:
+                args['outputMeta'] = output_meta
+                
+            metadata  = { 
+                    'name' : name ,
+                    'args' : args
+                    }
+            export.append(metadata)
+                    
+        
+        logger.debug('Published kpis to entity type')
+        logger.debug(export)
+                
+        response = self.db.http_request(object_type = 'kpiFunctions',
+                                        object_name = self.logical_name,
+                                        request = 'POST',
+                                        payload = export,
+                                        raise_error = raise_error) 
+        
+        
+        logger.debug(response)
+        
+        return response    
     
 class Granularity(object):
     
@@ -2235,4 +2551,5 @@ class Model(object):
         if out['expiry_date'] is not None:
             out['expiry_date'] = out['expiry_date'].isoformat()
         return json.dumps(out,indent=1)
+    
     
