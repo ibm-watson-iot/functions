@@ -118,7 +118,7 @@ class Boiler(metadata.BaseCustomEntityType):
             Column('firmware',String(50)),
             Column('manufacturer',String(50))
             ]
-        
+                
         super().__init__(name=name,
                          db = db,
                          constants = constants,
@@ -126,10 +126,11 @@ class Boiler(metadata.BaseCustomEntityType):
                          columns=columns,
                          functions = functions,
                          dimension_columns = dimension_columns,
+                         output_items_extended_metadata = {},
                          generate_days = generate_days,
                          drop_existing = drop_existing,
                          description = description,
-                         db_schema = db_schema)
+                         db_schema = db_schema)        
 
         
 class Robot(metadata.BaseCustomEntityType):

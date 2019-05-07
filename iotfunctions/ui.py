@@ -480,7 +480,40 @@ class UISingle(BaseUIControl):
         return meta
     
 
+class UIExpression(UISingle):
+    '''
+    UI control that allows entering a python expression
     
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    required: bool
+        Specify True when this argument is mandatory
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
+    default: str
+        Optional default
+    '''    
+    
+    def __init__(self,name = 'expression', description=None, tags = None,
+                 required = True, default = None):
+        
+        if description is None:
+            description = 'Enter a python expression'
+        self.description = description
+        if tags is None:
+            tags = ['EXPRESSION']
+        else:
+            tags.append('EXPRESSION')
+            
+        super().__init__(name = name,description = description,tags=tags,
+                     required = required, default = default)
+
+        
+  
 
     
 

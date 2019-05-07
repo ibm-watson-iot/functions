@@ -25,7 +25,8 @@ from .base import (BaseTransformer, BaseEvent, BaseSCDLookup,
                    BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
                    BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
 
-from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
+from .ui import (UISingle,UIMultiItem,UIFunctionOutSingle,
+                 UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression)
 from .util import adjust_probabilities
 
 logger = logging.getLogger(__name__)
@@ -1093,10 +1094,9 @@ class PythonExpression(BaseTransformer):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(name = 'expression',
-                                              datatype=str,
-                                              description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
-                                              )
+        inputs.append(UIExpression(name = 'expression',
+                                   description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
+                                   )
                     )
         #define arguments that behave as function outputs
         outputs = []

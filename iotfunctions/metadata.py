@@ -251,7 +251,6 @@ class EntityType(object):
     _invalid_stages = None
     _disabled_stages = None
     # processing defaults
-    _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     _pre_aggregate_time_grain = None # aggregate incoming data before processing
     _auto_read_from_ts_table = True # read new data from designated time series table for the entity
     _pre_agg_rules = None # pandas agg dictionary containing list of aggregates to apply for each item
@@ -263,6 +262,9 @@ class EntityType(object):
     drop_null_class = DropNull
     enable_downcast = False
     allow_projection_list_trim = False
+    
+    #deprecated class variables (to be removed)
+    _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     
     def __init__ (self,name,db, *args, **kwargs):
         
