@@ -457,11 +457,11 @@ def infer_fn_data_items(function_metadata):
     expressions = []
     
     #ext_outs = function_metadata['outputMeta']
-    args = function_metadata.get('args',{})
-    for a in args:
-        if 'EXPRESSION' in a.get('tags',[]):
-            print ('***',function_metadata.get('name',{}),a)
-            raise
+    args = function_metadata.get('input',{})
+    for name,value in list(args.items()):
+        if name == 'expression':
+            expressions.append(value)
+            logger.debug('Found expression %s',value)
         
     return infer_data_items(expressions)     
 
