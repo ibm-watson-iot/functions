@@ -147,7 +147,7 @@ class Robot(metadata.BaseCustomEntityType):
                  db,
                  db_schema=None,
                  description = None,
-                 generate_days = 0,
+                 generate_days = 10,
                  drop_existing = False):
     
 
