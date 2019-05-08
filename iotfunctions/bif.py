@@ -143,7 +143,7 @@ class AggregateItems(BaseSimpleAggregator):
                 }
 
 
-class AggregateWithCalculation(BaseSimpleAggregator):
+class AggregateWithExpression(BaseSimpleAggregator):
     
     '''
     Create aggregation using expression. The calculation is evaluated for
@@ -192,7 +192,6 @@ class AggregateWithCalculation(BaseSimpleAggregator):
         
         return eval(expression)
       
-
 
 class AlertExpression(BaseEvent):
     '''
