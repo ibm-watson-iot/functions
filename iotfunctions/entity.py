@@ -151,6 +151,8 @@ class Robot(metadata.BaseCustomEntityType):
                  drop_existing = False):
     
 
+        physical_name = name.lower()
+        
         #constants
         constants = []
         
@@ -205,12 +207,12 @@ class Robot(metadata.BaseCustomEntityType):
                 ))
         
         functions.append(bif.SCDLookup(
-                table_name = '%s_scd_operator' %name,
+                table_name = '%s_scd_operator' %physical_name,
                 output_item = 'operator',
                 ))
         
         functions.append(bif.ActivityDuration(
-                table_name = '%s_maintenance' %name,
+                table_name = '%s_maintenance' %physical_name,
                 activity_codes = ['scheduled_maint',
                                   'unscheduled_maint',
                                   'firmware_upgrade',
