@@ -467,7 +467,7 @@ def get_fn_expression_args(function_metadata,kpi_metadata):
     logger.debug('************')    
     
     for a in args:
-        if a.get(name,None) == 'expression':
+        if a.get('name',None) == 'expression':
             expressions.append(a)
             logger.debug('Found expression %s',a)
         
