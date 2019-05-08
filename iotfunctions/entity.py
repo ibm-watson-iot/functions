@@ -249,7 +249,7 @@ class Robot(metadata.BaseCustomEntityType):
         # state it explicitley
         
         output_items_extended_metadata = {
-                'operator' : { "dataType" : "NUMBER" }
+                'operator' : { "dataType" : "LITERAL" }
                 }
         
         #dimension columns
@@ -594,6 +594,10 @@ class TestBed(metadata.BaseCustomEntityType):
             Column('line',String(50))
             ]
         
+        output_items_extended_metadata = {
+                'output_items' : { "dataType" : "BOOLEAN" }
+                }
+        
         super().__init__(name=name,
                          db = db,
                          constants = constants,
@@ -603,6 +607,7 @@ class TestBed(metadata.BaseCustomEntityType):
                          dimension_columns = dimension_columns,
                          generate_days = generate_days,
                          drop_existing = drop_existing,
+                         output_items_extended_metadata = output_items_extended_metadata,
                          description = description,
                          db_schema = db_schema)          
         
