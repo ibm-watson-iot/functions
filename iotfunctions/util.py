@@ -458,7 +458,9 @@ def infer_fn_data_items(function_metadata):
     
     args = function_metadata.get('input',{})
     
-    print('***********',args)
+    logger.debug('***********')
+    logger.debug(args)
+    logger.debug('************')
     raise
     
     for a in args:
