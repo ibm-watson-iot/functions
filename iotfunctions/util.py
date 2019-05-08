@@ -446,7 +446,7 @@ def infer_data_items(expressions):
     return(data_items)
 
 
-def infer_fn_data_items(function_metadata):
+def get_fn_expression_args(function_metadata,kpi_metadata):
     '''
     Examine a functions metadata dictionary. Indentify data items used
     in any expressions that the function has.
@@ -458,17 +458,20 @@ def infer_fn_data_items(function_metadata):
     
     args = function_metadata.get('input',{})
     
-    logger.debug('***********')
+    logger.debug('*********** catalog')
     logger.debug(args)
     logger.debug('************')
-    raise
+    
+    logger.debug('######## function')
+    logger.debug(kpi_metadata)
+    logger.debug('************')    
     
     for a in args:
         if a.get(name,None) == 'expression':
-            expressions.append(value)
-            logger.debug('Found expression %s',value)
+            expressions.append(a)
+            logger.debug('Found expression %s',a)
         
-    return infer_data_items(expressions)     
+    return infer_data_items(a)     
 
 def log_df_info(df,msg,include_data=False):
     '''
