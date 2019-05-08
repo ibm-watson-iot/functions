@@ -458,6 +458,7 @@ def infer_fn_data_items(function_metadata):
     
     #ext_outs = function_metadata['outputMeta']
     args = function_metadata.get('input',{})
+    logger.debug('**********',args)
     for name,value in list(args.items()):
         if name == 'expression':
             expressions.append(value)
