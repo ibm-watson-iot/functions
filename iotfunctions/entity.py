@@ -389,6 +389,12 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
 
         generator = bif.EntityDataGenerator(ids=None,**sim)                
         functions.append(generator)
+        
+        functions.append(bif.PythonExpression(
+                            expression = 'df["ambient_temp"]*df["ambient_humidity"]/50',
+                            output_name = 'adjusted_temp'
+                            )
+                         )
 
         functions.append(bif.RandomNormal(mean=6,
                     standard_deviation = 1,
