@@ -1564,6 +1564,7 @@ class RandomNormal(BaseTransformer):
         
     def execute(self,df):
         
+        print('kohlmann remove: RandomNormal is executed with length %d' % len(df.index))
         df[self.output_item] = np.random.normal(self.mean,self.standard_deviation,len(df.index))
         
         return df
