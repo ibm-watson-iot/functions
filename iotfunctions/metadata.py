@@ -1713,6 +1713,7 @@ class EntityType(object):
         table['name'] = self.logical_name
         table['metricTableName'] = self.name
         table['metricTimestampColumn'] = self._timestamp
+        table['description'] = self.description
         for c in self.db.get_column_names(self.table, schema = self._db_schema):
             cols.append((self.table,c,'METRIC'))
             metric_column_names.append(c)
