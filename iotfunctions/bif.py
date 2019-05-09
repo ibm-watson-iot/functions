@@ -2224,4 +2224,3 @@ class IoTCosFunction(BaseTransformer):
         outputs = []
         outputs.append(UIFunctionOutSingle('output_item'))
 
-        return (inputs,outputs)    
