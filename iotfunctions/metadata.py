@@ -1158,7 +1158,9 @@ class EntityType(object):
         
         return [ 'logicalinterface_id',
                  'format',
-                 'updated_utc'    ]
+                 'updated_utc' ,
+                 'devicetype' ,
+                 'eventtype'   ]
     
     
     def get_grain_freq(self,grain_name,lookup,default):
