@@ -147,10 +147,12 @@ class Robot(metadata.BaseCustomEntityType):
                  db,
                  db_schema=None,
                  description = None,
-                 generate_days = 0,
+                 generate_days = 10,
                  drop_existing = False):
     
 
+        physical_name = name.lower()
+        
         #constants
         constants = []
         
@@ -205,12 +207,12 @@ class Robot(metadata.BaseCustomEntityType):
                 ))
         
         functions.append(bif.SCDLookup(
-                table_name = '%s_scd_operator' %name,
+                table_name = '%s_scd_operator' %physical_name,
                 output_item = 'operator',
                 ))
         
         functions.append(bif.ActivityDuration(
-                table_name = '%s_maintenance' %name,
+                table_name = '%s_maintenance' %physical_name,
                 activity_codes = ['scheduled_maint',
                                   'unscheduled_maint',
                                   'firmware_upgrade',
@@ -247,7 +249,7 @@ class Robot(metadata.BaseCustomEntityType):
         # state it explicitley
         
         output_items_extended_metadata = {
-                'operator' : { "dataType" : "NUMBER" }
+                'operator' : { "dataType" : "LITERAL" }
                 }
         
         #dimension columns
@@ -592,6 +594,10 @@ class TestBed(metadata.BaseCustomEntityType):
             Column('line',String(50))
             ]
         
+        output_items_extended_metadata = {
+                'output_items' : { "dataType" : "BOOLEAN" }
+                }
+        
         super().__init__(name=name,
                          db = db,
                          constants = constants,
@@ -601,6 +607,7 @@ class TestBed(metadata.BaseCustomEntityType):
                          dimension_columns = dimension_columns,
                          generate_days = generate_days,
                          drop_existing = drop_existing,
+                         output_items_extended_metadata = output_items_extended_metadata,
                          description = description,
                          db_schema = db_schema)          
         

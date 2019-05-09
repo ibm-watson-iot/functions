@@ -1116,6 +1116,8 @@ class Database(object):
             except AttributeError:
                 is_preinstalled = False
                 
+            logger.debug('%s is preinstalled %s',module_obj,is_preinstalled)
+                
             if is_preinstalled:
                 if force_preinstall :
                     if url != self.system_package_url:
@@ -1131,15 +1133,13 @@ class Database(object):
                     else:
                         # URL should not be set for preinstalled functions
                         url = None
+                        logger.debug(('Registering preinstalled function %s with'
+                                      ' url %s') , name,url)
                 else:
-                    if raise_error:
-                        msg = ('Cannot register function %s. This is a'
+                    msg = ('Cannot register function %s. This is a'
                                ' preinstalled function' %name )
-                        if raise_error:
-                            raise RuntimeError(msg)
-                        else:
-                            logger.debug(msg)
-                            continue
+                    logger.debug(msg)
+                    continue
             
             if module == '__main__':
                 raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
