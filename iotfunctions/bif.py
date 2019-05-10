@@ -234,7 +234,7 @@ class AlertExpression(BaseEvent):
                                               datatype=None,
                                               description = 'Input items'
                                               ))
-        inputs.append(UISingle(name = 'expression',
+        inputs.append(UIExpression(name = 'expression',
                                               datatype=str,
                                               description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
                                               ))
@@ -417,7 +417,7 @@ class AlertLowValue(BaseEvent):
 class AutoTest(BaseTransformer):
     '''
     Test the results of pipeline execution against a known test dataset. 
-    The test will compare columns calculated values with values in the test dataset.
+    The test will compare calculated values with values in the test dataset.
     Discepancies will the written to a test output file.
     
     Note: This function is experimental
@@ -1333,8 +1333,7 @@ class PythonFunction(BaseTransformer):
     
     Example:
     def f(df,parameters):
-        #generate an 2-D array of random numbers
-        #
+        #  generate an 2-D array of random numbers
         output = np.random.normal(1,0.1,len(df.index))
         return output
         
@@ -1386,7 +1385,7 @@ class PythonFunction(BaseTransformer):
                     )
             kw['source'] = 'paste-in code'
         
-        kw['filename'] = filename,
+        kw['filename'] = filename
         kw['input_items'] = self.input_items
         kw['output_item'] = self.output_item
         kw['entity_type'] = self._entity_type

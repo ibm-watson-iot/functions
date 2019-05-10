@@ -89,7 +89,8 @@ class Database(object):
         if tenant_id is None:
             tenant_id = credentials.get('tenantId',
                             credentials.get('tenant_id',
-                                credentials.get('tennantId',None)))
+                                credentials.get('tennantId',
+                                    credentials.get('tennant_id',None))))
             
         self.credentials['tenant_id'] = tenant_id
         if self.credentials['tenant_id'] is None:
