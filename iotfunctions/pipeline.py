@@ -3325,13 +3325,6 @@ class CalcPipeline:
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         #there are two signatures for the execute method
         
-        if df is not None:
-            logger.debug(name)
-            logger.debug(df.head(1).transpose())
-            logger.debug(df['_timestamp'].min())
-            logger.debug(df['_timestamp'].max())
-            logger.debug(len(df.index))
-        
         msg = 'Stage %s :' % name
         self.trace_add(msg=msg,df=df)
         try:
