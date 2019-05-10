@@ -62,6 +62,12 @@ class Database(object):
         self.function_catalog = {} #metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}
+        if credentials is None:
+            credentials = {}
+            
+        #  build credentials dictionary from multiple versions of input
+        #  credentials and/or environment variables
+            
         try:
             self.credentials['objectStorage'] = credentials['objectStorage']
         except (TypeError,KeyError):
@@ -71,23 +77,26 @@ class Database(object):
                 self.credentials['objectStorage']['username'] = os.environ.get('COS_HMAC_ACCESS_KEY_ID')
                 self.credentials['objectStorage']['password'] = os.environ.get('COS_HMAC_SECRET_ACCESS_KEY')
             except KeyError:
-                msg = 'No objectStorage credentials supplied and COS_REGION, COS_HMAC_ACCESS_KEY_ID, COS_HMAC_SECRET_ACCESS_KEY, COS_ENDPOINT not set. COS not available. Will write to filesystem instead'
+                msg = ('No objectStorage credentials supplied and COS_REGION,' 
+                       ' COS_HMAC_ACCESS_KEY_ID, COS_HMAC_SECRET_ACCESS_KEY,' 
+                       ' COS_ENDPOINT not set. COS not available. Will write'
+                       ' to filesystem instead' )
                 logger.warning(msg)
                 self.credentials['objectStorage']['path'] = ''
+            
+        #tenant_id
+            
         if tenant_id is None:
-            try:
-                tenant_id = credentials['tenant_id']
-            except (KeyError,TypeError):
-                try:
-                    tenant_id = credentials['tennant_id']
-                except (KeyError,TypeError):
-                    try:
-                        tenant_id = credentials['tennantId']
-                    except (KeyError,TypeError):        
-                        msg = 'No tenant_id supplied. You will not be able to use the db object to communicate with the API'
-                        logger.info(msg)
-                        tenant_id = None
+            tenant_id = credentials.get('tenantId',
+                            credentials.get('tenant_id',
+                                credentials.get('tennantId',None)))
+            
         self.credentials['tenant_id'] = tenant_id
+        if self.credentials['tenant_id'] is None:
+            raise RuntimeError(('No tenant id supplied in credentials or as arg.'
+                                ' Please supply a valid tenant id.'))
+        
+        # iotp and as
         try:
             self.credentials['iotp']= credentials['iotp']
         except (KeyError,TypeError):
@@ -106,16 +115,17 @@ class Database(object):
                 db2_creds['password'] = credentials['password']
                 db2_creds['port'] = credentials['port']
                 db2_creds['db'] = credentials['db']
-                db2_creds['database'] = credentials['database']
+                db2_creds['databaseName'] = credentials['database']
                 db2_creds['username'] = credentials['username']
                 self.credentials['db2']= db2_creds
                 logger.warning('Old style credentials still work just fine, but will be depreciated in the future. Check the usage section of the UI for the updated credentials dictionary')
                 self.credentials['as']= credentials
-        try:
-            self.credentials['message_hub']= credentials['messageHub']
-        except (KeyError,TypeError):
-            self.credentials['message_hub'] = None
-            msg = 'Unable to locate message_hub credentials. Database object created, but it will not be able interact with message hub.'
+        
+        self.credentials['message_hub'] =credentials.get('messageHub',None)
+        if self.credentials['message_hub'] is None:
+            msg = ('Unable to locate message_hub credentials.'
+                   ' Database object created, but it will not be able interact'
+                   ' with message hub.')
             logger.debug(msg)
         try:
             self.credentials['config']= credentials['config']
@@ -134,21 +144,29 @@ class Database(object):
             msg = 'Missing objectStorage credentials. Database object created, but it will not be able interact with object storage'
             logger.warning(msg)
         
+        as_creds = credentials.get('iotp',None)
+        if as_creds is None:
+            as_api_host = credentials.get('as_api_host',None)
+            as_api_key = credentials.get('as_api_key',None)
+            as_api_token = credentials.get('as_api_token',None)
+        else:
+            as_api_host = as_creds.get('asHost',None)
+            as_api_key = as_creds.get('apiKey',None)
+            as_api_key = as_creds.get('apiToken',None)
+        
         try:
-            as_api_host = credentials['as_api_host']
-            as_api_key = credentials['as_api_key'] 
-            as_api_token = credentials['as_api_token']
-        except (KeyError,TypeError):
-            try:
-               as_api_host = os.environ.get('API_BASEURL')
-               as_api_key = os.environ.get('API_KEY')
-               as_api_token = os.environ.get('API_TOKEN')
-            except KeyError:
-               as_api_host = None
-               as_api_key = None
-               as_api_token = None
-               msg = 'Unable to locate as credentials or environment variable. db will not be able to connect to the AS API'
-               logger.debug(msg)
+            if as_api_host is None:
+                as_api_host = os.environ.get('API_BASEURL')
+            if as_api_key is None:
+                as_api_key = os.environ.get('API_KEY')
+            if as_api_token is None:
+                as_api_token = os.environ.get('API_TOKEN')
+        except KeyError:
+            as_api_host = None
+            as_api_key = None
+            as_api_token = None
+            msg = 'Unable to locate AS credentials or environment variable. db will not be able to connect to the AS API'
+            logger.warning(msg)
                
         if as_api_host is not None and as_api_host.startswith('https://'):
             as_api_host = as_api_host[8:]
@@ -177,7 +195,7 @@ class Database(object):
                                                                      self.credentials['db2']['password'],
                                                                      self.credentials['db2']['host'],
                                                                      self.credentials['db2']['port'],
-                                                                     self.credentials['db2']['database'])
+                                                                     self.credentials['db2']['databaseName'])
                     if 'security' in self.credentials['db2']:
                         connection_string += 'SECURITY=%s' % self.credentials['db2']['security']
                 except KeyError:

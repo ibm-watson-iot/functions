@@ -1332,7 +1332,7 @@ class PythonFunction(BaseTransformer):
     The function can return a DataFrame,Series,NumpyArray or scalar value. 
     
     Example:
-    def f(df,parameters)
+    def f(df,parameters):
         #generate an 2-D array of random numbers
         #
         output = np.random.normal(1,0.1,len(df.index))
@@ -1404,7 +1404,9 @@ class PythonFunction(BaseTransformer):
                 parameters = {**kw,**self.parameters}
                 )
         
-        return result
+        df[self.output_item] = result
+        
+        return df
     
     @classmethod
     def build_ui(cls):
