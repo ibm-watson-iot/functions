@@ -1337,6 +1337,8 @@ class PythonFunction(BaseTransformer):
         output = np.random.normal(1,0.1,len(df.index))
         return output
         
+    Function source may be pasted in or retrieved from Cloud Object Storage.
+        
     PythonFunction is currently experimental.
     """
     
@@ -1353,29 +1355,34 @@ class PythonFunction(BaseTransformer):
         super().__init__()
         if parameters is None:
             parameters = {}
+        
+        
+        function_name = parameters.get('function_name',None)
+        if function_name is not None:
+            self.function_name = function_name
+            
         self.parameters = parameters
         
     def execute(self,df):
-        
-        filename = '%s_%s_%s' %(self.function_name,
-                                self._entity_type.name,
-                                self.output_item)
         
         #function may have already been serialized to cos
         
         kw = {}
         
-        if self.function_code == filename:
+        if not self.function_code.startswith('def '):
             bucket = self.get_bucket_name()
             fn = self._entity_type.db.cos_load(
-                        filename = filename,
+                        filename = self.function_code,
                         bucket = bucket,
                         binary = True
                         )
             kw['source'] = 'cos'
+            kw['filename'] = self.function_code
             if fn is None:
-                msg = ('Cant locate function %s in cos. Make sure this '
-                       ' function exists in the %s bucket' %(filename,bucket))
+                msg = (' Function text does not start with "def ". '
+                       ' Function is assumed to located in COS'
+                       ' Cant locate function %s in cos. Make sure this '
+                       ' function exists in the %s bucket' %(self.function_code,bucket))
                 raise RuntimeError(msg)   
         
         else:
@@ -1384,8 +1391,8 @@ class PythonFunction(BaseTransformer):
                     function_code = self.function_code
                     )
             kw['source'] = 'paste-in code'
+            kw['filename'] = None
         
-        kw['filename'] = filename
         kw['input_items'] = self.input_items
         kw['output_item'] = self.output_item
         kw['entity_type'] = self._entity_type
