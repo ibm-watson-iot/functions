@@ -194,6 +194,11 @@ class Robot(metadata.BaseCustomEntityType):
         generator = bif.EntityDataGenerator(ids=None,**sim)                
         functions.append(generator)
         
+        functions.append(bif.PythonExpression(
+                expression = 'df["torque"]*df["load"]',
+                output_name = 'work_performed'
+                ))
+        
         functions.append(bif.ShiftCalendar(
                 shift_definition= {
                                    "1": [5.5, 14],
