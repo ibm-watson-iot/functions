@@ -120,6 +120,11 @@ class Database(object):
                 self.credentials['db2']= db2_creds
                 logger.warning('Old style credentials still work just fine, but will be depreciated in the future. Check the usage section of the UI for the updated credentials dictionary')
                 self.credentials['as']= credentials
+        else:
+            try:
+                self.credentials['db2']['databaseName'] = self.credentials['db2']['database']
+            except KeyError:
+                pass
         
         self.credentials['message_hub'] =credentials.get('messageHub',None)
         if self.credentials['message_hub'] is None:
