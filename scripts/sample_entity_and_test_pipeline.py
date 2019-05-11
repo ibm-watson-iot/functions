@@ -3,12 +3,10 @@ import json
 import os
 import pandas as pd
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from iotfunctions.preprocessor import MultiplyByTwo, CompanyFilter, EntityDataGenerator
-import iotfunctions.bif 
-from iotfunctions.preprocessor import BaseTransformer
-from iotfunctions.metadata import EntityType, make_sample_entity
+from iotfunctions import bif
+from iotfunctions.metadata import EntityType
 from iotfunctions.db import Database
-from iotfunctions.estimator import SimpleAnomaly
+
 
 #replace with a credentials dictionary or provide a credentials file
 with open('credentials.json', encoding='utf-8') as F:
