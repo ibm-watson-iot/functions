@@ -1525,7 +1525,7 @@ class JobController(object):
         
         if execute_date is None:
             execute_date = dt.datetime.utcnow()
-        execute_str = f'{execute_date:%Y%m%d%H%M%S%f}' 
+        execute_str = '{:%Y%m%d%H%M%S%f}'.format(execute_date)
     
         return '%s_%s_trace_%s' %(self.payload.__class__.__name__,
                                self.name,execute_str)
