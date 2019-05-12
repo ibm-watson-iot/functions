@@ -2449,7 +2449,7 @@ class Trace(object)    :
         
     def build_trace_name(self):
         
-        execute_str = f'{dt.datetime.utcnow():%Y%m%d%H%M%S%f}' 
+        execute_str = '{:%Y%m%d%H%M%S%f}'.format(dt.datetime.utcnow())
         
         return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,
                                execute_str)
