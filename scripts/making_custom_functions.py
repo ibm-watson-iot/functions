@@ -210,17 +210,17 @@ package.
 I defined the above class in this script just for so that I could use it to 
 show the structure of an AS function. To actually test this class, we will not
 use the version of it that I copied into the script, we will use the official
-version of it - the one that exists in the sample_module.py. 
+version of it - the one that exists in the sample.py. 
 
 '''
 
-from iotfunctions.samples.sample_module import MultiplyTwoItems
+from iotfunctions.sample import MultiplyTwoItems
 
 '''
 
 We have just replaced the MultiplyToItems class with the official version
 from the sample package. To understand the structure and content of the
-sample package look at ..\sample\sample_module.py
+sample package look at sample.py
 
 To test MultiplyTowItems you will need to create an instance of it and
 indicate for this instance, which two items will it multiply and what
@@ -293,7 +293,7 @@ be registered by register_module.
 This script covers the complete process for authoring and registering custom 
 functions. The subject of the sample function used in this script was really
 basic. To get an idea some of the more interesting things you can do in
-custom functions, we encourage you to browse through the sample_module.
+custom functions, we encourage you to browse through the sample module.
 
 '''
 
