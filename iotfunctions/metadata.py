@@ -411,6 +411,12 @@ class EntityType(object):
         *args: Column objects
             other columns describing the activity, e.g. materials_cost
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to add activity tables ' )
+            raise ValueError(msg)
+        
         kwargs['_activities'] = activities
         kwargs['schema'] = self._db_schema
         name = name.lower()
@@ -432,6 +438,11 @@ class EntityType(object):
             name of property, e.g. firmware_version (lower case, no database reserved words)
         datatype: sqlalchemy datatype
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to add slowly changing dimensions ' )
+            raise ValueError(msg)
         
         property_name = property_name.lower()
         
@@ -669,6 +680,11 @@ class EntityType(object):
         Build a client generated version of AS server metadata from a 
         sql alachemy table object.
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' cannot build item metadata from tables ' )
+            raise ValueError(msg)        
         
         for col_name,col in list(table.c.items()):
             item = {}
@@ -947,6 +963,11 @@ class EntityType(object):
         
     def cos_save(self):
         
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to save to cloud object storage ' )
+            raise ValueError(msg)
+        
         name = ['entity_type', self.name]
         name = '.'.join(name)
         self.db.cos_save(self, name)
@@ -994,6 +1015,12 @@ class EntityType(object):
         '''
         Drop all child tables
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to drop child tables ' )
+            raise ValueError(msg)
+        
         tables = []
         tables.extend(self.activity_tables.values())
         tables.extend(self.scd.values())
@@ -1049,6 +1076,36 @@ class EntityType(object):
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
 
+    def get_local_column_lists_by_type(self,columns):
+        
+        '''
+        Examine a list of columns and poduce a tuple containing names
+        of metric,dates,categoricals and others
+        '''
+        
+        metrics = []
+        dates = []
+        categoricals = []
+        others = []
+        
+        if columns is None:
+            columns = []
+        
+        for c in columns:
+            data_type = c.type
+            if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
+                metrics.append(c.name)
+            elif isinstance(data_type,VARCHAR) or isinstance(data_type,String):
+                categoricals.append(c.name)
+            elif isinstance(data_type,TIMESTAMP) or isinstance(data_type,DateTime):
+                dates.append(c.name)
+            else:
+                others.append(c.name)
+                msg = 'Found column %s of unknown data type %s' %(c,data_type.__class__.__name__)
+                logger.warning(msg)
+                    
+        return (metrics,dates,categoricals,others)   
+    
 
     def get_custom_calendar(self):
         
@@ -1059,6 +1116,11 @@ class EntityType(object):
         '''
         Retrieve entity data at input grain or preaggregated
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to retrieve database data ' )
+            raise ValueError(msg)
         
         tw = {} #info to add to trace
         if entities is None:
@@ -1190,6 +1252,12 @@ class EntityType(object):
         '''
         Get KPI execution log info. Returns a dataframe.
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to get log data ' )
+            raise ValueError(msg)
+        
         query, log = self.db.query(self.log_table, self._db_schema)
         query = query.filter(log.c.entity_type==self.name).\
                       order_by(log.c.timestamp_utc.desc()).\
@@ -1291,7 +1359,8 @@ class EntityType(object):
     def generate_data(self, entities = None, days=0, seconds = 300, 
                       freq = '1min', scd_freq = '1D', write=True, drop_existing = False,
                       data_item_mean = None, data_item_sd = None,
-                      data_item_domain = None):
+                      data_item_domain = None,
+                      columns = None):
         '''
         Generate random time series data for entities
         
@@ -1331,7 +1400,7 @@ class EntityType(object):
         if data_item_domain is None:
             data_item_domain = {}            
 
-        if drop_existing:
+        if drop_existing and self.db is not None:
             self.db.drop_table(self.name, schema = self._db_schema)
             self.drop_child_tables()
                 
@@ -1340,14 +1409,12 @@ class EntityType(object):
             write = False
             msg = 'This is a null entity with no database connection, test data will not be written'
             logger.debug(msg)
-            metrics = ['x_1','x_2','x_3']
-            dates = ['d_1','d_2','d_3']
-            categoricals = ['c_1','c_2','c_3']
-            others = []
+            (metrics,dates,categoricals,others) = self.get_local_column_lists_by_type(columns)
         else:
             (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(self.table,self._db_schema,exclude_cols = exclude_cols)
         msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,categoricals,dates)
         logger.debug(msg)
+        
         ts = TimeSeriesGenerator(metrics=metrics,ids=entities,
                                  days=days,seconds=seconds,
                                  freq=freq, categoricals = categoricals,
@@ -1361,7 +1428,7 @@ class EntityType(object):
         if self._dimension_table_name is not None:
             self.generate_dimension_data(entities, write = write)
         
-        if write:
+        if write and self.db is not None:
             for o in others:
                 if o not in df.columns:
                     df[o] = None
@@ -1398,6 +1465,11 @@ class EntityType(object):
     
     def generate_activity_data(self,table_name, activities, entities,days,seconds,write=True):
         
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to generate activity data ' )
+            raise ValueError(msg)
+        
         (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
         metrics.append('duration')
         categoricals.append('activity')
@@ -1421,6 +1493,11 @@ class EntityType(object):
     
     
     def generate_dimension_data(self,entities,write=True):
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to generate dimension data ' )
+            raise ValueError(msg)
         
         (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
                                                 self._dimension_table_name,
@@ -1461,6 +1538,10 @@ class EntityType(object):
         '''
         Get the last checkpoint recorded for entity type
         '''
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity'
+                   ' types do not have a checkpoint' )
+            return None
         
         (query,table) = self.db.query_column_aggregate(
                                 table_name = self.checkpoint_table,
@@ -1479,6 +1560,11 @@ class EntityType(object):
                           freq,
                           write=True,
                           domains=None):
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to generate scd data ' )
+            raise ValueError(msg)
         
         if domains is None:
             domains = {}
@@ -1605,6 +1691,12 @@ class EntityType(object):
         *args: sql alchemchy Column objects
         * kw: : schema
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to make dimensions ' )
+            raise ValueError(msg)
+        
         kw['schema'] = self._db_schema
         if name is None:
             name = '%s_dimension' %self.name
@@ -1634,7 +1726,8 @@ class EntityType(object):
     
         '''
         Publish the stages assigned to this entity type to the AS Server
-        '''   
+        '''
+        
         export = []
         stages = self.build_flat_stage_list()
             
@@ -1708,6 +1801,12 @@ class EntityType(object):
             credentials for the ICS metadata service
 
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' may not be registered ' )
+            raise ValueError(msg)
+        
         cols = []
         columns = []
         metric_column_names = []
@@ -1794,6 +1893,13 @@ class EntityType(object):
         Retrieve the set of properties assigned through the UI
         Assign to instance variables        
         '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not able to get server params ' )
+            logger.debug(msg)
+            return {}
+        
         meta = self.db.http_request(object_type = 'constants',
                                     object_name = self.logical_name,
                                    request= 'GET')
@@ -1857,7 +1963,7 @@ class EntityType(object):
         Write a row to the dimension table for every entity instance in the dataframe supplied
         '''
         
-        if df.empty:
+        if df.empty or self.db is None:
             return []
         else:            
             # add a dimension table if there is none
@@ -2018,6 +2124,64 @@ class ServerEntityType(EntityType):
             
         return (functions,invalid,disabled)
     
+class LocalEntityType(EntityType):
+    
+    '''
+    Entity type for local testing. No db connection required.
+    '''
+    
+    def __init__ (self,
+                  name,
+                  columns = None,
+                  constants = None,
+                  granularities = None,
+                  functions = None,
+                  dimension_columns = None
+                  ):
+        
+        fn_cols = self._build_cols_for_fns(functions=functions,columns=columns)
+        if columns is None:
+            columns = []
+        columns.extend(fn_cols)
+        
+        self.local_columns = columns
+    
+        super().__init__(name = name,
+                       db = None,
+                       columns = columns,
+                       constants = constants,
+                       granularities = granularities,
+                       functions = functions,
+                       dimension_columns = dimension_columns,
+                       generate_days = 0)
+        
+    
+    def _build_cols_for_fns(self,functions,columns=None):
+        
+        if functions is None:
+            functions = []
+            
+        if columns is None:
+            columns = []
+        
+        if not isinstance(functions,list):
+            functions = [functions]
+            
+        cols_dict = {}
+        for c in columns:
+            cols_dict[c.name] = c.type
+        
+        cols = []
+        for f in functions:
+            
+            args = f._get_arg_metadata()
+            for (arg,value) in list(args.items()):
+                datatype = cols_dict.get(value,Float)
+                cols.append(Column(value,datatype))
+                
+        return cols
+        
+    
         
 class BaseCustomEntityType(EntityType):
     
@@ -2104,7 +2268,12 @@ class BaseCustomEntityType(EntityType):
         
         '''
         Publish the function instances assigned to this entity type to the AS Server
-        '''   
+        '''
+        
+        if self.db is None:
+            msg = ('Entity type has no db connection. Local entity types'
+                   ' are not allowed to publish kpis ' )
+            raise ValueError(msg)
         
         export = []
         self.db.register_functions(self._functions,raise_error=raise_error)

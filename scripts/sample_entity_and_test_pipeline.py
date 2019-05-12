@@ -9,7 +9,7 @@ from iotfunctions.db import Database
 
 
 #replace with a credentials dictionary or provide a credentials file
-with open('credentials.json', encoding='utf-8') as F:
+with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 
 '''

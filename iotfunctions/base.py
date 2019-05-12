@@ -33,7 +33,7 @@ from sqlalchemy.orm.session import sessionmaker
 from inspect import getargspec
 from collections import OrderedDict
 from .db import Database, SystemLogTable
-from .metadata import EntityType, Model
+from .metadata import EntityType, Model, LocalEntityType
 from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline, PipelineExpression
 from .util import log_df_info
@@ -203,6 +203,27 @@ class BaseFunction(object):
             df[o] = True
         return df
     
+    def _build_entity_type(self,
+                           name=None,
+                           functions=None,
+                           columns = None,
+                           generate_days = 0,
+                           granularities=None,
+                           **params):
+        
+        if name is None: 
+            name = 'test_entity_for_%s' %self.__class__.__name__
+        
+        # a local entity type exists in memory only. No db object or tables.
+        
+        et = LocalEntityType(
+              name = name,
+              columns = columns,
+              functions = functions
+              )
+        
+        return et
+        
 
     @classmethod
     def build_ui(cls):
@@ -1250,6 +1271,30 @@ class BaseFunction(object):
             setattr(self, key, value)
         return self
  
+    def execute_local_test(self,generate_days = 1,columns = None, to_csv = True,
+                           **params):
+        '''
+        Run an automated test of the function using genererated data
+        '''
+        et = self._build_entity_type(
+                generate_days = generate_days,
+                functions = [self],
+                columns = columns,
+                **params
+                )
+        
+        # set params
+        self._entity_type = et
+        self.set_params(**params)
+        
+        df = et.generate_data(days = generate_days,columns=et.local_columns)
+        df = self.execute(df=df)
+        if to_csv:
+            filename = 'df_%s.csv' % et.name
+            df.to_csv(filename)
+         
+        return df
+        
 
     def trace_append(self,msg,log_method=None,df=None,**kwargs):
         '''

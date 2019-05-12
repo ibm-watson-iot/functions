@@ -8,37 +8,27 @@
 #
 # *****************************************************************************
 
-import math
-import os
-import urllib3
-import numbers
 import datetime as dt
 import logging
 import warnings
-import json
 import numpy as np
 import pandas as pd
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine
-from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-import ibm_db
-import ibm_db_dbi
-from sqlalchemy.types import String,SmallInteger
-from sqlalchemy import create_engine, MetaData, Table
-from sqlalchemy.orm.session import sessionmaker
-from inspect import getargspec
-from collections import OrderedDict
-from .db import Database, SystemLogTable
-from .metadata import EntityType
-from .automation import TimeSeriesGenerator
-from .base import BaseFunction, BaseTransformer, BaseDataSource, BaseEvent,BaseFilter, BaseAggregator, BaseDatabaseLookup, BaseDBActivityMerge, BaseSCDLookup, BaseMetadataProvider, BasePreload
-from .bif import IoTAlertOutOfRange as AlertThreshold #for compatibility
-from .bif import IoTShiftCalendar
-from .ui import UIFunctionOutSingle, UISingle, UISingleItem
+from sqlalchemy import (Table, Column, Integer, SmallInteger, String, DateTime)
+
+from pandas.api.types import (is_string_dtype, is_numeric_dtype, is_bool_dtype,
+                              is_datetime64_any_dtype, is_dict_like)
+
+from iotfunctions.db import SystemLogTable
+from iotfunctions.metadata import EntityType
+from iotfunctions.automation import TimeSeriesGenerator
+from iotfunctions.base import (BaseTransformer, BaseDataSource, BaseEvent,BaseFilter,
+                               BaseAggregator, BaseDatabaseLookup, BaseDBActivityMerge,
+                               BaseSCDLookup, BaseMetadataProvider, BasePreload)
+from iotfunctions import ui
 
 '''
-Sample functions
+This module contains a number of sample functions.
 '''
-
 
 logger = logging.getLogger(__name__)
 
@@ -88,29 +78,6 @@ class ComputationsOnStringArray(BaseTransformer):
         adf.columns = self.column_metadata
         adf[adf.columns] = adf[adf.columns].astype(float)        
         df[self.output_item] = 0.5 + 0.25 * adf['x1'] + -.1 * adf['x2'] + 0.05 * adf['x3']
-        
-        return df
-    
-    def get_test_data(self):
-        
-        data = {
-                self._entity_type._entity_id : [1,1,1,1,1,2,2,2,2,2],
-                self._entity_type._timestamp_col : [
-                        dt.datetime.strptime('Oct 1 2018 1:33PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:37PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:29PM', '%b %d %Y %I:%M%p'),
-                        dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'),                
-                ],                
-                'x_str' : [self._get_str_array() for x in list(range(10))]
-                }
-        df = pd.DataFrame(data=data)
-        df = self.conform_index(df)
         
         return df
     
@@ -167,56 +134,6 @@ class FlowRateMonitor(BaseTransformer):
         return df   
       
     
-class GenerateCerealFillerData(BaseDataSource):
-    """
-    Replace automatically retrieved entity source data with new generated data. 
-    Supply a comma separated list of input item names to be generated.
-    """
-    # The merge_method of any data source function governs how the new data retrieved will be combined with the pipeline
-    merge_method = 'replace'
-    # Parameters for data generator
-    # Number of days worth of data to generate on initial execution
-    days = 1
-    # frequency of data load
-    freq = '1min' 
-    # ids of entities to generate. Change the value of the range() function to change the number of entities
-    ids = [str(98000 + x) for x in list(range(5))]
-    
-    def __init__ (self,input_items=None, output_items=None):
-        
-        if input_items is None:
-            input_items = ['temperature','humidity']
-        
-        super().__init__(input_items = input_items, output_items = output_items)
-        self.optional_items = ['input_items']
-        
-    def get_data(self,
-                 start_ts= None,
-                 end_ts= None,
-                 entities = None):
-        '''
-        This sample builds data with the TimeSeriesGenerator. You can get data from anywhere 
-        using a custom source function. When the engine executes get_data(), after initial load
-        it will pass a start date as it will be looking for data added since the last 
-        checkpoint.
-        
-        The engine may also pass a set of entity ids to retrieve data for. Since this is a 
-        custom source we will ignore the entity list provided by the engine.
-        '''
-        # distinguish between initial and incremental execution
-        if start_ts is None:
-            days = self.days
-            seconds = 0
-        else:
-            days = 0
-            seconds = (dt.datetime.utcnow() - start_ts).total_seconds()
-        
-        ts = TimeSeriesGenerator(metrics = self.input_items,ids=self.ids,days=days,seconds = seconds,
-                                 timestamp = self._entity_type._timestamp)
-        df = ts.execute()
-        
-        return df    
-
     
 class InputsAndOutputsOfMultipleTypes(BaseTransformer):
     '''
@@ -243,6 +160,7 @@ class InputsAndOutputsOfMultipleTypes(BaseTransformer):
         df[self.output_str] = df[self.input_str]
         return df
     
+
 class InputDataGenerator(BaseTransformer):
     '''
     This sample function was removed.
@@ -524,17 +442,40 @@ class MultiplyTwoItems(BaseTransformer):
     Multiply two input items together to produce output column
     '''
     
-    def __init__(self, input_item_1, input_item_2, output_item = 'output_item'):
+    def __init__(self, input_item_1, input_item_2, output_item):
         self.input_item_1 = input_item_1
         self.input_item_2 = input_item_2
         self.output_item = output_item
-        
         super().__init__()
+
 
     def execute(self, df):
         df = df.copy()
         df[self.output_item] = df[self.input_item_1] * df[self.input_item_2]
-        return df        
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UISingleItem(
+                name = 'input_item_1',
+                datatype=float,
+                description = 'Input item 1'
+                                              ))
+        inputs.append(ui.UISingleItem(
+                name = 'input_item_2',
+                datatype=float,
+                description = "Input item 2"
+                                              ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(ui.UIFunctionOutSingle(
+                name = 'output_item',
+                datatype=float,
+                description='output data'
+                ))
+        return (inputs,outputs)     
 
 class MultiplyNItems(BaseTransformer): 
     '''
