@@ -894,7 +894,7 @@ class EntityType(object):
             fn['granularity'] = f.granularity
             (fn['input'],fn['output'],fn['outputMeta'],
              fn['input_set'],fn['output_list']) = self.build_arg_metadata(f)
-            fn['inputMeta'] : None
+            fn['inputMeta'] = None
             metadata.append(fn)
             logger.debug(('Added local function instance as job stage: %s'),fn)
             
