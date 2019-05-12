@@ -9,10 +9,3 @@ setup(
     install_requires=['dill'
     ],
 )
-
-
-setup(
-    name='sample_functions',
-    version='2.0.1',
-    packages=find_packages()
-)

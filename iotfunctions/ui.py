@@ -480,7 +480,39 @@ class UISingle(BaseUIControl):
         return meta
     
 
-class UIExpression(UISingle):
+class UIText(UISingle):
+    '''
+    UI control that allows entering multiple lines of text
+    
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    required: bool
+        Specify True when this argument is mandatory
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
+    default: str
+        Optional default
+    '''    
+    
+    def __init__(self,name = 'expression', description=None, tags = None,
+                 required = True, default = None):
+        
+        if description is None:
+            description = 'Enter text'
+        self.description = description
+        if tags is None:
+            tags = ['TEXT']
+        else:
+            tags.append('TEXT')
+            
+        super().__init__(name = name,description = description,tags=tags,
+                     required = required, default = default, datatype = str)
+
+class UIExpression(UIText):
     '''
     UI control that allows entering a python expression
     

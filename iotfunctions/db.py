@@ -1235,6 +1235,7 @@ class Database(object):
                     except (AttributeError,NotImplementedError):
                         msg = 'Did not register %s as it is not a registerable function' %name
                         logger.debug(msg)
+                        continue
                     except BaseException as e:
                         if raise_error:
                             raise

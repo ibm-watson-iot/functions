@@ -23,9 +23,6 @@ from iotfunctions.ui import UISingle,UIMulti
 # Connect to Analytic Service
 db = Database(credentials = credentials)
 
-db.
-
-
 '''
 Constants are defined by identifying  the UI control that will manager them.
 Constants may either be scalars or arrays. Single valued (scalars) will be

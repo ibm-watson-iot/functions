@@ -26,7 +26,9 @@ from .base import (BaseTransformer, BaseEvent, BaseSCDLookup,
                    BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
 
 from .ui import (UISingle,UIMultiItem,UIFunctionOutSingle,
-                 UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression)
+                 UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
+                 UIText)
+
 from .util import adjust_probabilities
 
 logger = logging.getLogger(__name__)
@@ -178,7 +180,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
                                   is_output_datatype_derived = True
                                           ))
                                   
-        inputs.append(UISingle(name = 'expression',
+        inputs.append(UIExpression(name = 'expression',
                                description = 'Paste in or type an AS expression',
                                datatype = str))
         
@@ -186,11 +188,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
         
     def aggregate(self, x):
         
-        # for compatibility
-        # replace {GROUP}.max() with series.max
-        expression = re.sub(r"\$\{GROUP\}", r"x", self.expression)
-        
-        return eval(expression)
+        return eval(self.expression)
       
 
 class AlertExpression(BaseEvent):
@@ -544,7 +542,7 @@ class ConditionalItems(BaseTransformer):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(
+        inputs.append(UIExpression(
                 name = 'conditional_expression',
                 datatype=str,
                 description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
@@ -557,10 +555,10 @@ class ConditionalItems(BaseTransformer):
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutMulti(name = 'output_items',
-                                                     cardinality_from = 'conditional_items',
-                                                     is_datatype_derived = False,
-                                                     description='Function output items'
-                                                     ))
+                                          cardinality_from = 'conditional_items',
+                                          is_datatype_derived = False,
+                                          description='Function output items'
+                                          ))
         
         return (inputs,outputs)
     
@@ -1232,15 +1230,15 @@ class IfThenElse(BaseTransformer):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(name = 'conditional_expression',
+        inputs.append(UIExpression(name = 'conditional_expression',
                                               datatype=str,
                                               description = "expression that returns a True/False value, eg. if df['temp']>50 then df['temp'] else None"
                                               ))
-        inputs.append(UISingle(name = 'true_expression',
+        inputs.append(UIExpression(name = 'true_expression',
                                               datatype=str,
                                               description = "expression when true, eg. df['temp']"
                                               ))
-        inputs.append(UISingle(name = 'false_expression',
+        inputs.append(UIExpression(name = 'false_expression',
                                               datatype=str,
                                               description = 'expression when false, eg. None'
                                               ))
@@ -1419,7 +1417,7 @@ class PythonFunction(BaseTransformer):
         #define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMultiItem('input_items'))
-        inputs.append(UISingle(name = 'function_code',
+        inputs.append(UIText(name = 'function_code',
                                datatype=str,
                                description = 'Paste in your function definition'
                                )

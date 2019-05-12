@@ -214,7 +214,7 @@ version of it - the one that exists in the sample_module.py.
 
 '''
 
-from sample_functions.sample_module import MultiplyTwoItems
+from iotfunctions.samples.sample_module import MultiplyTwoItems
 
 '''
 
@@ -274,6 +274,21 @@ db.register_functions([MultiplyTwoItems])
 '''
 After registration has completed successfully the function is available for
 use in the AS UI.
+
+The register_functions() method allows you to register more than one function
+at a time. You can also register a whole module file with all of its functions.
+
+
+'''
+
+from iotfunctions import bif
+db.register_module(bif)
+
+
+'''
+
+Note: The 'bif' module is preinstalled, so these functions will not actually
+be registered by register_module.
 
 This script covers the complete process for authoring and registering custom 
 functions. The subject of the sample function used in this script was really
