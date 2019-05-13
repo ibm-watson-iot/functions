@@ -13,7 +13,7 @@ import pandas as pd
 import json
 
 #supply credentials
-with open('credentials.json', encoding='utf-8') as F:
+with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 
 # import classes needed from iotfunctions
@@ -21,8 +21,7 @@ from iotfunctions.db import Database
 from iotfunctions.ui import UISingle,UIMulti
 
 # Connect to Analytic Service
-db = Database(credentials = credentials, tenant_id=credentials['tennant_id'])
-
+db = Database(credentials = credentials)
 
 '''
 Constants are defined by identifying  the UI control that will manager them.

@@ -3,16 +3,13 @@ import json
 import os
 import pandas as pd
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from iotfunctions.preprocessor import MultiplyByTwo, CompanyFilter, EntityDataGenerator
-from iotfunctions.bif import IoTAlertOutOfRange
-from iotfunctions.preprocessor import BaseTransformer
-from iotfunctions.bif import IoTExpression
-from iotfunctions.metadata import EntityType, make_sample_entity
+from iotfunctions import bif
+from iotfunctions.metadata import EntityType
 from iotfunctions.db import Database
-from iotfunctions.estimator import SimpleAnomaly
+
 
 #replace with a credentials dictionary or provide a credentials file
-with open('credentials.json', encoding='utf-8') as F:
+with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 
 '''
@@ -35,74 +32,68 @@ db_schema = None #set if you are not using the default
 '''
 To do anything with IoT Platform Analytics, you will need one or more entity type. 
 You can create entity types through the IoT Platform or using the python API.
-Here is a basic entity type that has three data items: company_code, temperature and pressure
+
+When defining an entity type, you can describe the raw input data items for the
+entity type, as well as the functions , constants and granularities that apply to it.
+
+The "widgets" entity type below has 3 input data items. Dataitems are denoted by the
+SqlAlchemy column objects company_code, temp and pressure.
+
+It also has a function EntityDataGenerator
+
+The keyword args dict specifies extra properties. The database schema is only
+needed if you are not using the default schema. You can also rename the timestamp.
+
 '''
 entity_name = 'widgets' 
 db_schema = None # replace if you are not using the default schema
 db.drop_table(entity_name, schema = db_schema)
 entity = EntityType(entity_name,db,
-                          Column('company_code',String(50)),
-                          Column('temp',Float()),
-                          Column('pressure', Float()),
-                          **{
-                            '_timestamp' : 'evt_timestamp',
-                            '_db_schema' : db_schema
-                             })
+                    Column('company_code',String(50)),
+                    Column('temp',Float()),
+                    Column('pressure', Float()),
+                    bif.EntityDataGenerator(
+                        ids = ['A01','A02','B01'],
+                        data_item = 'is_generated'
+                            ),                    
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
 '''
 When creating an EntityType object you will need to specify the name of the entity, the database
 object that will contain entity data
 
 After creating an EntityType you will need to register it so that it visible in the UI.
+To also register the functions and constants associated with the entity type, specify
+'publish_kpis' = True.
 '''
-entity.register()
+entity.register(raise_error = False)
 '''
-Entities can get pretty lonely without data. You can feed your entity data by
-writing directly to the entity table or you can cheat and generate data.
+Entities can get pretty lonely without data. 
+
+The EntityDataGenerator that we included on the entity will execute and add
+a few rows of random data each time the AS pipeline runs (generally every 5 min).
+
+You can also load some historical data using 'generate_data'
 
 '''
 entity.generate_data(days=0.5, drop_existing = True)
+
+'''
+To see the data you just loaded, ask the db object to read the database
+table and produce a pandas dataframe.
+'''
 df = db.read_table(table_name=entity_name, schema = db_schema)
-df.head()
-'''
-We now have 12 hours of historical data. We can use it to do some calculations.
-The calculations will be placed into a container called a pipeline. The 
-pipeline is constructed from multiple stages. Each stage performs a transforms
-the data. Let's multiply create a new "double_temp" by multiplying "temp" by 2.
-'''
-
-m_fn = MultiplyByTwo(input_item = 'temp', output_item='double_temp')
-df = entity.exec_pipeline(m_fn)
-df.head(1).transpose()
+print(df.head())
 
 '''
-The execute() method retrieves entity data and carries out the transformations.
-By specifying 'to_csv = True', we also csv output dumped at the end of 
-each stage. This is useful for testing. 
-'register=true' took care of function registration so the MultiplyByTwo 
-function will be available in the ui.
-You can use the outputs of one calculation in another. To demonstrate this
-we will add an alert on "double_temp" and while we are at, filter the
-data down to a single company.
-'''
-a_fn = IoTAlertOutOfRange(input_item = 'double_temp', lower_threshold = -5, upper_threshold = 5)
-f_fn = CompanyFilter(company_code = 'company_code', company = 'ACME')
-df = entity.exec_pipeline(m_fn,a_fn,f_fn)
-df.head(1).transpose()
-'''
-The 12 hours of historical data we loaded  won't keep these widgets
-happy for very long. IoT Platform Analytics performs calculations on new data
-received, so if we add a stage to the pipeline that generates new data each time
-the pipeline runs, we can keep our widgets well fed with new data.
-'''
-g_fn = EntityDataGenerator(dummy_items=['temp'])
-df = entity.exec_pipeline(g_fn,m_fn,a_fn,f_fn)
-df.head(1).transpose()
-'''
-When this pipeline executed, it added more data to the widgets input table
-and then completed the tranform and filter stages.
+To test the execuction of kpi calculations definined for the entity type locally
+use 'test_local_pipeline'.
 
-To register all of the functions tested, use register = True
-'''
-df = entity.exec_pipeline(g_fn,m_fn,a_fn,f_fn, register = True)
-df.head(1).transpose()
+A local test will not update the server job log or write kpi data to the AS data
+lake. Instead kpi data is written to the local filesystem in csv form.
 
+'''
+
+entity.exec_local_pipeline()

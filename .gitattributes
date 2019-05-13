@@ -1,0 +1,19 @@
+# text files with CRLF to LF conversion
+*.py text
+*.yml text
+*.md text
+.* text
+*.sh text
+*.db2 text
+*.sql text
+*.xml text
+Dockerfile text
+*.json text
+*.txt text
+*.java text
+*.js text
+
+# binary files without CRLF to LF conversion
+*.jpg binary
+*.exe binary
+*.obj binary

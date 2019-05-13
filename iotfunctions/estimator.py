@@ -8,13 +8,14 @@ from iotfunctions.base import BaseTransformer
 from .db import Database
 from .pipeline import CalcPipeline, PipelineExpression
 from .base import BaseRegressor, BaseEstimatorFunction, BaseClassifier
-from .bif import IoTAlertHighValue
+from .bif import AlertHighValue
 from .metadata import Model
+from .ui import UIMultiItem, UISingle ,UISingleItem, UIFunctionOutSingle, UIFunctionOutMulti
 
 logger = logging.getLogger(__name__)
 
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
-
+_IS_PREINSTALLED = True
 
 class SimpleAnomaly(BaseRegressor):
     '''
@@ -33,10 +34,6 @@ class SimpleAnomaly(BaseRegressor):
             alerts = ['%s_alert' %x for x in self.targets]
         self.alerts = alerts
         self.threshold = threshold
-        #registration
-        self.inputs = ['features','target']
-        self.outputs = ['predictions','alerts']
-        self.contsants = ['threshold']
         
     def execute(self,df):
         
@@ -44,12 +41,37 @@ class SimpleAnomaly(BaseRegressor):
         for i,t in enumerate(self.targets):
             prediction = self.predictions[i]
             df['_diff_'] = (df[t] - df[prediction]).abs()
-            alert = IoTAlertHighValue(input_item = '_diff_',
+            alert = AlertHighValue(input_item = '_diff_',
                                       upper_threshold = self.threshold,
                                       alert_name = self.alerts[i])
         df = alert.execute(df)
         
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name = 'features',
+                                  datatype=float,
+                                  required = True
+                                          ))        
+        inputs.append(UIMultiItem(name = 'targets',
+                                  datatype=float,
+                                  required = True,
+                                  output_item = 'predictions',
+                                  is_output_datatype_derived = True                                  
+                                          ))
+        inputs.append(UISingle(name='threshold',
+                               datatype = float ))
+        #define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutMulti(name = 'alerts',
+                                          cardinality_from = 'targets',
+                                          is_datatype_derived = False,
+                                          ))
+        
+        return (inputs,outputs)    
 
 class SimpleRegressor(BaseRegressor):
     '''
@@ -63,9 +85,7 @@ class SimpleRegressor(BaseRegressor):
     num_rounds_per_estimator = 3
     def __init__(self, features, targets, predictions=None):
         super().__init__(features=features, targets = targets, predictions=predictions)
-        #registration
-        self.inputs = ['features','target']
-        self.outputs = ['predictions']
+
         
 
 class SimpleClassifier(BaseClassifier):
@@ -81,9 +101,7 @@ class SimpleClassifier(BaseClassifier):
     num_rounds_per_estimator = 3
     def __init__(self, features, targets, predictions=None):
         super().__init__(features=features, targets = targets, predictions=predictions)
-        #registration
-        self.inputs = ['features','target']
-        self.outputs = ['predictions']
+
         
 class SimpleBinaryClassifier(BaseClassifier):
     '''
@@ -98,9 +116,6 @@ class SimpleBinaryClassifier(BaseClassifier):
     num_rounds_per_estimator = 3
     def __init__(self, features, targets, predictions=None):
         super().__init__(features=features, targets = targets, predictions=predictions)
-        #registration
-        self.inputs = ['features','target']
-        self.outputs = ['predictions']
         for t in self.targets:
             self.add_training_expression(t,'df[%s]=df[%s].astype(bool)' %(t,t))
 

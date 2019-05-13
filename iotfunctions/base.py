@@ -33,7 +33,7 @@ from sqlalchemy.orm.session import sessionmaker
 from inspect import getargspec
 from collections import OrderedDict
 from .db import Database, SystemLogTable
-from .metadata import EntityType, Model
+from .metadata import EntityType, Model, LocalEntityType
 from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline, PipelineExpression
 from .util import log_df_info
@@ -47,39 +47,17 @@ class BaseFunction(object):
     """
     Base class for AS functions. Do not inherit directly from this class. Inherit from BaseTransformer or BaseAggregator
     """
+    # class variables used to classify functions
     is_function = True
+    is_data_generator = False
     is_deprecated = False
-    # _entity_type, An EntityType object will be added to the pipeline 
-    # this will give the function access to all of the properties and methods of the entity type
-    _entity_type = None 
-    # metadata data parameters are instance variables to be added to the entity type
-    _metadata_params = None
+    is_system_function = False #system functions are internal to AS, cannot be used as custom functions
+
     # default granularity at which function operates. None implies no aggregation.
     granularity = None
-    #function registration metadata 
-    name = None # name of function
-    description =  None # description of function shows as help text
-    tags = None #list of stings to tag function with
-    optionalItems = None #list: list of optional parameters
-    inputs = None #list: list of explicit input parameters
-    outputs = None #list: list of explicit output parameters
-    constants = None #list: list of explicit constant parameters
-    array_source = None #str: the input parmeter name that contains a list of items that will correspond with array outputs
-    url = PACKAGE_URL #install url for function
-    category = None 
-    incremental_update = True
-    auto_register_args = None  
-    is_transient = False
-    array_output_datatype_from_input = False
-    # item level metadata for function registration
-    itemDescriptions = None #dict: items descriptions show as help text
-    itemLearnMore = None #dict: item learn more test 
-    itemValues = None #dict: item values are used in pick lists
-    itemJsonSchema = None #dict: schema is used to validate arrays and json type constants
-    itemArraySource = None #dict: output arrays are derived from input arrays. 
-    itemMaxCardinality = None # dict: Maximum number of members in an array
-    itemDatatypes = None #dict: BOOLEAN, NUMBER, LITERAL, DATETIME
-    itemTags = None #dict: Tags to be added to data items
+    # defuallt freq str that function runs on. None implies job defualt.
+    schedule = None
+    
     # processing settings
     execute_by = None #if function should be executed separately for each entity or some other key, capture this key here
     test_rows = 100 #rows of data to use when testing function
@@ -87,12 +65,18 @@ class BaseFunction(object):
     merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
     _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
-    is_system_function = False #system functions are internal to AS, cannot be used as custom functions
     requires_input_items = True
     produces_output_items = True
     # internal work variables set by AS job processing
-    _output_list = None
-    _input_set = None
+    name = None # name of function    
+    _entity_type = None #  EntityType object that this function belongs to
+    _output_list = None #  list: output items produced by stage
+    _input_set = None  #  set: required input items
+    _inputs = None  #  list: list of input parameters
+    _outputs = None  #  list: list of output parameters
+    _output_items_extended_metadata = None  #  dict:additional properties like datatype of outputs
+    # metadata data parameters are instance variables to be added to the entity type
+    _metadata_params = None  # optional dict
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
@@ -107,18 +91,44 @@ class BaseFunction(object):
     _entity_scd_dict = None
     _start_date = 'start_date'
     _end_date = 'end_date'    
+
+    #depricated class variables. Will be removed
+
+    # item level metadata for function registration
+    itemDescriptions = None #dict: items descriptions show as help text
+    itemLearnMore = None #dict: item learn more test 
+    itemValues = None #dict: item values are used in pick lists
+    itemJsonSchema = None #dict: schema is used to validate arrays and json type constants
+    itemArraySource = None #dict: output arrays are derived from input arrays. 
+    itemMaxCardinality = None # dict: Maximum number of members in an array
+    itemDatatypes = None #dict: BOOLEAN, NUMBER, LITERAL, DATETIME
+    itemTags = None #dict: Tags to be added to data items
+    # other registration metadata
+    tags = None #list of stings to tag function with
+    optionalItems = None #list: list of optional parameters
+    constants = None #list: list of explicit constant parameters
+    array_source = None #str: the input parmeter name that contains a list of items that will correspond with array outputs
+    url = PACKAGE_URL #install url for function
+    category = None 
+    incremental_update = True
+    auto_register_args = None  
+    is_transient = False
+    array_output_datatype_from_input = False
+    
     
     def __init__(self):
         
         if self.name is None:
             self.name = self.__class__.__name__
+    
+        self.description = self.__class__.__doc__                    
+    
         if self.out_table_prefix is None:
             self.out_table_prefix = self.name            
-        if self.description is None:
-            self.description = self.__class__.__doc__            
-        if self.inputs is None:
-            self.inputs = []            
-        if self.outputs is None:
+        
+        if self._inputs is None:
+            self._inputs = []            
+        if self._outputs is None:
             self.outputs = []
         if self.constants is None:
             self.constants = []                        
@@ -166,11 +176,19 @@ class BaseFunction(object):
         
         out = self.__class__.__name__
         try:
-            out = out + ' produces output ' + str(self.get_output_list())
-            out = out + ' using inputs ' + str(self.get_input_set())
             out = out + ' at granularity ' + str(self.granularity)
         except AttributeError:
-            out = out + ' unknown inputs, outputs and granularity'
+            out = out + ' unknown granularity'
+            
+        if self._input_set is not None:
+            out = out + ' requires inputs %s' % self._input_set
+        else:
+            out = out + ' required inputs not evaluated yet'
+            
+        if self._output_list is not None:
+            out = out + ' produces outputs %s' % self._output_list
+        else:
+            out = out + ' outputs produced not evaluated yet'
 
         try:
             out = out + ' on schedule ' + str(self.schedule)
@@ -185,76 +203,27 @@ class BaseFunction(object):
             df[o] = True
         return df
     
-    def build_arg_metadata(self):
+    def _build_entity_type(self,
+                           name=None,
+                           functions=None,
+                           columns = None,
+                           generate_days = 0,
+                           granularities=None,
+                           **params):
         
-        name = self.__class__.__name__
+        if name is None: 
+            name = 'test_entity_for_%s' %self.__class__.__name__
         
-        try:
-            (inputs,outputs) = self.build_ui()
-        except (AttributeError,NotImplementedError) as e:
-            msg = ('Cant get function metadata for %s. Implement the'
-                   ' build_metadata() method. %s' %(name,str(e)))
-            raise NotImplementedError (msg)
-
+        # a local entity type exists in memory only. No db object or tables.
         
-            
-        input_args ={}
-        output_args ={}
-        output_meta = {}
+        et = LocalEntityType(
+              name = name,
+              columns = columns,
+              functions = functions
+              )
         
-        if not isinstance(inputs,list):
-             raise TypeError(('Function registration metadata must be defined',
-                             ' using a list of objects derived from iotfunctions',
-                             ' BaseUIControl. Check metadata for %s'
-                             ' %s ' %(name,inputs) ))           
-
-        if not isinstance(outputs,list):
-             raise TypeError(('Function registration metadata must be defined',
-                             ' using a list of objects derived from iotfunctions',
-                             ' BaseUIControl. Check metadata for %s'
-                             ' %s ' %(name,outputs) ))  
+        return et
         
-        for i in inputs:
-            try:
-                is_ui = i.is_ui_control
-            except AttributeError:
-                is_ui = False            
-            if is_ui:
-                meta = i.to_metadata()
-                input_args[meta['name']] = getattr(self,meta['name'])
-                #some inputs implicitly describe outputs
-                try:
-                    out_meta = i.to_output_metadata()
-                except AttributeError:
-                    pass
-                else:
-                    if out_meta is not None:
-                        output_args[out_meta['name']] = getattr(self,out_meta['name'])    
-            else:
-                raise TypeError(('Function registration metadata must be defined',
-                                 ' using objects derived from iotfunctions',
-                                 ' BaseUIControl. Check metadata for %s'
-                                 ' %s ' %(name,i) ))
-            
-        for o in outputs:
-            try:
-                is_ui = o.is_ui_control
-            except AttributeError:
-                is_ui = False
-            
-            if is_ui:
-                meta = o.to_metadata()
-                output_args[meta['name']] = getattr(self,meta['name'])
-            else:
-                raise TypeError(('Function registration metadata must be defined',
-                                 ' using objects derived from iotfunctions',
-                                 ' BaseUIControl. Check metadata for %s'
-                                 ' %s ' %(name,i) ))
-                
-        #output_meta is present in the AS metadata structure, but not 
-        #currently produced for local functions
-            
-        return(input_args,output_args,output_meta)
 
     @classmethod
     def build_ui(cls):
@@ -536,22 +505,6 @@ class BaseFunction(object):
             logger.debug(msg)
         return column_metadata
     
-    def get_input_set(self):
-        
-        '''
-        Return a set of input items required by this function. Input items may
-        implicitly infered from the function metadata by the AS job process or
-        may be added by the get_input_items() method of a custom function.
-        '''
-        
-        if self.requires_input_items:
-            ins = set(self._input_set)
-            ins |= set(self.get_input_items())
-        else:
-            ins = set()
-            
-        return ins
-    
     def get_timestamp_series(self,df):
         '''
         Return a series containing timestamps
@@ -622,9 +575,9 @@ class BaseFunction(object):
             pass
           
         if inputs is None:
-            inputs = self.inputs
+            inputs = self._inputs
         if outputs is None:
-            outputs = self.outputs        
+            outputs = self._outputs        
         if constants is None:
             constants = self.constants
             
@@ -869,28 +822,7 @@ class BaseFunction(object):
                 logger.debug(msg)
         return (metadata_inputs,metadata_outputs)
     
-    def get_output_list(self):
-        
-        '''
-        Returns the list of columns produced as outputs to the function.
-        '''
-        
-        if self.produces_output_items:
-            out = self._output_list
-            if out is None:
-                raise RuntimeError(
-                        ('The _output_list property of function %s is None.'
-                         ' This property is set by the AS job build process'
-                         ' A value of None implies that the get_output_list()'
-                         ' method was called before this build process. If you'
-                         ' need access to output items outside of the AS build'
-                         ' process, implement a custom get_output_list for '
-                         ' the function or explicityly set the value of '
-                         ' the _output_list property'))
-        else:
-            out = []
-            
-        return out
+
     
     def get_bucket_name(self):
         '''
@@ -1217,7 +1149,7 @@ class BaseFunction(object):
         try:
             (metadata_input,metadata_output) = self.build_ui()
         except (AttributeError,NotImplementedError):
-            (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self.inputs)
+            (metadata_input,metadata_output) = self._getMetadata(df=df,new_df = new_df, outputs=outputs,constants = constants, inputs = self._inputs)
                     
         (input_list, output_list) = self._transform_metadata(metadata_input,metadata_output)
 
@@ -1339,6 +1271,30 @@ class BaseFunction(object):
             setattr(self, key, value)
         return self
  
+    def execute_local_test(self,generate_days = 1,columns = None, to_csv = True,
+                           **params):
+        '''
+        Run an automated test of the function using genererated data
+        '''
+        et = self._build_entity_type(
+                generate_days = generate_days,
+                functions = [self],
+                columns = columns,
+                **params
+                )
+        
+        # set params
+        self._entity_type = et
+        self.set_params(**params)
+        
+        df = et.generate_data(days = generate_days,columns=et.local_columns)
+        df = self.execute(df=df)
+        if to_csv:
+            filename = 'df_%s.csv' % et.name
+            df.to_csv(filename)
+         
+        return df
+        
 
     def trace_append(self,msg,log_method=None,df=None,**kwargs):
         '''
@@ -1571,8 +1527,6 @@ class BaseFilter(BaseTransformer):
         super().__init__()
         self.dependent_items = dependent_items
         self.output_item = self.name.lower()
-        self.inputs.extend([self.dependent_items])
-        self.outputs.extend([self.output_item])
         self.optionalItems.extend([self.dependent_items])
         
     def execute(self,df):
@@ -2143,7 +2097,8 @@ class BaseSCDLookup(BaseTransformer):
                                               ))
         #define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item'))    
+        outputs.append(UIFunctionOutSingle(name = 'output_item',
+                                           datatype = None))    
         return (inputs,outputs)   
     
     
@@ -2163,8 +2118,6 @@ class BasePreload(BaseTransformer):
         super().__init__()
         self.dummy_items = dummy_items
         self.output_item = self.name.lower()
-        self.inputs.extend([self.dummy_items])
-        self.outputs.extend([self.output_item])
         self.optionalItems.extend([self.dummy_items])
         self.itemDatatypes['dummy_items'] = None
         self.itemDatatypes['output_items'] = 'BOOLEAN'

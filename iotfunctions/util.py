@@ -17,6 +17,7 @@ from urllib.parse import quote, urlparse
 from base64 import b64encode
 import hashlib
 import hmac
+import re
 from lxml import etree
 import logging
 import pandas as pd
@@ -426,6 +427,41 @@ def getCosTransferAgent(credentials):
         return S3Transfer(cos)
     else:
         raise ValueError('Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
+        
+def infer_data_items(expressions):
+    '''
+    Examine a pandas expression or list of expressions. Identify data items
+    in the expressions by looking for df['<data_item>'].
+    
+    Returns as set of strings.
+    '''
+    if not isinstance(expressions,list):
+        expressions = [expressions]
+    regex1 = "df\[\'(.+?)\'\]"
+    regex2 = 'df\[\"(.+?)\"\]'
+    data_items = set()
+    for e in expressions:
+        data_items |= set(re.findall(regex1,e))
+        data_items |= set(re.findall(regex2,e))
+    return(data_items)
+
+
+def get_fn_expression_args(function_metadata,kpi_metadata):
+    '''
+    Examine a functions metadata dictionary. Identify data items used
+    in any expressions that the function has.
+
+    '''
+    
+    expressions = []
+    args = kpi_metadata.get('input',{})
+        
+    for (arg,value) in list(args.items()):
+        if arg == 'expression':
+            expressions.append(value)
+            logger.debug('Found expression %s',value)
+        
+    return infer_data_items(expressions)     
 
 def log_df_info(df,msg,include_data=False):
     '''

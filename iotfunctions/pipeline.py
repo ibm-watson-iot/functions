@@ -83,11 +83,14 @@ class DataAggregator(object):
                  output_items):
         
         self.name = name
-        self._input_set = input_items
-        self._output_list = output_items
         self._agg_dict = agg_dict
         self._granularity = granularity
         self._complex_aggregators = complex_aggregators
+        self.input_items = input_items
+        self.output_items = output_items
+        
+        self._input_set = set(self.input_items)
+        self._output_list = self.output_items
         
     def __str__(self):
         
@@ -96,7 +99,7 @@ class DataAggregator(object):
         for key,value in list(self._agg_dict.items()):
             msg = msg + ' Aggregates %s using %s .' %(key,value)
         for s in self._complex_aggregators:
-            msg = msg + ' Uses %s to produce %s .' %(s.name,s.get_output_list())
+            msg = msg + ' Uses %s to produce %s .' %(s.name,s._output_list)
             
         return msg
         
@@ -114,18 +117,12 @@ class DataAggregator(object):
             gfs.append(gf)
         df = pd.concat(gfs,axis=1)
         
-        df.columns = self._output_list
+        df.columns = self.output_items
         
         logger.info('Completed aggregation: %s', self._granularity.name)
         return df
         
-    def get_input_set(self):
-        
-        return self._input_set
-        
-    def get_output_list(self):
-        
-        return self._output_list
+        return 
 
 class DataMerge(object):
     '''
@@ -156,6 +153,13 @@ class DataMerge(object):
         self.constants = kwargs.get('constants',None)
         if self.constants is None:
             self.constants = {}
+            
+    def __str__(self):
+        
+        out = ('DataMerge object has data structures: dataframe with %s rows'
+               ' and %s constants ' % (len(df.index),len(constants)))
+        
+        return out
         
     def add_constant(self,name,value):
         '''
@@ -170,6 +174,7 @@ class DataMerge(object):
         '''
         Apply the values of all constants to the dataframe.
         '''
+
         for name,value in list(self.constants.items()):
             self.df[name] = value
             
@@ -257,7 +262,7 @@ class DataMerge(object):
         col_names is a list of string data item names. This list of columns
         will be added or replaced during merge. When obj is a constant,
         tabular array, or series these column names these column names are
-        neccessary to identify the contents. If the obj is a dataframe, if
+        necessary to identify the contents. If the obj is a dataframe, if
         col_names are provided they will be used to rename the obj columns
         before merging.
     
@@ -320,10 +325,12 @@ class DataMerge(object):
         #test that df has expected columns
         df_cols = self.get_cols()
         if not self.df.empty and not set(col_names).issubset(df_cols):
-            raise MergeError( ('Error in auto merge. Resulting df does not '
+            missing_cols = set(col_names) - df_cols
+            raise MergeError( ('Error in auto merge. Missing columns %s'
+                    ' Post merge dataframe does not'
                     ' contain the expected output columns %s that should have'
                     ' been delivered through merge. It has columns %s'
-                    %(col_names, df_cols)
+                    %(missing_cols,col_names, df_cols)
                     ))
             
         return 'existing %s with new %s' %(existing,obj.__class__.__name__)
@@ -381,11 +388,11 @@ class DataMerge(object):
             df_valid_names.update(set(self.df.columns))        
             if not set(obj_index_names).issubset(df_valid_names):
                 raise ValueError(('Function error.'
-                              ' Attempting to merge a dataframe that has an'
-                              ' invalid name in the index %s'
-                              %(set(obj_index_names) - df_valid_names)))
+                                  ' Attempting to merge a dataframe that has an'
+                                  ' invalid name in the index %s'
+                                  % (set(obj_index_names) - df_valid_names)))
                 
-        #carry out merge operation based on chosen merge strategy
+        # carry out merge operation based on chosen merge strategy
         if merge_strategy == 'skip':
             # Add a null column for anything that should have been delivered
             missing_cols = [x for x in col_names if x not in self.df.columns]            
@@ -503,6 +510,10 @@ class DropNull(object):
             exclude_cols = []
         self.exclude_cols = exclude_cols
         
+    def __str__(self):
+        
+        return 'System generated DropNull stage'
+        
     def execute(self,df):
 
         msg = 'columns excluded when dropping null rows %s' %self.exclude_cols
@@ -532,6 +543,10 @@ class DataWriterFile(object):
         
         self.name = name
         self.set_params(**params)
+        
+    def __str__(self):
+        
+        return 'System generated FileDataWriter stage: %s' %self.name        
         
     def execute(self,df=None,start_ts=None,end_ts=None,entities=None):
                 
@@ -563,6 +578,21 @@ class DataReader(object):
         self.name = name
         self.obj = obj
         
+        self._input_set = set()
+        self._output_list = self.get_output_list()        
+        
+    def __str__(self):
+        
+        try:
+            obj_name = self.obj.name
+        except AttributeError:
+            obj_name = self.obj.__class__.__name__
+        
+        out = ('System generated DataReader stage: %s. Reads data from'
+               ' objects: %s' %(self.name,obj_name) )
+    
+        return out
+        
     def execute(self,df=None,start_ts = None,end_ts=None,entities=None):
         
         return self.obj.get_data(start_ts = start_ts,
@@ -571,10 +601,7 @@ class DataReader(object):
                                  columns = self._projection_list)
         
         
-    def get_input_set(self):
-        
-        return set()
-        
+
     def get_output_list(self):
         
         if not self._projection_list is None:
@@ -633,6 +660,10 @@ class Db2DataWriter():
         self.table_props = None
         self.insert_statements = dict()
         self.row_lists = dict()
+        
+    def __str__(self):
+        
+        return 'System generated Db2DataWriter stage: %s' %self.name   
 
     def execute(self, df=None, start_ts=None, end_ts=None, entities=None):
 
@@ -904,6 +935,157 @@ class Db2DataWriter():
         stmt = '%s WHERE %s AND %s' % (stmt, where1, where2)
 
         return stmt
+    
+class JobLog(object):
+    
+    '''
+    Create and manage a database table to store job execution history.
+    
+    A job log entry is created at the start of job execution with a default
+    status of 'running'. This job log entry may be updated at various times
+    during the process. Each update may update the status, trace or log 
+    references.
+    
+    '''
+    
+    def __init__(self,job,table_name='job_log'):
+        
+        self.job = job
+        self.table_name = table_name
+        self.db = self.job.get_payload_param('db',None)
+        if self.db is None:
+            raise RuntimeError(('The job payload does not have a valid'
+                                ' db object. Unable to establish a database'
+                                ' connection'))
+        kw = {
+             'schema' : self.job.get_payload_param('_db_schema',None)
+             }
+        
+        self.table = Table(self.table_name, self.db.metadata,
+                Column('object_type', String(255)),
+                Column('object_name', String(255)),
+                Column('schedule', String(255)),
+                Column('execution_date', DateTime()),
+                Column('previous_execution_date',DateTime()),
+                Column('next_execution_date',DateTime()),
+                Column('status',String(30)),
+                Column('startup_log',String(255)),
+                Column('execution_log',String(255)),
+                Column('trace',String(2000)),
+                extend_existing = True,
+                **kw
+                )
+        
+        self.db.metadata.create_all(self.db.connection)
+
+    def clear_old_running(self,
+                          name,
+                          schedule):
+        
+        q = self.table.select().\
+            where(and_(
+                self.table.c.object_type == self.job.payload.__class__.__name__,
+                self.table.c.object_name == name,
+                self.table.c.schedule == schedule,
+                self.table.c.status == 'running'                  
+                    ))
+        df = pd.read_sql(sql=q,con=self.db.connection)
+        
+        if len(df.index)>0:
+            upd = self.table.update().values(status='abandoned').\
+            where(and_(
+                self.table.c.object_type == self.job.payload.__class__.__name__,
+                self.table.c.object_name == name,
+                self.table.c.schedule == schedule,
+                self.table.c.status == 'running'                  
+                    ))
+            
+            self.db.connection.execute(upd)
+            logger.debug(
+                    'Marked existing running jobs as abandoned  (%s,%s)',
+                    name,schedule
+                    )
+            logger.debug(df)
+            self.db.commit()            
+        
+
+    def insert (self,name,schedule,execution_date,status='running',
+                previous_execution_date = None, next_execution_date = None,
+                startup_log=None,execution_log=None,trace=None):
+        
+        self.db.start_session()
+        ins = self.table.insert().values(object_type = self.job.payload.__class__.__name__,
+                               object_name = name,
+                               schedule = schedule,
+                               execution_date = execution_date,
+                               previous_execution_date = previous_execution_date,
+                               next_execution_date = next_execution_date,
+                               status = status,
+                               startup_log = startup_log,
+                               execution_log = execution_log,
+                               trace = trace
+                               )
+        self.db.connection.execute(ins)
+        logger.debug((
+                'Created job log entry (%s,%s): %s'),
+                name,schedule,execution_date
+                )
+        self.db.commit()
+
+        
+    def update (self,name,schedule,execution_date, next_execution_date = None,
+                status=None, execution_log=None,trace=None):
+        
+        self.db.start_session()
+        
+        values = {}
+        if status is not None:
+            values['status'] = status
+        if execution_log is not None:
+            values['execution_log'] = execution_log            
+        if trace is not None:
+            values['trace'] = trace
+        if next_execution_date is not None:
+            values['next_execution_date'] = next_execution_date
+        if values:        
+            upd = self.table.update().\
+                where(and_(
+                        self.table.c.object_type == self.job.payload.__class__.__name__,
+                        self.table.c.object_name == name,
+                        self.table.c.schedule == schedule,
+                        self.table.c.execution_date == execution_date
+                        )).\
+                values(**values)
+            
+            self.db.connection.execute(upd)
+            logger.debug((
+                    'Updated job log (%s,%s): %s'),
+                    name,schedule,execution_date
+                    )
+            self.db.commit()
+        else:
+            logger.debug((
+                    'No non-null values supplied. job log was not updated (%s,%s): %s'),
+                    name,schedule,execution_date
+                    )                    
+        
+    def get_last_execution_date( self,name, schedule):
+        
+        '''
+        Last execution date for payload object name for particular schedule
+        '''
+        
+        col = func.max(self.table.c['execution_date'])
+        query = select([col.label('last_execution')]).where(and_(
+                self.table.c['object_type'] == self.job.payload.__class__.__name__,
+                self.table.c['object_name'] == name,
+                self.table.c['schedule'] == schedule,
+                self.table.c['status'] == 'complete'
+                ))
+        result = self.db.connection.execute(query).first()
+        
+        return result[0]
+    
 
         
 class JobController(object):
@@ -967,6 +1149,7 @@ class JobController(object):
     data_aggregator = DataAggregator
     data_writer = DataWriterFile
     data_merge = DataMerge
+    job_log_class = JobLog
     
     def __init__ (self,payload,**kwargs):
         
@@ -983,9 +1166,11 @@ class JobController(object):
         self.set_payload_params(**kwargs)
         
         #create a job log
-        self.job_log = JobLog(self)
+        self.job_log = self.job_log_class(self)
         #get metadata from payload
-        self.stage_metadata = self.get_payload_param('_stages',None)
+        self.stage_metadata = self.exec_payload_method(
+                'classify_stages',
+                None)
 
         # Assemble a collection of candidate schedules to execute
         # If the payload does not have a schedule use the default
@@ -1008,8 +1193,9 @@ class JobController(object):
                     ' metadata for the job stages that will be executed. '
                     ))
         else:
+            logger.info('Initialized job.\n')
             logger.info(str((self)))
-            
+
         
     def __str__(self):
         
@@ -1021,9 +1207,7 @@ class JobController(object):
         for key,value in list(self.stage_metadata.items()):
             out += 'Stages of type: %s at grain %s: \n' %(key[0],key[1])
             for v in value:
-                out += '   %s on schedule %s requires %s produces %s\n' %(
-                        v.name,v._schedule,
-                        v._input_set,v._output_list )
+                out += '   %s\n' %str(v)
         out += '\n'
         
         return out
@@ -1236,9 +1420,9 @@ class JobController(object):
         logger.debug('Build of job spec is complete.')
         logger.debug('-------------------------------')
         for section,stages in list(job_spec.items()):
-            logger.debug('%s' %(section))
+            logger.debug('%s:>>>' %(section))
             for s in stages:
-                logger.info(str(s))
+                logger.info('  %s',str(s))
         logger.debug('-------------------------------')
         
             
@@ -1313,10 +1497,8 @@ class JobController(object):
             if len(stages_added) == 0:
                 break
             else:
-                logger.debug('Added stages of type %s: %s', stage_type, 
-                             [x.name for x in stages_added])
-                logger.debug('New stages provide data items %s', columns_added)
-                logger.debug('New stages require inputs %s', required_inputs)
+                logger.debug(('Gathered stages of type %s. Iteration %s: %s'),
+                             stage_type, i, [str(x) for x in stages_added])
             #maintain a set of cols for each data source stage
             for stage,cols in data_source_col_list.items():
                 existing_cols = meta['data_source_projection_list'].get(stage,set())
@@ -1332,21 +1514,18 @@ class JobController(object):
                                                 exclude_stages = [])
         logger.debug('Built stages of type %s',stage_type)
         logger.debug('Available columns: %s', meta['available_columns']) 
-        skipped = [x.name for x in set(all_stages)-set(meta['spec'])]
+        skipped = [x for x in set(all_stages)-set(meta['spec'])]
         for s in skipped:
             logger.debug('Skipped stage %s',skipped)
             logger.debug('Skipped data items %s',
-                         self.exec_stage_method(
-                            s,
-                            'get_data_item_list',
-                            'No data items'))
+                         self.get_stage_param(s,'_output_list','No data items'))
         return meta
     
     def build_trace_name(self,execute_date):
         
         if execute_date is None:
             execute_date = dt.datetime.utcnow()
-        execute_str = f'{execute_date:%Y%m%d%H%M%S%f}' 
+        execute_str = '{:%Y%m%d%H%M%S%f}'.format(execute_date)
     
         return '%s_%s_trace_%s' %(self.payload.__class__.__name__,
                                self.name,execute_str)
@@ -1382,6 +1561,8 @@ class JobController(object):
                 raise StageException(msg,s.name)
             
             input_items = list(s._input_set)
+            output_list = s._output_list
+            
             for i,item in enumerate(input_items):
                 
                 # aggregation is performed using a the pandas agg function
@@ -1389,7 +1570,7 @@ class JobController(object):
                 # by pandas or a method that accepts a series
                 # and returns a constant. 
                 
-                output = s._output_list[i]
+                output = output_list[i]
                 
                 try:
                     agg_dict[item].append(aggregation_method)
@@ -1399,7 +1580,7 @@ class JobController(object):
                 else:
                     o_dict[item].append(output)
                     
-            inputs |= s._input_set
+            inputs |= input_items
             
         outputs = []
         for o in o_dict.values():
@@ -1414,7 +1595,7 @@ class JobController(object):
         
         all_stages.extend(complex_aggregators)
         for s in complex_aggregators:
-            inputs |= s._input_set
+            inputs |= s.get_input_set()
             outputs.extend(s._output_list)
                 
         return (agg_dict,complex_aggregators,all_stages,inputs,outputs)
@@ -1630,8 +1811,9 @@ class JobController(object):
                                     raise_error = False
                                     )
                              can_proceed = False
-                             
-                    df = df.reset_index()                                                            
+                        else:
+                            df = df.reset_index()
+                            
                     for (grain,stages) in list(job_spec.items()):
                         
                         if can_proceed and grain != 'input_level':
@@ -1721,7 +1903,7 @@ class JobController(object):
         for s in stages:
 
             #get stage processing metadata
-            new_cols = self.exec_stage_method(s,'get_output_list',None)            
+            new_cols = self.get_stage_param(s,'_output_list',None)            
             produces_output_items  = self.get_stage_param(
                                             s,'produces_output_items',True)
             discard_prior_data = self.get_stage_param(
@@ -1796,11 +1978,11 @@ class JobController(object):
                 elif produces_output_items:
                     if new_cols is None or len(new_cols) ==0:
                         msg = (
-                                ' Function %s did not provide a list of columns produced'
-                                ' when the get_output_list() method was called to'
-                                ' inspect the stage prior to execution. This is a '
-                                ' mandatory method. It should return a list with at '
-                                ' least one data item name. (%s).'  %(s.name, new_cols)
+                                ' Function %s did not provide a list of columns'
+                                ' from its _output_list property. All functions'
+                                ' should have a list containing at least one'
+                                ' output item. This list is populated automatically '
+                                ' using registration metadata and function args '%(s.name)
                                 )
                         raise StageException(msg,s.name)
                     
@@ -2018,15 +2200,9 @@ class JobController(object):
         stages = [s for s in candidate_stages if s.schedule in schedules]
         new_cols = set()
         for s in stages:
-            added_cols = self.exec_stage_method(
-                    stage = s,
-                    method_name = 'get_output_list',
-                    default_output = [])
+            added_cols = self.get_stage_param(s,'_output_list',[])
             new_cols |= set(added_cols)
-            required_input_set |= self.exec_stage_method(
-                    stage = s,
-                    method_name = 'get_input_set',
-                    default_output = [])
+            required_input_set |= self.get_stage_param(s,'_input_set',set())
             #data sources have projection lists that the job controller
             # needs to underdstand as later on it will trim projection lists
             # to match data required based on schedule
@@ -2274,7 +2450,7 @@ class JobController(object):
                 except BaseException as e:
                     logger.warning(('Unable to write completed execution'
                                     ' status to the log. Will try again in'
-                                    ' %s seconds' %i))
+                                    ' %s seconds: %s' %(i,e)))
                     time.sleep(i)
                 else:
                     wrote_log = True
@@ -2785,138 +2961,43 @@ class JobController(object):
                     df = df,
                     **kwargs)      
         
-class JobLog(object):
+
+
+class JobLogNull(object):
     
     '''
-    Create and manage a database table to store job execution history.
-    
-    A job log entry is created at the start of job execution with a default
-    status of 'running'. This job log entry may be updated at various times
-    during the process. Each update may update the status, trace or log 
-    references.
-    
+    Log execution history to the log so as not to interfere with server
+    metadata.
+        
     '''
     
-    def __init__(self,job,table_name='job_log'):
+    def __init__(self,job,table_name='job_log_null'):
         
         self.job = job
         self.table_name = table_name
-        self.db = self.job.get_payload_param('db',None)
-        if self.db is None:
-            raise RuntimeError(('The job payload does not have a valid'
-                                ' db object. Unable to establish a database'
-                                ' connection'))
-        kw = {
-             'schema' : self.job.get_payload_param('_db_schema',None)
-             }
-        
-        self.table = Table(self.table_name, self.db.metadata,
-                Column('object_type', String(255)),
-                Column('object_name', String(255)),
-                Column('schedule', String(255)),
-                Column('execution_date', DateTime()),
-                Column('previous_execution_date',DateTime()),
-                Column('next_execution_date',DateTime()),
-                Column('status',String(30)),
-                Column('startup_log',String(255)),
-                Column('execution_log',String(255)),
-                Column('trace',String(2000)),
-                extend_existing = True,
-                **kw
-                )
-        
-        self.db.metadata.create_all(self.db.connection)
 
     def clear_old_running(self,
                           name,
                           schedule):
         
-        q = self.table.select().\
-            where(and_(
-                self.table.c.object_type == self.job.payload.__class__.__name__,
-                self.table.c.object_name == name,
-                self.table.c.schedule == schedule,
-                self.table.c.status == 'running'                  
-                    ))
-        df = pd.read_sql(sql=q,con=self.db.connection)
-        
-        if len(df.index)>0:
-            upd = self.table.update().values(status='abandoned').\
-            where(and_(
-                self.table.c.object_type == self.job.payload.__class__.__name__,
-                self.table.c.object_name == name,
-                self.table.c.schedule == schedule,
-                self.table.c.status == 'running'                  
-                    ))
-            
-            self.db.connection.execute(upd)
-            logger.debug(
-                    'Marked existing running jobs as abandoned  (%s,%s)',
-                    name,schedule
-                    )
-            logger.debug(df)
-            self.db.commit()            
+        logger.debug('Null Job Log has no old running job log entries to clear')
         
 
     def insert (self,name,schedule,execution_date,status='running',
                 previous_execution_date = None, next_execution_date = None,
                 startup_log=None,execution_log=None,trace=None):
         
-        self.db.start_session()
-        ins = self.table.insert().values(object_type = self.job.payload.__class__.__name__,
-                               object_name = name,
-                               schedule = schedule,
-                               execution_date = execution_date,
-                               previous_execution_date = previous_execution_date,
-                               next_execution_date = next_execution_date,
-                               status = status,
-                               startup_log = startup_log,
-                               execution_log = execution_log,
-                               trace = trace
-                               )
-        self.db.connection.execute(ins)
-        logger.debug((
-                'Created job log entry (%s,%s): %s'),
+        logger.info( 'Null job log entry created (%s,%s): %s',
                 name,schedule,execution_date
                 )
-        self.db.commit()
-
         
     def update (self,name,schedule,execution_date, next_execution_date = None,
                 status=None, execution_log=None,trace=None):
         
-        self.db.start_session()
-        
         values = {}
-        if status is not None:
-            values['status'] = status
-        if execution_log is not None:
-            values['execution_log'] = execution_log            
-        if trace is not None:
-            values['trace'] = trace
-        if next_execution_date is not None:
-            values['next_execution_date'] = next_execution_date
-        if values:        
-            upd = self.table.update().\
-                where(and_(
-                        self.table.c.object_type == self.job.payload.__class__.__name__,
-                        self.table.c.object_name == name,
-                        self.table.c.schedule == schedule,
-                        self.table.c.execution_date == execution_date
-                        )).\
-                values(**values)
-            
-            self.db.connection.execute(upd)
-            logger.debug((
-                    'Updated job log (%s,%s): %s'),
-                    name,schedule,execution_date
-                    )
-            self.db.commit()
-        else:
-            logger.debug((
-                    'No non-null values supplied. job log was not updated (%s,%s): %s'),
-                    name,schedule,execution_date
-                    )                    
+        logger.info('Updated job log (%s,%s): %s' ,name,schedule,execution_date )
+        logger.info(values)
+        
         
     def get_last_execution_date( self,name, schedule):
         
@@ -2924,54 +3005,15 @@ class JobLog(object):
         Last execution date for payload object name for particular schedule
         '''
         
-        col = func.max(self.table.c['execution_date'])
-        query = select([col.label('last_execution')]).where(and_(
-                self.table.c['object_type'] == self.job.payload.__class__.__name__,
-                self.table.c['object_name'] == name,
-                self.table.c['schedule'] == schedule,
-                self.table.c['status'] == 'complete'
-                ))
-        result = self.db.connection.execute(query).first()
+        logger.debug('No last execution date to return from null job log')
         
-        return result[0]
+        return None
     
 class MergeError(Exception):
     
     def __init__(self, msg):
         super().__init__(msg)
             
-    
-class ExpressionExecutor(object):
-    '''
-    Create a new item from an expression involving other items
-    '''
-    def __init__(self, expression , name, input_items = None):
-        self.expression = expression
-        self.name = name
-        if input_items is None:
-            input_items = set()
-        self._input_set = input_items
-                
-    def execute(self, df):
-        self.infer_inputs(df)
-        if '${' in self.expression:
-            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
-        else:
-            expr = self.expression
-        try:
-            df[self.name] = eval(expr)
-        except SyntaxError:
-            msg = 'Syntax error while evaluating expression %s' %expr
-            raise SyntaxError (msg)
-        
-        return df
-    
-    def infer_inputs(self,df):
-        #get all quoted strings in expression
-        possible_items = re.findall('"([^"]*)"', self.expression)
-        possible_items.extend(re.findall("'([^']*)'", self.expression))
-        self.input_items = [x for x in possible_items if x in list(df.columns)]          
-
 
 class CalcPipeline:
     '''
@@ -3256,10 +3298,9 @@ class CalcPipeline:
             try:
                 self.entity_type.write_unmatched_members(df)
             except Exception as e:
-                msg = 'Error while writing unmatched members to dimension. See log.' 
-                self.trace_add(msg,created_by = self)
-                raise
-                self.entity_type.raise_error(exception = e,abort_on_fail = False)
+                msg = 'Error while writing unmatched members to dimension. %s' %e 
+                self.trace_add(msg,created_by = self,log_method=logger.warning)
+                #self.entity_type.raise_error(exception = e,abort_on_fail = False)
             self.mark_initial_transform_complete()
 
         return df
@@ -3283,6 +3324,7 @@ class CalcPipeline:
             self.trace_add(msg,created_by = stage, df = df)
             self.entity_type.raise_error(exception = e,abort_on_fail = abort_on_fail,stageName = name)
         #there are two signatures for the execute method
+        
         msg = 'Stage %s :' % name
         self.trace_add(msg=msg,df=df)
         try:
@@ -3641,4 +3683,5 @@ class PipelineExpression(object):
         possible_items.extend(re.findall("'([^']*)'", self.expression))
         self.input_items = [x for x in possible_items if x in list(df.columns)]       
             
+
 

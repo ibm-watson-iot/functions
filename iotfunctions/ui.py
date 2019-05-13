@@ -30,6 +30,20 @@ class BaseUIControl(object):
         except KeyError:
             msg = 'couldnt convert type %s ' %from_datatype
             raise TypeError(msg)
+            
+    def convert_schema_datatype(self,from_datatype):
+        conversions = {bool: 'boolean',
+                       str: 'string',
+                       float: 'number',
+                       int: 'number',
+                       dt.datetime: 'number',
+                       None : None
+                       }
+        try:
+            return conversions[from_datatype]
+        except KeyError:
+            msg = 'couldnt convert type %s ' %from_datatype
+            raise TypeError(msg)            
                 
 class UIFunctionOutSingle(BaseUIControl):
     '''
@@ -46,6 +60,8 @@ class UIFunctionOutSingle(BaseUIControl):
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
+    
+    type_ = 'OUTPUT_DATA_ITEM'
     
     def __init__(self,name, datatype=None, description=None, tags = None):
         
@@ -87,6 +103,9 @@ class UIFunctionOutMulti(BaseUIControl):
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
+    
+    type_ = 'OUTPUT_DATA_ITEM'
+    
     def __init__(self,name, cardinality_from,
                  is_datatype_derived = False,
                  datatype = None,
@@ -149,6 +168,9 @@ class UISingleItem(BaseUIControl):
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     '''
+    
+    type_ = 'DATA_ITEM'
+    
     def __init__(self,name, datatype=None, description=None, required = True,
                  tags = None):
         
@@ -171,7 +193,7 @@ class UISingleItem(BaseUIControl):
         
         meta = {
                 'name' : self.name,
-                'type' : 'DATA_ITEM' ,
+                'type' : self.type_ ,
                 'dataType' : datatype,
                 'required' : self.required,
                 'description' : self.description,
@@ -201,6 +223,9 @@ class UIMultiItem(BaseUIControl):
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT'] 
     '''
+    
+    type_ = 'DATA_ITEM'
+    
     def __init__(self,name, datatype=None, description=None, required = True,
                  min_items = None, max_items = None, tags = None,
                  output_item = None,
@@ -239,7 +264,7 @@ class UIMultiItem(BaseUIControl):
         
         meta = {
                 'name' : self.name,
-                'type' : 'DATA_ITEM' ,
+                'type' : self.type_ ,
                 'dataType' : 'ARRAY',
                 'dataTypeForArray' : datatype,
                 'required' : self.required,
@@ -307,6 +332,9 @@ class UIMulti(BaseUIControl):
     values: list
         Values to display in UI picklist        
     '''
+    
+    type_ = 'CONSTANT'
+    
     def __init__(self,name, datatype, description=None, required = True,
                  min_items = None, max_items = None, tags = None, values = None,
                  output_item = None,
@@ -344,10 +372,11 @@ class UIMulti(BaseUIControl):
             raise ValueError(msg)
         else:
             datatype = [self.convert_datatype(self.datatype)]
+            schema_datatype = self.convert_schema_datatype(self.datatype)
         
         meta = {
                 'name' : self.name,
-                'type' : 'CONSTANT' ,
+                'type' : self.type_ ,
                 'dataType' : 'ARRAY',
                 'dataTypeForArray' : datatype,
                 'required' : self.required,
@@ -359,7 +388,7 @@ class UIMulti(BaseUIControl):
                                 "type" : "array",
                                 "minItems" : self.min_items,
                                 "maxItems" : self.max_items,
-                                "items" : {"type": "string"}
+                                "items" : {"type": schema_datatype }
                                 }
                 }
         return meta 
@@ -369,8 +398,10 @@ class UIMulti(BaseUIControl):
         if self.output_item is not None:        
             if self.output_datatype is not None:
                 datatype = [self.convert_datatype(self.output_datatype)]
+                schema_type = self.convert_schema_datatype(self.output_datatype)
             else:
                 datatype= None
+                schema_type = None
                         
             meta = {
                     'name' : self.output_item,
@@ -381,7 +412,7 @@ class UIMulti(BaseUIControl):
                     'jsonSchema' : {
                                     "$schema" : "http://json-schema.org/draft-07/schema#",
                                     "type" : "array",
-                                    "items" : {"type": "string"}
+                                    "items" : {"type": schema_type}
                                     }
                     }
                     
@@ -411,6 +442,9 @@ class UISingle(BaseUIControl):
     values: list
         Values to display in UI picklist        
     '''    
+    
+    type_ = 'CONSTANT'
+    
     def __init__(self,name, datatype=None, description=None, tags = None,
                  required = True, values = None, default = None):
         
@@ -429,7 +463,7 @@ class UISingle(BaseUIControl):
     def to_metadata(self):
         meta = {
                 'name' : self.name,
-                'type' : 'CONSTANT',
+                'type' : self.type_,
                 'dataType' : self.convert_datatype(self.datatype),
                 'description' : self.description,
                 'tags' : self.tags,
@@ -446,7 +480,72 @@ class UISingle(BaseUIControl):
         return meta
     
 
+class UIText(UISingle):
+    '''
+    UI control that allows entering multiple lines of text
     
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    required: bool
+        Specify True when this argument is mandatory
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
+    default: str
+        Optional default
+    '''    
+    
+    def __init__(self,name = 'expression', description=None, tags = None,
+                 required = True, default = None):
+        
+        if description is None:
+            description = 'Enter text'
+        self.description = description
+        if tags is None:
+            tags = ['TEXT']
+        else:
+            tags.append('TEXT')
+            
+        super().__init__(name = name,description = description,tags=tags,
+                     required = required, default = default, datatype = str)
+
+class UIExpression(UIText):
+    '''
+    UI control that allows entering a python expression
+    
+    Parameters
+    -----------
+    name : str
+        Name of function argument
+    required: bool
+        Specify True when this argument is mandatory
+    description: str
+        Help text to display in UI
+    tags: list of strs
+        Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
+    default: str
+        Optional default
+    '''    
+    
+    def __init__(self,name = 'expression', description=None, tags = None,
+                 required = True, default = None):
+        
+        if description is None:
+            description = 'Enter a python expression'
+        self.description = description
+        if tags is None:
+            tags = ['EXPRESSION']
+        else:
+            tags.append('EXPRESSION')
+            
+        super().__init__(name = name,description = description,tags=tags,
+                     required = required, default = default)
+
+        
+  
 
     
 

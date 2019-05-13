@@ -40,8 +40,6 @@ except ImportError:
     DB2_INSTALLED = False
     msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
     logger.warning(msg)
-    
-
 
 class Database(object):
     '''
@@ -56,11 +54,20 @@ class Database(object):
     echo: bool
         Output sql to log
     '''
+    
+    system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
+    
     def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
         
         self.function_catalog = {} #metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}
+        if credentials is None:
+            credentials = {}
+            
+        #  build credentials dictionary from multiple versions of input
+        #  credentials and/or environment variables
+            
         try:
             self.credentials['objectStorage'] = credentials['objectStorage']
         except (TypeError,KeyError):
@@ -70,23 +77,27 @@ class Database(object):
                 self.credentials['objectStorage']['username'] = os.environ.get('COS_HMAC_ACCESS_KEY_ID')
                 self.credentials['objectStorage']['password'] = os.environ.get('COS_HMAC_SECRET_ACCESS_KEY')
             except KeyError:
-                msg = 'No objectStorage credentials supplied and COS_REGION, COS_HMAC_ACCESS_KEY_ID, COS_HMAC_SECRET_ACCESS_KEY, COS_ENDPOINT not set. COS not available. Will write to filesystem instead'
+                msg = ('No objectStorage credentials supplied and COS_REGION,' 
+                       ' COS_HMAC_ACCESS_KEY_ID, COS_HMAC_SECRET_ACCESS_KEY,' 
+                       ' COS_ENDPOINT not set. COS not available. Will write'
+                       ' to filesystem instead' )
                 logger.warning(msg)
                 self.credentials['objectStorage']['path'] = ''
+            
+        #tenant_id
+            
         if tenant_id is None:
-            try:
-                tenant_id = credentials['tenant_id']
-            except (KeyError,TypeError):
-                try:
-                    tenant_id = credentials['tennant_id']
-                except (KeyError,TypeError):
-                    try:
-                        tenant_id = credentials['tennantId']
-                    except (KeyError,TypeError):        
-                        msg = 'No tenant_id supplied. You will not be able to use the db object to communicate with the API'
-                        logger.info(msg)
-                        tenant_id = None
+            tenant_id = credentials.get('tenantId',
+                            credentials.get('tenant_id',
+                                credentials.get('tennantId',
+                                    credentials.get('tennant_id',None))))
+            
         self.credentials['tenant_id'] = tenant_id
+        if self.credentials['tenant_id'] is None:
+            raise RuntimeError(('No tenant id supplied in credentials or as arg.'
+                                ' Please supply a valid tenant id.'))
+        
+        # iotp and as
         try:
             self.credentials['iotp']= credentials['iotp']
         except (KeyError,TypeError):
@@ -105,16 +116,22 @@ class Database(object):
                 db2_creds['password'] = credentials['password']
                 db2_creds['port'] = credentials['port']
                 db2_creds['db'] = credentials['db']
-                db2_creds['database'] = credentials['database']
+                db2_creds['databaseName'] = credentials['database']
                 db2_creds['username'] = credentials['username']
                 self.credentials['db2']= db2_creds
                 logger.warning('Old style credentials still work just fine, but will be depreciated in the future. Check the usage section of the UI for the updated credentials dictionary')
                 self.credentials['as']= credentials
-        try:
-            self.credentials['message_hub']= credentials['messageHub']
-        except (KeyError,TypeError):
-            self.credentials['message_hub'] = None
-            msg = 'Unable to locate message_hub credentials. Database object created, but it will not be able interact with message hub.'
+        else:
+            try:
+                self.credentials['db2']['databaseName'] = self.credentials['db2']['database']
+            except KeyError:
+                pass
+        
+        self.credentials['message_hub'] =credentials.get('messageHub',None)
+        if self.credentials['message_hub'] is None:
+            msg = ('Unable to locate message_hub credentials.'
+                   ' Database object created, but it will not be able interact'
+                   ' with message hub.')
             logger.debug(msg)
         try:
             self.credentials['config']= credentials['config']
@@ -133,21 +150,29 @@ class Database(object):
             msg = 'Missing objectStorage credentials. Database object created, but it will not be able interact with object storage'
             logger.warning(msg)
         
+        as_creds = credentials.get('iotp',None)
+        if as_creds is None:
+            as_api_host = credentials.get('as_api_host',None)
+            as_api_key = credentials.get('as_api_key',None)
+            as_api_token = credentials.get('as_api_token',None)
+        else:
+            as_api_host = as_creds.get('asHost',None)
+            as_api_key = as_creds.get('apiKey',None)
+            as_api_key = as_creds.get('apiToken',None)
+        
         try:
-            as_api_host = credentials['as_api_host']
-            as_api_key = credentials['as_api_key'] 
-            as_api_token = credentials['as_api_token']
-        except (KeyError,TypeError):
-            try:
-               as_api_host = os.environ.get('API_BASEURL')
-               as_api_key = os.environ.get('API_KEY')
-               as_api_token = os.environ.get('API_TOKEN')
-            except KeyError:
-               as_api_host = None
-               as_api_key = None
-               as_api_token = None
-               msg = 'Unable to locate as credentials or environment variable. db will not be able to connect to the AS API'
-               logger.debug(msg)
+            if as_api_host is None:
+                as_api_host = os.environ.get('API_BASEURL')
+            if as_api_key is None:
+                as_api_key = os.environ.get('API_KEY')
+            if as_api_token is None:
+                as_api_token = os.environ.get('API_TOKEN')
+        except KeyError:
+            as_api_host = None
+            as_api_key = None
+            as_api_token = None
+            msg = 'Unable to locate AS credentials or environment variable. db will not be able to connect to the AS API'
+            logger.warning(msg)
                
         if as_api_host is not None and as_api_host.startswith('https://'):
             as_api_host = as_api_host[8:]
@@ -176,7 +201,7 @@ class Database(object):
                                                                      self.credentials['db2']['password'],
                                                                      self.credentials['db2']['host'],
                                                                      self.credentials['db2']['port'],
-                                                                     self.credentials['db2']['database'])
+                                                                     self.credentials['db2']['databaseName'])
                     if 'security' in self.credentials['db2']:
                         connection_string += 'SECURITY=%s' % self.credentials['db2']['security']
                 except KeyError:
@@ -421,8 +446,11 @@ class Database(object):
     def execute_job(self,entity_type,schema=None,**kwargs):
         
         if isinstance(entity_type,str):
-            entity_type = self.load_entity_type(entity_type,
-                                            schema = schema, **kwargs)
+            entity_type = md.ServerEntityType(
+                    logical_name = entity_type,
+                    db = self,
+                    db_schema = schema
+                    )
         
         job = pp.JobController(payload=entity_type,**kwargs)
         job.execute()
@@ -828,35 +856,7 @@ class Database(object):
         self.function_catalog = result
                 
         return result
-    
-    
-    def load_entity_type(self,logical_name,schema=None,**params):
-        
-        '''
-        Build an entity type object using AS server metadata. The logical name
-        is the name shown in the AS UI. Specify a database schema name when the
-        tenant is not using the default schema.
-        
-        Any keyword args that you pass as **parmas will be copied as instance
-        variable onto the entity type. Use these to override the various class
-        variables of the entity type that determine its behavior.
-        
-        Returns
-        -------
-        Entity type object
-        
-        '''
-        
-        extras = {}
-        extras['_db'] = self
-        extras['_schema'] = schema
-        extras['logical_name'] = logical_name
-        params = {**extras,**params}
-        (params,meta) = md.retrieve_entity_type_metadata(**params)
-        et = md.EntityType(db=self,**params)
-        et.load_entity_type_functions()
-        
-        return et
+
 
     def make_function(self,function_name, function_code,
                       filename=None, bucket =None):
@@ -1101,7 +1101,10 @@ class Database(object):
                           raise_error = True)
             
 
-    def register_functions(self,functions,url=None, raise_error = True):
+    def register_functions(self,functions,
+                           url=None,
+                           raise_error = True,
+                           force_preinstall=False):
         '''
         Register one or more class for use with AS
         '''
@@ -1110,6 +1113,10 @@ class Database(object):
             functions = [functions]
             
         for f in functions:
+            
+            if url is None:
+                url = f.url
+            
             if isinstance(f,type):
                 name = f.__name__
             else:
@@ -1123,10 +1130,44 @@ class Database(object):
                 logger.warning('Registering deprecated function %s', name)
             
             module = f.__module__
+            module_obj = sys.modules[module]
+            
+            
+            # the _IS_PREINSTALLED module variable is reserved for 
+            # AS system functions
+            try:
+                is_preinstalled = getattr(module_obj,'_IS_PREINSTALLED')
+            except AttributeError:
+                is_preinstalled = False
+                
+            logger.debug('%s is preinstalled %s',module_obj,is_preinstalled)
+                
+            if is_preinstalled:
+                if force_preinstall :
+                    if url != self.system_package_url:
+                        msg = ('Cannot register function %s. This '
+                         ' module has _IS_PREINSTALLED = True'
+                         ' but its catalog source is not the'
+                         ' iotfunctions catalog url' %name)
+                        if raise_error:
+                            raise RuntimeError(msg)
+                        else:
+                            logger.debug(msg)
+                            continue
+                    else:
+                        # URL should not be set for preinstalled functions
+                        url = None
+                        logger.debug(('Registering preinstalled function %s with'
+                                      ' url %s') , name,url)
+                else:
+                    msg = ('Cannot register function %s. This is a'
+                               ' preinstalled function' %name )
+                    logger.debug(msg)
+                    continue
+            
             if module == '__main__':
                 raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
-            if url is None:
-                url = f.url
+
             module_and_target = '%s.%s' %(module,name)
             exec_str = 'from %s import %s as import_test' %(module,name)
             try:
@@ -1136,6 +1177,7 @@ class Database(object):
                     ('Unable to register function as local import failed.'
                      ' Make sure it is installed locally and '
                      ' importable. %s ' %exec_str) )
+
             try:
                 category = f.category
             except AttributeError:
@@ -1172,24 +1214,37 @@ class Database(object):
                               payload=payload,
                               raise_error = raise_error)
 
-    def register_module(self,module,url=None,raise_error=True):
+    def register_module(self,module,url=None,raise_error=True,force_preinstall=False):
         '''
         Register all of the functions contained within a python module
         '''
+        
+        registered = set()
         for name, cls in inspect.getmembers(module):
-            if inspect.isclass(cls):
+            if inspect.isclass(cls) and cls not in registered:
                 try:
                     is_deprecated = cls.is_deprecated
                 except AttributeError:
                     is_deprecated = False
                 if not is_deprecated and cls.__module__ == module.__name__:
                     try:
-                        self.register_functions(cls,raise_error = raise_error)
+                        self.register_functions(cls,
+                                                raise_error = True,
+                                                url = url,
+                                                force_preinstall = force_preinstall)
                     except (AttributeError,NotImplementedError):
                         msg = 'Did not register %s as it is not a registerable function' %name
                         logger.debug(msg)
-                else:
-                    print(name,cls.__module__)                       
+                        continue
+                    except BaseException as e:
+                        if raise_error:
+                            raise
+                        else:
+                            logger.debug('Error registering function: %s',str(e))
+                    else:
+                        registered.add(cls)
+                        
+        return registered
                       
     def _ts_col_rounded_to_minutes(self,table_name,schema,column_name,minutes,label):
         '''
