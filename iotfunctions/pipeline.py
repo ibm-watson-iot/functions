@@ -33,7 +33,7 @@ from .util import log_df_info, freq_to_timedelta, StageException
 import pandas as pd
 import warnings
 from pandas.api.types import (is_bool_dtype, is_numeric_dtype, is_string_dtype,
-                              is_datetime64_any_dtype)
+                              is_datetime64_any_dtype, is_object_dtype)
 from sqlalchemy import (Table, Column, Integer, SmallInteger, String,
                         DateTime, Float, and_, func, select)
 
@@ -3625,16 +3625,28 @@ class CalcPipeline:
 
                 # check if it is Boolean
                 if data_item['columnType'] == 'BOOLEAN':
-                    if not is_bool_dtype(df_column.dtype):
-                        logger.info(
-                            'Type is not consistent %s: df type is %s and data type is %s' % (
-                                item, df_column.dtype.name, data_item['columnType']))
+                    if is_bool_dtype(df_column.dtype):
+                        # Column contains np.True_ and np.False_ only. We are fine!
+                        pass
+                    else:
+                        # If column also contains None it is supposed to be either numeric (float64: 0, 1, NaN) or 
+                        # object (True, False, None/NaN)
+                        if not is_numeric_dtype(df_column.dtype) and not is_object_dtype(df_column.dtype):
+                            logger.info(
+                                'Type is not consistent %s: df type is %s and data type is %s' % (
+                                    item, df_column.dtype.name, data_item['columnType']))
+                        # np.True_ and 'python True' are not the same. Same is true for np.False_/'python False'
+                        # and np.NaN/'python None'. Pandas implicitly converts columns values in the subsequent
+                        # conversion to 'python True', 'python False' or 'python None' resulting in column type
+                        # 'object'.
+                        # Conversion via combination of where() and mask() is 60% faster than an approach with apply()
                         try:
-                            df[data_item['name']] = df_column.astype('bool')
+                            df_column_tmp = df_column.where(df_column.isna(), np.bool_(df_column))
+                            df[data_item['name']] = df_column_tmp.mask(df_column_tmp.isna(), None)
                         except Exception:
-                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
-                    continue
-
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))   
+                    continue       
+                    
         else:
             logger.info('Not possible to retrieve information from the data frame')
 

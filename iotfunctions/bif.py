@@ -217,7 +217,7 @@ class AlertExpression(BaseEvent):
             expr = self.expression
             msg = 'Expression (%s). ' %expr
         self.trace_append(msg)
-        df[self.alert_name] = np.where(eval(expr), True, False)
+        df[self.alert_name] = np.where(eval(expr), True, None)
         return df
     
     def get_input_items(self):
@@ -276,9 +276,9 @@ class AlertOutOfRange(BaseEvent):
         df[self.output_alert_lower] = False
         
         if not self.lower_threshold is None:
-            df[self.output_alert_lower] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
+            df[self.output_alert_lower] = np.where(df[self.input_item]<=self.lower_threshold,True,None)
         if not self.upper_threshold is None:
-            df[self.output_alert_upper] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
+            df[self.output_alert_upper] = np.where(df[self.input_item]>=self.upper_threshold,True,None)
             
         return df  
     
@@ -335,7 +335,7 @@ class AlertHighValue(BaseEvent):
     def execute(self,df):
         c = self._entity_type.get_attributes_dict()
         df = df.copy()
-        df[self.alert_name] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
+        df[self.alert_name] = np.where(df[self.input_item]>=self.upper_threshold,True,None)
             
         return df  
     
@@ -386,7 +386,7 @@ class AlertLowValue(BaseEvent):
     def execute(self,df):
         c = self._entity_type.get_attributes_dict()
         df = df.copy()
-        df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
+        df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,None)
             
         return df
     
