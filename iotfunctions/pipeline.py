@@ -33,7 +33,7 @@ from .util import log_df_info, freq_to_timedelta, StageException
 import pandas as pd
 import warnings
 from pandas.api.types import (is_bool_dtype, is_numeric_dtype, is_string_dtype,
-                              is_datetime64_any_dtype)
+                              is_datetime64_any_dtype, is_object_dtype)
 from sqlalchemy import (Table, Column, Integer, SmallInteger, String,
                         DateTime, Float, and_, func, select)
 
