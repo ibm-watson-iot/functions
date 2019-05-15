@@ -164,6 +164,8 @@ class Robot(metadata.BaseCustomEntityType):
         columns.append(Column('plant_code',String(50)))
         columns.append(Column('torque',Float()))
         columns.append(Column('load',Float()))
+        columns.append(Column('speed',Float()))
+        columns.append(Column('distance',Float()))
         
         #functions
         functions = []
