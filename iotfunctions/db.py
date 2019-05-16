@@ -772,7 +772,7 @@ class Database(object):
         logger.debug(impstr)
         try:
             exec(impstr)
-        except ModuleNotFoundError:
+        except BaseException:
             if url is not None:
                 try:
                     self.install_package(url)

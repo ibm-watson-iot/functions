@@ -266,7 +266,7 @@ class EntityType(object):
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     
-    def __init__ (self,name,db, *args, **kwargs):
+    def __init__(self, name, db, *args, **kwargs):
         
         logger.debug('Initializing new entity type using iotfunctions %s',
                      iotf.__version__)
@@ -1993,7 +1993,7 @@ class ServerEntityType(EntityType):
     Initialize an entity type using AS Server metadata
     '''
     
-    def __init__ (self,logical_name,db,db_schema):
+    def __init__ (self, logical_name, db,db_schema):
         
         #get server metadata
         server_meta = db.http_request(object_type = 'engineInput',
@@ -2136,27 +2136,33 @@ class LocalEntityType(EntityType):
                   constants = None,
                   granularities = None,
                   functions = None,
-                  dimension_columns = None
-                  ):
+                  db = None,
+                  **kwargs ):
         
         fn_cols = self._build_cols_for_fns(functions=functions,columns=columns)
         if columns is None:
             columns = []
-        columns.extend(fn_cols)
+            
+        args = []
+        args.extend(fn_cols)
+        if not constants is None:
+            args.extend(constants)
+        if not functions is None:
+            args.extend(functions)
+        if not granularities is None:
+            args.extend(granularities)
         
         self.local_columns = columns
-    
-        super().__init__(name = name,
-                       db = None,
-                       columns = columns,
-                       constants = constants,
-                       granularities = granularities,
-                       functions = functions,
-                       dimension_columns = dimension_columns,
-                       generate_days = 0)
-        
+
+        super().__init__(name, db, *args, **kwargs)
+                       
     
     def _build_cols_for_fns(self,functions,columns=None):
+        
+        '''
+        Get a list of dataframe column names referenced as function
+        arguments
+        '''
         
         if functions is None:
             functions = []
@@ -2174,10 +2180,22 @@ class LocalEntityType(EntityType):
         cols = []
         for f in functions:
             
+            # use the metadata about the function inputs to find all the
+            # input data items
+            # use the argument values to find the input item names
+            
+            (inputs,outputs) = f.build_ui()
             args = f._get_arg_metadata()
-            for (arg,value) in list(args.items()):
-                datatype = cols_dict.get(value,Float)
-                cols.append(Column(value,datatype))
+            for i in inputs:
+                
+                if i.type_ == 'DATA_ITEM':
+                    values = args[i.name]
+                
+                if not isinstance(values,list):
+                    values = [values]
+                    for value in values: 
+                        datatype = cols_dict.get(value,Float)
+                        cols.append(Column(value,datatype))
                 
         return cols
         

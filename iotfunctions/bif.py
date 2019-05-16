@@ -1278,12 +1278,12 @@ class PackageInfo(BaseTransformer):
             ver = ''
             try:
                 installed_package = importlib.import_module(p)
-            except (ImportError,ModuleNotFoundError):
+            except (BaseException):
                 if self.install_missing:
                     entity_type.db.install_package(p)
                     try:
                         installed_package = importlib.import_module(p)
-                    except (ImportError,ModuleNotFoundError):
+                    except (BaseException):
                         ver = 'Package could not be installed'
                     else:
                         try:
@@ -1418,7 +1418,6 @@ class PythonFunction(BaseTransformer):
         inputs = []
         inputs.append(UIMultiItem('input_items'))
         inputs.append(UIText(name = 'function_code',
-                               datatype=str,
                                description = 'Paste in your function definition'
                                )
                      )

@@ -3,8 +3,8 @@ import json
 import pandas as pd
 import numpy as np
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-import iotfunctions.bif
-from iotfunctions.metadata import EntityType
+import iotfunctions.bif as bif
+from iotfunctions.metadata import EntityType, LocalEntityType
 from iotfunctions.db import Database
 
 with open('credentials_as_dev.json', encoding='utf-8') as F:
@@ -45,13 +45,5 @@ test_function = bif.PythonFunction(
     parameters = {}
         )
 
-et = EntityType('test_entity',
-                db,
-                Column('speed',Float),
-                test_function,
-                **{'_db_schema': db_schema})
-et.generate_data(days = 1)
-et.exec_local_pipeline()
-
-
+test_function.execute_local_test(db=db)
 

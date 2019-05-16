@@ -113,3 +113,4 @@ Thumbs.db
 .spyproject/workspace.ini
 scripts/credentials_as_dev.json
 scripts/df_test_entity_for_multiplytwoitems.csv
+scripts/df_test_entity_for_pythonfunction.csv

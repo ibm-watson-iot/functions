@@ -26,7 +26,7 @@ try:
     import ibm_boto3
     from ibm_boto3.s3.transfer import S3Transfer
     from ibm_botocore.client import Config
-except (ImportError,ModuleNotFoundError):
+except BaseException:
     IBMBOTO_INSTALLED = False
     msg = 'ibm_boto3 is not installed. Use HMAC credentials to communicate with COS.'
     logger.info(msg)
