@@ -624,7 +624,7 @@ class DateDifference(BaseTransformer):
         outputs.append(
             UIFunctionOutSingle(
                     name = 'num_days',
-                    datatype=dt.datetime,
+                    datatype=float,
                     description='Number of days')
             )
                 
@@ -646,7 +646,7 @@ class DateDifferenceReference(BaseTransformer):
         
     def execute(self,df):
         
-        if self.date_1 is None:
+        if self.date_1 is None or self.date_1 == self._entity_type._timestamp:
             ds_1 = self.get_timestamp_series(df)
             if isinstance(ds_1,pd.DatetimeIndex):
                 ds_1 = pd.Series(data=ds_1,index=df.index)
@@ -683,7 +683,7 @@ class DateDifferenceReference(BaseTransformer):
         outputs.append(
             UIFunctionOutSingle(
                     name = 'num_days',
-                    datatype=dt.datetime,
+                    datatype=float,
                     description='Number of days')
             )
                 
@@ -704,7 +704,7 @@ class DateDifferenceConstant(BaseTransformer):
         
     def execute(self,df):
         
-        if self.date_1 is None:
+        if self.date_1 is None or self.date_1 == self._entity_type._timestamp:
             ds_1 = self.get_timestamp_series(df)
             if isinstance(ds_1,pd.DatetimeIndex):
                 ds_1 = pd.Series(data=ds_1,index=df.index)
@@ -743,7 +743,7 @@ class DateDifferenceConstant(BaseTransformer):
         outputs.append(
             UIFunctionOutSingle(
                     name = 'num_days',
-                    datatype=dt.datetime,
+                    datatype=float,
                     description='Number of days')
             )
                 

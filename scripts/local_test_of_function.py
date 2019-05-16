@@ -45,3 +45,18 @@ fn.execute_local_test(columns = [
         Column('d2',DateTime)
         ])
 
+
+'''
+If the function that you are testing requires assess to server resources,
+pass a Database object
+'''
+
+from iotfunctions.bif import SaveCosDataFrame
+
+fn = SaveCosDataFrame(
+        filename = 'test_df_write',
+        columns = ['x1','x2'],
+        output_item = 'wrote_df'
+        )
+
+fn.execute_local_test(db=db)
