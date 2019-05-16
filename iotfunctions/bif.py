@@ -579,7 +579,7 @@ class DateDifference(BaseTransformer):
         
     def execute(self,df):
         
-        if self.date_1 is None:
+        if self.date_1 is None or self.date_1 == self._entity_type._timestamp:
             ds_1 = self.get_timestamp_series(df)
             if isinstance(ds_1,pd.DatetimeIndex):
                 ds_1 = pd.Series(data=ds_1,index=df.index)
@@ -587,7 +587,7 @@ class DateDifference(BaseTransformer):
         else:
             ds_1 = df[self.date_1]
             
-        if self.date_2 is None:
+        if self.date_2 is None or self.date_2 == self._entity_type._timestamp:
             ds_2 = self.get_timestamp_series(df)
             if isinstance(ds_2,pd.DatetimeIndex):
                 ds_2 = pd.Series(data=ds_2,index=df.index)
