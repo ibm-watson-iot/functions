@@ -181,8 +181,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
                                           ))
                                   
         inputs.append(UIExpression(name = 'expression',
-                               description = 'Paste in or type an AS expression',
-                               datatype = str))
+                               description = 'Paste in or type an AS expression'))
         
         return (inputs,[])
         
@@ -233,7 +232,6 @@ class AlertExpression(BaseEvent):
                                               description = 'Input items'
                                               ))
         inputs.append(UIExpression(name = 'expression',
-                                              datatype=str,
                                               description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
                                               ))
         #define arguments that behave as function outputs
@@ -544,7 +542,6 @@ class ConditionalItems(BaseTransformer):
         inputs = []
         inputs.append(UIExpression(
                 name = 'conditional_expression',
-                datatype=str,
                 description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
                 ))
         inputs.append(UIMultiItem(
@@ -1231,15 +1228,12 @@ class IfThenElse(BaseTransformer):
         #define arguments that behave as function inputs
         inputs = []
         inputs.append(UIExpression(name = 'conditional_expression',
-                                              datatype=str,
                                               description = "expression that returns a True/False value, eg. if df['temp']>50 then df['temp'] else None"
                                               ))
         inputs.append(UIExpression(name = 'true_expression',
-                                              datatype=str,
                                               description = "expression when true, eg. df['temp']"
                                               ))
         inputs.append(UIExpression(name = 'false_expression',
-                                              datatype=str,
                                               description = 'expression when false, eg. None'
                                               ))
         #define arguments that behave as function outputs
