@@ -2203,14 +2203,14 @@ class LocalEntityType(EntityType):
                                 cols_dict[value] = Column(value, Float)
 
                     if 'EXPRESSION' in i.tags:
-                        expression_cols |= f.get_input_items()
+                        expression_cols = f.get_input_items()
                         for c in expression_cols:
                             existing_col = cols_dict.get(c, None)
                             if existing_col is None:
                                 logger.warning(('Building column for expression input %s with unknown type'
                                                 'Assuming datatype of Float. To change the type, '
                                                 'define a column called %s with the appropriate type'), c,c)
-                                cols_dict[value] = Column(c, Float)
+                                cols_dict[c] = Column(c, Float)
 
             cols = set(cols_dict.values())
 

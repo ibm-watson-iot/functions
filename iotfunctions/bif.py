@@ -194,8 +194,7 @@ class AlertExpression(BaseEvent):
     '''
     Create alerts that are triggered when data values reach a particular range.
     '''
-    def __init__(self, input_items, expression , alert_name):
-        self.input_items = input_items
+    def __init__(self, expression , alert_name):
         self.expression = expression
         self.alert_name = alert_name
         super().__init__()
@@ -227,19 +226,15 @@ class AlertExpression(BaseEvent):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name = 'input_items',
-                                              datatype=None,
-                                              description = 'Input items'
-                                              ))
         inputs.append(UIExpression(name = 'expression',
                                               description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
                                               ))
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'alert_name',
-                                                     datatype=bool,
-                                                     description='Output of alert function'
-                                                     ))
+                                           datatype=bool,
+                                           description='Output of alert function'
+                                          ))
         return (inputs,outputs)    
     
     
@@ -248,8 +243,11 @@ class AlertOutOfRange(BaseEvent):
     Fire alert when metric exceeds an upper threshold or drops below a lower_theshold. Specify at least one threshold.
     """
     
-    def __init__ (self,input_item, lower_threshold=None, upper_threshold=None,
-                  output_alert_upper = 'output_alert_upper', output_alert_lower = 'output_alert_lower'):
+    def __init__ (self,input_item,
+                  lower_threshold=None,
+                  upper_threshold=None,
+                  output_alert_upper = 'output_alert_upper',
+                  output_alert_lower = 'output_alert_lower'):
         
         self.input_item = input_item
         if not lower_threshold is None:
