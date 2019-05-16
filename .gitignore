@@ -113,3 +113,7 @@ Thumbs.db
 .spyproject/workspace.ini
 scripts/credentials_as_dev.json
 scripts/df_test_entity_for_multiplytwoitems.csv
+scripts/df_test_entity_for_pythonfunction.csv
+scripts/data_writer_data_writer_input_level_.csv
+scripts/EntityType_widgets_trace_20190516051848439272.json
+*.csv

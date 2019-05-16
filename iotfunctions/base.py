@@ -206,9 +206,10 @@ class BaseFunction(object):
     def _build_entity_type(self,
                            name=None,
                            functions=None,
-                           columns = None,
-                           generate_days = 0,
+                           columns=None,
+                           generate_days=0,
                            granularities=None,
+                           db=None,
                            **params):
         
         if name is None: 
@@ -216,10 +217,13 @@ class BaseFunction(object):
         
         # a local entity type exists in memory only. No db object or tables.
         
+
         et = LocalEntityType(
               name = name,
               columns = columns,
-              functions = functions
+              functions = functions,
+              db = db,
+              **params
               )
         
         return et
@@ -361,6 +365,11 @@ class BaseFunction(object):
         return name     
         
     def _get_arg_metadata(self,isoformat_dates=True):
+        
+        '''
+        Return a dictionary keyed on the argument name containing
+        the argument value.
+        '''
         
         metadata = {}    
         args = (getargspec(self.__init__))[0][1:]        
@@ -1271,15 +1280,21 @@ class BaseFunction(object):
             setattr(self, key, value)
         return self
  
-    def execute_local_test(self,generate_days = 1,columns = None, to_csv = True,
+    def execute_local_test(self,generate_days = 1,
+                           columns = None,
+                           to_csv = True,
+                           db = None,
                            **params):
         '''
-        Run an automated test of the function using genererated data
+        Run an automated test of the function using generated data.
+        Automated test will run using a local entity type
         '''
+        
         et = self._build_entity_type(
                 generate_days = generate_days,
                 functions = [self],
                 columns = columns,
+                db = db,
                 **params
                 )
         

@@ -181,8 +181,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
                                           ))
                                   
         inputs.append(UIExpression(name = 'expression',
-                               description = 'Paste in or type an AS expression',
-                               datatype = str))
+                               description = 'Paste in or type an AS expression'))
         
         return (inputs,[])
         
@@ -217,7 +216,7 @@ class AlertExpression(BaseEvent):
             expr = self.expression
             msg = 'Expression (%s). ' %expr
         self.trace_append(msg)
-        df[self.alert_name] = np.where(eval(expr), True, False)
+        df[self.alert_name] = np.where(eval(expr), True, None)
         return df
     
     def get_input_items(self):
@@ -233,7 +232,6 @@ class AlertExpression(BaseEvent):
                                               description = 'Input items'
                                               ))
         inputs.append(UIExpression(name = 'expression',
-                                              datatype=str,
                                               description = "Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
                                               ))
         #define arguments that behave as function outputs
@@ -276,9 +274,9 @@ class AlertOutOfRange(BaseEvent):
         df[self.output_alert_lower] = False
         
         if not self.lower_threshold is None:
-            df[self.output_alert_lower] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
+            df[self.output_alert_lower] = np.where(df[self.input_item]<=self.lower_threshold,True,None)
         if not self.upper_threshold is None:
-            df[self.output_alert_upper] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
+            df[self.output_alert_upper] = np.where(df[self.input_item]>=self.upper_threshold,True,None)
             
         return df  
     
@@ -335,7 +333,7 @@ class AlertHighValue(BaseEvent):
     def execute(self,df):
         c = self._entity_type.get_attributes_dict()
         df = df.copy()
-        df[self.alert_name] = np.where(df[self.input_item]>=self.upper_threshold,True,False)
+        df[self.alert_name] = np.where(df[self.input_item]>=self.upper_threshold,True,None)
             
         return df  
     
@@ -386,7 +384,7 @@ class AlertLowValue(BaseEvent):
     def execute(self,df):
         c = self._entity_type.get_attributes_dict()
         df = df.copy()
-        df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,False)
+        df[self.alert_name] = np.where(df[self.input_item]<=self.lower_threshold,True,None)
             
         return df
     
@@ -544,7 +542,6 @@ class ConditionalItems(BaseTransformer):
         inputs = []
         inputs.append(UIExpression(
                 name = 'conditional_expression',
-                datatype=str,
                 description = "expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
                 ))
         inputs.append(UIMultiItem(
@@ -582,7 +579,7 @@ class DateDifference(BaseTransformer):
         
     def execute(self,df):
         
-        if self.date_1 is None:
+        if self.date_1 is None or self.date_1 == self._entity_type._timestamp:
             ds_1 = self.get_timestamp_series(df)
             if isinstance(ds_1,pd.DatetimeIndex):
                 ds_1 = pd.Series(data=ds_1,index=df.index)
@@ -590,7 +587,7 @@ class DateDifference(BaseTransformer):
         else:
             ds_1 = df[self.date_1]
             
-        if self.date_2 is None:
+        if self.date_2 is None or self.date_2 == self._entity_type._timestamp:
             ds_2 = self.get_timestamp_series(df)
             if isinstance(ds_2,pd.DatetimeIndex):
                 ds_2 = pd.Series(data=ds_2,index=df.index)
@@ -1231,15 +1228,12 @@ class IfThenElse(BaseTransformer):
         #define arguments that behave as function inputs
         inputs = []
         inputs.append(UIExpression(name = 'conditional_expression',
-                                              datatype=str,
                                               description = "expression that returns a True/False value, eg. if df['temp']>50 then df['temp'] else None"
                                               ))
         inputs.append(UIExpression(name = 'true_expression',
-                                              datatype=str,
                                               description = "expression when true, eg. df['temp']"
                                               ))
         inputs.append(UIExpression(name = 'false_expression',
-                                              datatype=str,
                                               description = 'expression when false, eg. None'
                                               ))
         #define arguments that behave as function outputs
@@ -1278,12 +1272,12 @@ class PackageInfo(BaseTransformer):
             ver = ''
             try:
                 installed_package = importlib.import_module(p)
-            except (ImportError,ModuleNotFoundError):
+            except (BaseException):
                 if self.install_missing:
                     entity_type.db.install_package(p)
                     try:
                         installed_package = importlib.import_module(p)
-                    except (ImportError,ModuleNotFoundError):
+                    except (BaseException):
                         ver = 'Package could not be installed'
                     else:
                         try:
@@ -1418,7 +1412,6 @@ class PythonFunction(BaseTransformer):
         inputs = []
         inputs.append(UIMultiItem('input_items'))
         inputs.append(UIText(name = 'function_code',
-                               datatype=str,
                                description = 'Paste in your function definition'
                                )
                      )

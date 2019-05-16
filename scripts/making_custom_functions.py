@@ -229,11 +229,11 @@ will the result data item be called.
 '''
 
 fn = MultiplyTwoItems(
-        input_item_1 = 'x1',
-        input_item_2 = 'x2',
-        output_item = 'y')
+        input_item_1='x1',
+        input_item_2='x2',
+        output_item='y')
 
-df = fn.execute_local_test(generate_days = 1,to_csv=True)
+df = fn.execute_local_test(generate_days=1,to_csv=True)
 print(df)
 
 '''

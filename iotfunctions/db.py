@@ -158,7 +158,7 @@ class Database(object):
         else:
             as_api_host = as_creds.get('asHost',None)
             as_api_key = as_creds.get('apiKey',None)
-            as_api_key = as_creds.get('apiToken',None)
+            as_api_token = as_creds.get('apiToken',None)
         
         try:
             if as_api_host is None:
@@ -772,7 +772,7 @@ class Database(object):
         logger.debug(impstr)
         try:
             exec(impstr)
-        except ModuleNotFoundError:
+        except BaseException:
             if url is not None:
                 try:
                     self.install_package(url)
