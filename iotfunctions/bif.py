@@ -823,7 +823,7 @@ class DeleteInputData(BasePreload):
         entity_type = self.get_entity_type()
         self.get_db().delete_data(table_name=entity_type.name,
                                   schema = entity_type._db_schema, 
-                                  timestamp='evt_timestamp',
+                                  timestamp= entity_type._timestamp,
                                   older_than_days = self.older_than_days)
         msg = 'Deleted data for %s' %(self._entity_type.name)
         logger.debug(msg)
