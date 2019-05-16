@@ -206,10 +206,10 @@ class BaseFunction(object):
     def _build_entity_type(self,
                            name=None,
                            functions=None,
-                           columns = None,
-                           generate_days = 0,
+                           columns=None,
+                           generate_days=0,
                            granularities=None,
-                           db = None,
+                           db=None,
                            **params):
         
         if name is None: 
@@ -1286,7 +1286,7 @@ class BaseFunction(object):
                            db = None,
                            **params):
         '''
-        Run an automated test of the function using genererated data.
+        Run an automated test of the function using generated data.
         Automated test will run using a local entity type
         '''
         

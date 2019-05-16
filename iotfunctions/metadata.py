@@ -2132,27 +2132,25 @@ class LocalEntityType(EntityType):
     
     def __init__ (self,
                   name,
-                  columns = None,
-                  constants = None,
-                  granularities = None,
-                  functions = None,
-                  db = None,
-                  **kwargs ):
-        
-        fn_cols = self._build_cols_for_fns(functions=functions,columns=columns)
+                  columns=None,
+                  constants=None,
+                  granularities=None,
+                  functions=None,
+                  db=None,
+                  **kwargs):
+
         if columns is None:
             columns = []
+        self.local_columns = list(self._build_cols_for_fns(functions=functions, columns=columns))
             
         args = []
-        args.extend(fn_cols)
+        args.extend(self.local_columns)
         if not constants is None:
             args.extend(constants)
         if not functions is None:
             args.extend(functions)
         if not granularities is None:
             args.extend(granularities)
-        
-        self.local_columns = columns
 
         super().__init__(name, db, *args, **kwargs)
                        
@@ -2162,41 +2160,60 @@ class LocalEntityType(EntityType):
         '''
         Get a list of dataframe column names referenced as function
         arguments
+
+        functions is a list of function objects
+        columns is a list of known sql alchemy column object
+
+        returns a set of sql alchemy column objects
+        This set contains the previously known columns and the
+        required columns inferred from function inputs
+
         '''
-        
-        if functions is None:
-            functions = []
-            
+
+        #build a dictionary of the known column objects
         if columns is None:
             columns = []
-        
-        if not isinstance(functions,list):
-            functions = [functions]
-            
+        cols = set(columns)
         cols_dict = {}
         for c in columns:
-            cols_dict[c.name] = c.type
-        
-        cols = []
-        for f in functions:
-            
-            # use the metadata about the function inputs to find all the
-            # input data items
-            # use the argument values to find the input item names
-            
-            (inputs,outputs) = f.build_ui()
-            args = f._get_arg_metadata()
-            for i in inputs:
-                
-                if i.type_ == 'DATA_ITEM':
-                    values = args[i.name]
-                
-                if not isinstance(values,list):
-                    values = [values]
-                    for value in values: 
-                        datatype = cols_dict.get(value,Float)
-                        cols.append(Column(value,datatype))
-                
+            cols_dict[c.name] = c
+
+        # examine the function objects to discover columns not referenced in the dictionary
+        if functions is not None:
+            if not isinstance(functions,list):
+                functions = [functions]
+            for f in functions:
+                # use the metadata about the function inputs to find all the
+                # input data items
+                # use the argument values to find the input item names
+                (inputs, outputs) = f.build_ui()
+                args = f._get_arg_metadata()
+                for i in inputs:
+                    if i.type_ == 'DATA_ITEM':
+                        values = args[i.name]
+                        if not isinstance(values,list):
+                            values = [values]
+                        for value in values:
+                            existing_col = cols_dict.get(value, None)
+                            if existing_col is None:
+                                logger.warning(('Building column for function input %s with unknown type'
+                                                'Assuming datatype of Float. To change the type, '
+                                                'define a column called %s with the appropriate type'),
+                                               value,value)
+                                cols_dict[value] = Column(value, Float)
+
+                    if 'EXPRESSION' in i.tags:
+                        expression_cols |= f.get_input_items()
+                        for c in expression_cols:
+                            existing_col = cols_dict.get(c, None)
+                            if existing_col is None:
+                                logger.warning(('Building column for expression input %s with unknown type'
+                                                'Assuming datatype of Float. To change the type, '
+                                                'define a column called %s with the appropriate type'), c,c)
+                                cols_dict[value] = Column(c, Float)
+
+            cols = set(cols_dict.values())
+
         return cols
         
     
