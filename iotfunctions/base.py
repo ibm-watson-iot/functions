@@ -231,7 +231,7 @@ class BaseFunction(object):
     @classmethod
     def build_ui(cls):
         """
-        Define metadata for function registration explicly.
+        Define metadata for function registration explicitly.
         """
         
         raise NotImplementedError('Implement this method to enable registration of a class without creating an instance')                    
