@@ -161,37 +161,41 @@ class Robot(metadata.BaseCustomEntityType):
         
         #columns
         columns = []
-        columns.append(Column('plant_code',String(50)))
-        columns.append(Column('torque',Float()))
-        columns.append(Column('load',Float()))
-        columns.append(Column('speed',Float()))
-        columns.append(Column('distance',Float()))
+        columns.append(Column('plant_code', String(50)))
+        columns.append(Column('torque', Float()))
+        columns.append(Column('load', Float()))
+        columns.append(Column('speed', Float()))
+        columns.append(Column('travel_time', Float()))
         
         #functions
         functions = []
         #simulation settings
         sim = { 
-                'freq' : '5min',
-                'scd_frequency' : '90min',
-                'activity_frequency' : '4H',                            
-                'data_item_mean' :{'torque':12,
-                                   'load' : 375,
+                'freq': '5min',
+                'scd_frequency': '90min',
+                'activity_frequency': '4H',
+                'data_item_mean': {'torque': 12,
+                                   'load': 375,
+                                   'speed': 3,
+                                   'travel_time': 1
                                    },
-                'scds' : { 'operator' : ['Fred K',
-                                         'Mary J',
-                                         'Jane S',
-                                         'Jeff H',
-                                         'Harry L',
-                                         'Steve S']
+                'scds': {'operator': [
+                    'Fred K',
+                    'Mary J',
+                    'Jane S',
+                    'Jeff H',
+                    'Harry L',
+                    'Steve S']
                         },
-                'activities' : {
-                        'maintenance' : ['scheduled_maint',
-                                          'unscheduled_maint',
-                                          'firmware_upgrade',
-                                          'testing'],
-                        'setup' : ['normal_setup','reconfiguration'],
+                'activities': {
+                        'maintenance': [
+                            'scheduled_maint',
+                            'unscheduled_maint',
+                            'firmware_upgrade',
+                            'testing'],
+                        'setup': ['normal_setup', 'reconfiguration'],
                         },
-                'drop_existing' : False
+                'drop_existing': False
                 }
         generator = bif.EntityDataGenerator(ids=None,**sim)                
         functions.append(generator)

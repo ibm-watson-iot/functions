@@ -216,7 +216,6 @@ class BaseFunction(object):
             name = 'test_entity_for_%s' %self.__class__.__name__
         
         # a local entity type exists in memory only. No db object or tables.
-        
 
         et = LocalEntityType(
               name = name,

@@ -1205,7 +1205,7 @@ class Database(object):
              }            
             self.http_request(object_type='function',
                               object_name=name,
-                              request = "DELETE",
+                              request="DELETE",
                               payload=payload,
                               raise_error = False)
             self.http_request(object_type='function',

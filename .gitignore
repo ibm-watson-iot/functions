@@ -117,3 +117,6 @@ scripts/df_test_entity_for_pythonfunction.csv
 scripts/data_writer_data_writer_input_level_.csv
 scripts/EntityType_widgets_trace_20190516051848439272.json
 *.csv
+*.json
+scripts/register_bifs.py
+scripts/intro_tutorial.py
