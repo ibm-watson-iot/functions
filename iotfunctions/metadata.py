@@ -210,6 +210,7 @@ class EntityType(object):
     '''    
     
     is_entity_type = True
+    is_local = False
     auto_create_table = True        
     log_table = 'KPI_LOGGING'  # deprecated, to be removed
     checkpoint_table = 'KPI_CHECKPOINT'  # deprecated,to be removed
@@ -351,7 +352,7 @@ class EntityType(object):
         grains = list(categorized.get('granularity',[]))
         
         #  create a database table if needed using cols
-        if name is not None and db is not None:            
+        if name is not None and db is not None and not self.is_local:
             try:
                 self.table = self.db.get_table(self.name,self._db_schema)
             except KeyError:
@@ -1405,9 +1406,9 @@ class EntityType(object):
             self.drop_child_tables()
                 
         exclude_cols =  ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]  
-        if self.db is None:
+        if self.db is None or self.is_local:
             write = False
-            msg = 'This is a null entity with no database connection, test data will not be written'
+            msg = 'This is a local entity or entity with no database connection, test data will not be written'
             logger.debug(msg)
             (metrics,dates,categoricals,others) = self.get_local_column_lists_by_type(columns)
         else:
@@ -2129,6 +2130,8 @@ class LocalEntityType(EntityType):
     '''
     Entity type for local testing. No db connection required.
     '''
+
+    is_local = True
     
     def __init__ (self,
                   name,

@@ -74,7 +74,7 @@ dataframe it receives as input.
 
 def f(df,parameters = None):
     #  generate an 2-D array of random numbers
-    
+    import numpy as np
     output = np.random.normal(1,0.1,len(df.index))
     return output
 
@@ -94,6 +94,7 @@ standard deviation. Let's add some more code to calibrate it from the data.
 '''
 
 def f(df,parameters = None):
+    import numpy as np
     #  generate an 2-D array of random numbers
     mean = df['speed'].mean()
     sd = df['speed'].std()
@@ -114,6 +115,7 @@ Of course you can also add control logic to a function.
 
 def f(df,parameters = None):
     #  generate an 2-D array of random numbers
+    import numpy as np
     mean = df['speed'].mean()
     sd = df['speed'].std()
     if df['travel_time'].min() < 90:
@@ -148,7 +150,8 @@ This function uses a parameter called 'rating'.
 '''
 
 def f(df,parameters = None):
-    #  generate an 2-D array of random numbers
+    #  generate an 2-D array of random number
+    import numpy as np
     mean = df['speed'].mean() * parameters.get('rating',1)
     sd = df['speed'].std()
     output = np.random.normal(mean,sd,len(df.index))

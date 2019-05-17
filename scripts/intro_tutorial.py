@@ -22,17 +22,41 @@ db = Database(credentials=credentials)
 
 '''
 
-Use PythonFunction to calculate distance traveled
+Use PythonExpression to calculate distance traveled
 
 '''
 
-from iotfunctions import PythonFunction
-dist = PythonFunction(expression='df["speed"] * df["travel_time"] ')
-dist.execute_local_test(dist)
+from iotfunctions.bif import PythonExpression
+dist = PythonExpression(expression='df["speed"] * df["travel_time"] ',
+                        output_name = 'distance')
+dist.execute_local_test()
 
+'''
+Use PythonFunction to identify outliers
+
+'''
+
+fnstr = '''def f(df,parameters = None):
+    import numpy as np
+    threshold = df['distance'].mean() + 2 * df['distance'].std()
+    output = np.where(df['distance']>threshold,True,None)
+    return output
+'''
+
+from iotfunctions.bif import PythonFunction
+dist = PythonFunction(
+            function_code = fnstr,
+            input_items = ['distance'],
+            output_item = 'is_distance_high',
+            parameters = None )
+dist.execute_local_test(db=db)
+raise
 
 
 '''
+Use custom function
+'''
+
 
 class MultiplyTwoItems(BaseTransformer):
     '''
