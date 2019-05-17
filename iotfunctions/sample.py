@@ -400,23 +400,43 @@ class MultiplyByTwo(BaseTransformer):
         df[self.output_item] = df[self.input_item] * 2
         return df
 
-class MultiplyByConstant(BaseTransformer):
+class MultiplyByFactor(BaseTransformer):
     '''
-    Multiply input column by a constant to produce output column
+    Multiply a list of input data items by a constant to produce a data output column
+    for each input column in the list.
     '''
     
-    def __init__(self, input_item, constant, output_item = 'output_item'):
+    def __init__(self, input_items, factor, output_items):
                 
-        self.input_item = input_item
-        self.output_item = output_item
-        self.constant = float(constant)
-        
+        self.input_items = input_items
+        self.output_items = output_items
+        self.factor = float(factor)
         super().__init__()
 
     def execute(self, df):
-        df = df.copy()        
-        df[self.output_item] = df[self.input_item] * self.constant
+        df = df.copy()
+        for i,input_item in enumerate(self.input_items):
+            df[self.output_items[i]] = df[input_item] * self.factor
         return df
+    
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UIMultiItem(
+                name = 'input_items',
+                datatype=float,
+                description = "Data items adjust",
+                output_item = 'output_items',
+                is_output_datatype_derived = True)
+                      )        
+        inputs.append(ui.UISingle(
+                name = 'factor',
+                datatype=float)
+                      )
+        outputs = []
+        return (inputs,outputs)          
+    
     
 class MultiplyByConstantPicklist(BaseTransformer):
     '''
@@ -693,17 +713,17 @@ class StatusFilter(BaseFilter):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs=[]
-        inputs.append(UISingleItem(name = 'status_input_item',
+        inputs.append(ui.UISingleItem(name = 'status_input_item',
                                               datatype=None,
                                               description = 'Item name to use for status'
                                               ))
-        inputs.append(UISingle(name = 'include_only',
+        inputs.append(ui.UISingle(name = 'include_only',
                                               datatype=str,
                                               description = 'Filter to include only rows with a status of this'
                                               ))        
         #define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item',
+        outputs.append(ui.UIFunctionOutSingle(name = 'output_item',
                                                      datatype=bool,
                                                      description='Item that contains the execution status of this function'
                                                      ))
