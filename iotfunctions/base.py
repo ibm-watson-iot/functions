@@ -1302,6 +1302,7 @@ class BaseFunction(object):
         self.set_params(**params)
         
         df = et.generate_data(days = generate_days,columns=et.local_columns)
+        df = et.index_df(df)
         df = self.execute(df=df)
         if to_csv:
             filename = 'df_%s.csv' % et.name
@@ -1483,6 +1484,7 @@ class BaseDataSource(BaseTransformer):
         Retrieve data and combine with pipeline data
         '''
         new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
+        new_df = self._entity_type.index_df(new_df)
         self.log_df_info(df,'source dataframe before merge')
         self.log_df_info(new_df,'additional data source to be merged')        
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))

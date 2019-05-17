@@ -137,7 +137,7 @@ class MergeSampleTimeSeries(BaseDataSource):
     Merge the contents of a table containing time series data with entity source data
 
     """
-    merge_method = 'nearest'  # or outer, concat
+    merge_method = 'outer'  # or outer, concat, nearest
     # use concat when the source time series contains the same metrics as the entity type source data
     # use nearest to align the source time series to the entity source data
     # use outer to add new timestamps and metrics from the source
