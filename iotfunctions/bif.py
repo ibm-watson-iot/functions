@@ -514,8 +514,8 @@ class CoalesceDimension(BaseTransformer):
 
 class ConditionalItems(BaseTransformer):
     """
-    Set the value of a data item based on the value of a conditional expression 
-    eg. if df["sensor_is_valid"]==True then df["temp"] and df["pressure"] are valid else null
+    Return null unless a condition is met.
+    eg. if df["sensor_is_valid"]==True then deliver the value of df["temperature"] else deliver Null
     """
     def __init__(self,conditional_expression, conditional_items, output_items = None):
         
@@ -750,7 +750,9 @@ class DateDifferenceConstant(BaseTransformer):
     
 class DatabaseLookup(BaseDatabaseLookup):
     """
-    Lookup Company information from a database table        
+    Lookup columns from a database table. The lookup is time invariant. Lookup key column names
+    must match data items names. Example: Lookup EmployeeCount and Country from a Company lookup
+    table that is keyed on country_code.
     """
     
     #create the table and populate it using the data dict
@@ -1021,7 +1023,8 @@ class EntityDataGenerator(BasePreload):
 
 class EntityFilter(BaseMetadataProvider):
     '''
-    Filter data source results on a list of entity ids
+    Filter data retrieval queries to retrieve only data for the entity ids
+    included in the filter
     '''
     
     def __init__(self, entity_list, output_item= 'is_filter_set'):
@@ -1202,7 +1205,13 @@ class EntityId(BaseTransformer):
     
 class IfThenElse(BaseTransformer):
     """
-    Set the value of a data item based on the value of a conditional expression
+    Set the value of the output_item based on a conditional expression.
+    When the conditional expression returns a True value, return the value of the true_expression.
+
+    Example:
+    conditional_expression: df['x1'] > 5 * df['x2']
+    true expression: df['x2'] * 5
+    false expression: 0
     """
     
     def __init__(self,conditional_expression, true_expression, false_expression, output_item = 'output_item'):
@@ -1213,7 +1222,7 @@ class IfThenElse(BaseTransformer):
         self.false_expression = self.parse_expression(false_expression)
         self.output_item = output_item
         
-    def execute(self,df):
+    def execute(self, df):
         c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.output_item] = np.where(eval(self.conditional_expression),
@@ -1262,7 +1271,7 @@ class PackageInfo(BaseTransformer):
         self.version_output = version_output
         super().__init__()
         
-    def execute(self,df):
+    def execute(self, df):
         import importlib
         entity_type = self.get_entity_type()
         df = df.copy()
@@ -1353,7 +1362,7 @@ class PythonFunction(BaseTransformer):
             
         self.parameters = parameters
         
-    def execute(self,df):
+    def execute(self, df):
         
         #function may have already been serialized to cos
         
@@ -1628,32 +1637,36 @@ class RandomChoiceString(BaseTransformer):
         self.probabilities = adjust_probabilities(probabilities)
         self.output_item = output_item
         
-    def execute(self,df):
+    def execute(self, df):
         
         df[self.output_item] = np.random.choice(
-                a = self.domain_of_values,
-                p = self.probabilities,
-                size = len(df.index))
+                a=self.domain_of_values,
+                p=self.probabilities,
+                size=len(df.index))
         
         return df
     
     @classmethod
     def build_ui(cls):
-        #define arguments that behave as function inputs
+        #  define arguments that behave as function inputs
+
         inputs = []
         inputs.append(UIMulti(name='domain_of_values',
                               datatype=str,
-                              required = False))
-        inputs.append(UIMulti(name='probabilities',datatype=float))
-        #define arguments that behave as function outputs
+                              required=True))
+        inputs.append(UIMulti(name='probabilities',
+                              datatype=float,
+                              required=False))
+        #  define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item',
-                                             datatype=str,
-                                             description='Random output',
-                                             tags= ['DIMENSION']
-                                             ))
+        outputs.append(UIFunctionOutSingle(
+                            name='output_item',
+                            datatype=str,
+                            description='Random output',
+                            tags=['DIMENSION']
+                        ))
     
-        return (inputs,outputs)   
+        return (inputs, outputs)
 
 
 class RandomDiscreteNumeric(BaseTransformer):
@@ -1671,25 +1684,26 @@ class RandomDiscreteNumeric(BaseTransformer):
     def execute(self,df):
         
         df[self.output_item] = np.random.choice(
-                a = self.discrete_values,
-                p = self.probabilities,
-                size = len(df.index))
+                a=self.discrete_values,
+                p=self.probabilities,
+                size=len(df.index))
         
         return df
     
     @classmethod
     def build_ui(cls):
-        #define arguments that behave as function inputs
+        #  define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMulti(name='discrete_values',datatype=float))
-        inputs.append(UIMulti(name='probabilities',datatype=float,
-                              required = False))
-        #define arguments that behave as function outputs
+        inputs.append(UIMulti(name='discrete_values', datatype=float))
+        inputs.append(UIMulti(name='probabilities', datatype=float,
+                              required=False))
+        #  define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item',
-                                             datatype=float,
-                                             description='Random output'
-                                             ))
+        outputs.append(UIFunctionOutSingle(
+            name='output_item',
+            datatype=float,
+            description='Random output'
+            ))
     
         return (inputs,outputs)
 
