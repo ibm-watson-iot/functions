@@ -2363,20 +2363,35 @@ class BaseEstimatorFunction(BaseTransformer):
         return df
         
     def execute_train_test_split(self,df):
+
         '''
         Split dataframe into test and training sets
         '''
+
         df_train, df_test = train_test_split(df,test_size=self.test_size)
         self.log_df_info(df_train,msg='training set',include_data=False)
         self.log_df_info(df_test,msg='test set',include_data=False)        
         return (df_train,df_test)        
     
     def find_best_model(self,df_train, df_test, target, features, existing_model):
+
+        '''
+
+        Attempt to train a better model than the current existing model.
+
+        :param df_train: DataFrame containing training data
+        :param df_test: DataFrame containing test data
+        :param target: str
+        :param features: list of strs
+        :param existing_model: Model object
+        :return: Model object
+        '''
+
         metric_name = self.eval_metric.__name__
+
+        # build a list of estimators to fit as experiments
+
         estimators = self.make_estimators(names=None, count = self.experiments_per_execution)
-        
-        print()
-        
         if existing_model is None:
             trained_models = []
             best_test_metric = None
@@ -2385,7 +2400,10 @@ class BaseEstimatorFunction(BaseTransformer):
             trained_models = [existing_model]
             best_test_metric = existing_model.eval_metric_test
             best_model = existing_model
-        for (name,estimator,params) in estimators:
+
+        # fit a model for each estimator
+
+        for (name, estimator, params) in estimators:
             estimator = self.fit_with_search_cv(estimator = estimator,
                                                 params = params,
                                                 df_train = df_train,
@@ -2403,8 +2421,11 @@ class BaseEstimatorFunction(BaseTransformer):
                           estimator = estimator,
                           estimator_name = name,
                           shelf_life_days = self.shelf_life_days)
-            eval_metric_test = model.score(df_test)
+            eval_metric_test = model.test(df_test)
             trained_models.append(model)
+
+            # decide whether the fit is better than the previous best fit
+
             if best_test_metric is None:
                 best_model = model
                 best_test_metric = eval_metric_test

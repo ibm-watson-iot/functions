@@ -25,5 +25,16 @@ samples = [
                         )
 ]
 
+params = {
+    'auto_train': True,
+    'experiments_per_execution': 1,
+    'parameter_tuning_iterations': 3,
+    'test_size': 0.2,
+    'stop_auto_improve_at': 0.85,
+    'acceptable_score_for_model_acceptance': -1,
+    'greater_is_better': True,
+    'version_model_writes': False
+}
+
 for s in samples:
-    s.execute_local_test(db=db, columns=cols)
+    s.execute_local_test(db=db, columns=cols, **params)
