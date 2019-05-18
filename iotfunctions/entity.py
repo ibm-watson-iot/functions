@@ -337,7 +337,7 @@ class PackagingHopper(metadata.BaseCustomEntityType):
         functions.append(est.SimpleAnomaly(
             features=['ambient_temp','ambient_humidity'],
             targets=['dispensed_mass_actual'],
-            threshold=0.1,
+            threshold=1,
             predictions=['dispensed_mass_predicted'],
             alerts=['anomaly_in_fill_detected']))
                 
