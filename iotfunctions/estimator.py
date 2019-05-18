@@ -1,15 +1,7 @@
 import logging
-import datetime as dt
-import numpy as np
-from collections import OrderedDict
-from sklearn import linear_model, ensemble, metrics, neural_network
-from sklearn.model_selection import train_test_split, RandomizedSearchCV
-from iotfunctions.base import BaseTransformer
-from .db import Database
-from .pipeline import CalcPipeline, PipelineExpression
-from .base import BaseRegressor, BaseEstimatorFunction, BaseClassifier
+from sklearn import metrics
+from .base import BaseRegressor, BaseClassifier
 from .bif import AlertHighValue
-from .metadata import Model
 from .ui import UIMultiItem, UISingle ,UISingleItem, UIFunctionOutSingle, UIFunctionOutMulti
 
 logger = logging.getLogger(__name__)
@@ -18,6 +10,7 @@ PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 _IS_PREINSTALLED = True
 
 class SimpleAnomaly(BaseRegressor):
+
     '''
     Sample function uses a regression model to predict the value of one or more output
     variables. It compares the actual value to the prediction and generates an alert 
@@ -27,6 +20,7 @@ class SimpleAnomaly(BaseRegressor):
     train_if_no_model = True
     estimators_per_execution = 3
     num_rounds_per_estimator = 3
+
     def __init__(self, features, targets, threshold,
                  predictions=None, alerts = None):
         super().__init__(features=features, targets = targets, predictions=predictions)
@@ -74,6 +68,7 @@ class SimpleAnomaly(BaseRegressor):
         return (inputs,outputs)    
 
 class SimpleRegressor(BaseRegressor):
+
     '''
     Sample function that predicts the value of a continuous target variable using the selected list of features.
     This function is intended to demonstrate the basic workflow of training, evaluating, deploying
@@ -83,42 +78,91 @@ class SimpleRegressor(BaseRegressor):
     train_if_no_model = True
     estimators_per_execution = 3
     num_rounds_per_estimator = 3
-    def __init__(self, features, targets, predictions=None):
-        super().__init__(features=features, targets = targets, predictions=predictions)
 
-        
+    def __init__(self, features, targets, predictions=None):
+        super().__init__(features=features, targets=targets, predictions=predictions)
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features',
+                                  datatype=float,
+                                  required=True
+                                  ))
+        inputs.append(UIMultiItem(name='targets',
+                                  datatype=float,
+                                  required=True,
+                                  output_item='predictions',
+                                  is_output_datatype_derived=True
+                                  ))
+        return (inputs,[])
 
 class SimpleClassifier(BaseClassifier):
+
     '''
     Sample function that predicts the value of a discrete target variable using the selected list of features.
     This function is intended to demonstrate the basic workflow of training, evaluating, deploying
     using a model. 
     '''
+
     eval_metric = staticmethod(metrics.accuracy_score)
     #class variables
     train_if_no_model = True
     estimators_per_execution = 3
     num_rounds_per_estimator = 3
+
     def __init__(self, features, targets, predictions=None):
         super().__init__(features=features, targets = targets, predictions=predictions)
 
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features',
+                                  datatype=float,
+                                  required=True
+                                  ))
+        inputs.append(UIMultiItem(name='targets',
+                                  datatype=float,
+                                  required=True,
+                                  output_item='predictions',
+                                  is_output_datatype_derived=True
+                                  ))
+        return (inputs,[])
         
 class SimpleBinaryClassifier(BaseClassifier):
+
     '''
     Sample function that predicts the value of a discrete target variable using the selected list of features.
     This function is intended to demonstrate the basic workflow of training, evaluating, deploying
     using a model. 
     '''
+
     eval_metric = staticmethod(metrics.f1_score)
     #class variables
     train_if_no_model = True
     estimators_per_execution = 3
     num_rounds_per_estimator = 3
+
     def __init__(self, features, targets, predictions=None):
         super().__init__(features=features, targets = targets, predictions=predictions)
         for t in self.targets:
-            self.add_training_expression(t,'df[%s]=df[%s].astype(bool)' %(t,t))
+            self.add_training_expression(t, 'df[%s]=df[%s].astype(bool)' %(t,t))
 
-
-
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features',
+                                  datatype=float,
+                                  required=True
+                                  ))
+        inputs.append(UIMultiItem(name='targets',
+                                  datatype=float,
+                                  required=True,
+                                  output_item='predictions',
+                                  is_output_datatype_derived=True
+                                  ))
+        return (inputs,[])
 

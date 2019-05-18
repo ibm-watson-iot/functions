@@ -27,7 +27,7 @@ from iotfunctions.base import (BaseTransformer, BaseDataSource, BaseEvent,BaseFi
 from iotfunctions import ui
 
 '''
-This module contains a number of sample functions.
+This module contains a number of sample functions. 
 '''
 
 logger = logging.getLogger(__name__)
@@ -37,25 +37,280 @@ PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
     
 class CompanyFilter(BaseFilter):
     '''
-    Demonstration function that filters on particular company codes. 
+    Demonstration function that filters data on a particular company code. 
     '''
     
-    def __init__(self, company_code, company,output_item = None):
-        super().__init__(dependent_items = company_code, output_item = output_item)
+    def __init__(self, company_code, company,status_flag = None):
+        super().__init__(dependent_items = company_code, output_item = status_flag)
         self.company_code = company_code
         self.company = company
-        
-    def get_item_values(self,arg):
-        """
-        Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
-        """
-        if arg == 'company':           
-            return(['AMCE','ABC','JDI'])
+        self.status_flag = status_flag
         
     def filter(self,df):
         df = df[df[self.company_code]==self.company]
-        return df    
+        return df
     
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UISingleItem(name='company_code',datatype=bool))
+        inputs.append(ui.UIMulti(
+                name='company',
+                datatype=str,
+                values = ['AMCE','ABC','JDI']))
+        return (inputs,[ui.UIStatusFlag('status_flag')])
+
+class MultiplyTwoItems(BaseTransformer):
+    '''
+    Multiply two input items together to produce output column
+    '''
+
+    def __init__(self, input_item_1, input_item_2, output_item):
+        self.input_item_1 = input_item_1
+        self.input_item_2 = input_item_2
+        self.output_item = output_item
+        super().__init__()
+
+    def execute(self, df):
+        df = df.copy()
+        df[self.output_item] = df[self.input_item_1] * df[self.input_item_2]
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UISingleItem(
+            name='input_item_1',
+            datatype=float,
+            description='Input item 1'
+        ))
+        inputs.append(ui.UISingleItem(
+            name='input_item_2',
+            datatype=float,
+            description="Input item 2"
+        ))
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(ui.UIFunctionOutSingle(
+            name='output_item',
+            datatype=float,
+            description='output data'
+        ))
+        return (inputs, outputs)
+
+class MultiplyColumns(BaseTransformer):
+    '''
+    Columnwise multiplication of multiple data items
+    '''
+
+    def __init__(self, input_items, output_item='output_item'):
+        self.input_items = input_items
+        self.output_item = output_item
+
+        super().__init__()
+
+    def execute(self, df):
+        df = df.copy()
+        df[self.output_item] = df[self.input_items].product(axis=1)
+        return df
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UIMultiItem(
+            name='input_items',
+            datatype=float,
+            description='Choose columns to multiply',
+            required=True,
+            ))
+        outputs = [
+            ui.UIFunctionOutSingle(name='output_item', datatype=float)
+        ]
+        return (inputs,outputs)
+
+class MergeSampleTimeSeries(BaseDataSource):
+    """
+    Merge the contents of a table containing time series data with entity source data
+
+    """
+    merge_method = 'outer'  # or outer, concat, nearest
+    # use concat when the source time series contains the same metrics as the entity type source data
+    # use nearest to align the source time series to the entity source data
+    # use outer to add new timestamps and metrics from the source
+    merge_nearest_tolerance = pd.Timedelta('1D')
+    merge_nearest_direction = 'nearest'
+    source_table_name = 'sample_time_series'
+    source_entity_id = 'deviceid'
+    # metadata for generating sample
+    sample_metrics = ['temp', 'pressure', 'velocity']
+    sample_entities = ['entity1', 'entity2', 'entity3']
+    sample_initial_days = 3
+    sample_freq = '1min'
+    sample_incremental_min = 5
+
+    def __init__(self, input_items, output_items=None):
+        super().__init__(input_items=input_items, output_items=output_items)
+
+    def get_data(self, start_ts=None, end_ts=None, entities=None):
+
+        self.load_sample_data()
+        (query, table) = self._entity_type.db.query(self.source_table_name, schema=self._entity_type._db_schema)
+        if not start_ts is None:
+            query = query.filter(table.c[self._entity_type._timestamp] >= start_ts)
+        if not end_ts is None:
+            query = query.filter(table.c[self._entity_type._timestamp] < end_ts)
+        if not entities is None:
+            query = query.filter(table.c.deviceid.in_(entities))
+        df = pd.read_sql(query.statement,
+                         con=self._entity_type.db.connection,
+                         parse_dates=[self._entity_type._timestamp])
+        return df
+
+    def get_item_values(self, arg):
+        """
+        Get list of values for a picklist
+        """
+        if arg == 'input_items':
+
+            return self._entity_type.db.get_column_names(self.source_table_name)
+        else:
+            msg = 'No code implemented to gather available values for argument %s' % arg
+            raise NotImplementedError(msg)
+
+    def load_sample_data(self):
+
+        if not self._entity_type.db.if_exists(self.source_table_name):
+            generator = TimeSeriesGenerator(metrics=self.sample_metrics,
+                                            ids=self.sample_entities,
+                                            freq=self.sample_freq,
+                                            days=self.sample_initial_days,
+                                            timestamp=self._entity_type._timestamp)
+        else:
+            generator = TimeSeriesGenerator(metrics=self.sample_metrics,
+                                            ids=self.sample_entities,
+                                            freq=self.sample_freq,
+                                            seconds=self.sample_incremental_min * 60,
+                                            timestamp=self._entity_type._timestamp)
+
+        df = generator.execute()
+        self._entity_type.db.write_frame(df=df, table_name=self.source_table_name,
+                                         version_db_writes=False,
+                                         if_exists='append',
+                                         schema=self._entity_type._db_schema,
+                                         timestamp_col=self._entity_type._timestamp_col)
+
+    def get_test_data(self):
+
+        generator = TimeSeriesGenerator(metrics=['acceleration'],
+                                        ids=self.sample_entities,
+                                        freq=self.sample_freq,
+                                        seconds=300,
+                                        timestamp=self._entity_type._timestamp)
+
+        df = generator.execute()
+        df = self._entity_type.index_df(df)
+        return df
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UIMulti(
+            name='input_items',
+            datatype=None,
+            description='Choose columns to bring from source table',
+            required=True,
+            output_item='output_items',
+            is_output_datatype_derived=True
+            ))
+        # outputs are included as an empty list as they are derived from inputs
+        return (inputs,[])
+
+class MultiplyByFactor(BaseTransformer):
+
+    '''
+    Multiply a list of input data items by a constant to produce a data output column
+    for each input column in the list.
+    '''
+
+    def __init__(self, input_items, factor, output_items):
+        self.input_items = input_items
+        self.output_items = output_items
+        self.factor = float(factor)
+        super().__init__()
+
+    def execute(self, df):
+        df = df.copy()
+        for i, input_item in enumerate(self.input_items):
+            df[self.output_items[i]] = df[input_item] * self.factor
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UIMultiItem(
+            name='input_items',
+            datatype=float,
+            description="Data items adjust",
+            output_item='output_items',
+            is_output_datatype_derived=True)
+        )
+        inputs.append(ui.UISingle(
+            name='factor',
+            datatype=float)
+        )
+        outputs = []
+        return (inputs, outputs)
+
+class StatusFilter(BaseFilter):
+    '''
+    Demonstration function that filters on particular company codes.
+    '''
+
+    def __init__(self, status_input_item, include_only, output_item=None):
+        super().__init__(dependent_items=[status_input_item], output_item=output_item)
+        self.status_input_item = status_input_item
+        self.include_only = include_only
+
+    def get_item_values(self, arg):
+        if arg == 'include_only':
+            return (['active', 'inactive'])
+        else:
+            return None
+
+    def filter(self, df):
+        df = df[df['status'] == self.include_only]
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UISingleItem(name='status_input_item',
+                                      datatype=None,
+                                      description='Item name to use for status'
+                                      ))
+        inputs.append(ui.UISingle(name='include_only',
+                                  datatype=str,
+                                  description='Filter to include only rows with a status of this'
+                                  ))
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(ui.UIFunctionOutSingle(name='output_item',
+                                              datatype=bool,
+                                              description='Item that contains the execution status of this function'
+                                              ))
+        return (inputs, outputs)
+
+'''
+These functions have no build_ui() method. They are included to show function logic.
+'''
     
 class ComputationsOnStringArray(BaseTransformer):
     '''
@@ -88,8 +343,7 @@ class ComputationsOnStringArray(BaseTransformer):
             out = out + str(np.random.normal(1,0.1)) + ','
         out = out[:-1]
         
-        return out    
-    
+        return out
 
 class FillForwardByEntity(BaseTransformer):    
     '''
@@ -108,8 +362,7 @@ class FillForwardByEntity(BaseTransformer):
     def _calc(self, df):
         df = df.copy()
         df[self.output_item] = df[self.input_item].ffill()
-        return df 
-    
+        return df
             
 class FlowRateMonitor(BaseTransformer):  
     '''
@@ -131,10 +384,8 @@ class FlowRateMonitor(BaseTransformer):
         total_output = df[self.output_flows].sum(axis='columns')
         df[self.output] = np.where((total_input-total_output)/ total_input > self.loss_threshold, True, False)
         
-        return df   
-      
-    
-    
+        return df
+
 class InputsAndOutputsOfMultipleTypes(BaseTransformer):
     '''
     This sample function is just a pass through that demonstrates the use of multiple datatypes for inputs and outputs
@@ -159,34 +410,7 @@ class InputsAndOutputsOfMultipleTypes(BaseTransformer):
         df[self.output_date] = df[self.input_date]
         df[self.output_str] = df[self.input_str]
         return df
-    
 
-class InputDataGenerator(BaseTransformer):
-    '''
-    This sample function was removed.
-    '''
-    def __init__(self):
-        
-        super().__init__()
-        
-    def execute(self,df):
-        
-        raise ImportError ('Error in function catalog. InputDataGenerator was removed from samples. Use EntityDataGenerator.')
-
-class TempPressureVolumeGenerator(BaseTransformer):
-    '''
-    This sample function was removed.
-    '''
-    def __init__(self):
-        
-        super().__init__()
-        
-    def execute(self,df):
-        
-        raise ImportError ('Error in function catalog. TempPressureVolumeGenerator was removed from samples. Use EntityDataGenerator.')
-    
-    
-    
 class LookupCompany(BaseDatabaseLookup):
     """
     Lookup Company information from a database table        
@@ -236,7 +460,6 @@ class LookupCompany(BaseDatabaseLookup):
     
         # The base class takes care of the rest
         # No execute() method required
-                
         
 class LookupOperator(BaseSCDLookup):
     '''
@@ -254,7 +477,6 @@ class LookupOperator(BaseSCDLookup):
         self.dummy_item = dummy_item
         table_name = 'widgets_scd_operator'
         super().__init__(table_name = table_name, output_item = output_item)
-        
 
 class LookupStatus(BaseSCDLookup):
     '''
@@ -272,227 +494,6 @@ class LookupStatus(BaseSCDLookup):
         self.dummy_item = dummy_item
         table_name = 'widgets_scd_status'
         super().__init__(table_name = table_name, output_item = output_item)
-    
-
-     
-class MergeSampleTimeSeries(BaseDataSource):
-    """
-    Merge the contents of a table containing time series data with entity source data
-
-    """
-    merge_method = 'nearest' #or outer, concat
-    #use concat when the source time series contains the same metrics as the entity type source data
-    #use nearest to align the source time series to the entity source data
-    #use outer to add new timestamps and metrics from the source
-    merge_nearest_tolerance = pd.Timedelta('1D')
-    merge_nearest_direction = 'nearest' 
-    source_table_name = 'sample_time_series'
-    source_entity_id = 'deviceid'
-    #metadata for generating sample
-    sample_metrics = ['temp','pressure','velocity']
-    sample_entities = ['entity1','entity2','entity3']
-    sample_initial_days = 3
-    sample_freq = '1min'
-    sample_incremental_min = 5
-    
-    def __init__(self, input_items, output_items=None):
-        super().__init__(input_items = input_items, output_items = output_items)
-
-    def get_data(self,start_ts=None,end_ts=None,entities=None):
-        
-        self.load_sample_data()
-        (query,table) = self._entity_type.db.query(self.source_table_name,schema = self._entity_type._db_schema)
-        if not start_ts is None:
-            query = query.filter(table.c[self._entity_type._timestamp] >= start_ts)
-        if not end_ts is None:
-            query = query.filter(table.c[self._entity_type._timestamp] < end_ts)  
-        if not entities is None:
-            query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql(query.statement,
-                         con = self._entity_type.db.connection,
-                         parse_dates=[self._entity_type._timestamp])        
-        return df
-    
-    
-    def get_item_values(self,arg):
-        """
-        Get list of values for a picklist
-        """
-        if arg == 'input_items':
-
-            return self._entity_type.db.get_column_names(self.source_table_name)
-        else:
-            msg = 'No code implemented to gather available values for argument %s' %arg
-            raise NotImplementedError(msg)      
-        
-    
-    def load_sample_data(self):
-                
-        if not self._entity_type.db.if_exists(self.source_table_name):
-            generator = TimeSeriesGenerator(metrics=self.sample_metrics,
-                                            ids = self.sample_entities,
-                                            freq = self.sample_freq,
-                                            days = self.sample_initial_days,
-                                            timestamp = self._entity_type._timestamp)
-        else:
-            generator = TimeSeriesGenerator(metrics=self.sample_metrics,
-                                            ids = self.sample_entities,
-                                            freq = self.sample_freq,
-                                            seconds = self.sample_incremental_min*60,
-                                            timestamp = self._entity_type._timestamp)
-        
-        df = generator.execute()
-        self._entity_type.db.write_frame(df = df, table_name = self.source_table_name,
-                       version_db_writes = False,
-                       if_exists = 'append',
-                       schema = self._entity_type._db_schema,
-                       timestamp_col = self._entity_type.timestamp_col)
-        
-    def get_test_data(self):
-
-        generator = TimeSeriesGenerator(metrics=['acceleration'],
-                                        ids = self.sample_entities,
-                                        freq = self.sample_freq,
-                                        seconds = 300,
-                                        timestamp = self._entity_type._timestamp)
-        
-        df = generator.execute()
-        df = self.conform_index(df)
-        return df
-
-class MultiplyArrayByConstant(BaseTransformer):
-    '''
-    Multiply a list of input columns by a constant to produce a new output column for each input column in the list.
-    The names of the new output columns are defined in a list(array) rather than as discrete parameters.
-    '''
-    
-    def __init__(self, input_items, constant, output_items):
-                
-        self.input_items = input_items
-        self.output_items = output_items
-        self.constant = float(constant)
-        super().__init__()
-
-    def execute(self, df):
-        df = df.copy()
-        for i,input_item in enumerate(self.input_items):
-            df[self.output_items[i]] = df[input_item] * self.constant
-        return df
-
-
-class MultiplyByTwo(BaseTransformer):
-    '''
-    Multiply input column by 2 to produce output column
-    '''
-    auto_register_args = {
-        'input_item' : 'x_1'
-        }
-    
-    def __init__(self, input_item, output_item = 'output_item'):
-        
-        self.input_item = input_item
-        self.output_item = output_item
-        
-        super().__init__()
-
-    def execute(self, df):
-        df = df.copy()
-        df[self.output_item] = df[self.input_item] * 2
-        return df
-
-class MultiplyByConstant(BaseTransformer):
-    '''
-    Multiply input column by a constant to produce output column
-    '''
-    
-    def __init__(self, input_item, constant, output_item = 'output_item'):
-                
-        self.input_item = input_item
-        self.output_item = output_item
-        self.constant = float(constant)
-        
-        super().__init__()
-
-    def execute(self, df):
-        df = df.copy()        
-        df[self.output_item] = df[self.input_item] * self.constant
-        return df
-    
-class MultiplyByConstantPicklist(BaseTransformer):
-    '''
-    Multiply input value by a constant that will be entered via a picklist.
-    '''
-    
-    def __init__(self, input_item, constant, output_item = 'output_item'):
-                
-        self.input_item = input_item
-        self.output_item = output_item
-        self.constant = float(constant)
-        super().__init__()
-        
-        self.itemValues['constant'] = [-1,2,3,4,5]
-
-    def execute(self, df):
-        df = df.copy()        
-        df[self.output_item] = df[self.input_item] * self.constant
-        return df    
-
-class MultiplyTwoItems(BaseTransformer):
-    '''
-    Multiply two input items together to produce output column
-    '''
-    
-    def __init__(self, input_item_1, input_item_2, output_item):
-        self.input_item_1 = input_item_1
-        self.input_item_2 = input_item_2
-        self.output_item = output_item
-        super().__init__()
-
-
-    def execute(self, df):
-        df = df.copy()
-        df[self.output_item] = df[self.input_item_1] * df[self.input_item_2]
-        return df
-
-    @classmethod
-    def build_ui(cls):
-        #define arguments that behave as function inputs
-        inputs = []
-        inputs.append(ui.UISingleItem(
-                name = 'input_item_1',
-                datatype=float,
-                description = 'Input item 1'
-                                              ))
-        inputs.append(ui.UISingleItem(
-                name = 'input_item_2',
-                datatype=float,
-                description = "Input item 2"
-                                              ))
-        #define arguments that behave as function outputs
-        outputs = []
-        outputs.append(ui.UIFunctionOutSingle(
-                name = 'output_item',
-                datatype=float,
-                description='output data'
-                ))
-        return (inputs,outputs)     
-
-class MultiplyNItems(BaseTransformer): 
-    '''
-    Multiply multiple items together to produce output column
-    '''
-    
-    def __init__(self, input_items, output_item = 'output_item'):
-    
-        self.input_items = input_items
-        self.output_item = output_item
-        
-        super().__init__()
-        
-    def execute(self, df):
-        df = df.copy()
-        df[self.output_item] = df[self.input_items].product(axis=1)
-        return df
 
 class NegativeRemover(BaseTransformer):
     '''
@@ -516,7 +517,6 @@ class NegativeRemover(BaseTransformer):
             df[name] = np.where(df[src] >= 0.0, df[src], np.nan)
 
         return df
-
     
 class PivotRowsToColumns(BaseTransformer):
     '''
@@ -562,8 +562,7 @@ class PivotRowsToColumns(BaseTransformer):
             
         self.log_df_info(df,'After pivot rows to columns')
             
-        return df    
-
+        return df
 
 class OutlierRemover(BaseTransformer):
     '''
@@ -594,8 +593,6 @@ class OutlierRemover(BaseTransformer):
             df[self.name] = np.where(self.min <= df[self.source], 
                                      np.where(df[self.source] <= self.max, df[self.source], np.nan), np.nan)
         return df
-
-    
     
 class SamplePreLoad(BasePreload):
     '''
@@ -613,48 +610,15 @@ class SamplePreLoad(BasePreload):
         table = SystemLogTable(self.table_name,self._entity_type.db,
                                Column('status',String(50)))
         table.insert(df)    
-        return True    
-        
-
-class SampleActivityMerge(BaseDBActivityMerge):
-    '''
-    Merge data from multiple tables containing activities with start and end dates
-    '''
-    
-    warnings.warn(('This sample function is deprecated. Use IoTActivityDuration'
-                   ' for simple cases involving a single table.'
-                   ' Use SampleActivityDuration for an example of a complex'
-                   ' case with multiple input tables'
-                   ),
-                  DeprecationWarning)
-    
-    execute_by = ['deviceid']    
-    _is_instance_level_logged = False    
-    def __init__(self,
-                 input_activities,
-                 activity_duration=None,
-                 additional_items = None,
-                 additional_output_names = None,
-                 dummy_items = None):
-        super().__init__(input_activities=input_activities,
-                         activity_duration=activity_duration,
-                         additional_items = additional_items,
-                         additional_output_names = additional_output_names,
-                         dummy_items = dummy_items )
-        self.activities_metadata['widget_maintenance_activity'] = ['PM','UM']
-        self.activities_metadata['widget_transfer_activity'] = ['DT','IT']
-        self.activities_custom_query_metadata = {}
-        #self.activities_custom_query_metadata['CS'] = 'select effective_date as start_date, end_date, asset_id as deviceid from some_custom_activity_table'
-        et = self.get_entity_type()
-        et.add_slowly_changing_dimension(scd_property = 'status', table_name = 'widgets_dec12b_scd_status')
-        et.add_slowly_changing_dimension(scd_property = 'operator', table_name = 'widgets_dec12b_scd_operator')
-        
+        return True
 
 class SampleActivityDuration(BaseDBActivityMerge):
     '''
     Merge data from multiple tables containing activities with start and end dates
     '''
+
     _is_instance_level_logged = False
+
     def __init__(self,input_activities, activity_duration=None):
         super().__init__(input_activities=input_activities,
                          activity_duration=activity_duration )
@@ -667,48 +631,6 @@ class SampleActivityDuration(BaseDBActivityMerge):
         self.constants = ['input_activities']
         self.outputs = ['activity_duration','shift_day','shift_id','shift_start_date','shift_end_date']
         self.optionalItems = ['dummy_items']
-
-    
-class StatusFilter(BaseFilter):
-    '''
-    Demonstration function that filters on particular company codes. 
-    '''
-    
-    def __init__(self, status_input_item, include_only,output_item = None):
-        super().__init__(dependent_items = [status_input_item], output_item = output_item)
-        self.status_input_item = status_input_item
-        self.include_only = include_only
-        
-    def get_item_values(self,arg):
-        if arg == 'include_only':
-            return(['active','inactive'])
-        else:
-            return None
-        
-    def filter(self,df):
-        df = df[df['status']==self.include_only]
-        return df
-
-    @classmethod
-    def build_ui(cls):
-        #define arguments that behave as function inputs
-        inputs=[]
-        inputs.append(UISingleItem(name = 'status_input_item',
-                                              datatype=None,
-                                              description = 'Item name to use for status'
-                                              ))
-        inputs.append(UISingle(name = 'include_only',
-                                              datatype=str,
-                                              description = 'Filter to include only rows with a status of this'
-                                              ))        
-        #define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(name = 'output_item',
-                                                     datatype=bool,
-                                                     description='Item that contains the execution status of this function'
-                                                     ))
-        return (inputs,outputs)
-            
     
 class TimeToFirstAndLastInDay(BaseTransformer):
     '''
@@ -752,7 +674,6 @@ class TimeToFirstAndLastInDay(BaseTransformer):
         df[self.period_start] = df[self._entity_type._timestamp_col].dt.date
         df[self.period_end] = pd.to_datetime(df['_day']) + dt.timedelta(days=1)
         return df
-    
 
 class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
     '''
@@ -782,10 +703,9 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
         custom_calendar = self.get_custom_calendar()
         df = custom_calendar.execute(df)
         return df
-    
-
 
 class WriteDataFrame(BaseTransformer):
+
     '''
     Write the current contents of the pipeline to a database table
     '''    

@@ -1722,19 +1722,19 @@ class SaveCosDataFrame(BaseTransformer):
         self.columns = columns
         self.output_item = output_item
         
-    def execute(self,df):
+    def execute(self, df):
         
         if self.columns is not None:
-            df = df[self.columns]
+            sf = df[self.columns]
+        else:
+            sf = df
         db = self.get_db()
         bucket = self.get_bucket_name()
-        db.cos_save(persisted_object=df,
+        db.cos_save(persisted_object=sf,
                     filename=self.filename,
                     bucket=bucket,
                     binary=True)
-        
         df[self.output_item] = True
-        
         return df
         
     @classmethod

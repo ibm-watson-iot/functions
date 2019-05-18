@@ -2692,12 +2692,16 @@ class Trace(object)    :
     
 
 class Model(object):
+
     '''
     Predictive model
     '''
+
     def __init__(self, name , estimator, estimator_name , params,
-                 features, target, eval_metric_name, eval_metric_train,
-                 shelf_life_days):
+                 features, target, eval_metric_name,
+                 eval_metric_train=None,
+                 eval_metric_test=None,
+                 shelf_life_days=None):
         
         self.name = name
         self.target = target
@@ -2706,8 +2710,8 @@ class Model(object):
         self.estimator_name = estimator_name
         self.params = params
         self.eval_metric_name = eval_metric_name
-        self.eval_metric_train = None
-        self.eval_metric_test = None
+        self.eval_metric_train = eval_metric_train
+        self.eval_metric_test = eval_metric_test
         if self.estimator is None:
             self.trained_date = None
         else:
@@ -2738,7 +2742,7 @@ class Model(object):
         return result
 
     def score (self,df):
-        result = self.estimator.score(df[self.features],df[self.target])     
+        result = self.estimator.score(df[self.features],df[self.target])
         return result    
     
     def test(self,df):
