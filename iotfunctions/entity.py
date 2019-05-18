@@ -21,6 +21,7 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from . import metadata
 from . import bif
 from . import ui
+from . import estimator as est
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +287,7 @@ class Robot(metadata.BaseCustomEntityType):
 class PackagingHopper(metadata.BaseCustomEntityType):
     
     '''  
-    This sample demostrates anomaly detection on simulated data from a cereal
+    This sample demonstrates anomaly detection on simulated data from a cereal
     packaging plant.
     '''
 
@@ -327,25 +328,20 @@ class PackagingHopper(metadata.BaseCustomEntityType):
         # fill rate depends on temp
         functions.append(bif.PythonExpression(
                 expression = '502 + 9 * df["ambient_temp"]/20',
-                output_name = 'dispensed_mass_predicted'))
+                output_name = 'dispensed_mass_sim'))
         
-        functions.append(bif.RandomNoise(input_items=['dispensed_mass_predicted'],
+        functions.append(bif.RandomNoise(input_items=['dispensed_mass_sim'],
                                     standard_deviation = 0.5,
                                     output_items = ['dispensed_mass_actual']))
-        
-        # difference between prediction and actual
-        functions.append(bif.PythonExpression(
-                expression = ('(df["dispensed_mass_predicted"]-'
-                              ' df["dispensed_mass_actual"]).abs()'),
-                output_name = 'prediction_abs_error'))
-        
-        # alert
-        functions.append(bif.AlertHighValue(
-                input_item = 'prediction_abs_error',
-                upper_threshold = 3,
-                alert_name = 'anomaly_in_fill_detected'))
+
+        functions.append(est.SimpleAnomaly(
+            features=['ambient_temp','ambient_humidity'],
+            targets=['dispensed_mass_actual'],
+            threshold=0.1,
+            predictions=['dispensed_mass_predicted'],
+            alerts=['anomaly_in_fill_detected']))
                 
-        #dimension columns
+        # dimension columns
         dimension_columns = [
             Column('firmware',String(50)),
             Column('manufacturer',String(50)),
