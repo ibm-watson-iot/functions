@@ -312,7 +312,6 @@ class StatusFilter(BaseFilter):
 These functions have no build_ui() method. They are included to show function logic.
 '''
     
-    
 class ComputationsOnStringArray(BaseTransformer):
     '''
     Perform computation on a string that contains a comma separated list of values
@@ -344,8 +343,7 @@ class ComputationsOnStringArray(BaseTransformer):
             out = out + str(np.random.normal(1,0.1)) + ','
         out = out[:-1]
         
-        return out    
-    
+        return out
 
 class FillForwardByEntity(BaseTransformer):    
     '''
@@ -364,8 +362,7 @@ class FillForwardByEntity(BaseTransformer):
     def _calc(self, df):
         df = df.copy()
         df[self.output_item] = df[self.input_item].ffill()
-        return df 
-    
+        return df
             
 class FlowRateMonitor(BaseTransformer):  
     '''
@@ -387,8 +384,7 @@ class FlowRateMonitor(BaseTransformer):
         total_output = df[self.output_flows].sum(axis='columns')
         df[self.output] = np.where((total_input-total_output)/ total_input > self.loss_threshold, True, False)
         
-        return df   
-      
+        return df
 
 class InputsAndOutputsOfMultipleTypes(BaseTransformer):
     '''
@@ -414,7 +410,6 @@ class InputsAndOutputsOfMultipleTypes(BaseTransformer):
         df[self.output_date] = df[self.input_date]
         df[self.output_str] = df[self.input_str]
         return df
-
 
 class LookupCompany(BaseDatabaseLookup):
     """
@@ -465,7 +460,6 @@ class LookupCompany(BaseDatabaseLookup):
     
         # The base class takes care of the rest
         # No execute() method required
-                
         
 class LookupOperator(BaseSCDLookup):
     '''
@@ -483,7 +477,6 @@ class LookupOperator(BaseSCDLookup):
         self.dummy_item = dummy_item
         table_name = 'widgets_scd_operator'
         super().__init__(table_name = table_name, output_item = output_item)
-        
 
 class LookupStatus(BaseSCDLookup):
     '''
@@ -501,7 +494,6 @@ class LookupStatus(BaseSCDLookup):
         self.dummy_item = dummy_item
         table_name = 'widgets_scd_status'
         super().__init__(table_name = table_name, output_item = output_item)
-
 
 class NegativeRemover(BaseTransformer):
     '''
@@ -525,7 +517,6 @@ class NegativeRemover(BaseTransformer):
             df[name] = np.where(df[src] >= 0.0, df[src], np.nan)
 
         return df
-
     
 class PivotRowsToColumns(BaseTransformer):
     '''
@@ -571,8 +562,7 @@ class PivotRowsToColumns(BaseTransformer):
             
         self.log_df_info(df,'After pivot rows to columns')
             
-        return df    
-
+        return df
 
 class OutlierRemover(BaseTransformer):
     '''
@@ -603,7 +593,6 @@ class OutlierRemover(BaseTransformer):
             df[self.name] = np.where(self.min <= df[self.source], 
                                      np.where(df[self.source] <= self.max, df[self.source], np.nan), np.nan)
         return df
-
     
 class SamplePreLoad(BasePreload):
     '''
@@ -621,8 +610,7 @@ class SamplePreLoad(BasePreload):
         table = SystemLogTable(self.table_name,self._entity_type.db,
                                Column('status',String(50)))
         table.insert(df)    
-        return True    
-
+        return True
 
 class SampleActivityDuration(BaseDBActivityMerge):
     '''
