@@ -642,6 +642,14 @@ class DateDifferenceReference(BaseTransformer):
         self.ref_date = ref_date
         self.num_days = num_days
         
+        logger.debug('before ref_date:%s',self.ref_date)
+        logger.debug('before ref_date type:%s',type(self.ref_date))
+        
+        self.ref_date = pd.to_datetime(self.ref_date)
+        
+        logger.debug('after ref_date:%s',self.ref_date)
+        logger.debug('after ref_date type:%s',type(self.ref_date))
+        
     def execute(self,df):
         
         if self.date_1 is None or self.date_1 == self._entity_type._timestamp:
