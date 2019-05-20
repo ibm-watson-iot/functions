@@ -639,16 +639,13 @@ class DateDifferenceReference(BaseTransformer):
         
         super().__init__()
         self.date_1 = date_1
+        
+        if isinstance(ref_date,int):
+            ref_date = dt.datetime.fromtimestamp(ref_date)
+        
         self.ref_date = ref_date
         self.num_days = num_days
         
-        logger.debug('before ref_date:%s',self.ref_date)
-        logger.debug('before ref_date type:%s',type(self.ref_date))
-        
-        self.ref_date = pd.to_datetime(self.ref_date)
-        
-        logger.debug('after ref_date:%s',self.ref_date)
-        logger.debug('after ref_date type:%s',type(self.ref_date))
         
     def execute(self,df):
         
