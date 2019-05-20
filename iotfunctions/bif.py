@@ -639,8 +639,13 @@ class DateDifferenceReference(BaseTransformer):
         
         super().__init__()
         self.date_1 = date_1
+        
+        if isinstance(ref_date,int):
+            ref_date = dt.datetime.fromtimestamp(ref_date)
+        
         self.ref_date = ref_date
         self.num_days = num_days
+        
         
     def execute(self,df):
         

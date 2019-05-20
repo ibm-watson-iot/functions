@@ -2195,7 +2195,7 @@ class BaseEstimatorFunction(BaseTransformer):
     test_size = 0.2
     # Model evaluation
     stop_auto_improve_at = 0.85
-    acceptable_score_for_model_acceptance = 0
+    acceptable_score_for_model_acceptance = -10
     greater_is_better = True
     version_model_writes = False
     def __init__(self, features, targets, predictions):

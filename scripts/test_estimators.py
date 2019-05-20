@@ -22,8 +22,13 @@ samples = [
     est.SimpleRegressor(features=['x1', 'x2', 'x3'],
                         targets=['y1', 'y2'],
                         predictions=['y1_pred', 'y2_pred']
-                        )
-]
+                        ),
+    est.SimpleAnomaly(features=['x1', 'x2', 'x3'],
+                      targets=['y1','y2'],
+                      threshold = 0.1,
+                      predictions=['y1_pred', 'y2_pred'],
+                      alerts = ['is_y1_anomaly', 'is_y2_anomaly'])
+    ]
 
 params = {
     'auto_train': True,

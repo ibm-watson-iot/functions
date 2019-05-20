@@ -38,6 +38,7 @@ class SimpleAnomaly(BaseRegressor):
             alert = AlertHighValue(input_item = '_diff_',
                                       upper_threshold = self.threshold,
                                       alert_name = self.alerts[i])
+            alert.set_entity_type(self.get_entity_type())
         df = alert.execute(df)
         
         return df
@@ -46,18 +47,20 @@ class SimpleAnomaly(BaseRegressor):
     def build_ui(cls):
         #define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name = 'features',
+        inputs.append(UIMultiItem(name='features',
                                   datatype=float,
-                                  required = True
+                                  required=True
                                           ))        
-        inputs.append(UIMultiItem(name = 'targets',
+        inputs.append(UIMultiItem(name='targets',
                                   datatype=float,
-                                  required = True,
-                                  output_item = 'predictions',
-                                  is_output_datatype_derived = True                                  
+                                  required=True,
+                                  output_item='predictions',
+                                  is_output_datatype_derived=True
                                           ))
         inputs.append(UISingle(name='threshold',
-                               datatype = float ))
+                               datatype=float,
+                               description=('Threshold for firing an alert. '
+                                            'Expressed as absolute value not percent.')))
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutMulti(name = 'alerts',

@@ -1,14 +1,11 @@
-import datetime as dt
 import json
-import os
-import pandas as pd
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from iotfunctions import bif
 from iotfunctions.metadata import EntityType
 from iotfunctions.db import Database
 
 
-#replace with a credentials dictionary or provide a credentials file
+# replace with a credentials dictionary or provide a credentials file
 with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 
@@ -27,7 +24,7 @@ function will deliver.
 A database object is our connection to the mother ship
 '''
 db = Database(credentials = credentials)
-db_schema = None #set if you are not using the default
+db_schema = None #  set if you are not using the default
 
 '''
 To do anything with IoT Platform Analytics, you will need one or more entity type. 
@@ -46,7 +43,7 @@ needed if you are not using the default schema. You can also rename the timestam
 
 '''
 entity_name = 'widgets' 
-db_schema = None # replace if you are not using the default schema
+db_schema = None  # replace if you are not using the default schema
 db.drop_table(entity_name, schema = db_schema)
 entity = EntityType(entity_name,db,
                     Column('company_code',String(50)),
@@ -68,7 +65,7 @@ After creating an EntityType you will need to register it so that it visible in 
 To also register the functions and constants associated with the entity type, specify
 'publish_kpis' = True.
 '''
-entity.register(raise_error = False)
+entity.register(raise_error=False)
 '''
 Entities can get pretty lonely without data. 
 
@@ -78,17 +75,17 @@ a few rows of random data each time the AS pipeline runs (generally every 5 min)
 You can also load some historical data using 'generate_data'
 
 '''
-entity.generate_data(days=0.5, drop_existing = True)
+entity.generate_data(days=0.5, drop_existing=True)
 
 '''
 To see the data you just loaded, ask the db object to read the database
 table and produce a pandas dataframe.
 '''
-df = db.read_table(table_name=entity_name, schema = db_schema)
+df = db.read_table(table_name=entity_name, schema=db_schema)
 print(df.head())
 
 '''
-To test the execuction of kpi calculations definined for the entity type locally
+To test the execution of kpi calculations defined for the entity type locally
 use 'test_local_pipeline'.
 
 A local test will not update the server job log or write kpi data to the AS data
