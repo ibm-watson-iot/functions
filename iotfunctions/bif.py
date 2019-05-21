@@ -329,7 +329,6 @@ class AlertHighValue(BaseEvent):
         '''        
         
     def execute(self,df):
-        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item]>=self.upper_threshold,True,None)
             
