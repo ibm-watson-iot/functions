@@ -628,69 +628,6 @@ class DateDifference(BaseTransformer):
                 
         return (inputs,outputs) 
 
-
-class DateDifferenceReference(BaseTransformer):
-    """
-    Calculate the difference between a data item and a reference value,
-    ie: ie ref_date - date_1
-    """
-    
-    def __init__ (self,date_1,ref_date,num_days='num_days'):
-        
-        super().__init__()
-        self.date_1 = date_1
-        
-        if isinstance(ref_date,int):
-            ref_date = dt.datetime.fromtimestamp(ref_date)
-        
-        self.ref_date = ref_date
-        self.num_days = num_days
-        
-        
-    def execute(self,df):
-        
-        if self.date_1 is None or self.date_1 == self._entity_type._timestamp:
-            ds_1 = self.get_timestamp_series(df)
-            if isinstance(ds_1,pd.DatetimeIndex):
-                ds_1 = pd.Series(data=ds_1,index=df.index)
-            ds_1 = pd.to_datetime(ds_1)
-        else:
-            ds_1 = df[self.date_1]
-        
-        df[self.num_days] = (self.ref_date - ds_1).\
-                            dt.total_seconds() / (60*60*24)
-        
-        return df
-        
-    @classmethod
-    def build_ui(cls):
-        '''
-        Registration metadata
-        '''
-        #define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingleItem(name = 'date_1',
-                                  datatype=dt.datetime,
-                                  required = False,
-                                  description = ('Date data item. Use timestamp'
-                                                 ' if no date specified' )
-                                  )
-                    )
-        inputs.append(UISingle(name = 'ref_date',
-                               datatype=dt.datetime,
-                               description = 'Date value'
-                               )
-                    )
-        #define arguments that behave as function outputs
-        outputs = []
-        outputs.append(
-            UIFunctionOutSingle(
-                    name = 'num_days',
-                    datatype=float,
-                    description='Number of days')
-            )
-                
-        return (inputs,outputs) 
     
 class DateDifferenceConstant(BaseTransformer):
     """

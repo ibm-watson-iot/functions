@@ -96,7 +96,7 @@ from iotfunctions.sample import MultiplyByFactor
 adj = MultiplyByFactor(
     input_items = ['speed','travel_time'],
     factor = 0.9,
-    output_items = ['ajdusted_speed','adjusted_travel_time']
+    output_items = ['adjusted_speed','adjusted_travel_time']
 )
 adj.execute_local_test()
 
