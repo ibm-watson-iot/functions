@@ -283,10 +283,10 @@ class Robot(metadata.BaseCustomEntityType):
                          drop_existing = drop_existing,
                          description = description,
                          db_schema = db_schema)
-         
+
+
 class PackagingHopper(metadata.BaseCustomEntityType):
-    
-    '''  
+    '''
     This sample demonstrates anomaly detection on simulated data from a cereal
     packaging plant.
     '''
@@ -295,71 +295,69 @@ class PackagingHopper(metadata.BaseCustomEntityType):
                  name,
                  db,
                  db_schema=None,
-                 description = None,
-                 generate_days = 0, 
-                 drop_existing = False):
-        
-        
+                 description=None,
+                 generate_days=0,
+                 drop_existing=False):
         constants = []
         granularities = []
-        
         columns = []
-        columns.append(Column('company_code',String(50)))
-        columns.append(Column('product_code',String(50)))
-        columns.append(Column('ambient_temp',Float()))
-        columns.append(Column('ambient_humidity',Float()))
-
+        columns.append(Column('company_code', String(50)))
+        columns.append(Column('product_code', String(50)))
+        columns.append(Column('ambient_temp', Float()))
+        columns.append(Column('ambient_humidity', Float()))
         functions = []
-        
-        #simulation settings
-        sim = { 
-                'data_item_mean' :{'ambient_temp':20,
-                                   'ambient_humidity': 60
-                                   },
-                'data_item_sd' :{'ambient_temp':5,
-                                 'ambient_humidity': 5
-                                   },                                   
-                'drop_existing' : False
-                }
 
-        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        # simulation settings
+
+        sim = {
+            'data_item_mean': {'ambient_temp': 20,
+                               'ambient_humidity': 60
+                               },
+            'data_item_sd': {'ambient_temp': 5,
+                             'ambient_humidity': 5
+                             },
+            'drop_existing': False
+        }
+
+        generator = bif.EntityDataGenerator(ids=None, **sim)
         functions.append(generator)
-
         # fill rate depends on temp
         functions.append(bif.PythonExpression(
-                expression = '502 + 9 * df["ambient_temp"]/20',
-                output_name = 'dispensed_mass_sim'))
-        
-        functions.append(bif.RandomNoise(input_items=['dispensed_mass_sim'],
-                                    standard_deviation = 0.5,
-                                    output_items = ['dispensed_mass_actual']))
-
-        functions.append(est.SimpleAnomaly(
-            features=['ambient_temp','ambient_humidity'],
-            targets=['dispensed_mass_actual'],
-            threshold=1,
-            predictions=['dispensed_mass_predicted'],
-            alerts=['anomaly_in_fill_detected']))
-                
+            expression='502 + 9 * df["ambient_temp"]/20',
+            output_name='dispensed_mass_predicted'))
+        functions.append(bif.RandomNoise(input_items=['dispensed_mass_predicted'],
+                                         standard_deviation=0.5,
+                                         output_items=['dispensed_mass_actual']))
+        # difference between prediction and actual
+        functions.append(bif.PythonExpression(
+            expression=('(df["dispensed_mass_predicted"]-'
+                        ' df["dispensed_mass_actual"]).abs()'),
+            output_name='prediction_abs_error'))
+        # alert
+        functions.append(bif.AlertHighValue(
+            input_item='prediction_abs_error',
+            upper_threshold=3,
+            alert_name='anomaly_in_fill_detected'))
         # dimension columns
+
         dimension_columns = [
-            Column('firmware',String(50)),
-            Column('manufacturer',String(50)),
-            Column('plant',String(50)),
-            Column('line',String(50))
-            ]
-        
+            Column('firmware', String(50)),
+            Column('manufacturer', String(50)),
+            Column('plant', String(50)),
+            Column('line', String(50))
+        ]
+
         super().__init__(name=name,
-                         db = db,
-                         constants = constants,
-                         granularities = granularities,
-                         columns= columns,
-                         functions = functions,
-                         dimension_columns = dimension_columns,
-                         generate_days = generate_days,
-                         drop_existing = drop_existing,
-                         description = description,
-                         db_schema = db_schema)
+                         db=db,
+                         constants=constants,
+                         granularities=granularities,
+                         columns=columns,
+                         functions=functions,
+                         dimension_columns=dimension_columns,
+                         generate_days=generate_days,
+                         drop_existing=drop_existing,
+                         description=description,
+                         db_schema=db_schema)
 
 
 class SourdoughLeavening(metadata.BaseCustomEntityType):
