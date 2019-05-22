@@ -548,7 +548,7 @@ class BaseFunction(object):
         '''
         return(set())
     
-    def get_item_values(self,arg):
+    def get_item_values(self,arg,db=None):
         """
         Implement this method when you want to supply values to a picklist in the UI
         """
@@ -1324,7 +1324,7 @@ class BaseFunction(object):
         
 
     @classmethod        
-    def _transform_metadata(cls,metadata_input,metadata_output):
+    def _transform_metadata(cls,metadata_input,metadata_output, db = None):
         '''
         legacy metadata structure is a dict containing a metadata dict
         new metadata structure is a list containing ui objects
@@ -1360,7 +1360,7 @@ class BaseFunction(object):
             msg = 'Looking for item values for %s' %i
             logger.debug(msg)
             try:    
-                item_values = cls.get_item_values(arg=i)
+                item_values = cls.get_item_values(arg=i.get('name'), db=db)
             except (AttributeError,NotImplementedError,TypeError):
                 item_values = None
             if item_values is not None:
@@ -1549,7 +1549,7 @@ class BaseFilter(BaseTransformer):
         '''
         The execute method for a filter calls a filter method. Define filter logic in the filter method.
         '''
-        df = self.filter(df)
+        df = self.filter(df).copy()
         df[self.output_item] = True
         return df
 
@@ -1640,8 +1640,8 @@ class BaseDatabaseLookup(BaseTransformer):
             #concatentate lookup name to output to make it unique
             output_items = ['%s_%s' %(self.lookup_table_name,x) for x in lookup_items]        
         self.output_items = output_items
-        
-    def get_item_values(self,arg):
+    
+    def get_item_values(self,arg,db=None):
         """
         Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
         """
@@ -1906,7 +1906,7 @@ class BaseDBActivityMerge(BaseDataSource):
             
         return cdf
     
-    def get_item_values(self,arg):
+    def get_item_values(self,arg,db=None):
         '''
         Define picklist values
         '''
@@ -2186,8 +2186,9 @@ class BaseEstimatorFunction(BaseTransformer):
     shelf_life_days = None
     # Train automatically
     auto_train = True
-    experiments_per_execution = 1
+    experiments_per_execution = 5
     parameter_tuning_iterations = 3
+    drop_nulls = True
     #cross_validation
     cv = None #(default)
     eval_metric = None
@@ -2276,7 +2277,11 @@ class BaseEstimatorFunction(BaseTransformer):
             model = db.cos_load(filename= model_name,
                                 bucket=bucket,
                                 binary=True)
-            models.append(model)
+            if model is not None:
+                models.append(model)
+            else:
+                logger.warning('Unable to retrieve model %s from COS. No predictions',
+                               model_name)
         return(models)        
         
     def decide_training_required(self,model):
@@ -2478,7 +2483,14 @@ class BaseEstimatorFunction(BaseTransformer):
                                     n_iter= self.parameter_tuning_iterations,
                                     scoring=scorer, refit=True, 
                                     cv= self.cv, return_train_score = False)
-        estimator = search.fit(X=df_train[features], y = df_train[target])
+        if self.drop_nulls:
+            cols = []
+            cols.append(target)
+            cols.extend(features)
+            df = df_train[cols].dropna()
+        else:
+            df = df_train
+        estimator = search.fit(X=df[features], y = df[target])
         msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' %estimator.__class__.__name__
         logger.debug(msg)
         

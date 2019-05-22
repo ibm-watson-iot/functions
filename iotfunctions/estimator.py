@@ -64,6 +64,7 @@ class SimpleAnomaly(BaseRegressor):
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutMulti(name = 'alerts',
+                                          datatype = bool,
                                           cardinality_from = 'targets',
                                           is_datatype_derived = False,
                                           ))
