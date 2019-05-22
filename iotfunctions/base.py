@@ -2186,8 +2186,9 @@ class BaseEstimatorFunction(BaseTransformer):
     shelf_life_days = None
     # Train automatically
     auto_train = True
-    experiments_per_execution = 1
+    experiments_per_execution = 5
     parameter_tuning_iterations = 3
+    drop_nulls = True
     #cross_validation
     cv = None #(default)
     eval_metric = None
@@ -2276,7 +2277,11 @@ class BaseEstimatorFunction(BaseTransformer):
             model = db.cos_load(filename= model_name,
                                 bucket=bucket,
                                 binary=True)
-            models.append(model)
+            if model is not None:
+                models.append(model)
+            else:
+                logger.warning('Unable to retrieve model %s from COS. No predictions',
+                               model_name)
         return(models)        
         
     def decide_training_required(self,model):
@@ -2478,7 +2483,14 @@ class BaseEstimatorFunction(BaseTransformer):
                                     n_iter= self.parameter_tuning_iterations,
                                     scoring=scorer, refit=True, 
                                     cv= self.cv, return_train_score = False)
-        estimator = search.fit(X=df_train[features], y = df_train[target])
+        if self.drop_nulls:
+            cols = []
+            cols.append(target)
+            cols.extend(features)
+            df = df_train[cols].dropna()
+        else:
+            df = df_train
+        estimator = search.fit(X=df[features], y = df[target])
         msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' %estimator.__class__.__name__
         logger.debug(msg)
         
