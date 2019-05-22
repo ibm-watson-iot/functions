@@ -1188,10 +1188,12 @@ class Database(object):
                 tags = None  
             try:
                 (metadata_input,metadata_output) = f.build_ui()
-                (input_list,output_list) = f._transform_metadata(metadata_input,metadata_output)
+                (input_list,output_list) = f._transform_metadata(metadata_input,
+                                                                 metadata_output,
+                                                                 db=self)
             except (AttributeError,NotImplementedError):
                 msg = 'Function %s has no build_ui method. It cannot be registered this way. Register using function_instance.register()' %name
-                raise NotImplementedError (msg)                
+                raise NotImplementedError (msg)
             payload = {
                 'name': name,
                 'description': f.__doc__,

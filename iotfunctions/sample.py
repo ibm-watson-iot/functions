@@ -232,13 +232,15 @@ class MergeSampleTimeSeries(BaseDataSource):
                          parse_dates=[self._entity_type._timestamp])
         return df
 
-    def get_item_values(self, arg):
+    @classmethod
+    def get_item_values(cls, arg, db = None):
         """
         Get list of values for a picklist
         """
         if arg == 'input_items':
-
-            return self._entity_type.db.get_column_names(self.source_table_name)
+            if db is None:
+                db = cls._entity_type.db
+            return db.get_column_names(cls.source_table_name)
         else:
             msg = 'No code implemented to gather available values for argument %s' % arg
             raise NotImplementedError(msg)
@@ -284,7 +286,7 @@ class MergeSampleTimeSeries(BaseDataSource):
         inputs = []
         inputs.append(ui.UIMulti(
             name='input_items',
-            datatype=None,
+            datatype=str,
             description='Choose columns to bring from source table',
             required=True,
             output_item='output_items',
@@ -340,7 +342,7 @@ class StatusFilter(BaseFilter):
         self.status_input_item = status_input_item
         self.include_only = include_only
 
-    def get_item_values(self, arg):
+    def get_item_values(self, arg, db=None):
         if arg == 'include_only':
             return (['active', 'inactive'])
         else:

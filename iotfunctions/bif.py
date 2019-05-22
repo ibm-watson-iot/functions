@@ -743,7 +743,7 @@ class DatabaseLookup(BaseDatabaseLookup):
                                                      ))
         return (inputs,outputs) 
     
-    def get_item_values(self,arg):
+    def get_item_values(self,arg,db):
         raise NotImplementedError('No items values available for generic database lookup function. Implement a specific one for each table to define item values. ')
         
 
