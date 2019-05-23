@@ -1,7 +1,11 @@
 import json
+import logging
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from iotfunctions.db import Database
 import iotfunctions.estimator as est
+from iotfunctions.enginelog import EngineLogging
+
+EngineLogging.configure_console_logging(logging.DEBUG)
 
 '''
 
@@ -15,8 +19,7 @@ with open('credentials_as_dev.json', encoding='utf-8') as F:
 db_schema = None
 db = Database(credentials=credentials)
 
-cols = [
-]
+cols = []
 
 samples = [
     est.SimpleRegressor(features=['x1', 'x2', 'x3'],
@@ -24,14 +27,15 @@ samples = [
                         predictions=['y1_pred', 'y2_pred']
                         ),
     est.SimpleAnomaly(features=['x1', 'x2', 'x3'],
-                      targets=['y1','y2'],
-                      threshold = 0.1,
-                      predictions=['y1_pred', 'y2_pred'],
-                      alerts = ['is_y1_anomaly', 'is_y2_anomaly'])
+                  targets=['y1', 'y2'],
+                  threshold=0.1,
+                  predictions=['y1_pred', 'y2_pred'],
+                  alerts=['is_y1_anomaly', 'is_y2_anomaly'])
     ]
 
 params = {
     'auto_train': True,
+    'delete_existing_models' : True,
     'experiments_per_execution': 1,
     'parameter_tuning_iterations': 3,
     'test_size': 0.2,

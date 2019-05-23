@@ -2189,6 +2189,7 @@ class BaseEstimatorFunction(BaseTransformer):
     experiments_per_execution = 5
     parameter_tuning_iterations = 3
     drop_nulls = True
+    delete_existing_models = False
     #cross_validation
     cv = None #(default)
     eval_metric = None
@@ -2253,7 +2254,8 @@ class BaseEstimatorFunction(BaseTransformer):
                                   target = target,
                                   eval_metric_name = self.eval_metric.__name__,
                                   eval_metric_train = None,
-                                  shelf_life_days = None
+                                  shelf_life_days = None,
+                                  col_name = self.predictions[i]
                                   )
                 models.append(model)
             unprocessed_targets.append(target)
@@ -2317,15 +2319,17 @@ class BaseEstimatorFunction(BaseTransformer):
             self._entity_type.db.cos_delete(m, bucket= self.get_bucket_name())
         
     def execute(self, df):
-        df  = df.copy()
+        df = df.copy()
         db = self._entity_type.db
         bucket = self.get_bucket_name()
         # transform incoming data using any preprocessors
         # include whatever preprocessing stages are required by implementing a set_preprocessors method
-        required_models = self.get_models_for_training(db=db,df=df,bucket=bucket)
+        if self.delete_existing_models:
+            self.delete_models(model_names=None)
+        required_models = self.get_models_for_training(db=db, df=df, bucket=bucket)
         if len(required_models) > 0:   
             df = self.execute_preprocessing(df)
-            df_train,df_test = self.execute_train_test_split(df)
+            df_train, df_test = self.execute_train_test_split(df)
         #training
         for model in required_models:
             msg = 'Prepare to train model %s' %model
@@ -2334,7 +2338,8 @@ class BaseEstimatorFunction(BaseTransformer):
                                              df_test=df_test,
                                              target = model.target,
                                              features = model.features,
-                                             existing_model=model)
+                                             existing_model=model,
+                                             col_name = model.col_name)
             msg = 'Trained model: %s' %best_model
             logger.debug(msg)
             best_model.test(df_test)                
@@ -2346,13 +2351,16 @@ class BaseEstimatorFunction(BaseTransformer):
             logger.info(msg)             
         #predictions   
         required_models = self.get_models_for_predict(db=db,bucket=bucket)
-        for i,model in enumerate(required_models):        
+        for model in required_models:        
             if model is not None:        
-                df[self.predictions[i]] = model.predict(df)
+                df[model.col_name] = model.predict(df)
                 self.log_df_info(df,'After adding predictions for target %s' %model.target)
-            else:
-                df[self.predictions[i]] = None
-                logger.debug('No suitable model found. Created null predictions')            
+                
+        #add null columns for when no model
+        missing_cols = [x for x in self.predictions if x not in df.columns]
+        for m in missing_cols:
+            df[m] = None
+                
         return df
     
     def execute_preprocessing(self, df):
@@ -2378,7 +2386,8 @@ class BaseEstimatorFunction(BaseTransformer):
         self.log_df_info(df_test,msg='test set',include_data=False)        
         return (df_train,df_test)        
     
-    def find_best_model(self,df_train, df_test, target, features, existing_model):
+    def find_best_model(self,df_train, df_test, target, features, existing_model,
+                        col_name):
 
         '''
 
@@ -2425,7 +2434,8 @@ class BaseEstimatorFunction(BaseTransformer):
                           eval_metric_train = eval_metric_train,
                           estimator = estimator,
                           estimator_name = name,
-                          shelf_life_days = self.shelf_life_days)
+                          shelf_life_days = self.shelf_life_days,
+                          col_name = col_name)
             eval_metric_test = model.test(df_test)
             trained_models.append(model)
 

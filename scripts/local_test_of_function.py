@@ -7,6 +7,9 @@ from iotfunctions.base import BaseTransformer
 from iotfunctions.metadata import EntityType
 from iotfunctions.db import Database
 from iotfunctions import ui
+from iotfunctions.enginelog import EngineLogging
+
+EngineLogging.configure_console_logging(logging.DEBUG)
 
 '''
 You can test functions locally before registering them on the server to

@@ -2701,7 +2701,8 @@ class Model(object):
                  features, target, eval_metric_name,
                  eval_metric_train=None,
                  eval_metric_test=None,
-                 shelf_life_days=None):
+                 shelf_life_days=None,
+                 col_name = None):
         
         self.name = name
         self.target = target
@@ -2712,6 +2713,12 @@ class Model(object):
         self.eval_metric_name = eval_metric_name
         self.eval_metric_train = eval_metric_train
         self.eval_metric_test = eval_metric_test
+        
+        if col_name is None:
+            col_name = '%s_predicted' %self.target
+            
+        self.col_name = col_name
+        
         if self.estimator is None:
             self.trained_date = None
         else:

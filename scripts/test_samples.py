@@ -1,7 +1,11 @@
 import json
+import logging
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from iotfunctions.db import Database
 import iotfunctions.sample as sample
+from iotfunctions.enginelog import EngineLogging
+
+EngineLogging.configure_console_logging(logging.DEBUG)
 
 '''
 

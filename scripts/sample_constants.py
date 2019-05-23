@@ -7,18 +7,20 @@ used within expressions and custom functions.
 '''
 #import open source libraries
 import logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 import pandas as pd
 import json
+
+# import classes needed from iotfunctions
+from iotfunctions.db import Database
+from iotfunctions.ui import UISingle,UIMulti
+from iotfunctions.enginelog import EngineLogging
+EngineLogging.configure_console_logging(logging.DEBUG)
 
 #supply credentials
 with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 
-# import classes needed from iotfunctions
-from iotfunctions.db import Database
-from iotfunctions.ui import UISingle,UIMulti
+
 
 # Connect to Analytic Service
 db = Database(credentials = credentials)
