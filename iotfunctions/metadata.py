@@ -2140,6 +2140,7 @@ class LocalEntityType(EntityType):
                   granularities=None,
                   functions=None,
                   db=None,
+                  db_schema = None,
                   **kwargs):
 
         if columns is None:
@@ -2154,6 +2155,9 @@ class LocalEntityType(EntityType):
             args.extend(functions)
         if not granularities is None:
             args.extend(granularities)
+            
+        if db_schema is not None:
+            kwargs['_db_schema'] = db_schema
 
         super().__init__(name, db, *args, **kwargs)
                        
@@ -2701,7 +2705,8 @@ class Model(object):
                  features, target, eval_metric_name,
                  eval_metric_train=None,
                  eval_metric_test=None,
-                 shelf_life_days=None):
+                 shelf_life_days=None,
+                 col_name = None):
         
         self.name = name
         self.target = target
@@ -2712,6 +2717,12 @@ class Model(object):
         self.eval_metric_name = eval_metric_name
         self.eval_metric_train = eval_metric_train
         self.eval_metric_test = eval_metric_test
+        
+        if col_name is None:
+            col_name = '%s_predicted' %self.target
+            
+        self.col_name = col_name
+        
         if self.estimator is None:
             self.trained_date = None
         else:

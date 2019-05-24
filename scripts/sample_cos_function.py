@@ -2,10 +2,14 @@ import datetime as dt
 import json
 import pandas as pd
 import numpy as np
+import logging
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 import iotfunctions.bif as bif
 from iotfunctions.metadata import EntityType, LocalEntityType
 from iotfunctions.db import Database
+from iotfunctions.enginelog import EngineLogging
+
+EngineLogging.configure_console_logging(logging.DEBUG)
 
 with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
@@ -45,5 +49,5 @@ test_function = bif.PythonFunction(
     parameters = {}
         )
 
-test_function.execute_local_test(db=db)
+test_function.execute_local_test(db=db,db_schema = db_schema)
 

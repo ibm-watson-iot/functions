@@ -49,7 +49,7 @@ dist = PythonFunction(
             input_items = ['distance'],
             output_item = 'is_distance_high',
             parameters = None )
-dist.execute_local_test(db=db)
+dist.execute_local_test(db=db,db_schema=db_schema)
 
 
 '''

@@ -39,7 +39,7 @@ class SimpleAnomaly(BaseRegressor):
                                       upper_threshold = self.threshold,
                                       alert_name = self.alerts[i])
             alert.set_entity_type(self.get_entity_type())
-        df = alert.execute(df)
+            df = alert.execute(df)
         
         return df
     
