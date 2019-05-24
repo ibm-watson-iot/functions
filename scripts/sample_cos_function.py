@@ -49,5 +49,5 @@ test_function = bif.PythonFunction(
     parameters = {}
         )
 
-test_function.execute_local_test(db=db)
+test_function.execute_local_test(db=db,db_schema = db_schema)
 

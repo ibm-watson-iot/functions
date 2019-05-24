@@ -36,4 +36,4 @@ samples = [
 ]
 
 for s in samples:
-    s.execute_local_test(db=db, columns=cols)
+    s.execute_local_test(db=db, columns=cols, db_schema = db_schema)

@@ -46,4 +46,4 @@ params = {
 }
 
 for s in samples:
-    s.execute_local_test(db=db, columns=cols, **params)
+    s.execute_local_test(db=db, db_schema = db_schema,columns=cols, **params)

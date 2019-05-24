@@ -210,6 +210,7 @@ class BaseFunction(object):
                            generate_days=0,
                            granularities=None,
                            db=None,
+                           db_schema = None,
                            **params):
         
         if name is None: 
@@ -222,6 +223,7 @@ class BaseFunction(object):
               columns = columns,
               functions = functions,
               db = db,
+              db_schema = db_schema,
               **params
               )
         
@@ -1283,6 +1285,7 @@ class BaseFunction(object):
                            columns = None,
                            to_csv = True,
                            db = None,
+                           db_schema = None,
                            **params):
         '''
         Run an automated test of the function using generated data.
@@ -1294,6 +1297,7 @@ class BaseFunction(object):
                 functions = [self],
                 columns = columns,
                 db = db,
+                db_schema = db_schema,
                 **params
                 )
         

@@ -47,7 +47,7 @@ from iotfunctions.bif import AlertExpression
 fn = AlertExpression(
         expression = 'df["x1"] > 1',
         alert_name = 'is_high_x1')
-fn.execute_local_test(db=db)
+fn.execute_local_test(db=db,db_schema=db_schema)
 
 
 
@@ -80,6 +80,6 @@ fn = SaveCosDataFrame(
         output_item = 'wrote_df'
         )
 
-fn.execute_local_test(db=db)
+fn.execute_local_test(db=db,db_schema=db_schema)
 
 

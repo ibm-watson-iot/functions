@@ -2140,6 +2140,7 @@ class LocalEntityType(EntityType):
                   granularities=None,
                   functions=None,
                   db=None,
+                  db_schema = None,
                   **kwargs):
 
         if columns is None:
@@ -2154,6 +2155,9 @@ class LocalEntityType(EntityType):
             args.extend(functions)
         if not granularities is None:
             args.extend(granularities)
+            
+        if db_schema is not None:
+            kwargs['_db_schema'] = db_schema
 
         super().__init__(name, db, *args, **kwargs)
                        
