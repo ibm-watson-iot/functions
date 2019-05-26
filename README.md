@@ -10,7 +10,11 @@ These instructions will get you up and running in your local environment or in W
 
  + python 3.X (https://www.anaconda.com/distribution/)
  + future (pip install future)
+ + dill (pip install dill)
  + pandas (pip install pandas)
+ + sklearn (pip install sklearn)
+ + requests (pip install requests)
+ + urllib3 (pip install urllib3)
  + sqlalchemy (pip install sqlalchemy)
  + ibm_db_sa (pip install ibm_db_sa)
  + ibm_cos_sdk (pip install ibm-cos-sdk)
