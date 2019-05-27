@@ -28,7 +28,7 @@ from collections import OrderedDict
 import ibm_db
 from . import dbhelper
 from .enginelog import EngineLogging
-from .util import log_df_info, freq_to_timedelta, StageException
+from .util import log_df_info, freq_to_timedelta, StageException, get_index_names
 
 import pandas as pd
 import warnings
@@ -225,12 +225,11 @@ class DataMerge(object):
         
         if df is None:
             df = self.df
-            
-        if df.index.name is not None:
-            df_index_names = [df.index.name]
-        else:
-            df_index_names = list(df.index.names)
-        df_index_names = [x for x in df_index_names if x is not None]
+
+        if df is None:
+            df = pd.DataFrame()
+        
+        df_index_names = get_index_names(df)
         
         return df_index_names
     

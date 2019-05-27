@@ -43,10 +43,16 @@ class ActivityDuration(BaseDBActivityMerge):
     '''
     
     _is_instance_level_logged = False
-    def __init__(self,table_name,activity_codes, activity_duration=None):
+    def __init__(self,table_name,activity_codes,
+                 activity_duration=None,
+                 additional_items = None,
+                 additional_output_names = None):
+
         
         super().__init__(input_activities=activity_codes,
-                         activity_duration=activity_duration )
+                         activity_duration=activity_duration,
+                         additional_items = additional_items,
+                         additional_output_names = additional_output_names)
         
         self.table_name = table_name
         self.activity_codes = activity_codes
@@ -66,8 +72,15 @@ class ActivityDuration(BaseDBActivityMerge):
                               description = 'Comma separated list of activity codes',
                               output_item = 'activity_duration',
                               is_output_datatype_derived = False,
-                              output_datatype = float
-                    ))
+                              output_datatype = float))
+        inputs.append(UIMulti(name='additional_items',
+                              datatype=str,
+                              required=False,
+                              description='Comma separated list of additional column names to retrieve',
+                              output_item='additional_output_names',
+                              is_output_datatype_derived=True,
+                              output_datatype=None
+                              ))
         outputs = []
 
         return (inputs,outputs)  

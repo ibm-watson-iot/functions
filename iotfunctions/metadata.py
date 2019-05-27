@@ -28,7 +28,8 @@ from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator,
                          CategoricalGenerator)
 from .pipeline import (CalcPipeline, DataReader, DropNull,
                        JobController, DataWriterFile,JobLogNull)
-from .util import MemoryOptimizer, StageException, build_grouper, categorize_args
+from .util import (MemoryOptimizer, StageException, build_grouper,
+                   categorize_args, reset_df_index)
 import iotfunctions as iotf
 
 logger = logging.getLogger(__name__)
@@ -924,7 +925,7 @@ class EntityType(object):
                 df = df.set_index([self._df_index_entity_id,
                                    self._timestamp])
             except KeyError:
-                df = df.reset_index()
+                df = reset_df_index(df)
                 try:
                     df = df.set_index([self._df_index_entity_id,
                                        self._timestamp])
@@ -1197,8 +1198,8 @@ class EntityType(object):
                           **tw)
 
         # Optimizing the data frame size using downcasting
-        memo = MemoryOptimizer()
         if self.enable_downcast:
+            memo = MemoryOptimizer()
             df = memo.downcastNumeric(df)
         df = self.index_df(df)
         
@@ -1790,7 +1791,6 @@ class EntityType(object):
             logger.warning(msg)
             
         return msg
-    
 
     def register(self,publish_kpis=False,raise_error=False):
         '''

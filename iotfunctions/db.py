@@ -1114,9 +1114,6 @@ class Database(object):
             
         for f in functions:
             
-            if url is None:
-                url = f.url
-            
             if isinstance(f,type):
                 name = f.__name__
             else:
@@ -1132,6 +1129,8 @@ class Database(object):
             module = f.__module__
             module_obj = sys.modules[module]
             
+            if url is None:
+                url = getattr(module_obj,'PACKAGE_URL')            
             
             # the _IS_PREINSTALLED module variable is reserved for 
             # AS system functions
