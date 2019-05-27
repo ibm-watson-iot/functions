@@ -205,7 +205,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
 
 class AlertExpression(BaseEvent):
     '''
-    Create alerts that are triggered when data values reach a particular range.
+    Create alerts that are triggered when data values the expression is True
     '''
     def __init__(self, expression , alert_name):
         self.expression = expression

@@ -83,21 +83,6 @@ class UIFunctionOutSingle(BaseUIControl):
                 }
         return meta
 
-
-class UIStatusFlag(UIFunctionOutSingle):
-    
-    '''
-    Output a boolean value indicating that function was executed
-    '''
-    
-    def __init__(self, name='is_executed'):
-        
-        super().__init__(
-            name=name,
-            datatype=bool,
-            description=('Function returns as boolean status flag indicating'
-                           ' successful execution'),
-            )
     
 
 class UIFunctionOutMulti(BaseUIControl):
@@ -494,6 +479,21 @@ class UISingle(BaseUIControl):
                 meta['value'] = {'value':self.default}
         
         return meta
+    
+class UIStatusFlag(UIFunctionOutSingle):
+    
+    '''
+    Output a boolean value indicating that function was executed
+    '''
+    
+    def __init__(self, name='is_executed'):
+        
+        super().__init__(
+            name=name,
+            datatype=bool,
+            description=('Function returns as boolean status flag indicating'
+                           ' successful execution'),
+            )    
     
 
 class UIText(UISingle):
