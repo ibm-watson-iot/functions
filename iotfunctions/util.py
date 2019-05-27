@@ -427,6 +427,23 @@ def getCosTransferAgent(credentials):
         return S3Transfer(cos)
     else:
         raise ValueError('Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
+
+
+def get_index_names(df):
+    
+    '''
+    Get names from either single or multi-part index
+    '''
+        
+    if df.index.name is not None:
+        df_index_names = [df.index.name]
+    else:
+        df_index_names = list(df.index.names)
+        
+    df_index_names = [x for x in df_index_names if x is not None]
+        
+    return df_index_names
+
         
 def infer_data_items(expressions):
     '''
@@ -488,6 +505,23 @@ def log_df_info(df,msg,include_data=False):
     except Exception:
         logger.warning('dataframe contents not logged due to an unknown logging error')
         return ''
+
+def reset_df_index(df):
+    '''
+    Reset the data dataframe index. Ignore duplicate columns.
+    '''
+
+    try:
+        df.reset_index(inplace=True)
+    except ValueError:
+        index_names = get_index_names(df)
+        for i in index_names:
+            df.drop(columns=[i],inplace=True)
+            logger.debug('Dropped duplicate column name %s while resetting index', i)
+
+    df.reset_index(inplace=True)
+
+    return df
     
 def resample(df,time_frequency,timestamp,dimensions=None,agg=None, default_aggregate = 'last'):
     '''

@@ -103,7 +103,6 @@ class BaseFunction(object):
     itemMaxCardinality = None # dict: Maximum number of members in an array
     itemDatatypes = None #dict: BOOLEAN, NUMBER, LITERAL, DATETIME
     itemTags = None #dict: Tags to be added to data items
-    # other registration metadata
     tags = None #list of stings to tag function with
     optionalItems = None #list: list of optional parameters
     constants = None #list: list of explicit constant parameters
@@ -323,7 +322,7 @@ class BaseFunction(object):
         cols.add(self._entity_type._entity_id)
         cols= list(cols)
         df = pd.DataFrame(columns=cols)
-        df = self.conform_index(df)                
+        df = self._entity_type.index_df(df)
         return df
     
     def execute(self,df):
@@ -1521,7 +1520,7 @@ class BaseDataSource(BaseTransformer):
             raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
         if self.auto_conform_index:
-            df = self.conform_index(df)
+            df = self._entity_type.index_df(df)
         return df
 
 class BaseEvent(BaseTransformer):
@@ -1769,12 +1768,6 @@ class BaseDBActivityMerge(BaseDataSource):
             
         super().__init__(input_items = input_activities , output_items = None,
                          dummy_items = dummy_items)
-        #for any function that requires database access, create a database object
-        self.itemArraySource['activity_duration'] = 'input_activities'
-        self.itemArraySource['additional_output_names'] = 'additional_items'
-        self.constants.extend(['input_activities','input_activities'])
-        self.outputs.extend(['activity_duration','additional_output_names'])
-        self.optionalItems.extend(['additional_items'])
         
     def execute(self,df):
         
@@ -1819,8 +1812,8 @@ class BaseDBActivityMerge(BaseDataSource):
         if len(dfs) == 0:
             cols = []
             cols.append(self.activity_duration)
-            cols.append(self.additional_items)
-            adf = self.empty_dataframe(columns=cols)            
+            cols.extend(self.additional_output_names)
+            cdf = self.empty_dataframe(columns=cols)
         else:
             adf = pd.concat(dfs,sort=False)
             self.log_df_info(adf,'After merging activity data from all sources')
@@ -1902,12 +1895,14 @@ class BaseDBActivityMerge(BaseDataSource):
                    self.log_df_info(cdf,'post merge')
                    cdf = self._coallesce_columns(cdf,add_cols)
                    self.log_df_info(cdf,'post coallesce')
-            #rename initial outputs
-            cdf = self.rename_cols(cdf,self.additional_items,self.additional_output_names)
-            cdf = self.conform_index(cdf,timestamp_col = self._start_date) 
+            # rename initial outputs
+            cdf[self._entity_type._timestamp] = cdf[self._start_date]
             #add end dates
             cdf[self._end_date] = cdf[self._start_date].shift(-1)
-            
+            # index
+            cdf = self._entity_type.index_df(cdf)
+            cdf = self.rename_cols(cdf,self.additional_items,self.additional_output_names)
+
         return cdf
     
     def get_item_values(self,arg,db=None):
