@@ -19,12 +19,12 @@ These instructions will get you up and running in your local environment or in W
 
 To install in your local environment:
 ```
-pip install git+https://github.com/ibm-watson-iot/functions.git@ --upgrade
+pip install git+git://github.com/ibm-watson-iot/functions.git@ --upgrade
 ```
 
 To install in IBM Watson Studio from another Jupyter notebook:
 ```
-!pip install git+https://github.com/ibm-watson-iot/functions.git@ --upgrade
+!pip install git+git://github.com/ibm-watson-iot/functions.git@ --upgrade
 ```
 
 Test for sucessful install:
