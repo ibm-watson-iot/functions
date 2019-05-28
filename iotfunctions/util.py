@@ -518,8 +518,14 @@ def reset_df_index(df):
         for i in index_names:
             df.drop(columns=[i],inplace=True)
             logger.debug('Dropped duplicate column name %s while resetting index', i)
-
-    df.reset_index(inplace=True)
+            
+    try:
+        df.reset_index(inplace=True)
+    except ValueError:
+        msg = ('There is a problem with the dataframe index. '
+               ' Cant reset as reset caused overlap in col names'
+               ' index: %s, cols: %s' %(df.index.names,df.columns))
+        raise RuntimeError(msg)
 
     return df
     
