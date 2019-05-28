@@ -233,8 +233,8 @@ class Robot(metadata.BaseCustomEntityType):
                                      'unscheduled_maint',
                                      'firmware_upgrade',
                                      'testing'],
-                additional_items = ['start_date','activity'],
-                additional_output_names = ['activity_start_date','maintenance_activity_code'],
+                additional_items = [],
+                additional_output_items = []
                 ))
         
         functions.append(bif.RandomDiscreteNumeric(
