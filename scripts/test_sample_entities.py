@@ -15,12 +15,12 @@ with open('credentials_as_dev.json', encoding='utf-8') as F:
 db = Database(credentials = credentials)
 db_schema = None #  set if you are not using the default
 
-e1 = entity.PackagingHopper(name='test_packaging_hopper',
+e1 = entity.Robot(name='test_robot',
                             db=db,
                             drop_existing=True,
                             generate_days=5)
 e1.register(raise_error=False)
-df = db.read_table(table_name='test_packaging_hopper',
+df = db.read_table(table_name='test_robot',
                    schema=db_schema)
 print(df.head())
 
