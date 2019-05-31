@@ -300,13 +300,13 @@ class CosClient:
         #logging.debug('request_url=%s' % request_url)
 
         if http_method == 'GET':
-            resp = requests.get(request_url, headers=headers, timeout=30)
+            resp = requests.get(request_url, headers=headers, timeout=30, verify=False)
         elif http_method == 'DELETE':
-            resp = requests.delete(request_url, headers=headers, timeout=30)
+            resp = requests.delete(request_url, headers=headers, timeout=30, verify=False)
         elif http_method == 'POST':
-            resp = requests.post(request_url, headers=headers, data=payload, timeout=30)
+            resp = requests.post(request_url, headers=headers, data=payload, timeout=30, verify=False)
         elif http_method == 'PUT':
-            resp = requests.put(request_url, headers=headers, data=payload, timeout=30)
+            resp = requests.put(request_url, headers=headers, data=payload, timeout=30, verify=False)
         else:
             raise RuntimeError('unsupported_http_method=%s' % http_method)
 
