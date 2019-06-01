@@ -234,7 +234,7 @@ class Robot(metadata.BaseCustomEntityType):
                                      'firmware_upgrade',
                                      'testing'],
                 additional_items = [],
-                additional_output_items = []
+                additional_output_names = []
                 ))
         
         functions.append(bif.RandomDiscreteNumeric(

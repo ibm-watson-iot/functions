@@ -224,6 +224,8 @@ class EntityType(object):
     _df_index_entity_id = 'id'
     # when automatically creating a new dimension, use this suffix
     _auto_dim_suffix = '_auto_dim'
+    # when looking for an automatically created numeric index it should be named:
+    auto_index_name = '_auto_index_'
     # constants declared as part of an entity type definition
     ui_constants = None
     _functions = None
@@ -950,15 +952,21 @@ class EntityType(object):
                           'No need to recreate index'),self._df_index_entity_id,
                          self._timestamp)
                 
-        #create a dummy column for _entity_id
+        # create a dummy column for _entity_id
         if self._entity_id != self._df_index_entity_id:
             df[self._entity_id] = df.index.get_level_values(self._df_index_entity_id)
         
 
-        #create a dummy column for _timestamp
+        # create a dummy column for _timestamp
         if self._timestamp != self._timestamp_col:
             df[self._timestamp_col] = df.index.get_level_values(self._timestamp)
 
+        # if an automatically created index managed to show up as a collumn in the dataframe,
+        # remove it
+        try:
+            del df[self.auto_index_name]
+        except KeyError:
+            pass
         
         return df    
 

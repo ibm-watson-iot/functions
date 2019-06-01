@@ -80,6 +80,8 @@ class BaseFunction(object):
     # cos connection
     cos_credentials = None #dict external cos instance
     bucket = None #str
+    # predefined columns
+    auto_index_name = '_auto_index_'
     # custom output tables
     version_db_writes = False #write a new version timestamp to custom output table with each execution
     out_table_prefix = None
@@ -1976,6 +1978,7 @@ class BaseDBActivityMerge(BaseDataSource):
             end_date = row[self._end_date] - dt.timedelta(seconds=1)
             c[row[self._start_date]:end_date] = row[self._activity]    
         df = c.to_frame().reset_index()
+        df.index.name = self.auto_index_name
         if is_logged:
             self.log_df_info(df,'Merging activity details. Initial dataframe with dates')
         
@@ -1989,7 +1992,8 @@ class BaseDBActivityMerge(BaseDataSource):
             if is_logged:
                 self.log_df_info(df,'after removing gaps') 
     
-        #combined activities dataframe has start_date,end_date,device_id, activity 
+        #combined activities dataframe has start_date,end_date,device_id, activity
+
         return df
 
     def _get_empty_combine_data(self):
