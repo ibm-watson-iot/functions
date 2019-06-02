@@ -29,7 +29,7 @@ from .ui import (UISingle,UIMultiItem,UIFunctionOutSingle,
                  UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText)
 
-from .util import adjust_probabilities
+from .util import adjust_probabilities, reset_df_index
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -1773,7 +1773,8 @@ class ShiftCalendar(BaseTransformer):
         return df
     
     def execute(self,df):
-        df = df.reset_index()
+        
+        df = reset_df_index(df,auto_index_name = self.auto_index_name)
         entity_type = self.get_entity_type()
         (df,ts_col) = entity_type.df_sort_timestamp(df)
         calendar_df = self.get_data(start_date= df[ts_col].min(), end_date = df[ts_col].max())

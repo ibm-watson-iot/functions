@@ -927,7 +927,7 @@ class EntityType(object):
                 df = df.set_index([self._df_index_entity_id,
                                    self._timestamp])
             except KeyError:
-                df = reset_df_index(df)
+                df = reset_df_index(df,auto_index_name=self.auto_index_name)
                 try:
                     df = df.set_index([self._df_index_entity_id,
                                        self._timestamp])
@@ -960,13 +960,6 @@ class EntityType(object):
         # create a dummy column for _timestamp
         if self._timestamp != self._timestamp_col:
             df[self._timestamp_col] = df.index.get_level_values(self._timestamp)
-
-        # if an automatically created index managed to show up as a collumn in the dataframe,
-        # remove it
-        try:
-            del df[self.auto_index_name]
-        except KeyError:
-            pass
         
         return df    
 

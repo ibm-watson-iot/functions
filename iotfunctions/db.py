@@ -25,7 +25,7 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR, BOOLEAN, NullType
 from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
-from .util import CosClient, resample
+from .util import CosClient, resample, reset_df_index
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
@@ -1645,7 +1645,8 @@ class Database(object):
                     if_exists = 'append',
                     timestamp_col = None,
                     schema = None,
-                    chunksize = None):
+                    chunksize = None,
+                    auto_index_name = '_auto_index_'):
         '''
         Write a dataframe to a database table
         
@@ -1669,8 +1670,8 @@ class Database(object):
         
         if chunksize is None:
             chunksize = self.write_chunk_size
-            
-        df = df.reset_index()
+        
+        df = reset_df_index(df,auto_index_name = auto_index_name)
         # the column names id, timestamp and index are reserverd as level names. They are also reserved words
         # in db2 so we don't use them in db2 tables.
         # deviceid and evt_timestamp are used instead
@@ -1774,8 +1775,8 @@ class BaseTable(object):
         
         if chunksize is None:
             chunksize = self.database.write_chunk_size
-        
-        df = df.reset_index()
+            
+        df = reset_df_index(df,auto_index_name = self.auto_index_name)
         cols = self.get_column_names()
         
         extra_cols = set([x for x in df.columns if x !='index'])-set(cols)            

@@ -36,7 +36,7 @@ from .db import Database, SystemLogTable
 from .metadata import EntityType, Model, LocalEntityType
 from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline, PipelineExpression
-from .util import log_df_info
+from .util import log_df_info, reset_df_index
 from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
 
 logger = logging.getLogger(__name__)
@@ -1495,7 +1495,9 @@ class BaseDataSource(BaseTransformer):
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
         if self.merge_method == 'outer':
             #new_df is expected to be indexed on id and timestamp
+            index_names = df.index.names
             df = df.join(new_df,how='outer',sort=True,on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp],rsuffix ='_new_')
+            df.index.rename(index_names,inplace=True)
             df = self._coallesce_columns(df=df,cols=overlapping_columns)
         elif self.merge_method == 'nearest': 
             overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_type._entity_id,self._entity_type._timestamp]]
@@ -1521,8 +1523,7 @@ class BaseDataSource(BaseTransformer):
         else:
             raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
-        if self.auto_conform_index:
-            df = self._entity_type.index_df(df)
+        df = self._entity_type.index_df(df)
         return df
 
 class BaseEvent(BaseTransformer):
@@ -1943,10 +1944,7 @@ class BaseDBActivityMerge(BaseDataSource):
         activities with later start dates take precidence over activies with earlier start dates when resolving.
         '''
         #dataframe expected to contain start_date,end_date,activity for a single deviceid
-        is_logged = self._is_instance_level_logged
-        entity = df[self._entity_type._entity_id].max()                
-        if is_logged:
-            self.log_df_info(df,'Incoming data for combine activities. Entity Id: %s' %entity)
+        entity = df[self._entity_type._entity_id].max()
 
         #create a continuous range
         early_date = pd.Timestamp.min
@@ -1977,10 +1975,9 @@ class BaseDBActivityMerge(BaseDataSource):
         for index, row in df.iterrows():
             end_date = row[self._end_date] - dt.timedelta(seconds=1)
             c[row[self._start_date]:end_date] = row[self._activity]    
-        df = c.to_frame().reset_index()
+        df = c.to_frame()
+        df.reset_index(inplace=True)
         df.index.name = self.auto_index_name
-        if is_logged:
-            self.log_df_info(df,'Merging activity details. Initial dataframe with dates')
         
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
@@ -1988,9 +1985,7 @@ class BaseDBActivityMerge(BaseDataSource):
         
         #remove gaps
         if self.remove_gaps:
-            df = df[df[self._activity]!='_gap_']
-            if is_logged:
-                self.log_df_info(df,'after removing gaps') 
+            df = df[df[self._activity]!= '_gap_']
     
         #combined activities dataframe has start_date,end_date,device_id, activity
 
@@ -2009,7 +2004,10 @@ class BaseDBActivityMerge(BaseDataSource):
         if self._entity_scd_dict is not None:
             scd_properties = list(self._entity_scd_dict.keys())
             cols.extend(scd_properties)
-        return pd.DataFrame(columns = cols)
+        df = pd.DataFrame(columns=cols)
+        df.index.name = self.auto_index_name
+
+        return df
                 
     def read_activity_data(self,table_name,activity_code,start_ts=None,end_ts=None,entities=None):
         """
@@ -2102,7 +2100,7 @@ class BaseSCDLookup(BaseTransformer):
         
         msg = 'After scd lookup of %s from table %s. ' %(scd_property,self.table_name)
         self.trace_append(msg, df = df)
-        df = self.conform_index(df)  
+        df = self._entity_type.index_df(df)
         
         return df
     

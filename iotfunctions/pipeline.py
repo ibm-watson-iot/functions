@@ -28,7 +28,8 @@ from collections import OrderedDict
 import ibm_db
 from . import dbhelper
 from .enginelog import EngineLogging
-from .util import log_df_info, freq_to_timedelta, StageException, get_index_names
+from .util import (log_df_info, freq_to_timedelta, StageException,
+                   get_index_names, reset_df_index)
 
 import pandas as pd
 import warnings
@@ -272,8 +273,6 @@ class DataMerge(object):
                                 ' merged must be a dataframe, series,'
                                 ' constant or numpy array. Unable to merge'
                                 ' None'))
- 
-        existing = 'df'       
         
         if self.df is None:
             self.df = pd.DataFrame()
@@ -282,6 +281,8 @@ class DataMerge(object):
             logger.debug(('Input dataframe has columns %s and index %s'), 
                      list(self.df.columns),
                      self.get_index_names())
+            existing = 'df'
+        else:
             existing = 'empty df'
             
         job_constants = list(self.constants.keys())
@@ -415,7 +416,7 @@ class DataMerge(object):
         elif merge_strategy == 'lookup':
             try:
                 df_index_names = self.get_index_names()
-                self.df = self.df.reset_index()
+                self.df = reset_df_index(self.df,auto_index_name = self.auto_index_name)
                 self.df = self.df.merge(df,'left',
                           on = df.index.name,
                           suffixes = ('',self.r_suffix))
@@ -1811,7 +1812,7 @@ class JobController(object):
                                     )
                              can_proceed = False
                         else:
-                            df = df.reset_index()
+                            df = reset_df_index(df,auto_index_name = self.payload.auto_index_name)
                             
                     for (grain,stages) in list(job_spec.items()):
                         
@@ -1972,6 +1973,7 @@ class JobController(object):
     
                 if discard_prior_data:
                     tw['merge_result'] = 'replaced prior data'
+                    result = self.payload.index_df(result)
                     merge.df = result
                 
                 elif produces_output_items:
