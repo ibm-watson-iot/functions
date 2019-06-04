@@ -439,6 +439,8 @@ class DataMerge(object):
         else:
             logger.debug('Function error. Could not auto merge')
             if len(obj_index_names) == 0:
+                df_valid_names = set(self.get_index_names())
+                df_valid_names.update(set(self.df.columns))                 
                 raise ValueError(('Function error.'
                               'Attempting to merge a dataframe that has'
                               ' an un-named index. Set the index name.'
@@ -1140,6 +1142,7 @@ class JobController(object):
     keep_alive_duration = None #'2min'
     recursion_limit = 99
     log_save_retries = [1,1,1,5,10,30,60,300]
+    save_trace_to_file = False
     # Most of the work performed when executing a job is done by
     # executing the execute method of one or more stages defined in
     # the payload. There are however certain default classes that
@@ -3694,7 +3697,10 @@ class PipelineExpression(object):
         #get all quoted strings in expression
         possible_items = re.findall('"([^"]*)"', self.expression)
         possible_items.extend(re.findall("'([^']*)'", self.expression))
-        self.input_items = [x for x in possible_items if x in list(df.columns)]       
+        self.input_items = [x for x in possible_items if x in list(df.columns)]
+        
+    def set_entity_type(self,entity_type):
+        self.entity_type = entity_type
             
 
 

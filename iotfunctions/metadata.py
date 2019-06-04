@@ -1232,8 +1232,6 @@ class EntityType(object):
         '''
         Lookup a pandas frequency string from an AS granularity name
         '''
-        if lookup is None:
-            lookup = self._grain_freq_lookup
         for l in lookup:
             if grain_name == l['name']:
                 return l['alias']
@@ -2718,6 +2716,7 @@ class Model(object):
         self.eval_metric_name = eval_metric_name
         self.eval_metric_train = eval_metric_train
         self.eval_metric_test = eval_metric_test
+        self.shelf_life_days = shelf_life_days
         
         if col_name is None:
             col_name = '%s_predicted' %self.target
@@ -2728,14 +2727,11 @@ class Model(object):
             self.trained_date = None
         else:
             self.trained_date = dt.datetime.utcnow()
-        if self.trained_date is not None and shelf_life_days is not None:
-            self.expiry_date = self.trained_date + dt.timedelta(days = shelf_life_days)
+        if self.trained_date is not None and self.shelf_life_days is not None:
+            self.expiry_date = self.trained_date + dt.timedelta(days = self.shelf_life_days)
         else:
             self.expiry_date = None
         self.viz = {}
-
-    def add_viz(self, name, cos_credentials, viz_obj, bucket):
-        self.db.cos_save(persisted_object=viz_obj, filename= name, bucket=bucket)
         
     def fit(self,df):
         self.estimator = self.estimator.fit(df[self.features],df[self.target])
@@ -2762,9 +2758,6 @@ class Model(object):
         msg= 'evaluated model %s with evaluation metric value %s' %(self.name,self.eval_metric_test)
         logger.info(msg)        
         return self.eval_metric_test
-        
-    def save(self, cos_credentials, bucket):
-        self.db.cos_save(persisted_object=self, filename=self.name, bucket=bucket)
         
     def __str__(self):
         out = {}
