@@ -208,6 +208,8 @@ class EntityType(object):
         Additional keywork args. 
         _timestamp: str
             Overide the timestamp column name from the default of 'evt_timestamp'
+        _table_name: str
+            Overides the default timeseries table name which uses the entity type name
     '''    
     
     is_entity_type = True
@@ -266,7 +268,7 @@ class EntityType(object):
     drop_null_class = DropNull
     enable_downcast = False
     allow_projection_list_trim = False
-    
+
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     
@@ -301,6 +303,8 @@ class EntityType(object):
         self._custom_calendar = None
         self._is_initial_transform = True
         self._is_preload_complete = False
+
+
         if self._data_items is None:
             self._data_items = []
         if self._granularities_dict is None:
@@ -329,12 +333,17 @@ class EntityType(object):
                     'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]
                     }
                  ) 
-    
+
         # attach to time series table
         if self._db_schema is None:
             logger.warning(('No _db_schema specified in **kwargs. Using'
                              'default database schema.'))
-        
+
+        if self._metrics_table_name is None:
+            self._metrics_table_name = None
+            logger.warning(('No _metrics_table_name specified in **kwargs. Using'
+                             'default timeseries table name = entity type name.'))
+
         self._mandatory_columns = [self._timestamp,self._entity_id]
         
         #separate args into categories
@@ -357,23 +366,29 @@ class EntityType(object):
         #  create a database table if needed using cols
         if name is not None and db is not None and not self.is_local:
             try:
-                self.table = self.db.get_table(self.name,self._db_schema)
+
+                if self._metrics_table_name is not None:
+                    _metrics_table_name = self._metrics_table_name
+                else:
+                    _metrics_table_name = self.name
+
+                self.table = self.db.get_table(_metrics_table_name,self._db_schema)
             except KeyError:
                 if self.auto_create_table:
-                    ts = db_module.TimeSeriesTable(self.name ,
+                    ts = db_module.TimeSeriesTable(_metrics_table_name,
                                                    self.db,
                                                    *cols,
                                                    **kwargs)
                     self.table = ts.table
                     self.db.create()
-                    msg = 'Create table %s' %self.name
+                    msg = 'Create table %s' %_metrics_table_name
                     logger.info(msg)
                 else:
 
                     msg = ('Database table %s not found. Unable to create'
                            ' entity type instance. Provide a valid table name'
                            ' or use the auto_create_table = True keyword arg'
-                           ' to create a table. ' %(name) )
+                           ' to create a table. ' %(_metrics_table_name) )
                     raise ValueError (msg)
             #populate the data items metadata from the supplied columns
             if isinstance(self._data_items, list) and len(self._data_items) == 0:
