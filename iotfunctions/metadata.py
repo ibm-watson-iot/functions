@@ -856,7 +856,7 @@ class EntityType(object):
             obj._output_list = output_list
             
                 
-            #The stage may have metadata parameters that need to be 
+            # The stage may have metadata parameters that need to be 
             # copied onto the entity type
             try:
                 entity_metadata = obj._metadata_params
@@ -872,7 +872,26 @@ class EntityType(object):
                 self.trace_append(created_by = obj,
                        msg = 'Adding entity type properties from function',
                        log_method=logger.debug,
-                       **entity_metadata)        
+                       **entity_metadata)
+                
+            # The stage may be a special stage that should be added to
+            # a special stages list, e.g. stages that have
+            # the property is_scd_lookup = True should be added to the
+            # _scd_stages list
+            
+            specials = {
+                    'is_scd_lookup':self._scd_stages 
+                    }
+            
+            for function_prop,list_obj in list(specials.items()):
+                try:
+                    is_function_prop = getattr(s, function_prop)
+                except AttributeError:
+                    is_function_prop = False
+                    
+                if is_function_prop:
+                    list_obj.append(s)
+            
         
         return stage_metadata
     
