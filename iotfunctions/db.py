@@ -1385,7 +1385,10 @@ class Database(object):
         dimension: str
             Table name for dimension table. Dimension table will be joined on deviceid.
         '''        
-        
+
+        if agg_outputs is None:
+            agg_outputs = {}
+
         table = self.get_table(table_name,schema)
         dim = None
         if dimension is not None:
@@ -1434,7 +1437,7 @@ class Database(object):
                 hours = int(time_grain[:-1])
                 grp.append(self._ts_col_rounded_to_hours(table_name,schema,timestamp,hours,timestamp))                 
             elif time_grain == 'day':
-                grp.append(func.day(table.c[timestamp]).label(timestamp)) 
+                grp.append(func.date(table.c[timestamp]).label(timestamp))
             elif time_grain == 'week':
                 grp.append(func.this_week(table.c[timestamp]).label(timestamp)) 
             elif time_grain == 'month':
