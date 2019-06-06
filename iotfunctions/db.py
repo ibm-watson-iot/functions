@@ -991,6 +991,7 @@ class Database(object):
                              end_ts = end_ts,
                              entities = entities,
                              dimension = dimension)
+        logger.debug(q.statement)
         df = pd.read_sql(sql=q.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
         return(df)
         
