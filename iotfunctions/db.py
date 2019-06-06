@@ -1061,7 +1061,10 @@ class Database(object):
                     end_ts = end_ts,
                     entities = entities
                 )
+        '''
         sql = query.statement.compile(compile_kwargs={"literal_binds": True})
+        '''
+        sql = query.statement.compile(compile_kwargs={})
         df = pd.read_sql(sql,con = self.connection)
         logger.debug(sql)
         if pandas_aggregate is not None:
