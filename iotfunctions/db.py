@@ -1351,7 +1351,7 @@ class Database(object):
             query = query.filter(table.c[timestamp_col] < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        
+        query.order_by(timestamp_col)
         return (query,table)
     
     
