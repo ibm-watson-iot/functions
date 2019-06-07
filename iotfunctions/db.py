@@ -1095,7 +1095,7 @@ class Database(object):
                         entities = entities
                     )
 
-            sql = query.statement.compile(compile_kwargs={})
+            sql = query.statement.compile(compile_kwargs={"literal_binds": True})
             df = pd.read_sql(sql,con = self.connection)
             logger.debug(sql)
 
