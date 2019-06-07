@@ -208,7 +208,7 @@ class EntityType(object):
         Additional keywork args. 
         _timestamp: str
             Overide the timestamp column name from the default of 'evt_timestamp'
-    '''    
+    '''
     
     is_entity_type = True
     is_local = False
@@ -266,7 +266,7 @@ class EntityType(object):
     drop_null_class = DropNull
     enable_downcast = False
     allow_projection_list_trim = False
-    
+
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     
@@ -301,6 +301,8 @@ class EntityType(object):
         self._custom_calendar = None
         self._is_initial_transform = True
         self._is_preload_complete = False
+
+
         if self._data_items is None:
             self._data_items = []
         if self._granularities_dict is None:
@@ -329,12 +331,12 @@ class EntityType(object):
                     'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]
                     }
                  ) 
-    
+
         # attach to time series table
         if self._db_schema is None:
             logger.warning(('No _db_schema specified in **kwargs. Using'
                              'default database schema.'))
-        
+
         self._mandatory_columns = [self._timestamp,self._entity_id]
         
         #separate args into categories
@@ -360,7 +362,7 @@ class EntityType(object):
                 self.table = self.db.get_table(self.name,self._db_schema)
             except KeyError:
                 if self.auto_create_table:
-                    ts = db_module.TimeSeriesTable(self.name ,
+                    ts = db_module.TimeSeriesTable(self.name,
                                                    self.db,
                                                    *cols,
                                                    **kwargs)
@@ -373,7 +375,7 @@ class EntityType(object):
                     msg = ('Database table %s not found. Unable to create'
                            ' entity type instance. Provide a valid table name'
                            ' or use the auto_create_table = True keyword arg'
-                           ' to create a table. ' %(name) )
+                           ' to create a table. ' %(self.name) )
                     raise ValueError (msg)
             #populate the data items metadata from the supplied columns
             if isinstance(self._data_items, list) and len(self._data_items) == 0:
@@ -854,7 +856,7 @@ class EntityType(object):
             obj._output_list = output_list
             
                 
-            #The stage may have metadata parameters that need to be 
+            # The stage may have metadata parameters that need to be 
             # copied onto the entity type
             try:
                 entity_metadata = obj._metadata_params
@@ -870,7 +872,26 @@ class EntityType(object):
                 self.trace_append(created_by = obj,
                        msg = 'Adding entity type properties from function',
                        log_method=logger.debug,
-                       **entity_metadata)        
+                       **entity_metadata)
+                
+            # The stage may be a special stage that should be added to
+            # a special stages list, e.g. stages that have
+            # the property is_scd_lookup = True should be added to the
+            # _scd_stages list
+            
+            specials = {
+                    'is_scd_lookup':self._scd_stages 
+                    }
+            
+            for function_prop,list_obj in list(specials.items()):
+                try:
+                    is_function_prop = getattr(s, function_prop)
+                except AttributeError:
+                    is_function_prop = False
+                    
+                if is_function_prop:
+                    list_obj.append(s)
+            
         
         return stage_metadata
     

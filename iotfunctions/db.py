@@ -1102,7 +1102,6 @@ class Database(object):
             # combine special aggregates with regular database aggregates
 
             if df_special is not None:
-
                 join_cols = []
                 join_cols.extend(groupby)
                 if time_grain is not None:
@@ -1114,6 +1113,7 @@ class Database(object):
                                  how = 'outer')
                 else:
                     df = pd.merge(df, df_special, left_index=True, right_index=True)
+
 
             # apply pandas aggregate if required
             
