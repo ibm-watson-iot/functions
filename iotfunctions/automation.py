@@ -12,7 +12,6 @@ import inspect
 import logging
 import datetime as dt
 import math
-from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 import numpy as np
 import pandas as pd
 
@@ -31,14 +30,13 @@ def register(module,db):
             kwargs = None
         
         if not kwargs is None:
-            args,varargs,keywords,defaults = (inspect.getargspec(cls.__init__))
-            args = args[1:]
             stmt = 'mod.%s(**%s)' %(name,kwargs)
             instance = eval(stmt)
             instance.db = db
             df = instance.get_test_data()
             instance.register(df=df)
-  
+
+
 class CategoricalGenerator(object):
     '''
     Generate categorical values.
@@ -102,7 +100,8 @@ class CategoricalGenerator(object):
         generate array of random categorical values
         '''        
         return np.random.choice(self.categories,rows,p=self.weights)
-    
+
+
 class DateGenerator(object):
     '''
     Generate a array of random dates
@@ -146,7 +145,8 @@ class MetricGenerator(object):
         metrics = np.random.normal(self.mean,self.sd,rows)
         
         return metrics
-                
+
+
 class TimeSeriesGenerator(object):
 
     ''' 
@@ -237,8 +237,7 @@ class TimeSeriesGenerator(object):
         if domains is None:
             domains = {}
         self.domain = domains
- 
-        
+
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
         end = dt.datetime.utcnow()
@@ -295,8 +294,7 @@ class TimeSeriesGenerator(object):
     def execute(self,df=None):
         df = self.get_data()
         return df
-        
-    
+
     def set_mean(self,metric,mean):
         '''
         Set the mean value of generated numeric item
@@ -321,8 +319,4 @@ class TimeSeriesGenerator(object):
         '''
         for key,value in list(params.items()):
             setattr(self, key, value)
-        return self        
-    
-
-
-
+        return self

@@ -14,8 +14,6 @@ The entity module contains sample entity types
 
 import logging
 import datetime as dt
-import json
-import importlib
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 
 from . import metadata

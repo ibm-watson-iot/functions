@@ -15,7 +15,6 @@ import urllib3
 import json
 import inspect
 import sys
-import gzip
 
 import pandas as pd
 import subprocess
@@ -498,11 +497,9 @@ class Database(object):
                 if m['metricTableName'] == name:
                     metadata = m
                     break
-            msg = 'No entity called % in the cached metadata.' %name
-            raise ValueError(msg)
-            
-        print (metadata)
-        raise
+            if metadata is None:
+                msg = 'No entity called %s in the cached metadata.' % name
+                raise ValueError(msg)
                 
         timestamp = metadata['metricTimestampColumn']
         schema = metadata['schemaName']
@@ -668,7 +665,7 @@ class Database(object):
             'Cache-Control': "no-cache",
         }        
         try:
-            url =self.url[(object_type,request)]
+            url = self.url[(object_type,request)]
         except KeyError:
             raise ValueError (('This combination  of request_type (%s) and' 
                                ' object_type (%s) is not supported by the' 
@@ -827,7 +824,7 @@ class Database(object):
                                                      target=target,
                                                      url=url)    
                 except Exception as e:
-                    msg = 'unkown error when importing: %s' %name
+                    msg = 'unknown error when importing: %s' %name
                     logger.exception(msg)
                     raise e
             try:
@@ -1696,7 +1693,6 @@ class Database(object):
                 dtypes[c] = String(255)
             elif is_bool_dtype(df[c]):
                 dtypes[c] = SmallInteger()
-        table_exists = False
         cols = None
         if if_exists == 'append':
             #check table exists
