@@ -1102,7 +1102,6 @@ class Database(object):
             # combine special aggregates with regular database aggregates
 
             if df_special is not None:
-
                 join_cols = []
                 join_cols.extend(groupby)
                 if time_grain is not None:
@@ -1114,6 +1113,7 @@ class Database(object):
                                  how = 'outer')
                 else:
                     df = pd.merge(df, df_special, left_index=True, right_index=True)
+
 
             # apply pandas aggregate if required
             
@@ -2157,4 +2157,3 @@ class SlowlyChangingDimension(BaseTable):
         self.property_name = Column(property_name,datatype)
         self.id_col = Column(self._entity_id,String(50))
         super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.property_name,**kw )
-
