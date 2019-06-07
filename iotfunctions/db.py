@@ -1375,7 +1375,9 @@ class Database(object):
 
                     #if output name was provided, remove special from there too
 
+                    ''' 
                     fns.remove(special_name)
+                    '''
                     try:
                         outs = agg_outputs[item]
                         output_name = outs[index]
