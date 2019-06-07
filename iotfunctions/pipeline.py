@@ -128,8 +128,9 @@ class DataMerge(object):
     
     By default, a DataMerge object initializes itself with an empty
     dataframe. Although the main purpose of the DataMerge object is
-    maintaining a dataframe, it can also keep track of any constants added
-    during job processing so that it can re-apply constants if needed.
+    maintaining a dataframe, it can also keep track of any constants and
+    dimension lookups required added during job processing so that it can
+    re-apply constants if needed.
     
     Use the execute method to combine a new incoming data object with
     whatever data is present in the DataMerge at the time.
@@ -148,6 +149,7 @@ class DataMerge(object):
             df = pd.DataFrame()
         self.df = df
         self.constants = kwargs.get('constants',None)
+        self.df_dimension = kwargs.get('df_dimension',None)
         if self.constants is None:
             self.constants = {}
             
@@ -316,9 +318,8 @@ class DataMerge(object):
                     'Merging dataframe with object of type %s'
                     ),type(obj))             
             self.merge_non_dataframe(obj,col_names = col_names)
-
             
-        #test that df has expected columns
+        # test that df has expected columns
         df_cols = self.get_cols()
         if not self.df.empty and not set(col_names).issubset(df_cols):
             missing_cols = set(col_names) - df_cols
@@ -489,7 +490,7 @@ class DataMerge(object):
                     ' dataframe or numpy array, it should only deliver a'
                     ' single column. This merge operation has columns '
                     ' %s' %(obj,col_names)
-                    ))    
+                    ))
             
 
 class DropNull(object):

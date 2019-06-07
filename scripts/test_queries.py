@@ -28,12 +28,13 @@ db = Database(credentials=credentials)
 # Get the min and max ambient temperature and mean ambient humidity
 
 agg = {
-        'ambient_temp': ['min','max'],
+        'ambient_temp': ['min','max','first','last'],
         'ambient_humidity' : ['mean']
 }
 
 df = db.read_agg(table_name = table_name,
                  schema = db_schema,
+                 timestamp = 'evt_timestamp',
                  agg_dict = agg
 )
 print(df)
@@ -53,8 +54,6 @@ print(df)
 df = db.read_agg(table_name = table_name,
                  schema = db_schema,
                  agg_dict = agg,
-                 timestamp= timestamp,
-                 time_grain = 'day',
                  dimension = dim_table_name,
                  groupby = ['manufacturer']
 )
@@ -69,7 +68,6 @@ df = db.read_agg(table_name = table_name,
                  schema = db_schema,
                  agg_dict = agg,
                  timestamp= timestamp,
-                 time_grain = 'day',
                  dimension = dim_table_name,
                  groupby = ['manufacturer'],
                  end_ts = end_date,
@@ -87,7 +85,6 @@ df = db.read_agg(table_name = table_name,
                  schema = db_schema,
                  agg_dict = agg,
                  timestamp= timestamp,
-                 time_grain = 'day',
                  dimension = dim_table_name,
                  groupby = ['manufacturer'],
                  end_ts = end_date,
@@ -95,4 +92,3 @@ df = db.read_agg(table_name = table_name,
                  entities= ['73001']
 )
 print(df)
-
