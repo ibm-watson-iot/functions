@@ -879,26 +879,35 @@ class Database(object):
         Perform an equijoin between two sql alchemy query objects, filtering the left query by the keys in the right query
         args are the names of the keys to join on, e.g 'deviceid', 'timestamp'. 
         Use string args for joins on common names. Use tuples like ('timestamp','evt_timestamp') for joins on different column names.
-        By default the join acts as a filter. It does not return columns from the right query. To return columns from the right
-        query specify **kwargs as a dict containing column names and alais names.
+        By default the join acts as a filter. It does not return columns from the right query. To return a custom projection list
+        specify **kwargs as a dict keyed on column name with an alias names.
         '''
         left_query = left_query.subquery('a')
         right_query = right_query.subquery('b')
         joins = []
+        projection_list = []
+        covered_columns = set()
+
         for col in args:
             if isinstance(col,str):
                 joins.append(left_query.c[col]==right_query.c[col])
             else:
                 joins.append(left_query.c[col[0]]==right_query.c[col[1]])
-        projection_list = []
-        covered_columns = set()
+
         for (col,alias) in list(kwargs.items()):
-            projection_list.append(right_query.c[col].label(alias))
-            covered_columns.add(alias)
-        #add left hand cols to project list if not already added from right
-        for col_obj in list(left_query.c.values()):
-            if col_obj.name not in covered_columns:
+            try:
+                projection_list.append(right_query.c[col].label(alias))
+            except KeyError:
+                try:
+                    projection_list.append(left_query.c[col].label(alias))
+                except KeyError:
+                    raise KeyError ('Column % s not included in left or right query' %col)
+
+        if len(projection_list) == 0:
+            #add left hand cols to project list if not already added from right
+            for col_obj in list(left_query.c.values()):
                 projection_list.append(col_obj)
+
         join_condition = and_(*joins)
         join = left_query.join(right_query, join_condition)
         result_query = select(projection_list).select_from(join)
@@ -986,6 +995,7 @@ class Database(object):
         q,table = self.query(table_name,
                              schema=schema,
                              column_names = columns,
+                             column_aliases = columns,
                              timestamp_col = timestamp_col,
                              start_ts = start_ts,
                              end_ts = end_ts,
@@ -1048,7 +1058,12 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         '''
         
-        (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+        # process special aggregates (first and last)
+
+        if groupby is None:
+            groupby = []
+        
+        (agg_dict,agg_outputs,df_special) = self.process_special_agg(
                     agg_dict = agg_dict,
                     agg_outputs = agg_outputs,
                     table_name = table_name,
@@ -1059,14 +1074,57 @@ class Database(object):
                     dimension = dimension,
                     start_ts = start_ts,
                     end_ts = end_ts,
-                    entities = entities
+                    entities = entities                
                 )
+        
+        # process remaining aggregates
 
-        sql = query.statement.compile(compile_kwargs={"literal_binds": True})
-        df = pd.read_sql(sql,con = self.connection)
-        logger.debug(sql)
-        if pandas_aggregate is not None:
-            df = resample(df=df,time_frequency=pandas_aggregate,timestamp=timestamp,dimensions=groupby,agg=agg_dict)
+        if agg_dict:
+        
+            (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+                        agg_dict = agg_dict,
+                        agg_outputs = agg_outputs,
+                        table_name = table_name,
+                        schema = schema,
+                        groupby = groupby,
+                        timestamp = timestamp,
+                        time_grain = time_grain,
+                        dimension = dimension,
+                        start_ts = start_ts,
+                        end_ts = end_ts,
+                        entities = entities
+                    )
+
+            sql = query.statement.compile(compile_kwargs={"literal_binds": True})
+            df = pd.read_sql(sql,con = self.connection)
+            logger.debug(sql)
+
+            # combine special aggregates with regular database aggregates
+
+            if df_special is not None:
+
+                join_cols = []
+                join_cols.extend(groupby)
+                if time_grain is not None:
+                    join_cols.append(time_grain)
+
+                if len(join_cols) > 0:
+                    df = df.join(df_special,
+                                 on = join_cols,
+                                 how = 'outer')
+                else:
+                    df = pd.merge(df, df_special, left_index=True, right_index=True)
+
+            # apply pandas aggregate if required
+            
+            if pandas_aggregate is not None:
+                df = resample(df=df,time_frequency=pandas_aggregate,timestamp=timestamp,dimensions=groupby,agg=agg_dict)
+
+        else:
+
+            df = df_special
+            
+            
         return df
     
     def register_constants(self,constants, raise_error = True):
@@ -1246,6 +1304,172 @@ class Database(object):
                         registered.add(cls)
                         
         return registered
+
+
+    def process_special_agg(self, table_name,
+                        schema,
+                        agg_dict,
+                        timestamp,
+                        agg_outputs = None,
+                        groupby=None,
+                        time_grain = None,
+                        dimension = None,
+                        start_ts = None,
+                        end_ts = None,
+                        entities = None):
+        '''
+        Strip out the special aggregates (first and last) from the an agg
+        dict and execute each as separate query.
+        
+        Parameters
+        ----------
+        table_name: str
+            Source table name
+        schema: str
+            Schema name where table is located
+        agg_dict: dict
+            Dictionary of aggregate functions keyed on column name, e.g. { "temp": "mean", "pressure":["min","max"]}
+        timestamp: str
+            Name of timestamp column in the table. Required for time filters.
+        time_grain: str
+            Time grain for aggregation may be day,month,year or a pandas frequency string
+        start_ts: datetime
+            Retrieve data from this date
+        end_ts: datetime
+            Retrieve data up until date
+        entities: list of strs
+            Retrieve data for a list of deviceids
+        dimension: str
+            Table name for dimension table. Dimension table will be joined on deviceid.
+            
+            
+        Returns
+        --------
+        agg_dict: dict
+        agg_outputs: dict
+        df: dataframe
+            
+        '''
+
+        if agg_outputs is None:
+            agg_outputs = {}
+
+        if groupby is None:
+            groupby = []
+        
+        specials = ['first',
+                    'last']
+        
+        dfs = []
+        
+        # update the agg_dict and agg_outputs. Remove special aggs
+        
+        for special_name in specials:
+            for (item,fns) in list(agg_dict.items()):
+                try: 
+                    index = fns.index(special_name)
+                except ValueError:
+                    pass
+                else:
+                    output_name = '%s_%s' % (item, special_name)
+
+                    #if output name was provided, remove special from there too
+
+                    fns.remove(special_name)
+                    try:
+                        outs = agg_outputs[item]
+                        output_name = outs[index]
+                        del(outs[index])
+                    except (KeyError, IndexError):
+                        pass
+
+                    # prepare a filter query containing first or last timestamp
+                    # when doing a first, look for the earliest existing timestamp in each group
+                    # when doing a last, look for the last existing timestamp in each group
+                    # the query filter will be used to retrieve the appropriate records
+
+                    if timestamp is None:
+                        raise ValueError ('Must provide valid timestamp column name when doing special aggregates')
+
+                    if special_name == 'first':
+                        time_agg_dict =  { timestamp: "min" }
+                    elif special_name == 'last':
+                        time_agg_dict =  { timestamp: "max" }
+
+                    (filter_query,table,dim,pandas_aggregate,revised_agg_dict) = self.query_agg(
+                            agg_dict = time_agg_dict,
+                            agg_outputs = { timestamp : timestamp },
+                            table_name = table_name,
+                            schema = schema,
+                            groupby = groupby,
+                            time_grain = time_grain,
+                            timestamp = timestamp,
+                            dimension = dimension,
+                            start_ts = start_ts,
+                            end_ts = end_ts,
+                            entities = entities)
+
+                    # only read rows where the metric is not Null
+
+                    metric_filter =  self._is_not_null(table=table, dimension_table=dim, column=item)
+                    filter_query = filter_query.filter(metric_filter)
+
+                    # prepare a main query containing
+                    # define the join keys
+                    # define a projection list containing the output item and groupby cols
+
+                    project = {output_name: output_name}
+                    cols = [item,timestamp]
+                    keys = [timestamp]
+                    if groupby is not None:
+                        cols.extend(groupby)
+                        keys.extend(groupby)
+                        for g in groupby:
+                            project[g] = g
+
+                    col_aliases = [output_name if x == item else x for x in cols]
+
+                    query,table = self.query(
+                        table_name = table_name,
+                        schema = schema,
+                        column_names = cols,
+                        column_aliases= col_aliases,
+                        timestamp_col= timestamp,
+                        dimension = dimension )
+
+                    query = self.subquery_join(query, filter_query, *keys, **project)
+
+                    #execute
+                    df_result = pd.read_sql(query,con = self.connection)
+
+                    if pandas_aggregate is not None:
+                        df_result = resample(df=df_result,
+                                             time_frequency=pandas_aggregate,
+                                             timestamp=timestamp,
+                                             dimensions=groupby,
+                                             agg=agg_dict)
+
+                    dfs.append(df_result)
+            
+            
+        # combine special aggregates
+        
+        if len(dfs) == 0:
+            df = None
+        elif len(dfs) == 1:
+            df = dfs[0]
+        elif len(groupby) == 0:
+            df = dfs.pop()
+            for d in dfs:
+                df = pd.merge(df,d,how='outer',left_index=True,right_index=True)
+        else:
+            df = dfs.pop()
+            for d in dfs:
+                df = pd.merge(df,d,how='outer',on=groupby)
+
+        return (agg_dict,agg_outputs,df)
+
+
                       
     def _ts_col_rounded_to_minutes(self,table_name,schema,column_name,minutes,label):
         '''
@@ -1273,6 +1497,7 @@ class Database(object):
     
     def query(self,table_name, schema,
               column_names = None,
+              column_aliases = None,
               timestamp_col = None,
               start_ts = None,
               end_ts = None,
@@ -1280,7 +1505,8 @@ class Database(object):
               dimension = None
               ):
         '''
-        Build a sqlalchemy query object for a table. You can further manipulate the query object using standard sqlalchemcy operations to do things like filter and join.
+        Build a sqlalchemy query object for a table. You can further manipulate the query object using standard
+        sqlalchemcy operations to do things like filter and join.
         
         Parameters
         ----------
@@ -1321,16 +1547,23 @@ class Database(object):
             query_args = []
             if isinstance(column_names,str):
                 column_names = [column_names]
-            for c in column_names:
+            for (i,c) in enumerate(column_names):
                 try:
-                    query_args.append(table.c[c])
+                    alias = column_aliases[i]
+                except (IndexError,TypeError):
+                    alias = None
+                try:
+                    col = table.c[c]
                 except KeyError:
                     try:
-                       query_args.append(dim.c[c])     
+                       col = dim.c[c]
                     except KeyError:
                         msg = 'Unable to find column %s in table or dimension for entity type %s' %(c,table_name)
                         raise KeyError(msg)
-    
+                if not alias is None:
+                    col = col.label(alias)
+                query_args.append(col)
+
         query = self.session.query(*query_args)
         
         if dim is not None:
@@ -1353,14 +1586,16 @@ class Database(object):
     
     
     def query_agg(self, table_name, schema, agg_dict,
-                       agg_outputs = None,
-                       groupby=None,
-                       timestamp=None,
-                       time_grain = None,
-                       dimension = None,
-                       start_ts = None,
-                       end_ts = None,
-                       entities = None):
+                agg_outputs = None,
+                groupby=None,
+                timestamp=None,
+                time_grain = None,
+                dimension = None,
+                start_ts = None,
+                end_ts = None,
+                entities = None,
+                auto_null_filter = False
+                ):
         '''
         Pandas style aggregate function against db table
         
@@ -1389,6 +1624,9 @@ class Database(object):
         if agg_outputs is None:
             agg_outputs = {}
 
+        if groupby is None:
+            groupby = []
+
         table = self.get_table(table_name,schema)
         dim = None
         if dimension is not None:
@@ -1403,7 +1641,8 @@ class Database(object):
         # aggregate dict is keyed on column - may contain a single aggregate function or a list of aggregation functions
         for col,aggs in agg_dict.items():
             if isinstance(aggs,str):
-                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=None, dimension_table = dim, timestamp_col = timestamp))
+                col_name = agg_outputs.get(col,col)
+                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=col_name, dimension_table = dim, timestamp_col = timestamp))
             elif isinstance(aggs,list):
                 for i,agg in enumerate(aggs):
                     try:
@@ -1418,7 +1657,10 @@ class Database(object):
             else:
                 msg = 'Aggregate dictionary is not in the correct form. Supply a single aggregate function as a string or a list of strings.'
                 raise ValueError(msg)
-            metric_filter.append(self._is_not_null(table=table, dimension_table = dim ,column = col))
+
+            if auto_null_filter:
+                metric_filter.append(self._is_not_null(table=table, dimension_table = dim ,column = col))
+
         #assemble group by
         grp = []
         #attempt to push aggregates down to sql
@@ -1446,8 +1688,7 @@ class Database(object):
                 grp.append(func.this_year(table.c[timestamp]).label(timestamp))
             else:
                 pandas_aggregate = time_grain
-        if groupby is None:
-            groupby = []
+
         for g in groupby:
             try:
                 grp.append(table.c[g])
@@ -1481,7 +1722,9 @@ class Database(object):
         #filter out rows where all of the metrics are null
         #reduces volumes when dealing with sparse datasets
         #also essential when doing a query to get the first or last values as null values must be ignored
-        query = query.filter(or_(*metric_filter))
+
+        if auto_null_filter:
+            query = query.filter(or_(*metric_filter))
             
         return (query,table,dim,pandas_aggregate,agg_dict)
     
