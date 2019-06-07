@@ -1375,7 +1375,6 @@ class Database(object):
 
                     #if output name was provided, remove special from there too
 
-                    ''' 
                     fns.remove(special_name)
                     
                     try:
@@ -1384,7 +1383,6 @@ class Database(object):
                         del(outs[index])
                     except (KeyError, IndexError):
                         pass
-                    '''
                     # prepare a filter query containing first or last timestamp
                     # when doing a first, look for the earliest existing timestamp in each group
                     # when doing a last, look for the last existing timestamp in each group
