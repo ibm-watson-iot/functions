@@ -27,7 +27,6 @@ db = Database(credentials=credentials)
 
 now = dt.datetime.utcnow()
 
-'''
 
 # Retrieve a single data item using a standard aggregation function
 
@@ -171,7 +170,7 @@ df = db.read_agg(table_name = table_name,
 )
 print(df)
 
-'''
+
 
 # Get a collection of aggregations by day
 
