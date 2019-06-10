@@ -507,7 +507,6 @@ class EntityType(object):
         
         try:
             input_set = set(obj.get_input_items())
-            logger.debug
         except AttributeError:
             input_set = set()
         else:
@@ -823,13 +822,13 @@ class EntityType(object):
             granularity = s.granularity
             
             if granularity is not None and isinstance(granularity,str):
-                granularity = self.granularities_dict.get(granularity,False)
+                granularity = self._granularities_dict.get(granularity,False)
                 if not granularity:
                     msg = ('Cannot build stage metdata. The granularity metadata'
                            ' is invalid. Granularity of function is %s. Valid '
                            ' granularities are %s' %(
                             granularity,
-                            list(self.granularities_dict.keys())
+                            list(self._granularities_dict.keys())
                             ))
                     raise StageException(msg,obj.name)
             elif isinstance(granularity,Granularity):
@@ -1302,7 +1301,7 @@ class EntityType(object):
         except AttributeError:
             out = default
 
-        return 
+        return out
 
     def get_end_ts_override(self):
         if self._end_ts_override is not None:
@@ -1410,11 +1409,7 @@ class EntityType(object):
         '''
         if entities is None:
             entities = [str(self._start_entity_id + x) for x in list(range(self._auto_entity_count))]
-        metrics = []
-        categoricals = []
-        dates = []
-        others = []
-        
+
         if data_item_mean is None:
             data_item_mean = {}
         if data_item_sd is None:
@@ -1510,6 +1505,7 @@ class EntityType(object):
         df = df[cols]
         if write:
             msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
+            logger.debug(msg)
             self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema)       
         return df
     
@@ -1563,6 +1559,7 @@ class EntityType(object):
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity'
                    ' types do not have a checkpoint' )
+            logger.debug(msg)
             return None
         
         (query,table) = self.db.query_column_aggregate(
@@ -1858,7 +1855,7 @@ class EntityType(object):
                     data_type = 'TIMESTAMP'
                 else:
                     data_type = str(data_type)
-                    logger.warning('Unknown datatype %s for column %s' %(data_type,c))
+                    logger.warning('Unknown datatype %s for column %s' %(data_type, column_name))
                 columns.append({ 
                         'name' : column_name,
                         'type' : col_type,
@@ -2530,7 +2527,7 @@ class Trace(object)    :
             self.stop()
         self.data = []
         if name is None:
-            name = self._trace.build_trace_name()
+            name = self.build_trace_name()
         self.name = name
         logger.debug('Started a new trace %s ', self.name)
         if self.auto_save is not None and self.auto_save > 0:

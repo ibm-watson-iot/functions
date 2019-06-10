@@ -12,7 +12,6 @@
 Base classes for functions. Inhertit from these base classes when building custom functions.
 '''
 
-import math
 import os
 import urllib3
 import numbers
@@ -23,25 +22,21 @@ import json
 import re
 import numpy as np
 import pandas as pd
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, ForeignKey, create_engine
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
-import ibm_db
-import ibm_db_dbi
-from sqlalchemy.orm.session import sessionmaker
 from inspect import getargspec
 from collections import OrderedDict
-from .db import Database, SystemLogTable
+from .db import Database
 from .metadata import EntityType, Model, LocalEntityType
-from .automation import TimeSeriesGenerator
 from .pipeline import CalcPipeline, PipelineExpression
-from .util import log_df_info, reset_df_index
+from .util import log_df_info
 from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
 
 logger = logging.getLogger(__name__)
 
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
+
 
 class BaseFunction(object):
     """
@@ -297,7 +292,7 @@ class BaseFunction(object):
                 id_series = self._get_series(df,col_names=ids)
             except KeyError as e:
                 msg = 'Attempting to conform index. Cannot find an entity identifier column. Looking for %s' %ids
-                raise KeyError(msg)    
+                raise KeyError(msg) from e
             if timestamp_col is None:
                 timestamp_col = self._entity_type._timestamp
             tss = [timestamp_col, self._entity_type._timestamp_col]
@@ -305,7 +300,7 @@ class BaseFunction(object):
                 timestamp_series = self._get_series(df,col_names=tss)
             except KeyError as e:
                 msg = 'Attempting to conform index. Cannot find a timestamp column. Looking for %s ' %tss
-                raise KeyError(msg)
+                raise KeyError(msg) from e
             df[self._entity_type._df_index_entity_id] = id_series.astype(str)
             df[self._entity_type._timestamp] = pd.to_datetime(timestamp_series)
             df = df.set_index([self._entity_type._df_index_entity_id,self._entity_type._timestamp])
@@ -340,7 +335,7 @@ class BaseFunction(object):
                 group_base.append(s)
             else:
                 try:
-                    x = df.index.get_level_values(s)
+                    df.index.get_level_values(s)
                 except KeyError:
                     raise ValueError('This function executes by column %s. This column was not found in columns or index' %s)
                 else:
@@ -484,7 +479,7 @@ class BaseFunction(object):
          return result
      
      
-    def _getJsonSchema(self,column_metadata,datatype,min_items,arg,is_array,is_output,is_constant):
+    def _getJsonSchema(self,column_metadata,datatype,min_items,arg,is_array,is_constant):
         
         #json schema may have been explicitly defined                
         try:
@@ -592,7 +587,6 @@ class BaseFunction(object):
         if constants is None:
             constants = self.constants
             
-        returns_dataframe = True
         #run the function to produce a new dataframe that contains the function outputs
         if not df is None:
             if new_df is None:
@@ -602,7 +596,6 @@ class BaseFunction(object):
             else:
                 tf = new_df
             if isinstance(tf,bool):
-                returns_dataframe = False
                 tf = df.head(self.test_rows)
                 tf = tf.copy()
                 tf = self._add_explicit_outputs(tf)
@@ -612,7 +605,6 @@ class BaseFunction(object):
             if len(test_outputs) ==0:
                 raise ValueError('Could not locate output columns in the test dataframe. Check the execute method of the function to ensure that it returns a dataframe with output columns that are named differently from the input columns')
         else:
-            tf = None
             raise NotImplementedError('Must supply a test dataframe for function registration. Explict metadata definition not suported')
         
         metadata_inputs = OrderedDict()
@@ -782,7 +774,6 @@ class BaseFunction(object):
                                                   min_items = min_items,
                                                   arg=a,
                                                   is_array = is_array,
-                                                  is_output = is_output,
                                                   is_constant = is_constant)
             #constants may have explict values
             values = None
@@ -829,7 +820,7 @@ class BaseFunction(object):
                 metadata_outputs[array]['cardinalityFrom']=array_source
                 
                 del metadata_outputs[array]['dataType']
-                msg = 'Array argument %s is driven by %s so the cardinality and datatype are set from the source' %(a,array_source)
+                msg = 'Array argument %s is driven by %s so the cardinality and datatype are set from the source' %(array,array_source)
                 logger.debug(msg)
         return (metadata_inputs,metadata_outputs)
     
@@ -945,8 +936,7 @@ class BaseFunction(object):
         df = self.conform_index(df)
         
         return df       
-    
-    
+
     def _get_scd_history(self,start_ts,end_ts,entities):
         '''
         Build a dict keyed on scd property and entity id
@@ -960,8 +950,7 @@ class BaseFunction(object):
                 df = self.get_scd_data(table_name=table, start_ts=start_ts, end_ts = end_ts, entities = entities)
                 x[scd_property] = self._partition_df_by_id(df)
             return x
-        
-    
+
     def log_df_info(self,df,msg,include_data=False):
         '''
         Log a debugging entry showing first row and index structure
@@ -970,8 +959,7 @@ class BaseFunction(object):
         '''
         msg = log_df_info(df=df,msg=msg,include_data = include_data)
         return msg
-            
-    
+
     def _infer_array_source(self,candidate_inputs,output_length):
         '''
         Look for the last input array with the same length as the target
@@ -1210,9 +1198,10 @@ class BaseFunction(object):
                     'X-api-token' : credentials['as_api_token'],
                     'Cache-Control': "no-cache",
                 }
-            except KeyError:
-                msg('Old style credentials are a dictionary with tennant_id.as_api_key, as_api_token and as_api_host')
-            
+            except KeyError as ex:
+                msg = 'Old style credentials are a dictionary with tennant_id.as_api_key, as_api_token and as_api_host'
+                raise Exception(msg) from ex
+
             if not metadata_only:
                 url = 'http://%s/api/catalog/v1/%s/function/%s' %(credentials['as_api_host'],credentials['tennant_id'],name)
                 r = http.request("DELETE", url, body = encoded_payload, headers=headers)
@@ -1325,6 +1314,7 @@ class BaseFunction(object):
         et.trace_append(created_by = self,
                         msg=msg,
                         log_method=log_method,
+                        df=df,
                         **kwargs)
         
 
@@ -1526,6 +1516,7 @@ class BaseDataSource(BaseTransformer):
         df = self._entity_type.index_df(df)
         return df
 
+
 class BaseEvent(BaseTransformer):
     """
     Base class for AS Functions that product events or alerts. 
@@ -1564,8 +1555,6 @@ class BaseFilter(BaseTransformer):
         Define your custom filter logic in a filter() method
         '''
         raise NotImplementedError('This function has no filter method defined. You must implement a custom filter method for a filter function')
-        return df
-
 
 
 class BaseAggregator(BaseFunction):
@@ -1573,7 +1562,7 @@ class BaseAggregator(BaseFunction):
     Base class for AS Aggregator Functions. Inherit from this class when building a custom function that aggregates a dataframe.
     """
     
-    category =  'AGGREGATOR'
+    category = 'AGGREGATOR'
     
     def __init__(self):
         super().__init__()
@@ -1772,7 +1761,7 @@ class BaseDBActivityMerge(BaseDataSource):
         super().__init__(input_items = input_activities , output_items = None,
                          dummy_items = dummy_items)
         
-    def execute(self,df):
+    def execute(self,df,start_ts=None,end_ts=None,entities=None):
         
         self.execute_by = [self._entity_type._entity_id]
         df = super().execute(df)
@@ -2144,8 +2133,7 @@ class BasePreload(BaseTransformer):
         Execute function may optionally use a start_ts,end_ts and entities passed to the pipeline for processing
         '''
         raise NotImplementedError('This function has no execute method defined. You must implement a custom execute for any preload function')
-        return True
-    
+
     def _getMetadata(self, df = None, new_df = None, inputs = None, outputs = None, constants = None):
         '''
         Preload function has no dataframe in or out so standard _getMetadata() does not work

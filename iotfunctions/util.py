@@ -228,7 +228,6 @@ class CosClient:
         datestamp = time.strftime('%Y%m%d')
 
         url = urlparse(self._cos_endpoint)
-        scheme = url.scheme
         host = url.netloc
 
         payload_hash = hashlib.sha256(str.encode(payload) if isinstance(payload, str) else payload).hexdigest()

@@ -16,12 +16,10 @@ public classes.
 '''
 
 import logging
-import json
 import re
 import datetime as dt
 import numpy as np
 import time
-import sys
 import traceback
 from collections import OrderedDict
 
@@ -103,8 +101,7 @@ class DataAggregator(object):
             msg = msg + ' Uses %s to produce %s .' %(s.name,s._output_list)
             
         return msg
-        
-        
+
     def execute(self,df=None):
         
         gfs = []
@@ -122,8 +119,7 @@ class DataAggregator(object):
         
         logger.info('Completed aggregation: %s', self._granularity.name)
         return df
-        
-        return 
+
 
 class DataMerge(object):
     '''
@@ -160,7 +156,7 @@ class DataMerge(object):
     def __str__(self):
         
         out = ('DataMerge object has data structures: dataframe with %s rows'
-               ' and %s constants ' % (len(df.index),len(constants)))
+               ' and %s constants ' % (len(self.df.index),len(self.constants)))
         
         return out
         
@@ -473,7 +469,7 @@ class DataMerge(object):
         if len(col_names)==1:
             # if the source dataframe is empty, it has no index
             # the data merge object can only accept a constant
-            if len(df.index)==0:
+            if len(self.df.index)==0:
                 self.add_constant(col_names[0],obj)
             else:
                 try:
@@ -637,13 +633,15 @@ class DataReader(object):
             
             
         return outputs
-    
+
+
 class DataWriterException(Exception):
     
     def __init__(self, msg):
         super().__init__(msg)
 
-class Db2DataWriter():
+
+class Db2DataWriter:
     '''
     Stage that writes the calculated data items to database.
     '''
@@ -765,8 +763,8 @@ class Db2DataWriter():
                     row.append(None)
 
                 if item_type == DATA_ITEM_TYPE_NUMBER:
-                    myFloat = float(derived_value)
-                    row.append(myFloat if np.isfinite(myFloat) else None)
+                    my_float = float(derived_value)
+                    row.append(my_float if np.isfinite(my_float) else None)
                 else:
                     row.append(None)
 
@@ -1851,7 +1849,7 @@ class JobController(object):
                 except BaseException as e:
                     # an error writing to the jo log could invalidate
                     #future runs. Abort on error.
-                     self.handle_failed_execution(
+                    self.handle_failed_execution(
                             meta,
                             message = 'Error writing execution results to log',
                             exception = e,
@@ -1861,11 +1859,13 @@ class JobController(object):
             try:
                 next_execution = self.get_next_future_execution(schedule_metadata)
             except BaseException as e:
-                raise_error(exception=e,
-                            msg = 'Error getting next future scheduled execution',
-                            stageName = 'get_next_future_execution',
-                            raise_error = True
-                            )
+                self.handle_failed_execution(
+                    meta,
+                    message='Error getting next future scheduled execution',
+                    exception=e,
+                    stageName='get_next_future_execution',
+                    raise_error=True
+                )
             meta['next_future_execution'] = next_execution
             
             # if there is no future execution that fits withing the timeframe
@@ -2790,9 +2790,9 @@ class JobController(object):
         
         if raise_error is None:
             raise_error = self.get_payload_param('_abort_on_fail',True)
-        
+
         can_proceed = False
-        
+
         msg = ('Execution of job failed. %s failed due to %s'
                ' Error message: %s '
                ' Stack trace : %s '
@@ -3086,6 +3086,7 @@ class CalcPipeline:
         for p in preload_stages:
             if not self.entity_type._is_preload_complete:
                 msg = 'Stage %s :' %p.__class__.__name__
+                self.trace_add(msg)
                 status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
                 msg = '%s completed as pre-load. ' %p.__class__.__name__
                 self.trace_add(msg)
@@ -3550,20 +3551,18 @@ class CalcPipeline:
             logger.warning(
                 'Output dataframe index does not conform. Second part not a string called %s' % self.entity_type._timestamp)
 
-        mismatched_type = False
         for dtype, cols in list(validation_types['input'].items()):
             try:
                 missing = cols - validation_types['output'][dtype]
             except KeyError:
                 mismatched_type = True
                 msg = 'Output dataframe has no columns of type %s. Type has changed or column was dropped.' % dtype
+                logger.warning(msg)
             else:
                 if len(missing) != 0:
-                    msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' % (
-                    missing, dtype)
-                    mismatched_type = True
-            if mismatched_type:
-                logger.warning(msg)
+                    msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' % \
+                          (missing, dtype)
+                    logger.warning(msg)
 
         self.check_data_items_type(df=output_df, items=self.entity_type.get_data_items())
 

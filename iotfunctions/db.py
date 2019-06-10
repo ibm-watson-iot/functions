@@ -15,7 +15,6 @@ import urllib3
 import json
 import inspect
 import sys
-import gzip
 
 import pandas as pd
 import subprocess
@@ -546,11 +545,9 @@ class Database(object):
                 if m['metricTableName'] == name:
                     metadata = m
                     break
-            msg = 'No entity called % in the cached metadata.' %name
-            raise ValueError(msg)
-            
-        print (metadata)
-        raise
+            if metadata is None:
+                msg = 'No entity called %s in the cached metadata.' % name
+                raise ValueError(msg)
                 
         timestamp = metadata['metricTimestampColumn']
         schema = metadata['schemaName']
@@ -716,7 +713,7 @@ class Database(object):
             'Cache-Control': "no-cache",
         }        
         try:
-            url =self.url[(object_type,request)]
+            url = self.url[(object_type,request)]
         except KeyError:
             raise ValueError (('This combination  of request_type (%s) and' 
                                ' object_type (%s) is not supported by the' 
@@ -875,7 +872,7 @@ class Database(object):
                                                      target=target,
                                                      url=url)    
                 except Exception as e:
-                    msg = 'unkown error when importing: %s' %name
+                    msg = 'unknown error when importing: %s' %name
                     logger.exception(msg)
                     raise e
             try:
@@ -1164,7 +1161,6 @@ class Database(object):
             # combine special aggregates with regular database aggregates
 
             if df_special is not None:
-
                 join_cols = []
                 join_cols.extend(groupby)
                 if time_grain is not None:
@@ -1174,6 +1170,7 @@ class Database(object):
                     df = pd.merge(df, df_special, left_on=join_cols, right_on=join_cols, how = 'outer')
                 else:
                     df = pd.merge(df, df_special, left_index=True, right_index=True)
+
 
             # apply pandas aggregate if required
             
@@ -2028,7 +2025,6 @@ class Database(object):
                 dtypes[c] = String(255)
             elif is_bool_dtype(df[c]):
                 dtypes[c] = SmallInteger()
-        table_exists = False
         cols = None
         if if_exists == 'append':
             #check table exists
@@ -2246,4 +2242,3 @@ class SlowlyChangingDimension(BaseTable):
         self.property_name = Column(property_name,datatype)
         self.id_col = Column(self._entity_id,String(50))
         super().__init__(name,database,self.id_col,self.start_date,self.end_date,self.property_name,**kw )
-

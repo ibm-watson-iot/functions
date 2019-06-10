@@ -100,14 +100,14 @@ class DateDifferenceReference(BaseTransformer):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(name='date_1',
+        inputs.append(ui.UISingleItem(name='date_1',
                                    datatype=dt.datetime,
                                    required=False,
                                    description=('Date data item. Use timestamp'
                                                 ' if no date specified')
                                    )
                       )
-        inputs.append(UISingle(name='ref_date',
+        inputs.append(ui.UISingle(name='ref_date',
                                datatype=dt.datetime,
                                description='Date value'
                                )
@@ -115,7 +115,7 @@ class DateDifferenceReference(BaseTransformer):
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(
-            UIFunctionOutSingle(
+            ui.UIFunctionOutSingle(
                 name='num_days',
                 datatype=float,
                 description='Number of days')
