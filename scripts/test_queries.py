@@ -105,8 +105,7 @@ df = db.read_agg(table_name = table_name,
                  agg_dict = agg,
                  to_csv = True,
                  end_ts = now,
-                 period_type = 'mtd',
-                 period_count = 30
+                 period_type = 'mtd'
 )
 print(df)
 
