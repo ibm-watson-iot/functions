@@ -338,7 +338,55 @@ class Database(object):
                 return dimension_table.c[column].isnot(None)
             except (KeyError,AttributeError):
                 msg = 'Column %s not found on time series or dimension table.' %column
-                raise ValueError(msg)        
+                raise ValueError(msg)
+
+    def calc_time_interval(self,start_ts,end_ts,period_type,period_count):
+
+        '''
+
+        Infer a missing start or end date from a number of periods and a period type.
+        If a start_date is provided, calculate the end date
+        If the end_date is provided, calculate the start date
+
+        :param start_ts: datetime
+        :param end_ts: datetime
+        :param period_type: str ['days','seconds','microseconds','minutes','hours','weeks','mtd','ytd']
+        :param period_count: float
+        :return: tuple (start_ts,end_ts)
+
+        '''
+
+        if period_type == 'mtd':
+                if end_ts is None:
+                    end_ts = dt.datetime.utcnow()
+                start_ts = end_ts.date().replace(day=1)
+        elif period_type == 'ytd':
+                if end_ts is None:
+                    end_ts = dt.datetime.utcnow()
+                start_ts = end_ts.date().replace(month=1)
+        elif period_type in ['days','seconds','microseconds','minutes','hours','weeks']:
+            if start_ts is not None and end_ts is None:
+                ref_is_start = True
+            elif end_ts is not None and start_ts is None:
+                ref_is_start = False
+            else:
+                # both are null or both are non null, do not replace
+                ref_is_start = None
+
+            if ref_is_start is not None:
+                kwarg = {
+                    period_type: period_count
+                }
+                td = dt.timedelta(**kwarg)
+
+                if ref_is_start:
+                    end_ts = start_ts + td
+                else:
+                    start_ts = end_ts - td
+        else:
+            raise ValueError('Invalid period type %s' %period_type)
+
+        return (start_ts, end_ts)
 
     def cos_load(self, filename, bucket=None, binary=False):
         if bucket is None:
@@ -1032,7 +1080,10 @@ class Database(object):
                        dimension = None,
                        start_ts = None,
                        end_ts = None,
-                       entities = None):
+                       period_type = 'days',
+                       period_count = 1,
+                       entities = None,
+                       to_csv = False):
         '''
         Pandas style aggregate function against db table
         
@@ -1059,6 +1110,17 @@ class Database(object):
         '''
         
         # process special aggregates (first and last)
+
+        agg_dict = agg_dict.copy()
+
+        (start_ts,end_ts) = self.calc_time_interval(start_ts=start_ts,
+                                                    end_ts = end_ts,
+                                                    period_type = period_type,
+                                                    period_count = period_count)
+
+        if agg_outputs is None:
+            agg_outputs = {}
+        agg_outputs = agg_outputs.copy()
 
         if groupby is None:
             groupby = []
@@ -1095,9 +1157,9 @@ class Database(object):
                         entities = entities
                     )
 
-            sql = query.statement.compile(compile_kwargs={"literal_binds": True})
-            df = pd.read_sql(sql,con = self.connection)
-            logger.debug(sql)
+            #sql = query.statement.compile(compile_kwargs={"literal_binds": True})
+            df = pd.read_sql(query.statement,con = self.connection)
+            logger.debug(query.statement)
 
             # combine special aggregates with regular database aggregates
 
@@ -1106,12 +1168,10 @@ class Database(object):
                 join_cols = []
                 join_cols.extend(groupby)
                 if time_grain is not None:
-                    join_cols.append(time_grain)
+                    join_cols.append(timestamp)
 
                 if len(join_cols) > 0:
-                    df = df.join(df_special,
-                                 on = join_cols,
-                                 how = 'outer')
+                    df = pd.merge(df, df_special, left_on=join_cols, right_on=join_cols, how = 'outer')
                 else:
                     df = pd.merge(df, df_special, left_index=True, right_index=True)
 
@@ -1123,7 +1183,10 @@ class Database(object):
         else:
 
             df = df_special
-            
+
+        if to_csv:
+            filename = 'query_%s_%s.csv' %(table_name,dt.datetime.now().strftime('%Y%m%d%H%M%S%f'))
+            df.to_csv(filename)
             
         return df
     
@@ -1354,6 +1417,9 @@ class Database(object):
         if agg_outputs is None:
             agg_outputs = {}
 
+        agg_dict = agg_dict.copy()
+        agg_outputs = agg_outputs.copy()
+
         if groupby is None:
             groupby = []
         
@@ -1373,9 +1439,12 @@ class Database(object):
                 else:
                     output_name = '%s_%s' % (item, special_name)
 
-                    #if output name was provided, remove special from there too
-
                     fns.remove(special_name)
+                    if len(fns) == 0:
+                        del agg_dict[item]
+
+                    # if output name was provided, remove special from there too
+
                     try:
                         outs = agg_outputs[item]
                         output_name = outs[index]
@@ -1398,7 +1467,7 @@ class Database(object):
 
                     (filter_query,table,dim,pandas_aggregate,revised_agg_dict) = self.query_agg(
                             agg_dict = time_agg_dict,
-                            agg_outputs = { timestamp : timestamp },
+                            agg_outputs = { timestamp : 'timestamp_filter' },
                             table_name = table_name,
                             schema = schema,
                             groupby = groupby,
@@ -1420,14 +1489,17 @@ class Database(object):
 
                     project = {output_name: output_name}
                     cols = [item,timestamp]
-                    keys = [timestamp]
+                    keys = ['timestamp_filter']
                     if groupby is not None:
                         cols.extend(groupby)
                         keys.extend(groupby)
                         for g in groupby:
                             project[g] = g
+                    if time_grain is not None:
+                        project[timestamp] = timestamp
 
                     col_aliases = [output_name if x == item else x for x in cols]
+                    col_aliases[1] = 'timestamp_filter'
 
                     query,table = self.query(
                         table_name = table_name,
@@ -1453,19 +1525,25 @@ class Database(object):
             
             
         # combine special aggregates
+
+        if time_grain is not None:
+            join = [timestamp]
+        else:
+            join = []
+        join.extend(groupby)
         
         if len(dfs) == 0:
             df = None
         elif len(dfs) == 1:
             df = dfs[0]
-        elif len(groupby) == 0:
+        elif len(join) == 0:
             df = dfs.pop()
             for d in dfs:
                 df = pd.merge(df,d,how='outer',left_index=True,right_index=True)
         else:
             df = dfs.pop()
             for d in dfs:
-                df = pd.merge(df,d,how='outer',on=groupby)
+                df = pd.merge(df,d,how='outer',on=join)
 
         return (agg_dict,agg_outputs,df)
 
@@ -1709,6 +1787,17 @@ class Database(object):
             query = self.session.query(*args).group_by(*grp)
             if dimension is not None:
                 query = query.join(dim, dim.c.deviceid == table.c.deviceid)
+            if not start_ts is None:
+                if timestamp is None:
+                    msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
+                    raise ValueError(msg)
+                query = query.filter(table.c[timestamp] >= start_ts)
+            if not end_ts is None:
+                if timestamp is None:
+                    msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
+                    raise ValueError(msg)
+                query = query.filter(table.c[timestamp] < end_ts)
+
         else:
             (query,table) = self.query(
                         table_name = table_name,
