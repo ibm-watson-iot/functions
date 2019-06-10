@@ -121,8 +121,7 @@ df = db.read_agg(table_name = table_name,
                  agg_dict = agg,
                  to_csv = True,
                  end_ts = now,
-                 period_type = 'ytd',
-                 period_count = 30
+                 period_type = 'ytd'
 )
 print(df)
 
