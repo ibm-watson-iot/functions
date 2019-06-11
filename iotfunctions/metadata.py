@@ -2026,19 +2026,22 @@ class ServerEntityType(EntityType):
             raise RuntimeError((
                     'API call to server did not retrieve valid entity '
                     ' type properties for %s.' %logical_name))
-                    
-        #  cache function catalog metadata in the db object
-        function_list = [x['functionName'] for x in server_meta['kpiDeclarations']] 
-        db.load_catalog(install_missing=True, function_list=function_list)
-        
+
         # functions
+
         kpis = server_meta.get('kpiDeclarations',[])
         if kpis is None:
             kpis = []
             logger.warning((
                     'This entity type has no calculated kpis'
                     ))
-            
+            function_list = []
+        else:
+            function_list = [x['functionName'] for x in kpis]
+
+        #  cache function catalog metadata in the db object
+        db.load_catalog(install_missing=True, function_list=function_list)
+
         self.db = db
         (self._functions,
          self._invalid_stages,
