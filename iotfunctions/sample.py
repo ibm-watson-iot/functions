@@ -13,6 +13,7 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
+import json
 from sqlalchemy import (Table, Column, Integer, SmallInteger, String, DateTime)
 
 from pandas.api.types import (is_string_dtype, is_numeric_dtype, is_bool_dtype,
@@ -121,6 +122,106 @@ class DateDifferenceReference(BaseTransformer):
                 description='Number of days')
         )
 
+        return (inputs, outputs)
+
+class HTTPPreload(BasePreload):
+    '''
+    Do a HTTP request as a preload activity. Load results of the get into the Entity Type time series table.
+    HTTP request is experimental
+    '''
+
+    out_table_name = None
+
+    def __init__(self, request, url, headers = None, body = None, output_item  = 'http_preload_done'):
+
+        if body is None:
+            body = {}
+
+        if headers is None:
+            headers = {}
+
+        super().__init__(dummy_items=[],output_item = output_item)
+
+        # create an instance variable with the same name as each arg
+
+        self.url = url
+        self.request = request
+        self.headers = headers
+        self.body = body
+
+        # do not do any processing in the init() method. Processing will be done in the execute() method.
+
+    def execute(self, df, start_ts = None,end_ts=None,entities=None):
+
+        entity_type = self.get_entity_type()
+        db = entity_type.db
+        encoded_body = json.dumps(self.body).encode('utf-8')
+        encoded_headers = json.dumps(self.headers).encode('utf-8')
+
+        if self.out_table_name is None:
+            table = entity_type.name
+        else:
+            table = self.out_table_name
+
+        if not self.url == 'internal_test':
+            response = db.http.request(self.request,
+                                       self.url,
+                                       body = encoded_body,
+                                       headers=encoded_headers)
+            response_data = response.data.decode('utf-8')
+        else:
+            rows = 3
+            response_data = {}
+            (metrics,dates,categoricals,others) = db.get_column_lists_by_type(
+                table = table,
+                schema= entity_type._db_schema,
+                exclude_cols = []
+            )
+            for m in metrics:
+                response_data[m] = np.random.normal(0,1,rows)
+            for d in dates:
+                response_data[d] = dt.datetime.utcnow()
+            for c in categoricals:
+                response_data[c] = np.random.choice(['A','B','C'],rows)
+
+
+        df = pd.DataFrame(data=response_data)
+        self.write_frame(df=df,table_name=table)
+
+        return True
+
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UISingle(name='request',
+                              datatype=str,
+                              description='comma separated list of entity ids',
+                              values=['GET','POST','PUT','DELETE']
+                              ))
+        inputs.append(ui.UISingle(name='headers',
+                               datatype=str,
+                               description='request url',
+                               tags=['TEXT']
+                               ))
+        inputs.append(ui.UISingle(name='body',
+                               datatype=str,
+                               description='request body',
+                               tags=['TEXT'],
+                               required=False
+                               ))
+        inputs.append(ui.UISingle(name='url',
+                               datatype=str,
+                               description='request url',
+                               tags=['TEXT'],
+                               required=False
+                               ))
+        # define arguments that behave as function outputs
+        outputs=[]
+        outputs.append(ui.UIStatusFlag(name='output_item'))
         return (inputs, outputs)
 
 class MultiplyTwoItems(BaseTransformer):
