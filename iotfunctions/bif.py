@@ -20,6 +20,7 @@ import re
 import pandas as pd
 import logging
 import warnings
+import json
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, 
                    BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
@@ -27,7 +28,7 @@ from .base import (BaseTransformer, BaseEvent, BaseSCDLookup,
 
 from .ui import (UISingle,UIMultiItem,UIFunctionOutSingle,
                  UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
-                 UIText)
+                 UIText, UIStatusFlag)
 
 from .util import adjust_probabilities, reset_df_index
 
@@ -1006,9 +1007,9 @@ class EntityFilter(BaseMetadataProvider):
                                            datatype=bool,
                                            description='Returns a status flag of True when executed'))
         
-        return (inputs,outputs) 
-    
-    
+        return (inputs,outputs)
+
+
 class PythonExpression(BaseTransformer):
     '''
     Create a new item from an expression involving other items
