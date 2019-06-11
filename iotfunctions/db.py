@@ -15,6 +15,7 @@ import urllib3
 import json
 import inspect
 import sys
+import importlib
 
 import pandas as pd
 import subprocess
@@ -795,6 +796,7 @@ class Database(object):
             
         if completedProcess.returncode == 0:
 
+            importlib.invalidate_caches()
             logger.debug('pip install for url %s was successful: \n %s',
                          url, completedProcess.stdout)
             
