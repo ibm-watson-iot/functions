@@ -202,21 +202,20 @@ class HTTPPreload(BasePreload):
                               description='comma separated list of entity ids',
                               values=['GET','POST','PUT','DELETE']
                               ))
+        inputs.append(ui.UISingle(name='url',
+                                  datatype=str,
+                                  description='request url',
+                                  tags=['TEXT'],
+                                  required=True
+                                  ))
         inputs.append(ui.UISingle(name='headers',
-                               datatype=str,
+                               datatype=dict,
                                description='request url',
-                               tags=['TEXT']
+                               required = False
                                ))
         inputs.append(ui.UISingle(name='body',
-                               datatype=str,
+                               datatype=dict,
                                description='request body',
-                               tags=['TEXT'],
-                               required=False
-                               ))
-        inputs.append(ui.UISingle(name='url',
-                               datatype=str,
-                               description='request url',
-                               tags=['TEXT'],
                                required=False
                                ))
         # define arguments that behave as function outputs
