@@ -796,7 +796,7 @@ class Database(object):
             
         if completedProcess.returncode == 0:
 
-            #importlib.invalidate_caches()
+            importlib.invalidate_caches()
             logger.debug('pip install for url %s was successful: \n %s',
                          url, completedProcess.stdout)
             
