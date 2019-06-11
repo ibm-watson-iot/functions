@@ -1796,6 +1796,8 @@ class Database(object):
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
                 query = query.filter(table.c[timestamp] < end_ts)
+            if not entities is None:
+                query = query.filter(table.c.deviceid.in_(entities))
 
         else:
             (query,table) = self.query(

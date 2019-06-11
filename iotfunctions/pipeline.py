@@ -1302,8 +1302,9 @@ class JobController(object):
             'grains_metadata' : self.get_payload_param('_granularities_dict',None),
             'data_item_metadata' : data_items_dict
             }
-        
-        data_writer = self.data_writer(name = 'data_writer_input_level_',
+
+        writer_name = '%s_input_level' %self.name
+        data_writer = self.data_writer(name = writer_name,
                                        **params)
         build_metadata['spec'].append(data_writer)
         
@@ -1375,7 +1376,8 @@ class JobController(object):
                                                     meta = build_metadata)
             
             # Add a data writer for grain
-            data_writer = self.data_writer(name = 'data_writer_ouput_%s' %g.name,
+            writer_name = '%s_%s' % (self.name, g.name)
+            data_writer = self.data_writer(name = writer_name ,
                                        **params)
             build_metadata['spec'].append(data_writer)         
             

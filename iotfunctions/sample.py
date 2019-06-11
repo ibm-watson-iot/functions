@@ -132,13 +132,16 @@ class HTTPPreload(BasePreload):
 
     out_table_name = None
 
-    def __init__(self, request, url, headers = None, body = None, output_item  = 'http_preload_done'):
+    def __init__(self, request, url, headers = None, body = None, column_map = None, output_item  = 'http_preload_done'):
 
         if body is None:
             body = {}
 
         if headers is None:
             headers = {}
+
+        if column_map is None:
+            column_map = {}
 
         super().__init__(dummy_items=[],output_item = output_item)
 
@@ -148,6 +151,7 @@ class HTTPPreload(BasePreload):
         self.request = request
         self.headers = headers
         self.body = body
+        self.column_map = column_map
 
         # do not do any processing in the init() method. Processing will be done in the execute() method.
 
@@ -158,35 +162,76 @@ class HTTPPreload(BasePreload):
         encoded_body = json.dumps(self.body).encode('utf-8')
         encoded_headers = json.dumps(self.headers).encode('utf-8')
 
+        # This class is setup to write to the entity time series table
+        # To route data to a different table in a custom function,
+        # you can assign the table name to the out_table_name class variable
+        # or create a new instance variable with the same name
+
         if self.out_table_name is None:
             table = entity_type.name
         else:
             table = self.out_table_name
 
-        if not self.url == 'internal_test':
-            response = db.http.request(self.request,
-                                       self.url,
-                                       body = encoded_body,
-                                       headers=encoded_headers)
-            response_data = response.data.decode('utf-8')
-        else:
+        schema = entity_type._db_schema
+
+        # There is a a special test "url" called internal_test
+        # Create a dict containing random data when using this
+        if self.url == 'internal_test':
             rows = 3
             response_data = {}
             (metrics,dates,categoricals,others) = db.get_column_lists_by_type(
                 table = table,
-                schema= entity_type._db_schema,
+                schema= schema,
                 exclude_cols = []
             )
             for m in metrics:
                 response_data[m] = np.random.normal(0,1,rows)
             for d in dates:
-                response_data[d] = dt.datetime.utcnow()
+                response_data[d] = dt.datetime.utcnow() - dt.timedelta(seconds=15)
             for c in categoricals:
                 response_data[c] = np.random.choice(['A','B','C'],rows)
 
+        # make an http request
+        else:
+            response = db.http.request(self.request,
+                                       self.url,
+                                       body=encoded_body,
+                                       headers=encoded_headers)
+            response_data = response.data.decode('utf-8')
 
         df = pd.DataFrame(data=response_data)
+
+        # align dataframe with data received
+
+        # use supplied column map to rename columns
+        df = df.rename(self.column_map, axis='columns')
+        # fill in missing columns with nulls
+        required_cols = db.get_column_names(table = table, schema=schema)
+        missing_cols = set(required_cols) - set(df.columns)
+        if len(missing_cols) > 0:
+            kwargs = {
+                'missing_cols' : missing_cols
+            }
+            entity_type.trace_append(created_by = self,
+                                     msg = 'http data was missing columns. Added null values.',
+                                     log_method=logger.debug,
+                                     **kwargs)
+        for m in missing_cols:
+            df[m] = None
+        # remove columns that are not required
+            df = df[required_cols]
+
+        # write the dataframe to the database table
         self.write_frame(df=df,table_name=table)
+        kwargs ={
+            'table_name' : table,
+            'schema' : schema,
+            'row_count' : len(df.index)
+        }
+        entity_type.trace_append(created_by=self,
+                                 msg='Wrote data to table',
+                                 log_method=logger.debug,
+                                 **kwargs)
 
         return True
 

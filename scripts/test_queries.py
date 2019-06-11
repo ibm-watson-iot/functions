@@ -188,13 +188,11 @@ print(df)
 
 # Restrict to an entity
 
+
 agg = {
         'ambient_temp': ['min','max','first','last'],
         'ambient_humidity' : ['mean']
 }
-
-end_date = dt.datetime.utcnow()
-start_date = end_date - dt.timedelta(days=14)
 
 df = db.read_agg(table_name = table_name,
                  schema = db_schema,
