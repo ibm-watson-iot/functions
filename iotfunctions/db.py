@@ -1082,7 +1082,8 @@ class Database(object):
                        period_type = 'days',
                        period_count = 1,
                        entities = None,
-                       to_csv = False):
+                       to_csv = False,
+                       filters = None):
         '''
         Pandas style aggregate function against db table
         
@@ -1106,6 +1107,8 @@ class Database(object):
             Retrieve data for a list of deviceids
         dimension: str
             Table name for dimension table. Dimension table will be joined on deviceid.
+        filters: dict
+            Keyed on dimension name. List of members.
         '''
         
         # process special aggregates (first and last)
@@ -1135,7 +1138,8 @@ class Database(object):
                     dimension = dimension,
                     start_ts = start_ts,
                     end_ts = end_ts,
-                    entities = entities                
+                    entities = entities,
+                    filters = filters
                 )
         
         # process remaining aggregates
@@ -1153,12 +1157,13 @@ class Database(object):
                         dimension = dimension,
                         start_ts = start_ts,
                         end_ts = end_ts,
-                        entities = entities
+                        entities = entities,
+                        filters = filters
                     )
 
-            sql = query.statement.compile(compile_kwargs={})
-            df = pd.read_sql(sql,con = self.connection)
-            logger.debug(sql)
+            #sql = query.statement.compile(compile_kwargs={"literal_binds": True})
+            df = pd.read_sql(query.statement,con = self.connection)
+            logger.debug(query.statement)
 
             # combine special aggregates with regular database aggregates
 
@@ -1378,7 +1383,8 @@ class Database(object):
                         dimension = None,
                         start_ts = None,
                         end_ts = None,
-                        entities = None):
+                        entities = None,
+                        filters = None):
         '''
         Strip out the special aggregates (first and last) from the an agg
         dict and execute each as separate query.
@@ -1437,13 +1443,12 @@ class Database(object):
                     pass
                 else:
                     output_name = '%s_%s' % (item, special_name)
-
-                    fns.remove(special_name)
-
-                    if len(fns) == 0:
+                    agg_dict[item] = [x for x in fns if x != special_name]
+                    if len(agg_dict[item]) == 0:
                         del agg_dict[item]
 
                     # if output name was provided, remove special from there too
+
                     try:
                         outs = agg_outputs[item]
                         output_name = outs[index]
@@ -1474,7 +1479,8 @@ class Database(object):
                             dimension = dimension,
                             start_ts = start_ts,
                             end_ts = end_ts,
-                            entities = entities)
+                            entities = entities,
+                            filters = filters)
 
                     # only read rows where the metric is not Null
 
@@ -1505,7 +1511,8 @@ class Database(object):
                         column_names = cols,
                         column_aliases= col_aliases,
                         timestamp_col= timestamp,
-                        dimension = dimension )
+                        dimension = dimension,
+                        filters = filters)
 
                     query = self.subquery_join(query, filter_query, *keys, **project)
 
@@ -1578,11 +1585,14 @@ class Database(object):
               start_ts = None,
               end_ts = None,
               entities = None,
-              dimension = None
+              dimension = None,
+              filters = None
               ):
         '''
         Build a sqlalchemy query object for a table. You can further manipulate the query object using standard
         sqlalchemcy operations to do things like filter and join.
+
+        This is a non aggregate query (no group by). For an aggregate query use query_agg.
         
         Parameters
         ----------
@@ -1599,11 +1609,16 @@ class Database(object):
             Retrieve data for a list of deviceids
         dimension: str
             Table name for dimension table. Dimension table will be joined on deviceid.
+        filters: dict
+            Dictionary keys on column name containing a list of members to include
         
         Returns
         -------
         tuple containing a sqlalchemy query object and a sqlalchemy table object
-        '''        
+        '''
+
+        if filters is None:
+            filters = {}
         
         self.start_session()
         table = self.get_table(table_name,schema)
@@ -1657,6 +1672,26 @@ class Database(object):
             query = query.filter(table.c[timestamp_col] < end_ts)  
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
+            for d,members in list(filters.items()):
+                try:
+                    col_obj = table.c[d]
+                except KeyError:
+                    try:
+                        col_obj = dim.c[d]
+                    except KeyError:
+                        raise ValueError('Filter column %s not found in table or dimension' %d)
+                if isinstance(members,str):
+                    members = [members]
+                if not isinstance(members,list):
+                    raise ValueError('Invalid filter on %s. Provide a list of members to filter on not %s' %(
+                        d,members ))
+                elif len(members) == 1:
+                    query = query.filter(col_obj == members[0])
+                elif len(members) == 0:
+                    logger.debug('Ignored query filter on %s with no members',d)
+                else:
+                    query = query.filter(col_obj.in_(members[0]))
+
         
         return (query,table)
     
@@ -1670,7 +1705,8 @@ class Database(object):
                 start_ts = None,
                 end_ts = None,
                 entities = None,
-                auto_null_filter = False
+                auto_null_filter = False,
+                filters = None
                 ):
         '''
         Pandas style aggregate function against db table
@@ -1702,6 +1738,9 @@ class Database(object):
 
         if groupby is None:
             groupby = []
+
+        if filters is None:
+            filters = {}
 
         table = self.get_table(table_name,schema)
         dim = None
@@ -1781,7 +1820,14 @@ class Database(object):
         args.extend(grp)
 
         self.start_session()
+
+        # if the query requires an aggregation function that cannot be translated to sql, it will be aggregated
+        # after retrieval using pandas
+
         if pandas_aggregate is None:
+
+            # push aggregates to the database
+
             query = self.session.query(*args).group_by(*grp)
             if dimension is not None:
                 query = query.join(dim, dim.c.deviceid == table.c.deviceid)
@@ -1797,8 +1843,31 @@ class Database(object):
                 query = query.filter(table.c[timestamp] < end_ts)
             if not entities is None:
                 query = query.filter(table.c.deviceid.in_(entities))
-
+            for d,members in list(filters.items()):
+                try:
+                    col_obj = table.c[d]
+                except KeyError:
+                    try:
+                        col_obj = dim.c[d]
+                    except KeyError:
+                        raise ValueError('Filter column %s not found in table or dimension' %d)
+                if isinstance(members,str):
+                    members = [members]
+                if not isinstance(members,list):
+                    raise ValueError('Invalid filter on %s. Provide a list of members to filter on not %s' %(
+                        d,members ))
+                elif len(members) == 1:
+                    query = query.filter(col_obj == members[0])
+                elif len(members) == 0:
+                    logger.debug('Ignored query filter on %s with no members',d)
+                else:
+                    query = query.filter(col_obj.in_(members[0]))
         else:
+
+            # do a non-aggregation query
+            # the calling function is expected to recognise
+            # that aggregation has not been performed using the pandas_aggregate in the return tuple
+
             (query,table) = self.query(
                         table_name = table_name,
                         schema = schema,
@@ -1806,7 +1875,8 @@ class Database(object):
                         start_ts = start_ts,
                         end_ts = end_ts,
                         entities = entities,
-                        dimension = dimension
+                        dimension = dimension,
+                        filters = filters
                     )
         #filter out rows where all of the metrics are null
         #reduces volumes when dealing with sparse datasets
