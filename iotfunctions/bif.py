@@ -20,6 +20,7 @@ import re
 import pandas as pd
 import logging
 import warnings
+import json
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, 
                    BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
@@ -27,9 +28,9 @@ from .base import (BaseTransformer, BaseEvent, BaseSCDLookup,
 
 from .ui import (UISingle,UIMultiItem,UIFunctionOutSingle,
                  UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
-                 UIText)
+                 UIText, UIStatusFlag)
 
-from .util import adjust_probabilities
+from .util import adjust_probabilities, reset_df_index
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -1006,9 +1007,9 @@ class EntityFilter(BaseMetadataProvider):
                                            datatype=bool,
                                            description='Returns a status flag of True when executed'))
         
-        return (inputs,outputs) 
-    
-    
+        return (inputs,outputs)
+
+
 class PythonExpression(BaseTransformer):
     '''
     Create a new item from an expression involving other items
@@ -1773,7 +1774,8 @@ class ShiftCalendar(BaseTransformer):
         return df
     
     def execute(self,df):
-        df = df.reset_index()
+        
+        df = reset_df_index(df,auto_index_name = self.auto_index_name)
         entity_type = self.get_entity_type()
         (df,ts_col) = entity_type.df_sort_timestamp(df)
         calendar_df = self.get_data(start_date= df[ts_col].min(), end_date = df[ts_col].max())

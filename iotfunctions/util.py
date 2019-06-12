@@ -228,7 +228,6 @@ class CosClient:
         datestamp = time.strftime('%Y%m%d')
 
         url = urlparse(self._cos_endpoint)
-        scheme = url.scheme
         host = url.netloc
 
         payload_hash = hashlib.sha256(str.encode(payload) if isinstance(payload, str) else payload).hexdigest()
@@ -300,13 +299,13 @@ class CosClient:
         #logging.debug('request_url=%s' % request_url)
 
         if http_method == 'GET':
-            resp = requests.get(request_url, headers=headers, timeout=30)
+            resp = requests.get(request_url, headers=headers, timeout=30, verify=False)
         elif http_method == 'DELETE':
-            resp = requests.delete(request_url, headers=headers, timeout=30)
+            resp = requests.delete(request_url, headers=headers, timeout=30, verify=False)
         elif http_method == 'POST':
-            resp = requests.post(request_url, headers=headers, data=payload, timeout=30)
+            resp = requests.post(request_url, headers=headers, data=payload, timeout=30, verify=False)
         elif http_method == 'PUT':
-            resp = requests.put(request_url, headers=headers, data=payload, timeout=30)
+            resp = requests.put(request_url, headers=headers, data=payload, timeout=30, verify=False)
         else:
             raise RuntimeError('unsupported_http_method=%s' % http_method)
 
@@ -506,26 +505,36 @@ def log_df_info(df,msg,include_data=False):
         logger.warning('dataframe contents not logged due to an unknown logging error')
         return ''
 
-def reset_df_index(df):
+def reset_df_index(df,auto_index_name='_auto_index_'):
     '''
     Reset the data dataframe index. Ignore duplicate columns.
     '''
 
+    # if the dataframe has an auto index, do not place it in the dataframe
+    if len([x for x in df.index.names if x is not None]) >0:
+        drop = False
+    elif df.index.name is None or df.index.name == auto_index_name:
+        drop = True
+    else:
+        drop = False
+
+    # drop any duplicate columns that exist in index and df
     try:
-        df.reset_index(inplace=True)
+        df = df.reset_index(inplace=False, drop=drop)  # do not propregate
     except ValueError:
         index_names = get_index_names(df)
-        for i in index_names:
-            df.drop(columns=[i],inplace=True)
+        dup_names = set(index_names).intersection(set(df.columns))
+        for i in dup_names:
+            df = df.drop(columns=[i])
             logger.debug('Dropped duplicate column name %s while resetting index', i)
             
-    try:
-        df.reset_index(inplace=True)
-    except ValueError:
-        msg = ('There is a problem with the dataframe index. '
-               ' Cant reset as reset caused overlap in col names'
-               ' index: %s, cols: %s' %(df.index.names,df.columns))
-        raise RuntimeError(msg)
+        try:
+            df = df.reset_index(inplace=False, drop = drop)  # do not propregate
+        except ValueError:
+            msg = ('There is a problem with the dataframe index. '
+                   ' Cant reset as reset caused overlap in col names'
+                   ' index: %s, cols: %s' %(df.index.names,df.columns))
+            raise RuntimeError(msg)
 
     return df
     

@@ -13,6 +13,7 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
+import json
 from sqlalchemy import (Table, Column, Integer, SmallInteger, String, DateTime)
 
 from pandas.api.types import (is_string_dtype, is_numeric_dtype, is_bool_dtype,
@@ -100,14 +101,14 @@ class DateDifferenceReference(BaseTransformer):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(name='date_1',
+        inputs.append(ui.UISingleItem(name='date_1',
                                    datatype=dt.datetime,
                                    required=False,
                                    description=('Date data item. Use timestamp'
                                                 ' if no date specified')
                                    )
                       )
-        inputs.append(UISingle(name='ref_date',
+        inputs.append(ui.UISingle(name='ref_date',
                                datatype=dt.datetime,
                                description='Date value'
                                )
@@ -115,12 +116,163 @@ class DateDifferenceReference(BaseTransformer):
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(
-            UIFunctionOutSingle(
+            ui.UIFunctionOutSingle(
                 name='num_days',
                 datatype=float,
                 description='Number of days')
         )
 
+        return (inputs, outputs)
+
+class HTTPPreload(BasePreload):
+    '''
+    Do a HTTP request as a preload activity. Load results of the get into the Entity Type time series table.
+    HTTP request is experimental
+    '''
+
+    out_table_name = None
+
+    def __init__(self, request, url, headers = None, body = None, column_map = None, output_item  = 'http_preload_done'):
+
+        if body is None:
+            body = {}
+
+        if headers is None:
+            headers = {}
+
+        if column_map is None:
+            column_map = {}
+
+        super().__init__(dummy_items=[],output_item = output_item)
+
+        # create an instance variable with the same name as each arg
+
+        self.url = url
+        self.request = request
+        self.headers = headers
+        self.body = body
+        self.column_map = column_map
+
+        # do not do any processing in the init() method. Processing will be done in the execute() method.
+
+    def execute(self, df, start_ts = None,end_ts=None,entities=None):
+
+        entity_type = self.get_entity_type()
+        db = entity_type.db
+        encoded_body = json.dumps(self.body).encode('utf-8')
+        encoded_headers = json.dumps(self.headers).encode('utf-8')
+
+        # This class is setup to write to the entity time series table
+        # To route data to a different table in a custom function,
+        # you can assign the table name to the out_table_name class variable
+        # or create a new instance variable with the same name
+
+        if self.out_table_name is None:
+            table = entity_type.name
+        else:
+            table = self.out_table_name
+
+        schema = entity_type._db_schema
+
+        # There is a a special test "url" called internal_test
+        # Create a dict containing random data when using this
+        if self.url == 'internal_test':
+            rows = 3
+            response_data = {}
+            (metrics,dates,categoricals,others) = db.get_column_lists_by_type(
+                table = table,
+                schema= schema,
+                exclude_cols = []
+            )
+            for m in metrics:
+                response_data[m] = np.random.normal(0,1,rows)
+            for d in dates:
+                response_data[d] = dt.datetime.utcnow() - dt.timedelta(seconds=15)
+            for c in categoricals:
+                response_data[c] = np.random.choice(['A','B','C'],rows)
+
+        # make an http request
+        else:
+            response = db.http.request(self.request,
+                                       self.url,
+                                       body=encoded_body,
+                                       headers=self.headers)
+            response_data = response.data.decode('utf-8')
+            response_data = json.loads(response_data)
+
+        df = pd.DataFrame(data=response_data)
+
+        # align dataframe with data received
+
+        # use supplied column map to rename columns
+        df = df.rename(self.column_map, axis='columns')
+        # fill in missing columns with nulls
+        required_cols = db.get_column_names(table = table, schema=schema)
+        missing_cols = list(set(required_cols) - set(df.columns))
+        if len(missing_cols) > 0:
+            kwargs = {
+                'missing_cols' : missing_cols
+            }
+            entity_type.trace_append(created_by = self,
+                                     msg = 'http data was missing columns. Adding values.',
+                                     log_method=logger.debug,
+                                     **kwargs)
+            for m in missing_cols:
+                if m==entity_type._timestamp:
+                    df[m] = dt.datetime.utcnow() - dt.timedelta(seconds=15)
+                elif m=='devicetype':
+                    df[m] = entity_type.logical_name
+                else:
+                    df[m] = None
+
+        # remove columns that are not required
+        df = df[required_cols]
+
+        # write the dataframe to the database table
+        self.write_frame(df=df,table_name=table)
+        kwargs ={
+            'table_name' : table,
+            'schema' : schema,
+            'row_count' : len(df.index)
+        }
+        entity_type.trace_append(created_by=self,
+                                 msg='Wrote data to table',
+                                 log_method=logger.debug,
+                                 **kwargs)
+
+        return True
+
+    @classmethod
+    def build_ui(cls):
+        '''
+        Registration metadata
+        '''
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(ui.UISingle(name='request',
+                              datatype=str,
+                              description='comma separated list of entity ids',
+                              values=['GET','POST','PUT','DELETE']
+                              ))
+        inputs.append(ui.UISingle(name='url',
+                                  datatype=str,
+                                  description='request url',
+                                  tags=['TEXT'],
+                                  required=True
+                                  ))
+        inputs.append(ui.UISingle(name='headers',
+                               datatype=dict,
+                               description='request url',
+                               required = False
+                               ))
+        inputs.append(ui.UISingle(name='body',
+                               datatype=dict,
+                               description='request body',
+                               required=False
+                               ))
+        # define arguments that behave as function outputs
+        outputs=[]
+        outputs.append(ui.UIStatusFlag(name='output_item'))
         return (inputs, outputs)
 
 class MultiplyTwoItems(BaseTransformer):

@@ -208,7 +208,7 @@ class EntityType(object):
         Additional keywork args. 
         _timestamp: str
             Overide the timestamp column name from the default of 'evt_timestamp'
-    '''    
+    '''
     
     is_entity_type = True
     is_local = False
@@ -224,6 +224,8 @@ class EntityType(object):
     _df_index_entity_id = 'id'
     # when automatically creating a new dimension, use this suffix
     _auto_dim_suffix = '_auto_dim'
+    # when looking for an automatically created numeric index it should be named:
+    auto_index_name = '_auto_index_'
     # constants declared as part of an entity type definition
     ui_constants = None
     _functions = None
@@ -264,7 +266,7 @@ class EntityType(object):
     drop_null_class = DropNull
     enable_downcast = False
     allow_projection_list_trim = False
-    
+
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
     
@@ -299,6 +301,8 @@ class EntityType(object):
         self._custom_calendar = None
         self._is_initial_transform = True
         self._is_preload_complete = False
+
+
         if self._data_items is None:
             self._data_items = []
         if self._granularities_dict is None:
@@ -327,12 +331,12 @@ class EntityType(object):
                     'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]
                     }
                  ) 
-    
+
         # attach to time series table
         if self._db_schema is None:
             logger.warning(('No _db_schema specified in **kwargs. Using'
                              'default database schema.'))
-        
+
         self._mandatory_columns = [self._timestamp,self._entity_id]
         
         #separate args into categories
@@ -358,7 +362,7 @@ class EntityType(object):
                 self.table = self.db.get_table(self.name,self._db_schema)
             except KeyError:
                 if self.auto_create_table:
-                    ts = db_module.TimeSeriesTable(self.name ,
+                    ts = db_module.TimeSeriesTable(self.name,
                                                    self.db,
                                                    *cols,
                                                    **kwargs)
@@ -371,7 +375,7 @@ class EntityType(object):
                     msg = ('Database table %s not found. Unable to create'
                            ' entity type instance. Provide a valid table name'
                            ' or use the auto_create_table = True keyword arg'
-                           ' to create a table. ' %(name) )
+                           ' to create a table. ' %(self.name) )
                     raise ValueError (msg)
             #populate the data items metadata from the supplied columns
             if isinstance(self._data_items, list) and len(self._data_items) == 0:
@@ -503,7 +507,6 @@ class EntityType(object):
         
         try:
             input_set = set(obj.get_input_items())
-            logger.debug
         except AttributeError:
             input_set = set()
         else:
@@ -819,13 +822,13 @@ class EntityType(object):
             granularity = s.granularity
             
             if granularity is not None and isinstance(granularity,str):
-                granularity = self.granularities_dict.get(granularity,False)
+                granularity = self._granularities_dict.get(granularity,False)
                 if not granularity:
                     msg = ('Cannot build stage metdata. The granularity metadata'
                            ' is invalid. Granularity of function is %s. Valid '
                            ' granularities are %s' %(
                             granularity,
-                            list(self.granularities_dict.keys())
+                            list(self._granularities_dict.keys())
                             ))
                     raise StageException(msg,obj.name)
             elif isinstance(granularity,Granularity):
@@ -852,7 +855,7 @@ class EntityType(object):
             obj._output_list = output_list
             
                 
-            #The stage may have metadata parameters that need to be 
+            # The stage may have metadata parameters that need to be 
             # copied onto the entity type
             try:
                 entity_metadata = obj._metadata_params
@@ -868,7 +871,26 @@ class EntityType(object):
                 self.trace_append(created_by = obj,
                        msg = 'Adding entity type properties from function',
                        log_method=logger.debug,
-                       **entity_metadata)        
+                       **entity_metadata)
+                
+            # The stage may be a special stage that should be added to
+            # a special stages list, e.g. stages that have
+            # the property is_scd_lookup = True should be added to the
+            # _scd_stages list
+            
+            specials = {
+                    'is_scd_lookup':self._scd_stages 
+                    }
+            
+            for function_prop,list_obj in list(specials.items()):
+                try:
+                    is_function_prop = getattr(s, function_prop)
+                except AttributeError:
+                    is_function_prop = False
+                    
+                if is_function_prop:
+                    list_obj.append(s)
+            
         
         return stage_metadata
     
@@ -925,7 +947,7 @@ class EntityType(object):
                 df = df.set_index([self._df_index_entity_id,
                                    self._timestamp])
             except KeyError:
-                df = reset_df_index(df)
+                df = reset_df_index(df,auto_index_name=self.auto_index_name)
                 try:
                     df = df.set_index([self._df_index_entity_id,
                                        self._timestamp])
@@ -950,15 +972,14 @@ class EntityType(object):
                           'No need to recreate index'),self._df_index_entity_id,
                          self._timestamp)
                 
-        #create a dummy column for _entity_id
+        # create a dummy column for _entity_id
         if self._entity_id != self._df_index_entity_id:
             df[self._entity_id] = df.index.get_level_values(self._df_index_entity_id)
         
 
-        #create a dummy column for _timestamp
+        # create a dummy column for _timestamp
         if self._timestamp != self._timestamp_col:
             df[self._timestamp_col] = df.index.get_level_values(self._timestamp)
-
         
         return df    
 
@@ -1231,8 +1252,6 @@ class EntityType(object):
         '''
         Lookup a pandas frequency string from an AS granularity name
         '''
-        if lookup is None:
-            lookup = self._grain_freq_lookup
         for l in lookup:
             if grain_name == l['name']:
                 return l['alias']
@@ -1282,7 +1301,7 @@ class EntityType(object):
         except AttributeError:
             out = default
 
-        return 
+        return out
 
     def get_end_ts_override(self):
         if self._end_ts_override is not None:
@@ -1390,11 +1409,7 @@ class EntityType(object):
         '''
         if entities is None:
             entities = [str(self._start_entity_id + x) for x in list(range(self._auto_entity_count))]
-        metrics = []
-        categoricals = []
-        dates = []
-        others = []
-        
+
         if data_item_mean is None:
             data_item_mean = {}
         if data_item_sd is None:
@@ -1490,6 +1505,7 @@ class EntityType(object):
         df = df[cols]
         if write:
             msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
+            logger.debug(msg)
             self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema)       
         return df
     
@@ -1543,6 +1559,7 @@ class EntityType(object):
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity'
                    ' types do not have a checkpoint' )
+            logger.debug(msg)
             return None
         
         (query,table) = self.db.query_column_aggregate(
@@ -1838,7 +1855,7 @@ class EntityType(object):
                     data_type = 'TIMESTAMP'
                 else:
                     data_type = str(data_type)
-                    logger.warning('Unknown datatype %s for column %s' %(data_type,c))
+                    logger.warning('Unknown datatype %s for column %s' %(data_type, column_name))
                 columns.append({ 
                         'name' : column_name,
                         'type' : col_type,
@@ -2009,19 +2026,22 @@ class ServerEntityType(EntityType):
             raise RuntimeError((
                     'API call to server did not retrieve valid entity '
                     ' type properties for %s.' %logical_name))
-                    
-        #  cache function catalog metadata in the db object
-        function_list = [x['functionName'] for x in server_meta['kpiDeclarations']] 
-        db.load_catalog(install_missing=True, function_list=function_list)
-        
+
         # functions
+
         kpis = server_meta.get('kpiDeclarations',[])
         if kpis is None:
             kpis = []
             logger.warning((
                     'This entity type has no calculated kpis'
                     ))
-            
+            function_list = []
+        else:
+            function_list = [x['functionName'] for x in kpis]
+
+        #  cache function catalog metadata in the db object
+        db.load_catalog(install_missing=True, function_list=function_list)
+
         self.db = db
         (self._functions,
          self._invalid_stages,
@@ -2510,7 +2530,7 @@ class Trace(object)    :
             self.stop()
         self.data = []
         if name is None:
-            name = self._trace.build_trace_name()
+            name = self.build_trace_name()
         self.name = name
         logger.debug('Started a new trace %s ', self.name)
         if self.auto_save is not None and self.auto_save > 0:
@@ -2717,6 +2737,7 @@ class Model(object):
         self.eval_metric_name = eval_metric_name
         self.eval_metric_train = eval_metric_train
         self.eval_metric_test = eval_metric_test
+        self.shelf_life_days = shelf_life_days
         
         if col_name is None:
             col_name = '%s_predicted' %self.target
@@ -2727,14 +2748,11 @@ class Model(object):
             self.trained_date = None
         else:
             self.trained_date = dt.datetime.utcnow()
-        if self.trained_date is not None and shelf_life_days is not None:
-            self.expiry_date = self.trained_date + dt.timedelta(days = shelf_life_days)
+        if self.trained_date is not None and self.shelf_life_days is not None:
+            self.expiry_date = self.trained_date + dt.timedelta(days = self.shelf_life_days)
         else:
             self.expiry_date = None
         self.viz = {}
-
-    def add_viz(self, name, cos_credentials, viz_obj, bucket):
-        self.db.cos_save(persisted_object=viz_obj, filename= name, bucket=bucket)
         
     def fit(self,df):
         self.estimator = self.estimator.fit(df[self.features],df[self.target])
@@ -2761,9 +2779,6 @@ class Model(object):
         msg= 'evaluated model %s with evaluation metric value %s' %(self.name,self.eval_metric_test)
         logger.info(msg)        
         return self.eval_metric_test
-        
-    def save(self, cos_credentials, bucket):
-        self.db.cos_save(persisted_object=self, filename=self.name, bucket=bucket)
         
     def __str__(self):
         out = {}

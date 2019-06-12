@@ -16,19 +16,18 @@ public classes.
 '''
 
 import logging
-import json
 import re
 import datetime as dt
 import numpy as np
 import time
-import sys
 import traceback
 from collections import OrderedDict
 
 import ibm_db
 from . import dbhelper
 from .enginelog import EngineLogging
-from .util import log_df_info, freq_to_timedelta, StageException, get_index_names
+from .util import (log_df_info, freq_to_timedelta, StageException,
+                   get_index_names, reset_df_index)
 
 import pandas as pd
 import warnings
@@ -102,8 +101,7 @@ class DataAggregator(object):
             msg = msg + ' Uses %s to produce %s .' %(s.name,s._output_list)
             
         return msg
-        
-        
+
     def execute(self,df=None):
         
         gfs = []
@@ -121,8 +119,7 @@ class DataAggregator(object):
         
         logger.info('Completed aggregation: %s', self._granularity.name)
         return df
-        
-        return 
+
 
 class DataMerge(object):
     '''
@@ -131,8 +128,9 @@ class DataMerge(object):
     
     By default, a DataMerge object initializes itself with an empty
     dataframe. Although the main purpose of the DataMerge object is
-    maintaining a dataframe, it can also keep track of any constants added
-    during job processing so that it can re-apply constants if needed.
+    maintaining a dataframe, it can also keep track of any constants and
+    dimension lookups required added during job processing so that it can
+    re-apply constants if needed.
     
     Use the execute method to combine a new incoming data object with
     whatever data is present in the DataMerge at the time.
@@ -151,13 +149,14 @@ class DataMerge(object):
             df = pd.DataFrame()
         self.df = df
         self.constants = kwargs.get('constants',None)
+        self.df_dimension = kwargs.get('df_dimension',None)
         if self.constants is None:
             self.constants = {}
             
     def __str__(self):
         
         out = ('DataMerge object has data structures: dataframe with %s rows'
-               ' and %s constants ' % (len(df.index),len(constants)))
+               ' and %s constants ' % (len(self.df.index),len(self.constants)))
         
         return out
         
@@ -272,8 +271,6 @@ class DataMerge(object):
                                 ' merged must be a dataframe, series,'
                                 ' constant or numpy array. Unable to merge'
                                 ' None'))
- 
-        existing = 'df'       
         
         if self.df is None:
             self.df = pd.DataFrame()
@@ -282,6 +279,8 @@ class DataMerge(object):
             logger.debug(('Input dataframe has columns %s and index %s'), 
                      list(self.df.columns),
                      self.get_index_names())
+            existing = 'df'
+        else:
             existing = 'empty df'
             
         job_constants = list(self.constants.keys())
@@ -319,9 +318,8 @@ class DataMerge(object):
                     'Merging dataframe with object of type %s'
                     ),type(obj))             
             self.merge_non_dataframe(obj,col_names = col_names)
-
             
-        #test that df has expected columns
+        # test that df has expected columns
         df_cols = self.get_cols()
         if not self.df.empty and not set(col_names).issubset(df_cols):
             missing_cols = set(col_names) - df_cols
@@ -415,7 +413,7 @@ class DataMerge(object):
         elif merge_strategy == 'lookup':
             try:
                 df_index_names = self.get_index_names()
-                self.df = self.df.reset_index()
+                self.df = reset_df_index(self.df,auto_index_name = self.auto_index_name)
                 self.df = self.df.merge(df,'left',
                           on = df.index.name,
                           suffixes = ('',self.r_suffix))
@@ -438,6 +436,8 @@ class DataMerge(object):
         else:
             logger.debug('Function error. Could not auto merge')
             if len(obj_index_names) == 0:
+                df_valid_names = set(self.get_index_names())
+                df_valid_names.update(set(self.df.columns))                 
                 raise ValueError(('Function error.'
                               'Attempting to merge a dataframe that has'
                               ' an un-named index. Set the index name.'
@@ -469,7 +469,7 @@ class DataMerge(object):
         if len(col_names)==1:
             # if the source dataframe is empty, it has no index
             # the data merge object can only accept a constant
-            if len(df.index)==0:
+            if len(self.df.index)==0:
                 self.add_constant(col_names[0],obj)
             else:
                 try:
@@ -490,7 +490,7 @@ class DataMerge(object):
                     ' dataframe or numpy array, it should only deliver a'
                     ' single column. This merge operation has columns '
                     ' %s' %(obj,col_names)
-                    ))    
+                    ))
             
 
 class DropNull(object):
@@ -633,13 +633,15 @@ class DataReader(object):
             
             
         return outputs
-    
+
+
 class DataWriterException(Exception):
     
     def __init__(self, msg):
         super().__init__(msg)
 
-class Db2DataWriter():
+
+class Db2DataWriter:
     '''
     Stage that writes the calculated data items to database.
     '''
@@ -761,8 +763,8 @@ class Db2DataWriter():
                     row.append(None)
 
                 if item_type == DATA_ITEM_TYPE_NUMBER:
-                    myFloat = float(derived_value)
-                    row.append(myFloat if np.isfinite(myFloat) else None)
+                    my_float = float(derived_value)
+                    row.append(my_float if np.isfinite(my_float) else None)
                 else:
                     row.append(None)
 
@@ -1139,6 +1141,7 @@ class JobController(object):
     keep_alive_duration = None #'2min'
     recursion_limit = 99
     log_save_retries = [1,1,1,5,10,30,60,300]
+    save_trace_to_file = False
     # Most of the work performed when executing a job is done by
     # executing the execute method of one or more stages defined in
     # the payload. There are however certain default classes that
@@ -1299,8 +1302,9 @@ class JobController(object):
             'grains_metadata' : self.get_payload_param('_granularities_dict',None),
             'data_item_metadata' : data_items_dict
             }
-        
-        data_writer = self.data_writer(name = 'data_writer_input_level_',
+
+        writer_name = '%s_input_level' %self.name
+        data_writer = self.data_writer(name = writer_name,
                                        **params)
         build_metadata['spec'].append(data_writer)
         
@@ -1372,7 +1376,8 @@ class JobController(object):
                                                     meta = build_metadata)
             
             # Add a data writer for grain
-            data_writer = self.data_writer(name = 'data_writer_ouput_%s' %g.name,
+            writer_name = '%s_%s' % (self.name, g.name)
+            data_writer = self.data_writer(name = writer_name ,
                                        **params)
             build_metadata['spec'].append(data_writer)         
             
@@ -1811,7 +1816,7 @@ class JobController(object):
                                     )
                              can_proceed = False
                         else:
-                            df = df.reset_index()
+                            df = reset_df_index(df,auto_index_name = self.payload.auto_index_name)
                             
                     for (grain,stages) in list(job_spec.items()):
                         
@@ -1846,7 +1851,7 @@ class JobController(object):
                 except BaseException as e:
                     # an error writing to the jo log could invalidate
                     #future runs. Abort on error.
-                     self.handle_failed_execution(
+                    self.handle_failed_execution(
                             meta,
                             message = 'Error writing execution results to log',
                             exception = e,
@@ -1856,11 +1861,13 @@ class JobController(object):
             try:
                 next_execution = self.get_next_future_execution(schedule_metadata)
             except BaseException as e:
-                raise_error(exception=e,
-                            msg = 'Error getting next future scheduled execution',
-                            stageName = 'get_next_future_execution',
-                            raise_error = True
-                            )
+                self.handle_failed_execution(
+                    meta,
+                    message='Error getting next future scheduled execution',
+                    exception=e,
+                    stageName='get_next_future_execution',
+                    raise_error=True
+                )
             meta['next_future_execution'] = next_execution
             
             # if there is no future execution that fits withing the timeframe
@@ -1972,6 +1979,7 @@ class JobController(object):
     
                 if discard_prior_data:
                     tw['merge_result'] = 'replaced prior data'
+                    result = self.payload.index_df(result)
                     merge.df = result
                 
                 elif produces_output_items:
@@ -2784,9 +2792,9 @@ class JobController(object):
         
         if raise_error is None:
             raise_error = self.get_payload_param('_abort_on_fail',True)
-        
+
         can_proceed = False
-        
+
         msg = ('Execution of job failed. %s failed due to %s'
                ' Error message: %s '
                ' Stack trace : %s '
@@ -3080,6 +3088,7 @@ class CalcPipeline:
         for p in preload_stages:
             if not self.entity_type._is_preload_complete:
                 msg = 'Stage %s :' %p.__class__.__name__
+                self.trace_add(msg)
                 status = p.execute(df=None,start_ts=start_ts,end_ts=end_ts,entities=entities)
                 msg = '%s completed as pre-load. ' %p.__class__.__name__
                 self.trace_add(msg)
@@ -3544,20 +3553,18 @@ class CalcPipeline:
             logger.warning(
                 'Output dataframe index does not conform. Second part not a string called %s' % self.entity_type._timestamp)
 
-        mismatched_type = False
         for dtype, cols in list(validation_types['input'].items()):
             try:
                 missing = cols - validation_types['output'][dtype]
             except KeyError:
                 mismatched_type = True
                 msg = 'Output dataframe has no columns of type %s. Type has changed or column was dropped.' % dtype
+                logger.warning(msg)
             else:
                 if len(missing) != 0:
-                    msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' % (
-                    missing, dtype)
-                    mismatched_type = True
-            if mismatched_type:
-                logger.warning(msg)
+                    msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' % \
+                          (missing, dtype)
+                    logger.warning(msg)
 
         self.check_data_items_type(df=output_df, items=self.entity_type.get_data_items())
 
@@ -3692,7 +3699,10 @@ class PipelineExpression(object):
         #get all quoted strings in expression
         possible_items = re.findall('"([^"]*)"', self.expression)
         possible_items.extend(re.findall("'([^']*)'", self.expression))
-        self.input_items = [x for x in possible_items if x in list(df.columns)]       
+        self.input_items = [x for x in possible_items if x in list(df.columns)]
+        
+    def set_entity_type(self,entity_type):
+        self.entity_type = entity_type
             
 
 
