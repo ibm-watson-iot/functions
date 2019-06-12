@@ -152,6 +152,37 @@ df = db.read_agg(table_name = table_name,
 print(df)
 
 
+# Filter by a particular manufacturer, show the devices for the manufacturer
+
+agg = {'ambient_temp':['min','last']}
+
+df = db.read_agg(table_name = table_name,
+                 schema = db_schema,
+                 agg_dict = agg,
+                 timestamp = 'evt_timestamp',
+                 dimension = dim_table_name,
+                 groupby = ['deviceid'],
+                 to_csv = True,
+                 filters = {'manufacturer':'GHI Industries'}
+)
+print(df)
+
+
+# for comparison, here is the data for a different manufacturer
+
+
+df = db.read_agg(table_name = table_name,
+                 schema = db_schema,
+                 agg_dict = agg,
+                 timestamp = 'evt_timestamp',
+                 dimension = dim_table_name,
+                 groupby = ['deviceid'],
+                 to_csv = True,
+                 filters = {'manufacturer':'Rentech'}
+)
+print(df)
+
+
 # Retrieve multiple data items
 
 
@@ -201,6 +232,18 @@ df = db.read_agg(table_name = table_name,
                  dimension = dim_table_name,
                  groupby = ['manufacturer'],
                  entities= ['73001'],
+                 to_csv = True
+)
+print(df)
+
+# Summarize categorical data to return metrics derived from dimensions
+
+agg = {'company_code':['last']}
+
+df = db.read_agg(table_name = table_name,
+                 schema = db_schema,
+                 timestamp = 'evt_timestamp',
+                 agg_dict = agg,
                  to_csv = True
 )
 print(df)
