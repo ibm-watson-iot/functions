@@ -196,8 +196,9 @@ class HTTPPreload(BasePreload):
             response = db.http.request(self.request,
                                        self.url,
                                        body=encoded_body,
-                                       headers=encoded_headers)
+                                       headers=self.headers)
             response_data = response.data.decode('utf-8')
+            response_data = json.loads(response_data)
 
         df = pd.DataFrame(data=response_data)
 
@@ -207,19 +208,25 @@ class HTTPPreload(BasePreload):
         df = df.rename(self.column_map, axis='columns')
         # fill in missing columns with nulls
         required_cols = db.get_column_names(table = table, schema=schema)
-        missing_cols = set(required_cols) - set(df.columns)
+        missing_cols = list(set(required_cols) - set(df.columns))
         if len(missing_cols) > 0:
             kwargs = {
                 'missing_cols' : missing_cols
             }
             entity_type.trace_append(created_by = self,
-                                     msg = 'http data was missing columns. Added null values.',
+                                     msg = 'http data was missing columns. Adding values.',
                                      log_method=logger.debug,
                                      **kwargs)
-        for m in missing_cols:
-            df[m] = None
+            for m in missing_cols:
+                if m==entity_type._timestamp:
+                    df[m] = dt.datetime.utcnow() - dt.timedelta(seconds=15)
+                elif m=='devicetype':
+                    df[m] = entity_type.logical_name
+                else:
+                    df[m] = None
+
         # remove columns that are not required
-            df = df[required_cols]
+        df = df[required_cols]
 
         # write the dataframe to the database table
         self.write_frame(df=df,table_name=table)
