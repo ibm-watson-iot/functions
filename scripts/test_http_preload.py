@@ -89,3 +89,28 @@ view entity data
 
 df = db.read_table(table_name=entity_name, schema=db_schema)
 print(df.head())
+
+
+'''
+The initial test used an internal test to produce data. Now we will use an actual rest service.
+
+Use the script "test_local_rest_service.py" to run a local service. 
+'''
+
+entity_name = 'test_http_preload'
+db.drop_table(entity_name, schema = db_schema)
+entity = EntityType(entity_name,db,
+                    Column('company_code',String(50)),
+                    Column('temp',Float()),
+                    Column('pressure', Float()),
+                    sample.HTTPPreload(request='GET',
+                                    url='http://localhost:8080/',
+                                    output_item = 'http_preload_done'),
+                    bif.PythonExpression(expression='df["temp"]*df["pressure"]',
+                                         output_name = 'volume'),
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+
+entity.exec_local_pipeline()
