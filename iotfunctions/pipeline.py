@@ -1850,14 +1850,22 @@ class JobController(object):
                     self.log_completion(metadata = meta,
                                     status = status)
                 except BaseException as e:
-                    # an error writing to the jo log could invalidate
-                    #future runs. Abort on error.
+                    # an error writing to the job log could invalidate
+                    # future runs. Abort on error.
                     self.handle_failed_execution(
                             meta,
                             message = 'Error writing execution results to log',
                             exception = e,
                             raise_error = True
-                            ) 
+                            )
+
+                if status == 'aborted':
+
+                    raise_error = self.get_payload_param('_abort_on_fail',False)
+                    if raise_error:
+                        raise RuntimeError(('Execution was aborted due to a failure in one or more job stages '
+                                            ' Consult trace for details.')
+                                           )
             
             try:
                 next_execution = self.get_next_future_execution(schedule_metadata)
@@ -2439,10 +2447,18 @@ class JobController(object):
         
         if retries is None:
             retries = self.log_save_retries
-        
+
         trace = self.get_payload_param('_trace',None)
         if trace is not None:
-            tw = { 
+
+            if status == 'aborted':
+                text = 'Execution aborted'
+                logger_obj = logger.warning
+            else:
+                text = 'Execution complete'
+                logger_obj = logger.info
+
+            tw = {
                     'status': status,
                     'next_future_execution' : metadata['next_future_execution'],
                     'execution_date' : metadata['execution_date']
@@ -2450,7 +2466,8 @@ class JobController(object):
             tw = {**kw,**tw}
             trace.write(
                     created_by = self,
-                    text = 'Execution completed',
+                    text = text,
+                    log_method = logger_obj,
                     **tw
                     )
             trace.save()
@@ -2605,7 +2622,7 @@ class JobController(object):
                 df[c] = None
             if trace is not None:
                 kw['added_null_columns'] = new_cols 
-                trace.update_last_entry(msg = message ,**kw)
+                trace.update_last_entry(msg = None ,**kw)
             
         return df
 
@@ -2955,7 +2972,7 @@ class JobController(object):
                     **kwargs)
                 
                 
-    def trace_update(self,msg, log_method = None, df = None, **kwargs):
+    def trace_update(self,msg=None, log_method = None, df = None, **kwargs):
         '''
         Update the most recent trace entry
         '''

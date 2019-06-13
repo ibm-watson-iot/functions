@@ -143,4 +143,40 @@ lake. Instead kpi data is written to the local filesystem in csv form.
 
 '''
 
-entity.exec_local_pipeline()
+entity.exec_local_pipeline(_abort_on_fail=False)
+
+'''
+
+Test broken expression
+
+'''
+
+entity = EntityType(entity_name,db,
+                    Column('company_code',String(50)),
+                    Column('temp',Float()),
+                    Column('pressure', Float()),
+                    bif.EntityDataGenerator(
+                        ids = ['A01','A02','B01'],
+                        data_item = 'is_generated'
+                            ),
+                    bif.PythonExpression('a*b','broken_expression'),
+                    bif.PythonExpression('df["broken_expression"].fillna(1)','next_expression'),
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+
+'''
+
+Execute with _abort_on_fail = False. The execution will continue after encountering the broken expression.
+'next_expression' will calculate and deliver a value of 1
+
+'''
+
+entity.exec_local_pipeline(_abort_on_fail=False)
+
+'''
+Execute with _abort_on_fail = True. The execution will abort after encountering the broken expression. 
+'''
+
+entity.exec_local_pipeline(_abort_on_fail=True)
