@@ -1071,7 +1071,7 @@ class EntityType(object):
         '_auto_save_trace' : None
         }
         
-        kw = {**kw,**params}
+        kw = {**params,**kw}
         
         job = JobController(payload=self,**kw)
         job.execute()
@@ -2598,7 +2598,7 @@ class Trace(object)    :
             self.auto_save_thread = None
             logger.debug('Stopping autosave on trace %s',self.name)
             
-    def update_last_entry(self,msg,log_method = None,df=None,**kw):
+    def update_last_entry(self,msg=None,log_method = None,df=None,**kw):
         '''
         Update the last trace entry. Include the contents of **kw.
         '''
@@ -2621,7 +2621,8 @@ class Trace(object)    :
             df_info = self._df_as_dict(df=df)
             last = {**last,**df_info}                
 
-        last['text'] = last['text'] + msg
+        if msg is not None:
+            last['text'] = last['text'] + msg
         self.data.append(last)
         
         #write trace update to the log
