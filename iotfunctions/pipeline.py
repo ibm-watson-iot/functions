@@ -1688,10 +1688,11 @@ class JobController(object):
                     can_proceed = False
                         
                 if can_proceed:
-                    self.log_start(
-                       meta,
-                       status='running')
                     try:
+                        self.log_start(
+                            meta,
+                            status='running')
+
                         (preload_stages,cols) = self.get_stages(
                                             stage_type = 'preload',
                                             granularity = None,
@@ -1901,21 +1902,29 @@ class JobController(object):
         were supposed to be contributed by the stage will be set to null.
         
         '''
-        
+
+
+        if df is None:
+            df = pd.DataFrame()
+
         #create a new data_merge object using the dataframe provided
         merge = self.data_merge(df=df,constants=constants)
         can_proceed = True
         
         for s in stages:
+            
+            abort_on_error = self.get_stage_param(s,'_abort_on_fail',None)
+            if abort_on_error is None:
+                abort_on_error = self.get_payload_param('_abort_on_fail',False)
 
-            #get stage processing metadata
+            # get stage processing metadata
             new_cols = self.get_stage_param(s,'_output_list',None)            
             produces_output_items  = self.get_stage_param(
                                             s,'produces_output_items',True)
             discard_prior_data = self.get_stage_param(
                                             s,'_discard_prior_on_merge',False)
-            
-            #build initial trace info
+
+            # build initial trace info
             tw = {'produces_output_items' : produces_output_items,
                   'output_items': new_cols,
                   'discard_prior_data' : discard_prior_data }            
@@ -1961,14 +1970,16 @@ class JobController(object):
                                             start_ts=start_ts,
                                             end_ts=end_ts)
                 except BaseException as e:
-                    
-                    (can_proceed,df) = self.handle_failed_stage(
+
+                    df = self.handle_failed_stage(
                             stage = s,
                             exception = e,
                             df = df,
                             status='aborted',
-                            raise_error = False,
                             **tw)
+
+                    if abort_on_error:
+                        can_proceed = False
                     
                     result = df
                                     
@@ -2000,7 +2011,7 @@ class JobController(object):
                                     obj=result,
                                     col_names = new_cols)
                         except BaseException as e:
-                            (can_proceed,df) = self.handle_failed_stage(
+                            df = self.handle_failed_stage(
                                     exception = e,
                                     message = 'Merge error',
                                     stage = s,
@@ -2008,6 +2019,8 @@ class JobController(object):
                                     **tw)
                             merge.df = df
                             ssg = 'Error during merge'
+                            if abort_on_error:
+                                can_proceed = False
                             
                 else:
                     tw['new_data_items_info'] = ('Function is configured not to'
@@ -2554,7 +2567,6 @@ class JobController(object):
                             df,
                             status='aborted',
                             message = None,
-                            raise_error = None,
                             **kw):
         '''
         Reflect failure in trace.
@@ -2586,13 +2598,8 @@ class JobController(object):
                 msg = message,
                 **kw
                 )
-            
-        can_proceed = self.raise_error(exception=exception,
-                         msg=message,
-                         stageName=stage.name,
-                         raise_error = raise_error)
         
-        if can_proceed and kw['produces_output_items'] and isinstance(df,pd.DataFrame):
+        if kw['produces_output_items'] and isinstance(df,pd.DataFrame):
             new_cols = kw['output_items']
             for c in new_cols:
                 df[c] = None
@@ -2600,7 +2607,7 @@ class JobController(object):
                 kw['added_null_columns'] = new_cols 
                 trace.update_last_entry(msg = message ,**kw)
             
-        return (can_proceed,df)
+        return df
 
 
     def handle_failed_start(self,metadata,
@@ -3314,10 +3321,7 @@ class CalcPipeline:
         return df
     
     def _execute_stage(self,stage,df,start_ts,end_ts,entities,register,to_csv,dropna, abort_on_fail): 
-        try:
-            abort_on_fail = stage._abort_on_fail
-        except AttributeError:
-            abort_on_fail = abort_on_fail
+
         try:
             name = stage.name
         except AttributeError:

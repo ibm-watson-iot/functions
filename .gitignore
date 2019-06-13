@@ -122,3 +122,4 @@ scripts/register_bifs.py
 scripts/intro_tutorial.py
 scripts/intro_tutorial.py
 scripts/intro_tutorial.py
+tests/test_broken_functions.py

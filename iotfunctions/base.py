@@ -58,7 +58,7 @@ class BaseFunction(object):
     test_rows = 100 #rows of data to use when testing function
     base_initialized = True # use to test that object was initialized from BaseFunction
     merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
-    _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
+    _abort_on_fail = None #  None : use entity type setting), True: Abort, False: Continue
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
     requires_input_items = True
     produces_output_items = True
@@ -2119,6 +2119,7 @@ class BasePreload(BaseTransformer):
     """
     is_preload = True
     requires_input_items = False
+    _abort_on_fail = True # if the preload fails do not proceed with execution
     
     def __init__(self, dummy_items, output_item = None):
         super().__init__()
