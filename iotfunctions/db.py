@@ -219,7 +219,7 @@ class Database(object):
                             ev = dict(item.split("=") for item in connection_string.split(";"))
                             connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
                             if 'SECURITY' in ev:
-                                connection_string += 'SECURITY=%s' % ev['SECURITY']
+                                connection_string += 'SECURITY=%s;' % ev['SECURITY']
                             self.credentials['db2'] =  {
                                 "username": ev['UID'],
                                 "password": ev['PWD'],
