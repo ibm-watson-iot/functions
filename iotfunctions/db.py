@@ -203,7 +203,8 @@ class Database(object):
                                                                      self.credentials['db2']['port'],
                                                                      self.credentials['db2']['databaseName'])
                     if 'security' in self.credentials['db2']:
-                        connection_string += 'SECURITY=%s' % self.credentials['db2']['security']
+                        if self.credentials['db2']['security']:
+                            connection_string += 'SECURITY=ssl;'
                 except KeyError:
                     # look for environment variable for the ICS DB2
                     try:
