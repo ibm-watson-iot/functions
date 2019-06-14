@@ -691,8 +691,8 @@ class EntityType(object):
 
         # Optimizing the data frame size using downcasting
         memo = MemoryOptimizer()
-        #df = memo.downcastNumeric(df)              #uncomment only after testing better
-        memo.downcastNumeric(df)
+        df = memo.downcastNumeric(df)              #uncomment only after testing better
+        #memo.downcastNumeric(df)
         
         df = self.index_df(df)
 
