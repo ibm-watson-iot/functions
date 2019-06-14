@@ -247,7 +247,7 @@ class DataMerge(object):
         return cols
         
 
-    def execute(self,obj,col_names,force_overwrite=False):
+    def execute(self,obj,col_names,force_overwrite=False, col_map = None):
         '''
         Perform a smart merge between a dataframe and another object. The other
         object may be a dataframe, series, numpy array, list or scalar.
@@ -311,7 +311,8 @@ class DataMerge(object):
         if isinstance(obj,(pd.DataFrame,pd.Series)):
             self.merge_dataframe(df=obj,
                                  col_names= col_names,
-                                 force_overwrite=force_overwrite)
+                                 force_overwrite=force_overwrite,
+                                 col_map = col_map)
           
         else: 
             logger.debug((
@@ -329,11 +330,17 @@ class DataMerge(object):
                     ' been delivered through merge. It has columns %s'
                     %(missing_cols,col_names, df_cols)
                     ))
+        if len(self.df.index) > 0:
+            id_index = self.df.index.get_level_values(0)
+            ts_index = self.df.index.get_level_values(1)
             
         return 'existing %s with new %s' %(existing,obj.__class__.__name__)
     
-    def merge_dataframe(self,df,col_names,force_overwrite=True):
-                
+    def merge_dataframe(self,df,col_names,force_overwrite=True, col_map = None):
+
+        if col_map is None:
+            col_map = {}
+
         #convert series to dataframe
         #rename columns as appropriate using supplied col_names
         if isinstance(df,pd.Series):
@@ -345,9 +352,8 @@ class DataMerge(object):
         else:
             if (col_names is None):
                 col_names = list(df.columns)
-            else:
-                if len(col_names) == len(df.columns):
-                    df.columns = col_names
+            if col_map :
+                df = df.rename(col_map)
         if len(df.index)>0:
             logger.debug((
                 'Merging dataframe with columns %s and index %s'), 
@@ -1863,9 +1869,9 @@ class JobController(object):
 
                     raise_error = self.get_payload_param('_abort_on_fail',False)
                     if raise_error:
-                        raise RuntimeError(('Execution was aborted due to a failure in one or more job stages '
-                                            ' Consult trace for details.')
-                                           )
+                        stack_trace = self.payload.get_stack_trace()
+                        msg = 'Execution was aborted: /n %s' %stack_trace
+                        raise RuntimeError( msg )
             
             try:
                 next_execution = self.get_next_future_execution(schedule_metadata)
@@ -1993,8 +1999,12 @@ class JobController(object):
                                     
                     
             if can_proceed:
+
+                # get a column map from the stage if it has one
+
+                col_map = self.exec_stage_method(s,'get_column_map',None)
                     
-                #combine result with data from prior stages
+                # combine result with data from prior stages
     
                 if discard_prior_data:
                     tw['merge_result'] = 'replaced prior data'
@@ -2017,7 +2027,8 @@ class JobController(object):
                         try:
                             tw['merge_result'] = merge.execute(
                                     obj=result,
-                                    col_names = new_cols)
+                                    col_names = new_cols,
+                                    col_map = col_map)
                         except BaseException as e:
                             df = self.handle_failed_stage(
                                     exception = e,

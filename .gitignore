@@ -123,3 +123,6 @@ scripts/intro_tutorial.py
 scripts/intro_tutorial.py
 scripts/intro_tutorial.py
 tests/test_broken_functions.py
+tests/test_merge_dt_test.py
+tests/test_specialization_of_function.py
+tests/test_specialization_of_function.py

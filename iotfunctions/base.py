@@ -349,9 +349,11 @@ class BaseFunction(object):
         return df
 
     def generate_model_name(self,target_name, prefix = 'model', suffix = None):
+
         '''
         Generate a model name
         '''
+
         name = []
         if prefix is not None:
             name.append(prefix)
@@ -359,7 +361,27 @@ class BaseFunction(object):
         if suffix is not None:
             name.append(suffix)
         name = '.'.join(name)
-        return name     
+        return name
+
+    def get_column_map(self):
+
+        '''
+        A column map is dictionary that is used for renaming columns
+        in a dataframe.
+
+        Implement this method if you would like to have the Job Controller
+        take care of the configuration of the outputs of functions.
+
+        If the function adds a single column to the dataframe, it does
+        not need a column map.
+
+        If the output of the function is a numpy array, there is no
+        need for a column map. Columns must be ordered in the same order
+        as the outputs of the get_outputs_list() method.
+
+        '''
+
+        return None
         
     def _get_arg_metadata(self,isoformat_dates=True):
         

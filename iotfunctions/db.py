@@ -306,7 +306,7 @@ class Database(object):
                 'max' : func.max,
                 'mean' : func.avg,
                 'min' : func.min,
-                'std' : func.std,
+                'std' : func.stddev,
                 'sum' : func.sum
                 }
         
