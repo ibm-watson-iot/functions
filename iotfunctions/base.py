@@ -58,7 +58,7 @@ class BaseFunction(object):
     test_rows = 100 #rows of data to use when testing function
     base_initialized = True # use to test that object was initialized from BaseFunction
     merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
-    _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
+    _abort_on_fail = None #  None : use entity type setting), True: Abort, False: Continue
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
     requires_input_items = True
     produces_output_items = True
@@ -349,9 +349,11 @@ class BaseFunction(object):
         return df
 
     def generate_model_name(self,target_name, prefix = 'model', suffix = None):
+
         '''
         Generate a model name
         '''
+
         name = []
         if prefix is not None:
             name.append(prefix)
@@ -359,7 +361,27 @@ class BaseFunction(object):
         if suffix is not None:
             name.append(suffix)
         name = '.'.join(name)
-        return name     
+        return name
+
+    def get_column_map(self):
+
+        '''
+        A column map is dictionary that is used for renaming columns
+        in a dataframe.
+
+        Implement this method if you would like to have the Job Controller
+        take care of the configuration of the outputs of functions.
+
+        If the function adds a single column to the dataframe, it does
+        not need a column map.
+
+        If the output of the function is a numpy array, there is no
+        need for a column map. Columns must be ordered in the same order
+        as the outputs of the get_outputs_list() method.
+
+        '''
+
+        return None
         
     def _get_arg_metadata(self,isoformat_dates=True):
         
@@ -2119,6 +2141,7 @@ class BasePreload(BaseTransformer):
     """
     is_preload = True
     requires_input_items = False
+    _abort_on_fail = True # if the preload fails do not proceed with execution
     
     def __init__(self, dummy_items, output_item = None):
         super().__init__()

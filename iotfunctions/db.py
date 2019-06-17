@@ -203,7 +203,8 @@ class Database(object):
                                                                      self.credentials['db2']['port'],
                                                                      self.credentials['db2']['databaseName'])
                     if 'security' in self.credentials['db2']:
-                        connection_string += 'SECURITY=%s' % self.credentials['db2']['security']
+                        if self.credentials['db2']['security']:
+                            connection_string += 'SECURITY=ssl;'
                 except KeyError:
                     # look for environment variable for the ICS DB2
                     try:
@@ -218,7 +219,7 @@ class Database(object):
                             ev = dict(item.split("=") for item in connection_string.split(";"))
                             connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
                             if 'SECURITY' in ev:
-                                connection_string += 'SECURITY=%s' % ev['SECURITY']
+                                connection_string += 'SECURITY=%s;' % ev['SECURITY']
                             self.credentials['db2'] =  {
                                 "username": ev['UID'],
                                 "password": ev['PWD'],
@@ -305,7 +306,7 @@ class Database(object):
                 'max' : func.max,
                 'mean' : func.avg,
                 'min' : func.min,
-                'std' : func.std,
+                'std' : func.stddev,
                 'sum' : func.sum
                 }
         

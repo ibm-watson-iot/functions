@@ -265,7 +265,7 @@ class EntityType(object):
     save_trace_to_file = False
     drop_null_class = DropNull
     enable_downcast = False
-    allow_projection_list_trim = False
+    allow_projection_list_trim = True
 
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
@@ -1071,7 +1071,7 @@ class EntityType(object):
         '_auto_save_trace' : None
         }
         
-        kw = {**kw,**params}
+        kw = {**params,**kw}
         
         job = JobController(payload=self,**kw)
         job.execute()
@@ -1308,6 +1308,11 @@ class EntityType(object):
             date_time_obj = dt.datetime.strptime(self._end_ts_override[0], '%Y-%m-%d %H:%M:%S')
             return date_time_obj
         return None
+
+
+    def get_stack_trace(self):
+
+        return(self._trace.get_stack_trace())
     
     def get_stage_type(self,stage):
         '''
@@ -2515,6 +2520,23 @@ class Trace(object)    :
         
         return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,
                                execute_str)
+
+    def get_stack_trace(self):
+        '''
+        Extract stack trace entries. Return string.
+        '''
+
+        stack_trace = ''
+
+        for t in self.data:
+            entry = t.get('exception',None)
+            if entry is not None:
+                stack_trace = stack_trace + entry + '\n'
+            entry = t.get('stack_trace',None)
+            if entry is not None:
+                stack_trace = stack_trace + entry + '\n'
+
+        return stack_trace
         
     def reset(self,name=None,auto_save=None):
         '''
@@ -2598,7 +2620,7 @@ class Trace(object)    :
             self.auto_save_thread = None
             logger.debug('Stopping autosave on trace %s',self.name)
             
-    def update_last_entry(self,msg,log_method = None,df=None,**kw):
+    def update_last_entry(self,msg=None,log_method = None,df=None,**kw):
         '''
         Update the last trace entry. Include the contents of **kw.
         '''
@@ -2621,7 +2643,8 @@ class Trace(object)    :
             df_info = self._df_as_dict(df=df)
             last = {**last,**df_info}                
 
-        last['text'] = last['text'] + msg
+        if msg is not None:
+            last['text'] = last['text'] + msg
         self.data.append(last)
         
         #write trace update to the log
