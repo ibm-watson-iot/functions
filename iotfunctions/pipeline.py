@@ -1727,8 +1727,8 @@ class JobController(object):
                     logger.debug('Executing preload stages:')
                     try:
                         (df,can_proceed) = self.execute_stages(preload_stages,
-                                            start_ts=meta['prev_checkpoint'],
-                                            end_ts=execute_date,
+                                            start_ts=meta['preload_from'],
+                                            end_ts=meta['end_date'],
                                             df=None)
                     except BaseException as e:
                         msg = 'Aborted execution. Error getting preload stages'
@@ -1769,7 +1769,7 @@ class JobController(object):
                     try:
                         chunks = self.get_chunks(
                                     start_date=meta['start_date'],
-                                    end_date=execute_date,
+                                    end_date=meta['end_date'],
                                     round_hour = meta['round_hour'],
                                     round_min = meta['round_min'],
                                     schedule = schedule)
@@ -2060,8 +2060,7 @@ class JobController(object):
         return (df, can_proceed)
     
     def execute_stage(self,stage,df,start_ts,end_ts):
-        
-        
+
         # There are a few possible outcomes when executing a stage
         # 1. You get a dataframe with data as expected
         # 2. You get an empty dataframe
@@ -2151,6 +2150,11 @@ class JobController(object):
                 meta['is_due'] = True
                 meta['start_date'] = None
                 meta['backtrack'] = backtrack
+                # look for overrides in start and end dates
+                meta['start_date'] = self.get_payload_param('_start_ts_override',None)
+                meta['preload_from'] = meta['start_date']
+                meta['end_date'] = self.get_payload_param('_end_ts_override',execute_date)
+                # process checkpoint based start date
                 if meta['backtrack'] == 'checkpoint':
                     meta['is_checkpoint_driven'] = True
                     #retrieve data since the last checkpoint
@@ -2163,11 +2167,15 @@ class JobController(object):
                                 meta['prev_checkpoint'] +
                                 freq_to_timedelta('1us')
                                 )
+                    if meta['preload_from'] is None:
+                        meta['preload_from'] = meta['start_date']
+                # derive start date from custom backtrack setting
                 elif meta['backtrack'] is not None:
                     meta['start_date'] = (
                             meta['adjusted_exec_date'] - 
                             freq_to_timedelta(meta['backtrack'])
                             )
+                    # do not adjust preload start for backtracking
                 meta['mark_complete'] = [s]
                 last_schedule_due = s
                 all_due.append(s)

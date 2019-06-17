@@ -1053,6 +1053,8 @@ class EntityType(object):
         
     def exec_local_pipeline(self,
                       start_ts = None,
+                      end_ts = None,
+                      entities = None,
                       **kw):
         '''
         Test the functions on an entity type
@@ -1068,7 +1070,9 @@ class EntityType(object):
         'trace_df_changes' : True,
         '_abort_on_fail' : True,
         'job_log_class' : JobLogNull,
-        '_auto_save_trace' : None
+        '_auto_save_trace' : None,
+        '_start_ts_override' : start_ts,
+        '_end_ts_override' : end_ts
         }
         
         kw = {**params,**kw}
