@@ -113,3 +113,11 @@ You can select custom start and end dates for execution.
 start = dt.datetime.utcnow() - dt.timedelta(days=7)
 end = dt.datetime.utcnow() - dt.timedelta(days=1)
 entity.exec_local_pipeline(start_ts=start,end_ts=end)
+
+'''
+You can also execute on a specific list of entities
+
+'''
+
+entity.exec_local_pipeline(entities=['73000','73001'])
+

@@ -2070,23 +2070,34 @@ class JobController(object):
         # The payload may optionally supply a specific list of 
         # entities to retrieve data from
         entities = self.exec_payload_method('get_entity_filter',None)
-        
+
         # There are two possible signatures for the execute method
         try:
             result = stage.execute(df=df,
                                    start_ts=start_ts,
                                    end_ts=end_ts,
                                    entities = entities)
+
         except TypeError:
             is_executed = False
         else:
             is_executed = True
+            if entities is not None:
+                self.trace_update(
+                    log_method = logger.debug,
+                    **{'entity_filter_list':entities})
         
         # This seems a bit long winded, but it done this way to avoid
         # the type error showing up in the stack trace when there is an
         # error executing
         if not is_executed:
             result = stage.execute(df=df)
+            if entities is not None:
+                self.trace_update(
+                    log_method=logger.debug,
+                    **{'entity_filter_list': ('entity filter exists, but execute'
+                                              ' method for stage does not support '
+                                              ' entities parameter')})
         
         if isinstance(result,bool) and result:
             result = pd.DataFrame()
@@ -3230,7 +3241,7 @@ class CalcPipeline:
                     dropna = dropna,
                     abort_on_fail = True)
         
-        #exceute special lookup stages
+        #excecute special lookup stages
         if not df.empty and len(special_lookup_stages) > 0:                
             for s in special_lookup_stages:
                 msg = 'Processing special lookup stage %s. ' %s.__class__.__name__

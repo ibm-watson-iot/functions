@@ -1072,7 +1072,8 @@ class EntityType(object):
         'job_log_class' : JobLogNull,
         '_auto_save_trace' : None,
         '_start_ts_override' : start_ts,
-        '_end_ts_override' : end_ts
+        '_end_ts_override' : end_ts,
+        '_entity_filter_list' : entities
         }
         
         kw = {**params,**kw}
