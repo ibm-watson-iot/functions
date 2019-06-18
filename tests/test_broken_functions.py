@@ -168,7 +168,6 @@ Test broken expression
 
 '''
 
-
 entity = EntityType(entity_name,db,
                     Column('company_code',String(50)),
                     Column('temp',Float()),
@@ -186,7 +185,6 @@ entity = EntityType(entity_name,db,
 
 
 '''
-
 
 Execute with _abort_on_fail = False. The execution will continue after encountering the broken expression.
 'next_expression' will calculate and deliver a value of 1

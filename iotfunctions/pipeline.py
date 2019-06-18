@@ -1434,7 +1434,10 @@ class JobController(object):
         logger.debug('Build of job spec is complete.')
         logger.debug('-------------------------------')
         for section,stages in list(job_spec.items()):
-            logger.debug('%s:>>>' %(section))
+            if len(stages) > 0:
+                logger.debug('%s:' %(section))
+            else:
+                logger.debug('%s: [None]' % (section))
             for s in stages:
                 logger.info('  %s',str(s))
         logger.debug('-------------------------------')
@@ -1794,11 +1797,12 @@ class JobController(object):
                         if not abort_on_error:
                             abort_on_error = self.get_stage_param(s, '_abort_on_fail', None)
 
-                    if not abort_on_error:
-                        abort_on_error = self.get_payload_param('_abort_on_fail', False)
+                    if len(job_spec['skipped_stages']) > 0:
+                        if not abort_on_error:
+                            abort_on_error = self.get_payload_param('_abort_on_fail', False)
 
-                    if abort_on_error:
-                        can_proceed = False
+                        if abort_on_error:
+                            can_proceed = False
                     
                 if can_proceed:
                     # divide up the date range to be processed into chunks
