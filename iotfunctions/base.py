@@ -87,9 +87,12 @@ class BaseFunction(object):
     # a slowly changing dimensions is use to record property changes to master data over time
     _entity_scd_dict = None
     _start_date = 'start_date'
-    _end_date = 'end_date'    
+    _end_date = 'end_date'
 
-    #depricated class variables. Will be removed
+    # properties that will be set by the JobController when executing function
+    build_status = None
+
+    # deprecated class variables. Will be removed
 
     # item level metadata for function registration
     itemDescriptions = None #dict: items descriptions show as help text

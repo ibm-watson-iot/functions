@@ -1261,6 +1261,7 @@ class JobController(object):
         '''
     
         job_spec = OrderedDict()
+        job_spec['skipped_stages'] = set()
         logger.debug(('Building a job spec for schedule %s with'
                       ' subsumbed schedules %s'),schedule,subsumed)
         
@@ -1270,7 +1271,9 @@ class JobController(object):
                 'subsumed' : subsumed,
                 'available_columns': set(),
                 'required_inputs' : set(),
-                'data_source_projection_list' : {}
+                'data_source_projection_list' : {},
+                'skipped_stages' : set(),
+                'skipped_items' : set()
                 }
         
         # Retrieve and process input level data
@@ -1278,6 +1281,8 @@ class JobController(object):
         build_metadata = self.build_stages_of_type(stage_type= 'get_data',
                                                     granularity = None,
                                                     meta = build_metadata)
+
+        job_spec['skipped_stages'] |= build_metadata['skipped_stages']
         
         #Add a system function to remove null rows
         if self.get_payload_param('_drop_all_null_rows',False):
@@ -1296,7 +1301,9 @@ class JobController(object):
         build_metadata = self.build_stages_of_type(stage_type= 'transform',
                                                     granularity = None,
                                                     meta = build_metadata)
-        
+
+        job_spec['skipped_stages'] |= build_metadata['skipped_stages']
+
         data_items_dict = {}
         for d in self.get_payload_param('_data_items',None):
             data_items_dict[d['name']] = d
@@ -1323,18 +1330,12 @@ class JobController(object):
                     available_columns = build_metadata['available_columns'],
                     granularity = None,
                     exclude_stages = [])
-            invalid_stages.extend(stages)
-            invalid_cols |= cols
-        if len(invalid_cols) > 0:
-            msg = 'Skipped aggregate stages with no granularity'
-            kw = {'skipped_stages': [x.__class__.__name__ for x in invalid_stages],
-                  'skipped_data_items': list(invalid_cols)}
-            self.trace_add(
-                    msg = msg,
-                    created_by = self,
-                    log_method = logger.warning,
-                    **kw
-                    )
+            build_metadata['skipped_stages'] |= set(stages)
+            build_metadata['skipped_items'] |= set(cols)
+            for s in stages:
+                s.build_status = 'Skipped aggregation stage with no granularity'
+
+        job_spec['skipped_stages'] |= build_metadata['skipped_stages']
         
         # build of input level is complete
         job_spec['input_level'] = build_metadata['spec']
@@ -1380,12 +1381,15 @@ class JobController(object):
             build_metadata = self.build_stages_of_type(stage_type= 'transform',
                                                     granularity = g,
                                                     meta = build_metadata)
+
+            job_spec['skipped_stages'] |= build_metadata['skipped_stages']
             
             # Add a data writer for grain
             writer_name = '%s_%s' % (self.name, g.name)
             data_writer = self.data_writer(name = writer_name ,
                                        **params)
-            build_metadata['spec'].append(data_writer)         
+            build_metadata['spec'].append(data_writer)
+
             
             logger.debug('Completed job spec build for grain: %s', g.name )
             job_spec[g.name] = build_metadata['spec']
@@ -1434,8 +1438,7 @@ class JobController(object):
             for s in stages:
                 logger.info('  %s',str(s))
         logger.debug('-------------------------------')
-        
-            
+
         print('TBD ***** - Add stages for usage stats and write to MessageHub')
             
         return job_spec
@@ -1470,8 +1473,7 @@ class JobController(object):
             start_hour,start_min,backtrack_days = schedules_dict[freq]
             schedules.append((freq,start_hour,start_min,backtrack_days))
             
-        return schedules    
-        
+        return schedules
     
     def build_stages_of_type( self,
                               stage_type,
@@ -1501,6 +1503,9 @@ class JobController(object):
                             prev_stages=meta['spec'],
                             granularity=granularity) 
             (stages_added,columns_added,required_inputs,data_source_col_list) = result
+            #update build status
+            for s in stages_added:
+                s.build_status = 'Included as %s in build' %stage_type
             meta['spec'].extend(stages_added)
             meta['available_columns'] |= columns_added
             meta['required_inputs'] |= required_inputs
@@ -1517,7 +1522,7 @@ class JobController(object):
                 meta['data_source_projection_list'][stage] = cols
                 
                 
-        #log which stages and data items were skipped
+        #determine which stages and data items were skipped
         (all_stages,all_cols) = self.get_stages(stage_type=stage_type,
                                                 granularity=granularity,
                                                 available_columns = None,
@@ -1525,10 +1530,12 @@ class JobController(object):
         logger.debug('Built stages of type %s',stage_type)
         logger.debug('Available columns: %s', meta['available_columns']) 
         skipped = [x for x in set(all_stages)-set(meta['spec'])]
+        meta['skipped_stages'] |= set(skipped)
+
         for s in skipped:
-            logger.debug('Skipped stage %s',skipped)
-            logger.debug('Skipped data items %s',
-                         self.get_stage_param(s,'_output_list','No data items'))
+            meta['skipped_items'] |= set(self.get_stage_param(s,'_output_list',[]))
+            s.build_status = 'Skipped due to dependency issue'
+
         return meta
     
     def build_trace_name(self,execute_date):
@@ -1762,7 +1769,36 @@ class JobController(object):
                                 raise_error = None,
                                 stage_name = 'build_job_spec)'        
                                 )
-                        can_proceed = False                    
+                        can_proceed = False
+
+                if can_proceed:
+
+                    # job spec may include one or more skipped stages, e.g. invalid dependencies
+                    # skipped stages must be accounted for
+
+                    abort_on_error = False
+
+                    for s in job_spec['skipped_stages']:
+                        items = self.get_stage_param(s,'_output_list',None)
+                        inputs = self.get_stage_param(s, '_input_set', None)
+                        skip_parms = {'skipped_items':items,
+                                      'required_inputs':inputs}
+                        self.handle_failed_stage(
+                            stage = s,
+                            df = None,
+                            message = s.build_status,
+                            exception = StageException(s.build_status),
+                            raise_error = False,
+                            **skip_parms
+                        )
+                        if not abort_on_error:
+                            abort_on_error = self.get_stage_param(s, '_abort_on_fail', None)
+
+                    if not abort_on_error:
+                        abort_on_error = self.get_payload_param('_abort_on_fail', False)
+
+                    if abort_on_error:
+                        can_proceed = False
                     
                 if can_proceed:
                     # divide up the date range to be processed into chunks
@@ -1827,7 +1863,7 @@ class JobController(object):
                             
                     for (grain,stages) in list(job_spec.items()):
                         
-                        if can_proceed and grain != 'input_level':
+                        if can_proceed and grain not in ['input_level','skipped_stages']:
                             
                                 try:
                                     (result,can_proceed) = self.execute_stages(
@@ -2620,7 +2656,7 @@ class JobController(object):
         Add null columns to the dataframe to represent function output
         Decide whether execution of the next stage can go ahead
         Decide whether exception should be raised
-        Return a tuple containing a bool (can_continue) and a dataframe
+        Return a dataframe with extra columns if a dataframe was provided as input
         '''
 
         err_info = {
@@ -2646,13 +2682,13 @@ class JobController(object):
                 **kw
                 )
         
-        if kw['produces_output_items'] and isinstance(df,pd.DataFrame):
+        if kw.get('produces_output_items',False) and isinstance(df,pd.DataFrame):
             new_cols = kw['output_items']
             for c in new_cols:
                 df[c] = None
             if trace is not None:
-                kw['added_null_columns'] = new_cols 
-                trace.update_last_entry(msg = None ,**kw)
+                aw = {'added_null_columns': new_cols }
+                trace.update_last_entry(msg = None ,**aw)
             
         return df
 

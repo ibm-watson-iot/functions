@@ -141,7 +141,24 @@ use 'test_local_pipeline'.
 A local test will not update the server job log or write kpi data to the AS data
 lake. Instead kpi data is written to the local filesystem in csv form.
 
+
+Test missing data item dependency for function
+
 '''
+
+entity = EntityType(entity_name,db,
+                    Column('company_code',String(50)),
+                    Column('temp',Float()),
+                    Column('pressure', Float()),
+                    bif.EntityDataGenerator(
+                        ids = ['A01','A02','B01'],
+                        data_item = 'is_generated'
+                            ),
+                    bif.PythonExpression('df["pressure"]*df["missing_item"]','unable_to_execute'),
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
 
 entity.exec_local_pipeline(_abort_on_fail=False)
 
@@ -150,6 +167,7 @@ entity.exec_local_pipeline(_abort_on_fail=False)
 Test broken expression
 
 '''
+
 
 entity = EntityType(entity_name,db,
                     Column('company_code',String(50)),
@@ -166,7 +184,9 @@ entity = EntityType(entity_name,db,
                       '_db_schema' : db_schema
                       })
 
+
 '''
+
 
 Execute with _abort_on_fail = False. The execution will continue after encountering the broken expression.
 'next_expression' will calculate and deliver a value of 1
