@@ -32,7 +32,6 @@ entity_1 = make_sample_entity(
     bool_cols = 0
 )
 
-
 entity_2 = make_sample_entity(
     db = db,
     schema = db_schema,
@@ -48,6 +47,18 @@ entity_2 = make_sample_entity(
 )
 
 
-
+entity_3= make_sample_entity(
+    db = db,
+    schema = db_schema,
+    name = 'test_200ms',
+    register = True,
+    data_days = 3,
+    freq = '200ms',
+    entity_count = 5,
+    float_cols = 10,
+    date_cols = 1,
+    string_cols = 1,
+    bool_cols = 0
+)
 
 

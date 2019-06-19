@@ -95,8 +95,8 @@ def make_sample_entity(db,schema=None,
 
     functions = []
     if include_generator:
-        sim = {}
-        generator = bif.EntityDataGenerator(ids=None, **sim)
+        sim = {'freq':freq}
+        generator = bif.EntityDataGenerator(ids=entities, **sim)
         functions.append(generator)
 
     cols = []
@@ -2304,6 +2304,7 @@ class BaseCustomEntityType(EntityType):
                   functions=None,
                   dimension_columns = None,
                   generate_days = 0,
+                  generate_entities = None,
                   drop_existing = False,
                   db_schema = None,
                   description = None,
@@ -2337,10 +2338,12 @@ class BaseCustomEntityType(EntityType):
         if description is None:
             description = self.__doc__
         
-        kwargs = {'_timestamp' : self.timestamp,
+        params = {'_timestamp' : self.timestamp,
                   '_db_schema' : db_schema,
                   'description' : description
-                  } 
+                  }
+
+        kwargs = {**params,**kwargs}
         
         super().__init__(name,
                          db,
@@ -2364,7 +2367,9 @@ class BaseCustomEntityType(EntityType):
                              start,
                              drop_existing)
                 g.drop_existing = drop_existing
-                g.execute(df=None,start_ts = start) 
+                g.execute(df=None,
+                          start_ts = start,
+                          entities = generate_entities)
                 g.drop_existing = False
                 
         
