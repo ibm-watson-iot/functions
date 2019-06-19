@@ -25,7 +25,7 @@ import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
-from inspect import getargspec
+from inspect import getargspec, signature
 from collections import OrderedDict
 from .db import Database
 from .metadata import EntityType, Model, LocalEntityType
@@ -1390,7 +1390,20 @@ class BaseFunction(object):
                 except KeyError:
                     pass
                 if metadata_values is None:
-                    i['values'] = item_values 
+                    i['values'] = item_values
+
+        # reconcile metadata with signature of the function to
+        # confirm that args correspond with inputs and outputs
+
+        args = signature(cls)
+        args = set([x[0] for x in args.parameters.items() if x[1].kind != x[1].VAR_KEYWORD])
+        controls = set([x.get('name') for x in input_list])
+        controls |= set([x.get('name') for x in output_list])
+        if len(controls - args) != 0 or len(args - controls) != 0:
+            msg = 'Mismatch between function metadata and function args.'
+            msg = msg + '. Args are %s.' %controls
+            msg = msg + '. UI metadata is %s.' %args
+            logger.warning(msg)
 
         return(input_list,output_list)
         

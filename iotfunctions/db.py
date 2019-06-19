@@ -1317,7 +1317,7 @@ class Database(object):
                                                                  metadata_output,
                                                                  db=self)
             except (AttributeError,NotImplementedError):
-                msg = 'Function %s has no build_ui method. It cannot be registered this way. Register using function_instance.register()' %name
+                msg = 'Function %s has no build_ui method. It cannot be registered.' %name
                 raise NotImplementedError (msg)
             payload = {
                 'name': name,

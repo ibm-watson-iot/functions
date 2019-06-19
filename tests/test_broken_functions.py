@@ -8,7 +8,7 @@ from iotfunctions.enginelog import EngineLogging
 from iotfunctions.base import BasePreload
 from iotfunctions import ui
 
-EngineLogging.configure_console_logging(logging.DEBUG)
+EngineLogging.configure_console_logging(logging.WARNING)
 
 # replace with a credentials dictionary or provide a credentials file
 with open('../scripts/credentials_as_dev.json', encoding='utf-8') as F:
@@ -197,4 +197,97 @@ entity.exec_local_pipeline(_abort_on_fail=False)
 Execute with _abort_on_fail = True. The execution will abort after encountering the broken expression. 
 '''
 
-entity.exec_local_pipeline(_abort_on_fail=True)
+try:
+
+    entity.exec_local_pipeline(_abort_on_fail=True)
+
+except BaseException as e:
+
+    print('Execution failed as expected: %s' %e)
+
+else:
+
+    raise RuntimeError('Broken function should have raised an exception')
+
+
+
+
+'''
+Register a function that is not in a package
+'''
+
+class NonPackage(BasePreload):
+    """
+    Preload function returns an error. Used to test error handling.
+    """
+
+    def __init__ (self, dummy_input = None,
+                  output_item = 'broken_preload',
+                  **parameters):
+        super().__init__(dummy_items = [], output_item = output_item)
+        self.dummy_input = dummy_input
+
+    def execute(self,
+                 df,
+                 start_ts= None,
+                 end_ts= None,
+                 entities = None):
+
+        return True
+
+try:
+
+    db.register_functions([NonPackage])
+
+except BaseException as e:
+
+    print('Registration failed as expected: %s' %e)
+
+else:
+
+    raise RuntimeError('Function is not in a package, function should have failed')
+
+
+'''
+
+Register a function with no build ui
+
+'''
+
+
+from test_function import NoBuildUI
+
+try:
+
+    db.register_functions([NoBuildUI])
+
+except BaseException as e:
+
+    print('Registration failed as expected: %s' %e)
+
+else:
+
+    raise RuntimeError('Function has no build ui method, function should have failed')
+
+
+'''
+
+Register a function with incorrect metadata. ARg is not included in metadata.
+
+'''
+
+from test_function import ExtraArg
+db.register_functions([ExtraArg])
+
+
+'''
+
+Register a function with incorrect metadata. Metadata has something that is not an arg.
+
+'''
+
+
+from test_function import ExtraMetadata
+
+
+db.register_functions([ExtraMetadata])
