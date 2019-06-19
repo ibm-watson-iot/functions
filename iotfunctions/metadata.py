@@ -2110,8 +2110,10 @@ class ServerEntityType(EntityType):
                 else:
                     value = p['value']
                 params[key] = value
-                logger.debug('Retrieved server constant %s with value%s',key,value)                
+                logger.debug('Retrieved server constant %s with value%s',key,value)
 
+        params['_timestamp'] = self._timestamp
+        params['_dimension_table_name'] = server_meta['dimensionsTable']
         
         # initialize entity type
                 

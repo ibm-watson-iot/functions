@@ -862,7 +862,12 @@ class Database(object):
                 tobj = None
                 status = 'metadata_error'
             else:
-                (package,module,target) = (path[0],path[1],path[2])
+                try:
+                    (package,module,target) = (path[0],path[1],path[2])
+                except IndexError:
+                    package = None
+                    module = None
+                    target = None
                 if (function_list is not None) and (target not in function_list):
                     continue                
                 if install_missing:
