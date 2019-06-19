@@ -30,6 +30,9 @@ from .pipeline import (CalcPipeline, DataReader, DropNull,
                        JobController, DataWriterFile,JobLogNull)
 from .util import (MemoryOptimizer, StageException, build_grouper,
                    categorize_args, reset_df_index)
+
+from . import bif
+
 import iotfunctions as iotf
 
 logger = logging.getLogger(__name__)
@@ -39,9 +42,14 @@ def make_sample_entity(db,schema=None,
                       name = 'as_sample_entity',
                       register = False,
                       data_days = 1,
-                      float_cols = None,
-                      string_cols = None,
-                      drop_existing = True):
+                      freq = '1min',
+                      entity_count = 5,
+                      float_cols = 5,
+                      string_cols = 2,
+                      bool_cols = 2,
+                      date_cols = 2,
+                      drop_existing = True,
+                      include_generator = True):
     """
     Get a sample entity to use for testing. Deprecated.
     
@@ -62,30 +70,52 @@ def make_sample_entity(db,schema=None,
     string_cols : list
         Name of string columns to add
     """
+
+    if entity_count is None:
+        entities = None
+    else:
+        entities = ['E%s' %x for x in list(range(entity_count))]
     
-    warnings.warn('make_sample_entity() is deprecated. Use the entity module.',
-                      DeprecationWarning)
-    
-    if float_cols is None:
-        float_cols = ['temp', 'grade', 'throttle' ]
-    if string_cols is None:
-        string_cols = ['company']
-        
+    if isinstance(float_cols,int):
+        float_cols = ['float_%s' %x for x in list(range(float_cols))]
+    if isinstance(string_cols,int):
+        string_cols = ['string_%s' %x for x in list(range(string_cols))]
+    if isinstance(date_cols,int):
+        date_cols = ['date_%s' %x for x in list(range(date_cols))]
+    if isinstance(bool_cols,int):
+        bool_cols = ['bool_%s' %x for x in list(range(bool_cols))]
+
     if drop_existing:
-        db.drop_table(table_name=name, schema=schema)        
-        
+        db.drop_table(table_name=name, schema=schema)
+
     float_cols = [Column(x,Float()) for x in float_cols]
     string_cols = [Column(x,String(255)) for x in string_cols]
-    args = []
-    args.extend(float_cols)
-    args.extend(string_cols)
+    bool_cols = [Column(x, SmallInteger) for x in bool_cols]
+    date_cols = [Column(x, DateTime) for x in date_cols]
+
+    functions = []
+    if include_generator:
+        sim = {}
+        generator = bif.EntityDataGenerator(ids=None, **sim)
+        functions.append(generator)
+
+    cols = []
+    cols.extend(float_cols)
+    cols.extend(string_cols)
+    cols.extend(bool_cols)
+    cols.extend(date_cols)
     
-    entity = EntityType(name,db, *args,
-                      **{
-                        '_timestamp' : 'evt_timestamp',
-                        '_db_schema' : schema
-                         })
-    entity.generate_data(days=data_days, drop_existing = True)
+    entity = BaseCustomEntityType(
+        name = name,
+        db = db,
+        columns=cols,
+        functions = functions,
+        generate_days= data_days,
+        drop_existing= drop_existing,
+        db_schema = schema
+    )
+
+
     if register:
         entity.register()
     return entity
