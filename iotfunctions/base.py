@@ -27,7 +27,6 @@ from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from inspect import getargspec, signature
 from collections import OrderedDict
-from .db import Database
 from .metadata import EntityType, Model, LocalEntityType
 from .pipeline import CalcPipeline, PipelineExpression
 from .util import log_df_info
@@ -441,6 +440,7 @@ class BaseFunction(object):
             db = None
             
         if db is None:
+            from .db import Database
             db = Database(credentials = credentials, tenant_id = tenant_id)
             
         return db

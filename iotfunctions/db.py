@@ -26,7 +26,6 @@ from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 from .util import CosClient, resample, reset_df_index
-from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
 
@@ -493,9 +492,9 @@ class Database(object):
 
         
     def execute_job(self,entity_type,schema=None,**kwargs):
-        
         if isinstance(entity_type,str):
-            entity_type = md.ServerEntityType(
+            from .metadata import ServerEntityType
+            entity_type = ServerEntityType(
                     logical_name = entity_type,
                     db = self,
                     db_schema = schema
@@ -554,9 +553,10 @@ class Database(object):
         timestamp = metadata['metricTimestampColumn']
         schema = metadata['schemaName']
         dim_table = metadata['dimensionTableName']
-        entity_type_id = metadata.get('entityTypeId', None) 
+        entity_type_id = metadata.get('entityTypeId', None)
 
-        entity = md.EntityType( name = name,
+        from .metadata import EntityType
+        entity = EntityType( name = name,
                              db = self,
                              **{
                             'auto_create_table' : False,
