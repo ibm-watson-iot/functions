@@ -27,7 +27,7 @@ from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from inspect import getargspec, signature
 from collections import OrderedDict
-from .metadata import EntityType, Model, LocalEntityType 
+from .metadata import EntityType, Model, LocalEntityType
 from .pipeline import CalcPipeline, PipelineExpression
 from .util import log_df_info
 from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
