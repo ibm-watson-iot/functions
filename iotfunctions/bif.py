@@ -28,7 +28,7 @@ from .base import (BaseTransformer, BaseEvent, BaseSCDLookup,
 
 from .ui import (UISingle,UIMultiItem,UIFunctionOutSingle,
                  UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
-                 UIText, UIStatusFlag)
+                 UIText, UIStatusFlag, UIParameters)
 
 from .util import adjust_probabilities, reset_df_index
 
@@ -966,6 +966,7 @@ class EntityDataGenerator(BasePreload):
                                   description = 'Comma separate list of entity ids, e.g: X902-A01,X902-A03'
                                   )
                     )
+        inputs.append(UIParameters())
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_item',

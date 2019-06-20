@@ -528,6 +528,25 @@ class UIText(UISingle):
         super().__init__(name = name,description = description,tags=tags,
                      required = required, default = default, datatype = str)
 
+class UIParameters(UISingle):
+    '''
+    UI control for capturing a json input
+
+    Parameters
+    ----------
+    name : str (optional)
+        Name of function argument. Default is "parameters"
+    '''
+
+    def __init__(self,name='parameters',
+                 description= 'enter json parameters',
+                 tags = None,
+                 required = False,
+                 default = None):
+
+        super().__init__(name = name,description = description,tags=tags,
+                     required = required, default = default, datatype = dict)
+
 class UIExpression(UIText):
     '''
     UI control that allows entering a python expression

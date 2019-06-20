@@ -56,6 +56,7 @@ class Database(object):
     '''
     
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
+    bif_sql = "V1000-18.sql"
     
     def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
         
@@ -1242,6 +1243,8 @@ class Database(object):
         
         if not isinstance(functions,list):
             functions = [functions]
+
+        pre_installed = []
             
         for f in functions:
             
@@ -1334,17 +1337,47 @@ class Database(object):
                 'output':output_list,
                 'incremental_update': True if category == 'AGGREGATOR' else None,
                 'tags' : tags
-             }            
-            self.http_request(object_type='function',
-                              object_name=name,
-                              request="DELETE",
-                              payload=payload,
-                              raise_error = False)
-            self.http_request(object_type='function',
-                              object_name=name,
-                              request = "PUT",
-                              payload=payload,
-                              raise_error = raise_error)
+             }
+
+            if not is_preinstalled:
+
+                self.http_request(object_type='function',
+                                  object_name=name,
+                                  request="DELETE",
+                                  payload=payload,
+                                  raise_error = False)
+                self.http_request(object_type='function',
+                                  object_name=name,
+                                  request = "PUT",
+                                  payload=payload,
+                                  raise_error = raise_error)
+
+            else:
+
+                pre_installed.append(payload)
+
+        sql = ''
+        for p in pre_installed:
+
+            query = "INSERT INTO CATALOG_FUNCTION (FUNCTION_ID, TENANT_ID," \
+                    " NAME, DESCRIPTION, MODULE_AND_TARGET_NAME, URL, CATEGORY," \
+                    " INPUT, OUTPUT, INCREMENTAL_UPDATE, IMAGE)" \
+                    " VALUES( CATALOG_FUNCTION_SEQ.nextval,'###_IBM_###',"
+            query = query + "'%s'," %p['name']
+            query = query + "'%s'," %p['description'].replace("'",'"')
+            query = query + "'%s'," % p['moduleAndTargetName']
+            query = query + 'NULL, '
+            query = query + "'%s'," % p['category']
+            query = query + "'%s'," % str(p['input']).replace("'",'"')
+            query = query + "'%s'," % str(p['output']).replace("'",'"')
+            query = query + str(p['incremental_update']) + ', '
+            query = query + 'NULL)'
+
+            sql = sql + query
+            sql = sql + '\n'
+
+        return sql
+
 
     def register_module(self,module,url=None,raise_error=True,force_preinstall=False):
         '''
@@ -1352,6 +1385,7 @@ class Database(object):
         '''
         
         registered = set()
+        sql = ''
         for name, cls in inspect.getmembers(module):
             if inspect.isclass(cls) and cls not in registered:
                 try:
@@ -1360,7 +1394,7 @@ class Database(object):
                     is_deprecated = False
                 if not is_deprecated and cls.__module__ == module.__name__:
                     try:
-                        self.register_functions(cls,
+                        sql = sql + self.register_functions(cls,
                                                 raise_error = True,
                                                 url = url,
                                                 force_preinstall = force_preinstall)
@@ -1375,6 +1409,10 @@ class Database(object):
                             logger.debug('Error registering function: %s',str(e))
                     else:
                         registered.add(cls)
+
+        if len(sql) > 0:
+            with open(self.bif_sql, "w") as text_file:
+                print(sql, file=text_file)
                         
         return registered
 

@@ -88,7 +88,7 @@ def make_sample_entity(db, schema=None,
     functions = []
     if include_generator:
         sim = {'freq': freq}
-        generator = bif.EntityDataGenerator(ids=entities, **sim)
+        generator = bif.EntityDataGenerator(ids=entities, parameters = sim)
         functions.append(generator)
 
     cols = []
@@ -160,7 +160,7 @@ class Boiler(metadata.BaseCustomEntityType):
                 'drop_existing' : False
                 }
 
-        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        generator = bif.EntityDataGenerator(ids=None,parameters = sim)
         functions.append(generator)
 
         # temperature depends on set point
@@ -277,7 +277,7 @@ class Robot(metadata.BaseCustomEntityType):
                         },
                 'drop_existing': False
                 }
-        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        generator = bif.EntityDataGenerator(ids=None,parameters = sim)
         functions.append(generator)
         
         functions.append(bif.PythonExpression(
@@ -400,7 +400,7 @@ class PackagingHopper(metadata.BaseCustomEntityType):
             'drop_existing': False
         }
 
-        generator = bif.EntityDataGenerator(ids=None, **sim)
+        generator = bif.EntityDataGenerator(ids=None, parameters  = sim)
         functions.append(generator)
         # fill rate depends on temp
         functions.append(bif.PythonExpression(
@@ -473,7 +473,7 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
                 'drop_existing' : False
                 }
 
-        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        generator = bif.EntityDataGenerator(ids=None,parameters = sim)
         functions.append(generator)
         
         functions.append(bif.PythonExpression(
