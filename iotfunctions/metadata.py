@@ -2107,7 +2107,7 @@ class ServerEntityType(EntityType):
         
         #  _data_items is a list of dicts. elements are:
         #   name
-        #   type: METRIC or DERIVED_METRIC
+        #   datatype: METRIC or DERIVED_METRIC
         #   columnName
         #   columnType: NUMBER, LITERAL, JSON, BOOLEAN, TIMESTAMP
         #   sourceTableName
