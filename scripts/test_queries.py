@@ -17,8 +17,8 @@ You can use the db object to make queries against the AS data lake
 # replace with valid table and column names
 
 db_schema = None   # only required if you are not using the default
-table_name = 'test_packaging_hopper'
-dim_table_name = 'test_packaging_hopper_dimension'
+table_name = 'test_packaging_hopper_june_19'  # change to a valid entity time series table name
+dim_table_name = 'test_packaging_hopper_june_19_dimension' # change to a entity dimenstion table name
 timestamp = 'evt_timestamp'
 
 with open('credentials_as_dev.json', encoding='utf-8') as F:

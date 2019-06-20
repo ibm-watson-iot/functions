@@ -2,7 +2,8 @@ import json
 import logging
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from iotfunctions import bif
-from iotfunctions.metadata import EntityType, make_sample_entity
+from iotfunctions.metadata import EntityType
+from iotfunctions.entity import make_sample_entity
 from iotfunctions.db import Database
 from iotfunctions.enginelog import EngineLogging
 from iotfunctions.base import BasePreload
