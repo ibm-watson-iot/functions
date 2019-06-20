@@ -27,7 +27,7 @@ from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from inspect import getargspec, signature
 from collections import OrderedDict
-from .metadata import EntityType, Model, LocalEntityType 
+
 from .pipeline import CalcPipeline, PipelineExpression
 from .util import log_df_info
 from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
@@ -215,7 +215,7 @@ class BaseFunction(object):
             name = 'test_entity_for_%s' %self.__class__.__name__
         
         # a local entity type exists in memory only. No db object or tables.
-
+        from .metadata import LocalEntityType 
         et = LocalEntityType(
               name = name,
               columns = columns,
@@ -892,6 +892,7 @@ class BaseFunction(object):
         Output a dataframe for testing function
         """
         
+        from .metadata import EntityType 
         if self._entity_type is None:
             self._entity_type = EntityType(name='<Null Entity Type>',db=None)
         
@@ -1144,6 +1145,7 @@ class BaseFunction(object):
         '''
         
         if self._entity_type is None:
+            from .metadata import EntityType
             self._entity_type = EntityType(name='<Null Entity Type>',db=None)
         
         if not self.base_initialized:
@@ -2274,6 +2276,7 @@ class BaseEstimatorFunction(BaseTransformer):
                                 binary=True)
             if self.decide_training_required(model):
                 if model is None:
+                    from .metadata import Model 
                     model = Model(name = model_name,
                                   estimator = None,
                                   estimator_name = None ,
@@ -2454,6 +2457,7 @@ class BaseEstimatorFunction(BaseTransformer):
             eval_metric_train = estimator.score(df_train[features],df_train[target])
             msg = 'Trained estimator %s with an %s score of %s' %(self.__class__.__name__, metric_name, eval_metric_train)
             logger.debug(msg)
+            from .metadata import Model
             model = Model(name = self.get_model_name(target_name = target),
                           target = target,
                           features = features,
