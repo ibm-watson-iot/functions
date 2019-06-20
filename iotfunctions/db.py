@@ -1095,9 +1095,33 @@ class Database(object):
                         msg = 'Did not register %s as it is not a registerable function' %name
                         logger.debug(msg)
                 else:
-                    print(name,cls.__module__)                       
+                    print(name,cls.__module__)
 
-    
+    def _ts_col_rounded_to_minutes(self, table_name, schema, column_name, minutes, label):
+        '''
+        Returns a column expression that rounds the timestamp to the specified number of minutes
+        '''
+        a = self.get_table(table_name, schema)
+        col = a.c[column_name]
+        hour = func.add_hours(func.timestamp(func.date(col)), func.hour(col))
+        min_col = (func.minute(col) / minutes) * minutes
+        exp = (func.add_minutes(hour, min_col)).label(label)
+        return exp
+
+
+    def _ts_col_rounded_to_hours(self, table_name, schema, column_name, hours, label):
+        '''
+        Returns a column expression that rounds the timestamp to the specified number of minutes
+        '''
+        a = self.get_table(table_name, schema)
+        col = a.c[column_name]
+        date_col = func.timestamp(func.date(col))
+        hour_col = (func.hour(col) / hours) * hours
+        exp = (func.add_hours(date_col, hour_col)).label(label)
+        return exp
+
+
+
     def query(self,table_name, schema,
               column_names = None,
               timestamp_col = None,
@@ -1254,12 +1278,17 @@ class Database(object):
                 raise ValueError (msg)
             if time_grain == timestamp:
                 grp.append(table.c[timestamp].label(timestamp)) 
-            elif time_grain.lower() in {'min', 'minute', 'minutes'}:
-                grp.append(func.minute(table.c[timestamp]).label(timestamp))
-            elif time_grain.lower() in {'h', 'hour', 'hours'}:
-                grp.append(func.hour(table.c[timestamp]).label(timestamp))
+            elif time_grain.lower() in {'min'}:
+                minutes = int(time_grain[:-3])
+                grp.append(self._ts_col_rounded_to_minutes(table_name,schema,timestamp,minutes,timestamp))
+            elif time_grain.lower() in {'h'}:
+                hours = int(time_grain[:-1])
+                grp.append(self._ts_col_rounded_to_hours(table_name,schema,timestamp,hours,timestamp))
+            elif time_grain.endswith('H'):
+                hours = int(time_grain[:-1])
+                grp.append(self._ts_col_rounded_to_hours(table_name,schema,timestamp,hours,timestamp))
             elif time_grain.lower() in {'day', 'days'}:
-                grp.append(func.day(table.c[timestamp]).label(timestamp)) 
+                grp.append(func.trunc_timestamp(table.c[timestamp], "DD").label(timestamp))
             elif time_grain.lower() in {'week', 'weeks'}:
                 grp.append(func.this_week(table.c[timestamp]).label(timestamp)) 
             elif time_grain.lower() in {'month', 'months'}:
