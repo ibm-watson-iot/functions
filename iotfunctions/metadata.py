@@ -1370,7 +1370,7 @@ class EntityType(object):
         if data_item_sd is None:
             data_item_sd = {}
         if data_item_domain is None:
-            data_item_domain = {}            
+            data_item_domain = {}
 
         if drop_existing and self.db is not None:
             self.db.drop_table(self.name, schema = self._db_schema)
@@ -1398,7 +1398,11 @@ class EntityType(object):
         df = ts.execute()
         
         if self._dimension_table_name is not None:
-            self.generate_dimension_data(entities, write = write)
+            self.generate_dimension_data(entities,
+                                         write=write,
+                                         data_item_mean=data_item_mean,
+                                         data_item_sd=data_item_sd,
+                                         data_item_domain=data_item_domain)
         
         if write and self.db is not None:
             for o in others:
@@ -1465,13 +1469,25 @@ class EntityType(object):
         return df
     
     
-    def generate_dimension_data(self,entities,write=True):
+    def generate_dimension_data(self,
+                                entities,
+                                write=True,
+                                data_item_mean = None,
+                                data_item_sd = None,
+                                data_item_domain = None):
         
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
                    ' are not allowed to generate dimension data ' )
             raise ValueError(msg)
-        
+
+        if data_item_mean is None:
+            data_item_mean = {}
+        if data_item_sd is None:
+            data_item_sd = {}
+        if data_item_domain is None:
+            data_item_domain = {}
+
         (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
                                                 self._dimension_table_name,
                                                 self._db_schema,exclude_cols = [self._entity_id])
@@ -1480,10 +1496,13 @@ class EntityType(object):
         data = {}
         
         for m in metrics:
-            data[m] = MetricGenerator(m).get_data(rows=rows)
+            mean = data_item_mean.get(m,0)
+            sd = data_item_sd.get(m,1)
+            data[m] = MetricGenerator(m,mean=mean,sd=sd).get_data(rows=rows)
 
         for c in categoricals:
-            data[c] = CategoricalGenerator(c).get_data(rows=rows)            
+            categories = data_item_domain.get(m,None)
+            data[c] = CategoricalGenerator(c,categories).get_data(rows=rows)
             
         data[self._entity_id] = entities
             

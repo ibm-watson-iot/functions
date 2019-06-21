@@ -134,7 +134,7 @@ class MetricGenerator(object):
     _default_future_days = 0
     _default_past_days = 30
     
-    def __init__(self,name = None , mean = None , sd = None):
+    def __init__(self,name = None , mean = 0 , sd = 1):
         
         self.name = name
         self.mean = mean

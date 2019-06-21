@@ -487,7 +487,8 @@ class Database(object):
             msg = 'Didnt drop table %s because it doesnt exist in schema %s' %(table_name,schema)
         else:
             self.start_session()
-            self.metadata.drop_all(tables = [table], checkfirst = True) 
+            self.metadata.drop_all(tables = [table], checkfirst = True)
+            self.metadata.remove(table)
             msg = 'Dropped table name %s' %table.name
             self.session.commit()
         logger.debug(msg)
