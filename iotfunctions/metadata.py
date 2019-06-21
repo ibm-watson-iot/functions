@@ -1445,8 +1445,14 @@ class EntityType(object):
             msg = ('Entity type has no db connection. Local entity types'
                    ' are not allowed to generate activity data ' )
             raise ValueError(msg)
-        
-        (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+
+        try:
+            (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        except KeyError:
+            metrics = []
+            dates = []
+            categoricals = []
+            others = []
         metrics.append('duration')
         categoricals.append('activity')
         ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
@@ -1501,7 +1507,7 @@ class EntityType(object):
             data[m] = MetricGenerator(m,mean=mean,sd=sd).get_data(rows=rows)
 
         for c in categoricals:
-            categories = data_item_domain.get(m,None)
+            categories = data_item_domain.get(c,None)
             data[c] = CategoricalGenerator(c,categories).get_data(rows=rows)
             
         data[self._entity_id] = entities
@@ -1564,7 +1570,13 @@ class EntityType(object):
         
         table_name = scd_obj.name
         msg = 'generating data for %s for %s days and %s seconds' %(table_name,days,seconds)
-        (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        try:
+            (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        except KeyError:
+            metrics = []
+            dates = []
+            categoricals = [scd_obj.property_name.name]
+            others = []
         msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
         logger.debug(msg)
         ts = TimeSeriesGenerator(metrics=metrics,
@@ -1585,10 +1597,13 @@ class EntityType(object):
         cols = [x for x in df.columns if x not in [self._timestamp]]
         df = df[cols]
         df['end_date'] = None
-        query,table = self.db.query(table_name, self._db_schema)
+        try:
+            query,table = self.db.query(table_name, self._db_schema)
+        except KeyError:
+            query = None
         try:
             edf = self.db.get_query_data(query)
-        except:
+        except BaseException:
             edf = pd.DataFrame()
         df = pd.concat([df,edf],ignore_index = True,sort=False)
         if len(df.index) > 0:
