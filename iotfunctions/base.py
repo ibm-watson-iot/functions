@@ -1775,7 +1775,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     self.log_df_info(cdf,'No data in merge source, processing empty dataframe')
                 else:
                     self.log_df_info(cdf,'combined activity data after removing overlap')
-                    cdf['duration'] = (cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds() / 60
+                    cdf['duration'] = round((cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds()) / 60
                     
             for i,value in enumerate(self.input_activities):
                 cdf[self.activity_duration[i]] = np.where(cdf[self._activity]==value, cdf['duration'], None)
@@ -1872,7 +1872,7 @@ class BaseDBActivityMerge(BaseDataSource):
         c.index.name = self._start_date
         #use original data to update the new set of intervals in slices
         for index, row in df.iterrows():
-            end_date = row[self._end_date] - dt.timedelta(seconds=1)
+            end_date = row[self._end_date] - dt.timedelta(microseconds=1)
             c[row[self._start_date]:end_date] = row[self._activity]    
         df = c.to_frame().reset_index()
         if is_logged:
@@ -1880,7 +1880,7 @@ class BaseDBActivityMerge(BaseDataSource):
         
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
-        df[self._end_date] = df[self._end_date] - dt.timedelta(seconds=1)
+        df[self._end_date] = df[self._end_date] - dt.timedelta(microseconds=1)
         
         #remove gaps
         if self.remove_gaps:
