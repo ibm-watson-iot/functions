@@ -680,10 +680,12 @@ class EntityType(object):
                 start_hour = start[3]
                 start_min = start[4]
                 backtrack = f['backtrack']
-                backtrack_days = (backtrack['days'] +
-                                  backtrack['hours']/24 +
-                                  backtrack['minutes']/1440)
-                
+                if backtrack is not None:
+                    backtrack_days = (backtrack['days'] +
+                                      backtrack['hours']/24 +
+                                      backtrack['minutes']/1440)
+                else:
+                    backtrack_days = None
                 
                 existing_schedule = freqs.get(freq,None)
                 if existing_schedule is None:
@@ -2032,9 +2034,7 @@ class ServerEntityType(EntityType):
         db.load_catalog(install_missing=True, function_list=function_list)
 
         self.db = db
-        (self._functions,
-         self._invalid_stages,
-         self._disabled_stages) = self.build_function_objects(kpis)
+        (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
         
         self._schedules_dict = self.build_schedules(kpis)
         
@@ -2113,14 +2113,12 @@ class ServerEntityType(EntityType):
             if not f.get('enabled', False):
               disabled.append(f)              
             else:
-                (package,module) = self.db.get_catalog_module(f['functionName'])
+                (package, module, class_name) = self.db.get_catalog_module(f['functionName'])
                 meta = {}
-                #meta['__module__'] = '%s.%s' %(package,module)
-                #meta['__class__'] =  f['functionName']
-                mod = importlib.import_module('%s.%s' %(package,module))
-                meta = {**meta,**f['input']}
-                meta = {**meta,**f['output']}
-                cls = getattr(mod,f['functionName'])
+                mod = importlib.import_module('%s.%s' % (package, module))
+                meta = {**meta, **f['input']}
+                meta = {**meta, **f['output']}
+                cls = getattr(mod, class_name)
                 try:
                     obj = cls(**meta)
                 except TypeError as e:

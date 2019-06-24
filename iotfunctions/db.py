@@ -529,12 +529,13 @@ class Database(object):
         return data_type            
         
         
-    def get_catalog_module(self,class_name):
+    def get_catalog_module(self, function_name):
         
-        package = self.function_catalog[class_name]['package']
-        module = self.function_catalog[class_name]['module']
-        
-        return (package,module)        
+        package = self.function_catalog[function_name]['package']
+        module = self.function_catalog[function_name]['module']
+        class_name = self.function_catalog[function_name]['class_name']
+
+        return (package, module, class_name)
         
     def get_entity_type(self,name):
         '''
@@ -824,7 +825,7 @@ class Database(object):
             impstr = 'from %s.%s import %s' %(package,module,target)
         else:
             impstr = 'from %s import %s' %(package,target)
-        logger.debug(impstr)
+        logger.debug('Verify the following import statement: %s' % impstr)
         try:
             exec(impstr)
         except BaseException:
@@ -852,8 +853,7 @@ class Database(object):
         --------
         dict keyed on function name
         '''
-        
-        imported = {}
+
         result = {}
 
         fns = json.loads(self.http_request('allFunctions',
@@ -861,58 +861,61 @@ class Database(object):
                                            request = 'GET',
                                            payload = None))
         for fn in fns:
-            path = fn["moduleAndTargetName"].split('.')
-            name = fn["moduleAndTargetName"]
-            if path is None:
-                msg = 'Cannot import %s it has an invalid module and path %s' %(name,path)
-                logger.warning(msg)
-                tobj = None
-                status = 'metadata_error'
-            else:
-                try:
-                    (package,module,target) = (path[0],path[1],path[2])
-                except IndexError:
-                    package = None
-                    module = None
-                    target = None
-                if (function_list is not None) and (target not in function_list):
-                    continue                
-                if install_missing:
-                    url = fn['url']
-                else:
-                    url = None
-                try:
-                    tobj,status = self.import_target(package=package,
-                                                     module=module,
-                                                     target=target,
-                                                     url=url)    
-                except Exception as e:
-                    msg = 'unknown error when importing: %s' %name
-                    logger.exception(msg)
-                    raise e
-            try:
-                (epackage,emodule) = imported[target]
-            except KeyError:
+            function_name = fn["name"]
+            if (function_list is not None) and (function_name not in function_list):
+                # Catalog function is not used by any KPI function. Therefore skip it!
+                continue
 
-                result[target] = {
-                        'package':package,
-                        'module':module,
-                        'status':status,
-                        'meta' :fn
-                        }
-                imported[target] = (package,module)
+            package_module_class_name = fn["moduleAndTargetName"]
+            if package_module_class_name is None:
+                msg = 'Cannot import function %s because its path is None.' % function_name
+                logger.warning(msg)
+                continue
+
+            path = package_module_class_name.split('.')
+            try:
+                (package, module, class_name) = (path[0], path[1], path[2])
+            except KeyError:
+                msg = 'Cannot import function %s because its path %s does not follow ' \
+                      'the form \'package.module.class_name\'' % (function_name, package_module_class_name)
+                logger.warning(msg)
+                continue
+
+            if install_missing:
+                url = fn['url']
             else:
-                if (package,module) != (epackage,emodule):
-                    logger.warning(
-                        ('Duplicate class name encountered on import of'
-                         ' %s. Ignored %s.%s'),name,package,module)
-                    
-            if status == 'target_error' and unregister_invalid_target:
-                self.unregister_functions([name])
-                msg = 'Unregistered invalid function %s' %name
-                logger.info(msg)
-        
-        logger.debug('Imported %s functions from catalog',len(imported))
+                url = None
+
+            try:
+                (dummy, status) = self.import_target(package=package,
+                                                     module=module,
+                                                     target=class_name,
+                                                     url=url)
+            except Exception as e:
+                msg = 'unknown error when importing function %s with path %s' % \
+                      (function_name, package_module_class_name)
+                logger.exception(msg)
+                raise e
+
+            if status =='ok':
+                result[function_name] = {'package': package,
+                                         'module': module,
+                                         'class_name': class_name,
+                                         'status': status,
+                                         'meta': fn
+                                         }
+            else:
+                if status == 'target_error' and unregister_invalid_target:
+                    self.unregister_functions([function_name])
+                    msg = 'Unregistered invalid function %s' % function_name
+                    logger.info(msg)
+                else:
+                    msg = 'The class %s for function %s could not be imported from repository %s.' % \
+                          (package_module_class_name, function_name, url)
+
+                    raise ImportError(msg)
+
+        logger.debug('Imported %s functions from catalog', len(result))
         self.function_catalog = result
                 
         return result
