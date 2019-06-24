@@ -1699,7 +1699,7 @@ class Database(object):
             else:
                 query_args = [table]
                 for col_name,col in list(dim.c.items()):
-                    if col_name != deviceid_col:
+                    if col_name != 'deviceid':
                         query_args.append(col)
         else:
             query_args = []
@@ -1725,7 +1725,7 @@ class Database(object):
         query = self.session.query(*query_args)
         
         if dim is not None:
-            query = query.join(dim, dim.c[deviceid_col] == table.c[deviceid_col])
+            query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
         
         if not start_ts is None:
             if timestamp_col is None:
@@ -1900,7 +1900,7 @@ class Database(object):
 
             query = self.session.query(*args).group_by(*grp)
             if dimension is not None:
-                query = query.join(dim, dim.c[deviceid_col] == table.c[deviceid_col])
+                query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
