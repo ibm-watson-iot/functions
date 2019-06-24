@@ -1574,6 +1574,7 @@ class Database(object):
                         column_aliases= col_aliases,
                         timestamp_col= timestamp,
                         dimension = dimension,
+                        entities = entities,
                         filters = filters,
                         deviceid_col = deviceid_col)
 
