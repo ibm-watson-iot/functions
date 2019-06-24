@@ -785,28 +785,33 @@ class Database(object):
         msg = 'running pip install for url %s' %url
         logger.debug(msg)
 
-        try:
-            completedProcess = subprocess.run(
-                    ['pip', 'install', 
-                     '--process-dependency-links',
-                     '--upgrade', url],
-                     stderr=subprocess.STDOUT,
-                     stdout=subprocess.PIPE,
-                     universal_newlines=True)
-        except Exception as e:
-            raise ImportError('pip install for url %s failed: \n%s',
-                           url, str(e)) 
-            
-        if completedProcess.returncode == 0:
-
-            importlib.invalidate_caches()
-            logger.debug('pip install for url %s was successful: \n %s',
-                         url, completedProcess.stdout)
-            
+        if self.system_package_url in url:
+            logger.warning(('Request to install package %s was ignored. This package'
+                            ' is pre-installed.'),
+                           url)
         else:
+            try:
+                completedProcess = subprocess.run(
+                        ['pip', 'install',
+                         '--process-dependency-links',
+                         '--upgrade', url],
+                         stderr=subprocess.STDOUT,
+                         stdout=subprocess.PIPE,
+                         universal_newlines=True)
+            except Exception as e:
+                raise ImportError('pip install for url %s failed: \n%s',
+                               url, str(e))
 
-            raise ImportError('pip install for url %s failed: \n %s.',
-                           url, completedProcess.stdout)
+            if completedProcess.returncode == 0:
+
+                importlib.invalidate_caches()
+                logger.debug('pip install for url %s was successful: \n %s',
+                             url, completedProcess.stdout)
+
+            else:
+
+                raise ImportError('pip install for url %s failed: \n %s.',
+                               url, completedProcess.stdout)
         
          
     def import_target(self,package,module,target,url=None):
@@ -1369,8 +1374,8 @@ class Database(object):
             query = query + "'%s'," % p['moduleAndTargetName']
             query = query + 'NULL, '
             query = query + "'%s'," % p['category']
-            query = query + "'%s'," % str(p['input']).replace("'",'"')
-            query = query + "'%s'," % str(p['output']).replace("'",'"')
+            query = query + "'%s'," % json.dumps(p['input'])
+            query = query + "'%s'," % json.dumps(p['output'])
             query = query + str(p['incremental_update']) + ', '
             query = query + 'NULL)'
 
