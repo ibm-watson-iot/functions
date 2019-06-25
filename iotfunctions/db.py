@@ -1820,7 +1820,7 @@ class Database(object):
         dim = None
         if dimension is not None:
             try:
-            dim = self.get_table(table_name=dimension,schema=schema)
+                dim = self.get_table(table_name=dimension,schema=schema)
             except KeyError:
                 msg = 'Dimension table %s for schema %s does not exist.' %(dimension,schema)
                 logger.warning(msg)
