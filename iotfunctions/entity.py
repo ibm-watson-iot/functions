@@ -108,7 +108,7 @@ def make_sample_entity(db, schema=None,
     )
 
     if register:
-        entity.register()
+        entity.register(publish_kpis=True,raise_error=True)
     return entity
 
 class EmptyEntityType(metadata.EntityType):

@@ -1489,6 +1489,9 @@ class EntityType(object):
                    ' are not allowed to generate dimension data ' )
             raise ValueError(msg)
 
+        #check for existing dimension data
+        df_existing = self.db.read_dimension(self._dimension_table_name,schema=self._db_schema,entities=entities)
+
         if data_item_mean is None:
             data_item_mean = {}
         if data_item_sd is None:
@@ -1599,15 +1602,6 @@ class EntityType(object):
         cols = [x for x in df.columns if x not in [self._timestamp]]
         df = df[cols]
         df['end_date'] = None
-        try:
-            query,table = self.db.query(table_name, self._db_schema)
-        except KeyError:
-            query = None
-        try:
-            edf = self.db.get_query_data(query)
-        except BaseException:
-            edf = pd.DataFrame()
-        df = pd.concat([df,edf],ignore_index = True,sort=False)
         if len(df.index) > 0:
             df = df.groupby([self._entity_id]).apply(self._set_end_date)
             try:
@@ -1617,7 +1611,8 @@ class EntityType(object):
             if write:
                 msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
                 logger.debug(msg)
-                self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
+                self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema,
+                                    if_exists='append')
         return df  
     
     def _get_scd_list(self):

@@ -1016,7 +1016,28 @@ class Database(object):
             table.delete()
             self.commit()
             msg = 'Truncated table name %s' %table_name
-        logger.debug(msg)      
+        logger.debug(msg)
+
+    def read_dimension(self,dimension,schema,entities = None,columns = None, parse_dates=None):
+
+        '''
+
+        Read a dimension table. Return a dataframe.
+        Optionally filter on a list of entity ids.
+        Optionally specify specific column names
+        Optionally specify date columns to parse
+
+        '''
+
+        df = self.read_table(
+            table_name= dimension,
+            schema = schema,
+            entities= entities,
+            columns=columns,
+            parse_dates = parse_dates
+        )
+
+        return df
         
         
     def read_table(self,table_name,

@@ -125,7 +125,7 @@ class DateGenerator(object):
 
 class MetricGenerator(object):
     '''
-    Generate a array of radom numbers
+    Generate a array of random numbers
     
     Will support predefined names in the future with named ranges in case
     you are wondering why this is needed
@@ -284,8 +284,7 @@ class TimeSeriesGenerator(object):
         for t in self.dates:
             df[t] = dt.datetime.utcnow() + pd.to_timedelta(df[t],unit = 'D')
             df[t] = pd.to_datetime(df[t])
-            
-        df.set_index([self._entity_id,self._timestamp])
+
         msg = 'Generated %s rows of time series data from %s to %s' %(rows,start,end)
         logger.debug(msg)
         
