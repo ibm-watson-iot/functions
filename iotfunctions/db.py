@@ -581,6 +581,7 @@ class Database(object):
         quote = False
         if '-' in table_name:
             quote = True
+            table_name = table_name.upper()
         if isinstance(table_name,str):
             kwargs = {
                     'schema': schema
