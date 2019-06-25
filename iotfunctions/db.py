@@ -1120,7 +1120,8 @@ class Database(object):
                        period_count = 1,
                        entities = None,
                        to_csv = False,
-                       filters = None):
+                       filters = None,
+                       deviceid_col = 'deviceid'):
         '''
         Pandas style aggregate function against db table
         
@@ -1146,6 +1147,8 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         filters: dict
             Keyed on dimension name. List of members.
+        deviceid_col: str
+            Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
         '''
         
         # process special aggregates (first and last)
@@ -1176,7 +1179,8 @@ class Database(object):
                     start_ts = start_ts,
                     end_ts = end_ts,
                     entities = entities,
-                    filters = filters
+                    filters = filters,
+                    deviceid_col = deviceid_col
                 )
         
         # process remaining aggregates
@@ -1195,7 +1199,8 @@ class Database(object):
                         start_ts = start_ts,
                         end_ts = end_ts,
                         entities = entities,
-                        filters = filters
+                        filters = filters,
+                        deviceid_col = deviceid_col
                     )
 
             #sql = query.statement.compile(compile_kwargs={"literal_binds": True})
@@ -1458,7 +1463,8 @@ class Database(object):
                         start_ts = None,
                         end_ts = None,
                         entities = None,
-                        filters = None):
+                        filters = None,
+                        deviceid_col = 'deviceid'):
         '''
         Strip out the special aggregates (first and last) from the an agg
         dict and execute each as separate query.
@@ -1483,6 +1489,8 @@ class Database(object):
             Retrieve data for a list of deviceids
         dimension: str
             Table name for dimension table. Dimension table will be joined on deviceid.
+        deviceid_col: str
+            Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
             
             
         Returns
@@ -1554,7 +1562,8 @@ class Database(object):
                             start_ts = start_ts,
                             end_ts = end_ts,
                             entities = entities,
-                            filters = filters)
+                            filters = filters,
+                            deviceid_col = deviceid_col)
 
                     # only read rows where the metric is not Null
 
@@ -1586,7 +1595,9 @@ class Database(object):
                         column_aliases= col_aliases,
                         timestamp_col= timestamp,
                         dimension = dimension,
-                        filters = filters)
+                        entities = entities,
+                        filters = filters,
+                        deviceid_col = deviceid_col)
 
                     query = self.subquery_join(query, filter_query, *keys, **project)
 
@@ -1660,7 +1671,8 @@ class Database(object):
               end_ts = None,
               entities = None,
               dimension = None,
-              filters = None
+              filters = None,
+              deviceid_col = 'deviceid'
               ):
         '''
         Build a sqlalchemy query object for a table. You can further manipulate the query object using standard
@@ -1685,6 +1697,8 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         filters: dict
             Dictionary keys on column name containing a list of members to include
+        deviceid_col: str
+            Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
         
         Returns
         -------
@@ -1732,7 +1746,7 @@ class Database(object):
         query = self.session.query(*query_args)
         
         if dim is not None:
-            query = query.join(dim, dim.c.deviceid == table.c.deviceid)
+            query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
         
         if not start_ts is None:
             if timestamp_col is None:
@@ -1745,7 +1759,7 @@ class Database(object):
                 raise ValueError(msg)            
             query = query.filter(table.c[timestamp_col] < end_ts)  
         if not entities is None:
-            query = query.filter(table.c.deviceid.in_(entities))
+            query = query.filter(table.c[deviceid_col].in_(entities))
             for d,members in list(filters.items()):
                 try:
                     col_obj = table.c[d]
@@ -1780,7 +1794,8 @@ class Database(object):
                 end_ts = None,
                 entities = None,
                 auto_null_filter = False,
-                filters = None
+                filters = None,
+                deviceid_col = 'deviceid'
                 ):
         '''
         Pandas style aggregate function against db table
@@ -1805,6 +1820,8 @@ class Database(object):
             Retrieve data for a list of deviceids
         dimension: str
             Table name for dimension table. Dimension table will be joined on deviceid.
+        deviceid_col: str
+            Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
         '''        
 
         if agg_outputs is None:
@@ -1904,7 +1921,7 @@ class Database(object):
 
             query = self.session.query(*args).group_by(*grp)
             if dimension is not None:
-                query = query.join(dim, dim.c.deviceid == table.c.deviceid)
+                query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
@@ -1916,7 +1933,7 @@ class Database(object):
                     raise ValueError(msg)
                 query = query.filter(table.c[timestamp] < end_ts)
             if not entities is None:
-                query = query.filter(table.c.deviceid.in_(entities))
+                query = query.filter(table.c[deviceid_col].in_(entities))
             for d,members in list(filters.items()):
                 try:
                     col_obj = table.c[d]
@@ -1950,7 +1967,8 @@ class Database(object):
                         end_ts = end_ts,
                         entities = entities,
                         dimension = dimension,
-                        filters = filters
+                        filters = filters,
+                        deviceid_col = deviceid_col
                     )
         #filter out rows where all of the metrics are null
         #reduces volumes when dealing with sparse datasets
