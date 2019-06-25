@@ -1819,7 +1819,11 @@ class Database(object):
         table = self.get_table(table_name,schema)
         dim = None
         if dimension is not None:
+            try:
             dim = self.get_table(table_name=dimension,schema=schema)
+            except KeyError:
+                msg = 'Dimension table %s for schema %s does not exist.' %(dimension,schema)
+                logger.warning(msg)
         # assemble list as a set of aggregates to project 
         
         if isinstance(groupby,str):
