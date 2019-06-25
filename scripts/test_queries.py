@@ -247,3 +247,87 @@ df = db.read_agg(table_name = table_name,
                  to_csv = True
 )
 print(df)
+
+# invalid table name
+
+try:
+
+    df = db.read_agg(table_name = 'some_bad_table_name',
+                     schema = db_schema,
+                     timestamp = 'evt_timestamp',
+                     agg_dict = agg,
+                     to_csv = True)
+
+except KeyError:
+
+    logging.info('Key error for bad table name failed as expected')
+
+else:
+
+    raise RuntimeError('Query on invalid table name should have failed')
+
+
+
+
+# bad dimension table is not used in query
+
+
+agg = {'ambient_temp':['min','max']}
+
+try:
+
+    df = db.read_agg(table_name = table_name,
+                     schema = db_schema,
+                     timestamp = 'evt_timestamp',
+                     dimension= 'some_bad_dimension_name',
+                     agg_dict = agg,
+                     to_csv = True)
+
+except KeyError:
+
+    raise
+
+else:
+
+    print(df)
+
+# bad dimension table is not used in query
+
+agg = {'ambient_temp': ['last']}
+
+try:
+
+    df = db.read_agg(table_name=table_name,
+                     schema=db_schema,
+                     timestamp='evt_timestamp',
+                     dimension='some_bad_dimension_name',
+                     agg_dict=agg,
+                     to_csv=True)
+
+except KeyError:
+
+    raise
+
+else:
+
+    print(df)
+
+# bad dimension table is used in query
+
+try:
+
+    df = db.read_agg(table_name=table_name,
+                     schema=db_schema,
+                     groupby=['manufacturer'],
+                     timestamp='evt_timestamp',
+                     dimension='some_bad_dimension_name',
+                     agg_dict=agg,
+                     to_csv=True)
+
+except KeyError as e:
+
+    logging.info('Key error for bad table name failed as expected: %s' %e)
+
+else:
+
+    raise RuntimeError('Query on invalid table name should have failed')

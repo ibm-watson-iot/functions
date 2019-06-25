@@ -1187,7 +1187,7 @@ class Database(object):
 
         if agg_dict:
         
-            (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+            (query,table,dim,pandas_aggregate,agg_dict,requires_dim) = self.query_agg(
                         agg_dict = agg_dict,
                         agg_outputs = agg_outputs,
                         table_name = table_name,
@@ -1550,7 +1550,7 @@ class Database(object):
                     elif special_name == 'last':
                         time_agg_dict =  { timestamp: "max" }
 
-                    (filter_query,table,dim,pandas_aggregate,revised_agg_dict) = self.query_agg(
+                    (filter_query,table,dim,pandas_aggregate,revised_agg_dict,requires_dim) = self.query_agg(
                             agg_dict = time_agg_dict,
                             agg_outputs = { timestamp : 'timestamp_filter' },
                             table_name = table_name,
@@ -1588,13 +1588,18 @@ class Database(object):
                     col_aliases = [output_name if x == item else x for x in cols]
                     col_aliases[1] = 'timestamp_filter'
 
+                    if requires_dim:
+                        query_dim = dimension
+                    else:
+                        query_dim = None
+
                     query,table = self.query(
                         table_name = table_name,
                         schema = schema,
                         column_names = cols,
                         column_aliases= col_aliases,
                         timestamp_col= timestamp,
-                        dimension = dimension,
+                        dimension = query_dim,
                         entities = entities,
                         filters = filters,
                         deviceid_col = deviceid_col)
@@ -1830,17 +1835,44 @@ class Database(object):
         if groupby is None:
             groupby = []
 
+        if isinstance(groupby,str):
+            groupby = [groupby]
+
         if filters is None:
             filters = {}
 
         table = self.get_table(table_name,schema)
+        table_cols = set(self.get_column_names(table,schema))
+
+        requires_dim_join = False
+        dim_error = ''
         dim = None
+        dim_cols = set()
         if dimension is not None:
-            dim = self.get_table(table_name=dimension,schema=schema)
-        # assemble list as a set of aggregates to project 
-        
-        if isinstance(groupby,str):
-            groupby = [groupby]
+            try:
+                dim = self.get_table(table_name=dimension,schema=schema)
+                dim_cols = set(self.get_column_names(dim,schema))
+            except KeyError:
+                dim_error = 'Dimension table %s does not exist in schema %s.' %(dimension,schema)
+                logger.warning(dim_error)
+
+        # validate columns and  decide whether dim join is really needed
+        required_cols = set()
+        required_cols |= set(agg_dict.keys())
+        required_cols |= set(groupby)
+        required_cols |= set(filters.keys())
+
+        not_available = required_cols-table_cols
+        if len(not_available) == 0:
+            requires_dim_join = False
+            dim = None
+        else:
+            not_available = not_available - dim_cols
+            if len(not_available) > 0:
+                raise KeyError(('Query requires columns %s that are not present'
+                                 ' in the table or dimension. %s') % (not_available, dim_error))
+            else:
+                requires_dim_join = True
         
         args = []
         metric_filter = []
@@ -1920,7 +1952,7 @@ class Database(object):
             # push aggregates to the database
 
             query = self.session.query(*args).group_by(*grp)
-            if dimension is not None:
+            if requires_dim_join:
                 query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
@@ -1966,7 +1998,7 @@ class Database(object):
                         start_ts = start_ts,
                         end_ts = end_ts,
                         entities = entities,
-                        dimension = dimension,
+                        dimension = dim,
                         filters = filters,
                         deviceid_col = deviceid_col
                     )
@@ -1977,7 +2009,7 @@ class Database(object):
         if auto_null_filter:
             query = query.filter(or_(*metric_filter))
             
-        return (query,table,dim,pandas_aggregate,agg_dict)
+        return (query,table,dim,pandas_aggregate,agg_dict,requires_dim_join)
     
     
     def query_column_aggregate(self, table_name, schema, column, aggregate,
@@ -2008,7 +2040,7 @@ class Database(object):
         
         agg_dict = { column: aggregate}
                 
-        (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+        (query,table,dim,pandas_aggregate,agg_dict,requires_dim) = self.query_agg(
                     agg_dict = agg_dict,
                     table_name = table_name,
                     schema = schema,
@@ -2046,7 +2078,7 @@ class Database(object):
         agg_dict = { column: regular_agg }
         
         #build query a aggregated on the regular dimension 
-        (query_a,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+        (query_a,table,dim,pandas_aggregate,agg_dict,requires_dim) = self.query_agg(
                     agg_dict = agg_dict,
                     table_name = table_name,
                     schema = schema,
@@ -2071,7 +2103,7 @@ class Database(object):
             raise ValueError(msg)
         
         #build query b aggregated
-        (query_b,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+        (query_b,table,dim,pandas_aggregate,agg_dict,requires_dim) = self.query_agg(
                     agg_dict = time_agg_dict,
                     table_name = table_name,
                     schema = schema,
