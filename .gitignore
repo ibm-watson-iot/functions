@@ -8,6 +8,8 @@ scripts/debugPipelineSourceData.csv
 
 # Editor temporary/working/backup files #
 #########################################
+.pytest_cache
+sqldb.db
 .#*
 [#]*#
 *~

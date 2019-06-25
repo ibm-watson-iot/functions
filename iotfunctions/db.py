@@ -58,7 +58,7 @@ class Database(object):
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
     bif_sql = "V1000-18.sql"
     
-    def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
+    def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None, db2_installed = DB2_INSTALLED):
         
         self.function_catalog = {} #metadata for functions in catalog
         self.write_chunk_size = 1000
@@ -186,7 +186,7 @@ class Database(object):
 
         self.tenant_id = self.credentials['tenant_id']
         
-        if DB2_INSTALLED:
+        if db2_installed:
             connection_kwargs = {
                             'pool_size' : 1
                              }
@@ -260,7 +260,7 @@ class Database(object):
         self.Session = sessionmaker(bind=self.connection)
 
         # this method should be invoked before the get Metadata()
-        self.set_isolation_level(self.connection)
+        self.set_isolation_level(self.connection, db2_installed=db2_installed)
 
         if start_session:
             self.session = self.Session()
@@ -268,7 +268,10 @@ class Database(object):
             self.session = None
         self.metadata = MetaData(self.connection)
         logger.debug('Db connection established')
+        self.cache_entity_types()
+        logger.debug('cached entity types')
             
+    def cache_entity_types(self):
         #cache entity types
         self.entity_type_metadata = {}
         metadata = self.http_request(object_type='allEntityTypes',
@@ -286,7 +289,7 @@ class Database(object):
             logger.warning(msg)
             metadata = []
         for m in metadata:
-            self.entity_type_metadata[m['name']] = m
+            self.entity_type_metadata[m['name']] = m   
             
             
     def _aggregate_item(self,table,column_name,aggregate,alias_column=None, dimension_table = None, timestamp_col = None):
@@ -980,8 +983,8 @@ class Database(object):
         result_query = select(projection_list).select_from(join)
         return result_query
 
-    def set_isolation_level(self, conn):
-        if DB2_INSTALLED:
+    def set_isolation_level(self, conn, db2_installed = DB2_INSTALLED):
+        if db2_installed:
             with conn.connect() as con:
                 con.execute('SET ISOLATION TO DIRTY READ;')  #specific for DB2
     
@@ -1695,7 +1698,7 @@ class Database(object):
         table = self.get_table(table_name,schema)
         dim = None
         if dimension is not None:
-            dim = self.get_table(table_name=dimension,schema=schema)
+            [dimension, dim] = self.find_dimension_table(dimension=dimension,schema=schema)
         
         if column_names is None:
             if dim is None:
@@ -1765,6 +1768,16 @@ class Database(object):
 
         
         return (query,table)
+
+    def find_dimension_table(self, dimension, schema):
+        dim = None
+        try:
+            dim = self.get_table(table_name=dimension,schema=schema)
+        except KeyError:
+            msg = 'Dimension table %s for schema %s does not exist.' %(dimension,schema)
+            dimension = None
+            logger.warning(msg)
+        return (dimension, dim)
     
     
     def query_agg(self, table_name, schema, agg_dict,
@@ -1819,12 +1832,7 @@ class Database(object):
         table = self.get_table(table_name,schema)
         dim = None
         if dimension is not None:
-            try:
-                dim = self.get_table(table_name=dimension,schema=schema)
-            except KeyError:
-                msg = 'Dimension table %s for schema %s does not exist.' %(dimension,schema)
-                dimension = None
-                logger.warning(msg)
+            [dimension, dim] = self.find_dimension_table(dimension = dimension,schema = schema)
         # assemble list as a set of aggregates to project 
         
         if isinstance(groupby,str):
