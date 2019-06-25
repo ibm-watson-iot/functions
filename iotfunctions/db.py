@@ -1823,6 +1823,7 @@ class Database(object):
                 dim = self.get_table(table_name=dimension,schema=schema)
             except KeyError:
                 msg = 'Dimension table %s for schema %s does not exist.' %(dimension,schema)
+                dimension = None
                 logger.warning(msg)
         # assemble list as a set of aggregates to project 
         
