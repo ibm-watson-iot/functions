@@ -578,12 +578,15 @@ class Database(object):
         Get sql alchemchy table object for table name
         '''
         
+        quote = False
+        if '-' in table_name:
+            quote = True
         if isinstance(table_name,str):
             kwargs = {
                     'schema': schema
                     }
             try:
-                table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)        
+                table = Table(table_name, self.metadata, quote=quote, autoload=True,autoload_with=self.connection,**kwargs)        
             except NoSuchTableError:
                 raise KeyError ('Table %s does not exist in the schema %s ' %(table_name,schema))
         elif issubclass(table_name.__class__,BaseTable):
