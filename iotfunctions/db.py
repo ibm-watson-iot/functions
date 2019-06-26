@@ -486,12 +486,13 @@ class Database(object):
         except KeyError:
             msg = 'Didnt drop table %s because it doesnt exist in schema %s' %(table_name,schema)
         else:
-            self.start_session()
-            self.metadata.drop_all(tables = [table], checkfirst = True)
-            self.metadata.remove(table)
-            msg = 'Dropped table name %s' %table.name
-            self.session.commit()
-        logger.debug(msg)
+            if table is not None:
+                self.start_session()
+                self.metadata.drop_all(tables = [table], checkfirst = True)
+                self.metadata.remove(table)
+                msg = 'Dropped table name %s' %table.name
+                self.session.commit()
+                logger.debug(msg)
 
         
     def execute_job(self,entity_type,schema=None,**kwargs):
@@ -577,26 +578,31 @@ class Database(object):
         '''
         Get sql alchemchy table object for table name
         '''
-        
-        if isinstance(table_name,str):
-            kwargs = {
-                    'schema': schema
-                    }
-            try:
-                table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)        
-            except NoSuchTableError:
-                raise KeyError ('Table %s does not exist in the schema %s ' %(table_name,schema))
-        elif issubclass(table_name.__class__,BaseTable):
-            table = table_name.table
-        elif isinstance(table_name,Table):
-            table = table_name
+
+        if not table_name is None:
+
+            if isinstance(table_name,str):
+                kwargs = {
+                        'schema': schema
+                        }
+                try:
+                    table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)
+                except NoSuchTableError:
+                    raise KeyError ('Table %s does not exist in the schema %s ' %(table_name,schema))
+            elif issubclass(table_name.__class__,BaseTable):
+                table = table_name.table
+            elif isinstance(table_name,Table):
+                table = table_name
+            else:
+                msg = 'Cannot get sql alchemcy table object for %s' %table_name
+                raise ValueError(msg)
+
         else:
-            msg = 'Cannot get sql alchemcy table object for %s' %table_name
-            raise ValueError(msg)
+            table = None
             
         return table
         
-    def get_column_lists_by_type(self, table, schema = None, exclude_cols = None):
+    def get_column_lists_by_type(self, table, schema = None, exclude_cols = None, known_categoricals_set=None):
         """
         Get metrics, dates and categoricals and others
         """
@@ -605,12 +611,20 @@ class Database(object):
         
         if exclude_cols is None:
             exclude_cols = []
+
+        if known_categoricals_set is None:
+            known_categoricals_set = set()
+
         metrics = []
         dates = []
         categoricals = []
         others = []
+
+        all_cols = set(self.get_column_names(table))
+        # exclude known categoricals that are not present in table
+        known_categoricals_set = known_categoricals_set.intersection(all_cols)
         
-        for c in self.get_column_names(table):
+        for c in all_cols:
             if not c in exclude_cols:
                 data_type = table.c[c].type
                 if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
@@ -623,6 +637,15 @@ class Database(object):
                     others.append(c)
                     msg = 'Found column %s of unknown data type %s' %(c,data_type.__class__.__name__)
                     logger.warning(msg)
+
+        # reclassify categoricals that were not correctly classified based on data type
+
+        for c in known_categoricals_set:
+            if c not in categoricals:
+                categoricals.append(c)
+            metrics = [x for x in metrics if x != c]
+            dates = [x for x in dates if x != c]
+            others = [x for x in others if x != c]
                     
         return (metrics,dates,categoricals,others)        
         
