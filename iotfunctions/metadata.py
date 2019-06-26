@@ -19,7 +19,7 @@ import warnings
 import traceback
 import pandas as pd
 from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func, MetaData
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 
@@ -162,6 +162,7 @@ class EntityType(object):
     checkpoint_table = 'KPI_CHECKPOINT'  # deprecated,to be removed
     default_backtrack = None
     trace_df_changes = True
+    drop_existing = False
     # These two columns will be available in the dataframe of a pipeline
     _entity_id = 'deviceid'  # identify the instance
     _timestamp_col = '_timestamp'  # copy of the event timestamp from the index
@@ -301,6 +302,9 @@ class EntityType(object):
         functions = list(categorized.get('function',[]))
         constants = list(categorized.get('constant',[]))
         grains = list(categorized.get('granularity',[]))
+
+        if self.drop_existing and db is not None and not self.is_local:
+            self.drop_tables()
         
         #  create a database table if needed using cols
         if name is not None and db is not None and not self.is_local:
@@ -981,6 +985,16 @@ class EntityType(object):
                     raise
         
         return (df,ts_col_name)
+
+    def drop_tables(self):
+        '''
+        Drop tables known to be associated with this entity type
+
+        '''
+
+        self.db.drop_table(self.name, schema=self._db_schema)
+        self.drop_child_tables()
+
         
     def drop_child_tables(self):
         '''
@@ -992,7 +1006,7 @@ class EntityType(object):
                    ' are not allowed to drop child tables ' )
             raise ValueError(msg)
         
-        tables = []
+        tables = [self._dimension_table_name]
         tables.extend(self.activity_tables.values())
         tables.extend(self.scd.values())
         [self.db.drop_table(x,self._db_schema) for x in tables]
@@ -1052,12 +1066,15 @@ class EntityType(object):
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
 
-    def get_local_column_lists_by_type(self,columns):
+    def get_local_column_lists_by_type(self,columns,known_categoricals_set=None):
         
         '''
         Examine a list of columns and poduce a tuple containing names
         of metric,dates,categoricals and others
         '''
+
+        if known_categoricals_set is None:
+            known_categoricals_set = set()
         
         metrics = []
         dates = []
@@ -1066,6 +1083,10 @@ class EntityType(object):
         
         if columns is None:
             columns = []
+
+        all_cols = set([x.name for x in columns])
+        # exclude known categoricals that are not present in table
+        known_categoricals_set = known_categoricals_set.intersection(all_cols)
         
         for c in columns:
             data_type = c.type
@@ -1079,6 +1100,15 @@ class EntityType(object):
                 others.append(c.name)
                 msg = 'Found column %s of unknown data type %s' %(c,data_type.__class__.__name__)
                 logger.warning(msg)
+
+        # reclassify categoricals that did were not correctly classified based on data type
+
+        for c in known_categoricals_set:
+            if c not in categoricals:
+                categoricals.append(c)
+            metrics = [x for x in metrics if x != c]
+            dates = [x for x in dates if x != c]
+            others = [x for x in others if x != c]
                     
         return (metrics,dates,categoricals,others)   
     
@@ -1376,17 +1406,25 @@ class EntityType(object):
             data_item_domain = {}
 
         if drop_existing and self.db is not None:
-            self.db.drop_table(self.name, schema = self._db_schema)
-            self.drop_child_tables()
+            self.drop_tables()
+
+        known_categoricals = set(data_item_domain.keys())
                 
         exclude_cols =  ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]  
         if self.db is None or self.is_local:
             write = False
             msg = 'This is a local entity or entity with no database connection, test data will not be written'
             logger.debug(msg)
-            (metrics,dates,categoricals,others) = self.get_local_column_lists_by_type(columns)
+            (metrics,dates,categoricals,others) = self.get_local_column_lists_by_type(
+                columns,
+                known_categoricals_set= known_categoricals
+            )
         else:
-            (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(self.table,self._db_schema,exclude_cols = exclude_cols)
+            (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(
+                self.table,
+                self._db_schema,
+                exclude_cols = exclude_cols,
+                known_categoricals_set= known_categoricals)
         msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,categoricals,dates)
         logger.debug(msg)
         
@@ -1450,7 +1488,10 @@ class EntityType(object):
             raise ValueError(msg)
 
         try:
-            (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+            (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(
+                table_name,
+                self._db_schema,
+                exclude_cols=[self._entity_id,'start_date','end_date'])
         except KeyError:
             metrics = []
             dates = []
@@ -1500,9 +1541,13 @@ class EntityType(object):
         if data_item_domain is None:
             data_item_domain = {}
 
+        known_categoricals = set(data_item_domain.keys())
+
         (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
                                                 self._dimension_table_name,
-                                                self._db_schema,exclude_cols = [self._entity_id])
+                                                self._db_schema,
+                                                exclude_cols = [self._entity_id],
+                                                known_categoricals_set = known_categoricals)
         
         rows = len(entities)
         data = {}
@@ -2283,7 +2328,8 @@ class BaseCustomEntityType(EntityType):
         
         params = {'_timestamp' : self.timestamp,
                   '_db_schema' : db_schema,
-                  'description' : description
+                  'description' : description,
+                  'drop_existing' : drop_existing
                   }
 
         kwargs = {**params,**kwargs}
@@ -2309,11 +2355,9 @@ class BaseCustomEntityType(EntityType):
                              g.__class__.__name__,
                              start,
                              drop_existing)
-                g.drop_existing = drop_existing
                 g.execute(df=None,
                           start_ts = start,
                           entities = generate_entities)
-                g.drop_existing = False
                 
         
     def publish_kpis(self,raise_error = True):

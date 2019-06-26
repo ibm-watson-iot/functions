@@ -242,6 +242,8 @@ class Robot(metadata.BaseCustomEntityType):
         #columns
         columns = []
         columns.append(Column('plant_code', String(50)))
+        columns.append(Column('tool_type', Float()))
+        columns.append(Column('acc', Float()))
         columns.append(Column('torque', Float()))
         columns.append(Column('load', Float()))
         columns.append(Column('speed', Float()))
@@ -256,9 +258,14 @@ class Robot(metadata.BaseCustomEntityType):
                 'activity_frequency': '4H',
                 'data_item_mean': {'torque': 12,
                                    'load': 375,
+                                   'load_rating' : 400,
                                    'speed': 3,
                                    'travel_time': 1
                                    },
+                'data_item_domain' : {
+                    'axes' : [1,2,3],
+                    'tool_type' : [907,803,691,909]
+                },
                 'scds': {'operator': [
                     'Fred K',
                     'Mary J',
@@ -339,16 +346,19 @@ class Robot(metadata.BaseCustomEntityType):
                         output_item = 'percent_meeting_target_duration'))
         
         # data type for operator cannot be infered automatically
-        # state it explicitley
+        # state it explicitly
         
         output_items_extended_metadata = {
                 'operator' : { "dataType" : "LITERAL" }
                 }
         
-        #dimension columns
+        # dimension columns
         dimension_columns = [
             Column('firmware',String(50)),
-            Column('manufacturer',String(50))
+            Column('manufacturer',String(50)),
+            Column('load_rating', Float()),
+            Column('axes',Float()),
+            Column('stats_acc',Float())
             ]
         
         
