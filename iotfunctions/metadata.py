@@ -1533,48 +1533,55 @@ class EntityType(object):
 
         #check for existing dimension data
         df_existing = self.db.read_dimension(self._dimension_table_name,schema=self._db_schema,entities=entities)
+        existing_entities = set(df_existing[self._entity_id])
+        # do not generate data for existing entities
+        entities = list(set(entities)-existing_entities)
+        if len(entities) > 0:
 
-        if data_item_mean is None:
-            data_item_mean = {}
-        if data_item_sd is None:
-            data_item_sd = {}
-        if data_item_domain is None:
-            data_item_domain = {}
+            if data_item_mean is None:
+                data_item_mean = {}
+            if data_item_sd is None:
+                data_item_sd = {}
+            if data_item_domain is None:
+                data_item_domain = {}
 
-        known_categoricals = set(data_item_domain.keys())
+            known_categoricals = set(data_item_domain.keys())
 
-        (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
-                                                self._dimension_table_name,
-                                                self._db_schema,
-                                                exclude_cols = [self._entity_id],
-                                                known_categoricals_set = known_categoricals)
-        
-        rows = len(entities)
-        data = {}
-        
-        for m in metrics:
-            mean = data_item_mean.get(m,0)
-            sd = data_item_sd.get(m,1)
-            data[m] = MetricGenerator(m,mean=mean,sd=sd).get_data(rows=rows)
+            (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
+                                                    self._dimension_table_name,
+                                                    self._db_schema,
+                                                    exclude_cols = [self._entity_id],
+                                                    known_categoricals_set = known_categoricals)
 
-        for c in categoricals:
-            categories = data_item_domain.get(c,None)
-            data[c] = CategoricalGenerator(c,categories).get_data(rows=rows)
-            
-        data[self._entity_id] = entities
-            
-        df = pd.DataFrame(data = data)
-        
-        for d in dates:
-            df[d] = DateGenerator(d).get_data(rows=rows)
-            df[d] = pd.to_datetime(df[d])
-            
-        if write:
-            self.db.write_frame(df,
-                                table_name = self._dimension_table_name,
-                                if_exists = 'replace',
-                                schema = self._db_schema)
-            
+            rows = len(entities)
+            data = {}
+
+            for m in metrics:
+                mean = data_item_mean.get(m,0)
+                sd = data_item_sd.get(m,1)
+                data[m] = MetricGenerator(m,mean=mean,sd=sd).get_data(rows=rows)
+
+            for c in categoricals:
+                categories = data_item_domain.get(c,None)
+                data[c] = CategoricalGenerator(c,categories).get_data(rows=rows)
+
+            data[self._entity_id] = entities
+
+            df = pd.DataFrame(data = data)
+
+            for d in dates:
+                df[d] = DateGenerator(d).get_data(rows=rows)
+                df[d] = pd.to_datetime(df[d])
+
+            if write:
+                self.db.write_frame(df,
+                                    table_name = self._dimension_table_name,
+                                    if_exists = 'append',
+                                    schema = self._db_schema)
+
+        else:
+            logger.debug('No new entities. Did not generate dimension data.')
+
     def get_entity_filter(self):
         '''
         Get the list of entity ids that are valid for pipeline processing. 
