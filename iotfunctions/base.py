@@ -25,7 +25,7 @@ import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
-from inspect import getargspec
+from inspect import getargspec, signature
 from collections import OrderedDict
 from .db import Database
 from .metadata import EntityType, Model, LocalEntityType
@@ -58,7 +58,7 @@ class BaseFunction(object):
     test_rows = 100 #rows of data to use when testing function
     base_initialized = True # use to test that object was initialized from BaseFunction
     merge_strategy = 'transform_only' #use to describe how this function's outputs are merged with outputs of the previous stage
-    _abort_on_fail = True #allow pipeline to continue when a stage fails in execution create
+    _abort_on_fail = None #  None : use entity type setting), True: Abort, False: Continue
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
     requires_input_items = True
     produces_output_items = True
@@ -87,9 +87,12 @@ class BaseFunction(object):
     # a slowly changing dimensions is use to record property changes to master data over time
     _entity_scd_dict = None
     _start_date = 'start_date'
-    _end_date = 'end_date'    
+    _end_date = 'end_date'
 
-    #depricated class variables. Will be removed
+    # properties that will be set by the JobController when executing function
+    build_status = None
+
+    # deprecated class variables. Will be removed
 
     # item level metadata for function registration
     itemDescriptions = None #dict: items descriptions show as help text
@@ -349,9 +352,11 @@ class BaseFunction(object):
         return df
 
     def generate_model_name(self,target_name, prefix = 'model', suffix = None):
+
         '''
         Generate a model name
         '''
+
         name = []
         if prefix is not None:
             name.append(prefix)
@@ -359,7 +364,27 @@ class BaseFunction(object):
         if suffix is not None:
             name.append(suffix)
         name = '.'.join(name)
-        return name     
+        return name
+
+    def get_column_map(self):
+
+        '''
+        A column map is dictionary that is used for renaming columns
+        in a dataframe.
+
+        Implement this method if you would like to have the Job Controller
+        take care of the configuration of the outputs of functions.
+
+        If the function adds a single column to the dataframe, it does
+        not need a column map.
+
+        If the output of the function is a numpy array, there is no
+        need for a column map. Columns must be ordered in the same order
+        as the outputs of the get_outputs_list() method.
+
+        '''
+
+        return None
         
     def _get_arg_metadata(self,isoformat_dates=True):
         
@@ -1365,7 +1390,20 @@ class BaseFunction(object):
                 except KeyError:
                     pass
                 if metadata_values is None:
-                    i['values'] = item_values 
+                    i['values'] = item_values
+
+        # reconcile metadata with signature of the function to
+        # confirm that args correspond with inputs and outputs
+
+        args = signature(cls)
+        args = set([x[0] for x in args.parameters.items() if x[1].kind != x[1].VAR_KEYWORD])
+        controls = set([x.get('name') for x in input_list])
+        controls |= set([x.get('name') for x in output_list])
+        if len(controls - args) != 0 or len(args - controls) != 0:
+            msg = 'Mismatch between function metadata and function args.'
+            msg = msg + '. Args are %s.' %controls
+            msg = msg + '. UI metadata is %s.' %args
+            logger.warning(msg)
 
         return(input_list,output_list)
         
@@ -1866,7 +1904,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     self.log_df_info(cdf,'No data in merge source, processing empty dataframe')
                 else:
                     self.log_df_info(cdf,'combined activity data after removing overlap')
-                    cdf['duration'] = (cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds() / 60
+                    cdf['duration'] = round((cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds()) / 60
                     
             for i,value in enumerate(self.input_activities):
                 cdf[self.activity_duration[i]] = np.where(cdf[self._activity]==value, cdf['duration'], None)
@@ -1962,7 +2000,7 @@ class BaseDBActivityMerge(BaseDataSource):
         c.index.name = self._start_date
         #use original data to update the new set of intervals in slices
         for index, row in df.iterrows():
-            end_date = row[self._end_date] - dt.timedelta(seconds=1)
+            end_date = row[self._end_date] - dt.timedelta(microseconds=1)
             c[row[self._start_date]:end_date] = row[self._activity]    
         df = c.to_frame()
         df.reset_index(inplace=True)
@@ -1970,7 +2008,7 @@ class BaseDBActivityMerge(BaseDataSource):
         
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
-        df[self._end_date] = df[self._end_date] - dt.timedelta(seconds=1)
+        df[self._end_date] = df[self._end_date] - dt.timedelta(microseconds=1)
         
         #remove gaps
         if self.remove_gaps:
@@ -2119,6 +2157,7 @@ class BasePreload(BaseTransformer):
     """
     is_preload = True
     requires_input_items = False
+    _abort_on_fail = True # if the preload fails do not proceed with execution
     
     def __init__(self, dummy_items, output_item = None):
         super().__init__()

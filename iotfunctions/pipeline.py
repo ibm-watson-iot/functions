@@ -247,7 +247,7 @@ class DataMerge(object):
         return cols
         
 
-    def execute(self,obj,col_names,force_overwrite=False):
+    def execute(self,obj,col_names,force_overwrite=False, col_map = None):
         '''
         Perform a smart merge between a dataframe and another object. The other
         object may be a dataframe, series, numpy array, list or scalar.
@@ -311,7 +311,8 @@ class DataMerge(object):
         if isinstance(obj,(pd.DataFrame,pd.Series)):
             self.merge_dataframe(df=obj,
                                  col_names= col_names,
-                                 force_overwrite=force_overwrite)
+                                 force_overwrite=force_overwrite,
+                                 col_map = col_map)
           
         else: 
             logger.debug((
@@ -329,11 +330,17 @@ class DataMerge(object):
                     ' been delivered through merge. It has columns %s'
                     %(missing_cols,col_names, df_cols)
                     ))
+        if len(self.df.index) > 0:
+            id_index = self.df.index.get_level_values(0)
+            ts_index = self.df.index.get_level_values(1)
             
         return 'existing %s with new %s' %(existing,obj.__class__.__name__)
     
-    def merge_dataframe(self,df,col_names,force_overwrite=True):
-                
+    def merge_dataframe(self,df,col_names,force_overwrite=True, col_map = None):
+
+        if col_map is None:
+            col_map = {}
+
         #convert series to dataframe
         #rename columns as appropriate using supplied col_names
         if isinstance(df,pd.Series):
@@ -345,9 +352,8 @@ class DataMerge(object):
         else:
             if (col_names is None):
                 col_names = list(df.columns)
-            else:
-                if len(col_names) == len(df.columns):
-                    df.columns = col_names
+            if col_map :
+                df = df.rename(col_map)
         if len(df.index)>0:
             logger.debug((
                 'Merging dataframe with columns %s and index %s'), 
@@ -1255,6 +1261,7 @@ class JobController(object):
         '''
     
         job_spec = OrderedDict()
+        job_spec['skipped_stages'] = set()
         logger.debug(('Building a job spec for schedule %s with'
                       ' subsumbed schedules %s'),schedule,subsumed)
         
@@ -1264,7 +1271,9 @@ class JobController(object):
                 'subsumed' : subsumed,
                 'available_columns': set(),
                 'required_inputs' : set(),
-                'data_source_projection_list' : {}
+                'data_source_projection_list' : {},
+                'skipped_stages' : set(),
+                'skipped_items' : set()
                 }
         
         # Retrieve and process input level data
@@ -1272,6 +1281,8 @@ class JobController(object):
         build_metadata = self.build_stages_of_type(stage_type= 'get_data',
                                                     granularity = None,
                                                     meta = build_metadata)
+
+        job_spec['skipped_stages'] |= build_metadata['skipped_stages']
         
         #Add a system function to remove null rows
         if self.get_payload_param('_drop_all_null_rows',False):
@@ -1290,7 +1301,9 @@ class JobController(object):
         build_metadata = self.build_stages_of_type(stage_type= 'transform',
                                                     granularity = None,
                                                     meta = build_metadata)
-        
+
+        job_spec['skipped_stages'] |= build_metadata['skipped_stages']
+
         data_items_dict = {}
         for d in self.get_payload_param('_data_items',None):
             data_items_dict[d['name']] = d
@@ -1317,18 +1330,12 @@ class JobController(object):
                     available_columns = build_metadata['available_columns'],
                     granularity = None,
                     exclude_stages = [])
-            invalid_stages.extend(stages)
-            invalid_cols |= cols
-        if len(invalid_cols) > 0:
-            msg = 'Skipped aggregate stages with no granularity'
-            kw = {'skipped_stages': [x.__class__.__name__ for x in invalid_stages],
-                  'skipped_data_items': list(invalid_cols)}
-            self.trace_add(
-                    msg = msg,
-                    created_by = self,
-                    log_method = logger.warning,
-                    **kw
-                    )
+            build_metadata['skipped_stages'] |= set(stages)
+            build_metadata['skipped_items'] |= set(cols)
+            for s in stages:
+                s.build_status = 'Skipped aggregation stage with no granularity'
+
+        job_spec['skipped_stages'] |= build_metadata['skipped_stages']
         
         # build of input level is complete
         job_spec['input_level'] = build_metadata['spec']
@@ -1374,12 +1381,15 @@ class JobController(object):
             build_metadata = self.build_stages_of_type(stage_type= 'transform',
                                                     granularity = g,
                                                     meta = build_metadata)
+
+            job_spec['skipped_stages'] |= build_metadata['skipped_stages']
             
             # Add a data writer for grain
             writer_name = '%s_%s' % (self.name, g.name)
             data_writer = self.data_writer(name = writer_name ,
                                        **params)
-            build_metadata['spec'].append(data_writer)         
+            build_metadata['spec'].append(data_writer)
+
             
             logger.debug('Completed job spec build for grain: %s', g.name )
             job_spec[g.name] = build_metadata['spec']
@@ -1424,12 +1434,14 @@ class JobController(object):
         logger.debug('Build of job spec is complete.')
         logger.debug('-------------------------------')
         for section,stages in list(job_spec.items()):
-            logger.debug('%s:>>>' %(section))
+            if len(stages) > 0:
+                logger.debug('%s:' %(section))
+            else:
+                logger.debug('%s: [None]' % (section))
             for s in stages:
                 logger.info('  %s',str(s))
         logger.debug('-------------------------------')
-        
-            
+
         print('TBD ***** - Add stages for usage stats and write to MessageHub')
             
         return job_spec
@@ -1464,8 +1476,7 @@ class JobController(object):
             start_hour,start_min,backtrack_days = schedules_dict[freq]
             schedules.append((freq,start_hour,start_min,backtrack_days))
             
-        return schedules    
-        
+        return schedules
     
     def build_stages_of_type( self,
                               stage_type,
@@ -1495,6 +1506,9 @@ class JobController(object):
                             prev_stages=meta['spec'],
                             granularity=granularity) 
             (stages_added,columns_added,required_inputs,data_source_col_list) = result
+            #update build status
+            for s in stages_added:
+                s.build_status = 'Included as %s in build' %stage_type
             meta['spec'].extend(stages_added)
             meta['available_columns'] |= columns_added
             meta['required_inputs'] |= required_inputs
@@ -1511,7 +1525,7 @@ class JobController(object):
                 meta['data_source_projection_list'][stage] = cols
                 
                 
-        #log which stages and data items were skipped
+        #determine which stages and data items were skipped
         (all_stages,all_cols) = self.get_stages(stage_type=stage_type,
                                                 granularity=granularity,
                                                 available_columns = None,
@@ -1519,10 +1533,12 @@ class JobController(object):
         logger.debug('Built stages of type %s',stage_type)
         logger.debug('Available columns: %s', meta['available_columns']) 
         skipped = [x for x in set(all_stages)-set(meta['spec'])]
+        meta['skipped_stages'] |= set(skipped)
+
         for s in skipped:
-            logger.debug('Skipped stage %s',skipped)
-            logger.debug('Skipped data items %s',
-                         self.get_stage_param(s,'_output_list','No data items'))
+            meta['skipped_items'] |= set(self.get_stage_param(s,'_output_list',[]))
+            s.build_status = 'Skipped due to dependency issue'
+
         return meta
     
     def build_trace_name(self,execute_date):
@@ -1688,10 +1704,11 @@ class JobController(object):
                     can_proceed = False
                         
                 if can_proceed:
-                    self.log_start(
-                       meta,
-                       status='running')
                     try:
+                        self.log_start(
+                            meta,
+                            status='running')
+
                         (preload_stages,cols) = self.get_stages(
                                             stage_type = 'preload',
                                             granularity = None,
@@ -1720,8 +1737,8 @@ class JobController(object):
                     logger.debug('Executing preload stages:')
                     try:
                         (df,can_proceed) = self.execute_stages(preload_stages,
-                                            start_ts=meta['prev_checkpoint'],
-                                            end_ts=execute_date,
+                                            start_ts=meta['preload_from'],
+                                            end_ts=meta['end_date'],
                                             df=None)
                     except BaseException as e:
                         msg = 'Aborted execution. Error getting preload stages'
@@ -1755,14 +1772,44 @@ class JobController(object):
                                 raise_error = None,
                                 stage_name = 'build_job_spec)'        
                                 )
-                        can_proceed = False                    
+                        can_proceed = False
+
+                if can_proceed:
+
+                    # job spec may include one or more skipped stages, e.g. invalid dependencies
+                    # skipped stages must be accounted for
+
+                    abort_on_error = False
+
+                    for s in job_spec['skipped_stages']:
+                        items = self.get_stage_param(s,'_output_list',None)
+                        inputs = self.get_stage_param(s, '_input_set', None)
+                        skip_parms = {'skipped_items':items,
+                                      'required_inputs':inputs}
+                        self.handle_failed_stage(
+                            stage = s,
+                            df = None,
+                            message = s.build_status,
+                            exception = StageException(s.build_status),
+                            raise_error = False,
+                            **skip_parms
+                        )
+                        if not abort_on_error:
+                            abort_on_error = self.get_stage_param(s, '_abort_on_fail', None)
+
+                    if len(job_spec['skipped_stages']) > 0:
+                        if not abort_on_error:
+                            abort_on_error = self.get_payload_param('_abort_on_fail', False)
+
+                        if abort_on_error:
+                            can_proceed = False
                     
                 if can_proceed:
                     # divide up the date range to be processed into chunks
                     try:
                         chunks = self.get_chunks(
                                     start_date=meta['start_date'],
-                                    end_date=execute_date,
+                                    end_date=meta['end_date'],
                                     round_hour = meta['round_hour'],
                                     round_min = meta['round_min'],
                                     schedule = schedule)
@@ -1820,7 +1867,7 @@ class JobController(object):
                             
                     for (grain,stages) in list(job_spec.items()):
                         
-                        if can_proceed and grain != 'input_level':
+                        if can_proceed and grain not in ['input_level','skipped_stages']:
                             
                                 try:
                                     (result,can_proceed) = self.execute_stages(
@@ -1849,14 +1896,22 @@ class JobController(object):
                     self.log_completion(metadata = meta,
                                     status = status)
                 except BaseException as e:
-                    # an error writing to the jo log could invalidate
-                    #future runs. Abort on error.
+                    # an error writing to the job log could invalidate
+                    # future runs. Abort on error.
                     self.handle_failed_execution(
                             meta,
                             message = 'Error writing execution results to log',
                             exception = e,
                             raise_error = True
-                            ) 
+                            )
+
+                if status == 'aborted':
+
+                    raise_error = self.get_payload_param('_abort_on_fail',False)
+                    if raise_error:
+                        stack_trace = self.payload.get_stack_trace()
+                        msg = 'Execution was aborted: /n %s' %stack_trace
+                        raise RuntimeError( msg )
             
             try:
                 next_execution = self.get_next_future_execution(schedule_metadata)
@@ -1901,21 +1956,29 @@ class JobController(object):
         were supposed to be contributed by the stage will be set to null.
         
         '''
-        
+
+
+        if df is None:
+            df = pd.DataFrame()
+
         #create a new data_merge object using the dataframe provided
         merge = self.data_merge(df=df,constants=constants)
         can_proceed = True
         
         for s in stages:
+            
+            abort_on_error = self.get_stage_param(s,'_abort_on_fail',None)
+            if abort_on_error is None:
+                abort_on_error = self.get_payload_param('_abort_on_fail',False)
 
-            #get stage processing metadata
+            # get stage processing metadata
             new_cols = self.get_stage_param(s,'_output_list',None)            
             produces_output_items  = self.get_stage_param(
                                             s,'produces_output_items',True)
             discard_prior_data = self.get_stage_param(
                                             s,'_discard_prior_on_merge',False)
-            
-            #build initial trace info
+
+            # build initial trace info
             tw = {'produces_output_items' : produces_output_items,
                   'output_items': new_cols,
                   'discard_prior_data' : discard_prior_data }            
@@ -1961,21 +2024,27 @@ class JobController(object):
                                             start_ts=start_ts,
                                             end_ts=end_ts)
                 except BaseException as e:
-                    
-                    (can_proceed,df) = self.handle_failed_stage(
+
+                    df = self.handle_failed_stage(
                             stage = s,
                             exception = e,
                             df = df,
                             status='aborted',
-                            raise_error = False,
                             **tw)
+
+                    if abort_on_error:
+                        can_proceed = False
                     
                     result = df
                                     
                     
             if can_proceed:
+
+                # get a column map from the stage if it has one
+
+                col_map = self.exec_stage_method(s,'get_column_map',None)
                     
-                #combine result with data from prior stages
+                # combine result with data from prior stages
     
                 if discard_prior_data:
                     tw['merge_result'] = 'replaced prior data'
@@ -1998,9 +2067,10 @@ class JobController(object):
                         try:
                             tw['merge_result'] = merge.execute(
                                     obj=result,
-                                    col_names = new_cols)
+                                    col_names = new_cols,
+                                    col_map = col_map)
                         except BaseException as e:
-                            (can_proceed,df) = self.handle_failed_stage(
+                            df = self.handle_failed_stage(
                                     exception = e,
                                     message = 'Merge error',
                                     stage = s,
@@ -2008,6 +2078,8 @@ class JobController(object):
                                     **tw)
                             merge.df = df
                             ssg = 'Error during merge'
+                            if abort_on_error:
+                                can_proceed = False
                             
                 else:
                     tw['new_data_items_info'] = ('Function is configured not to'
@@ -2028,8 +2100,7 @@ class JobController(object):
         return (df, can_proceed)
     
     def execute_stage(self,stage,df,start_ts,end_ts):
-        
-        
+
         # There are a few possible outcomes when executing a stage
         # 1. You get a dataframe with data as expected
         # 2. You get an empty dataframe
@@ -2039,23 +2110,34 @@ class JobController(object):
         # The payload may optionally supply a specific list of 
         # entities to retrieve data from
         entities = self.exec_payload_method('get_entity_filter',None)
-        
+
         # There are two possible signatures for the execute method
         try:
             result = stage.execute(df=df,
                                    start_ts=start_ts,
                                    end_ts=end_ts,
                                    entities = entities)
+
         except TypeError:
             is_executed = False
         else:
             is_executed = True
+            if entities is not None:
+                self.trace_update(
+                    log_method = logger.debug,
+                    **{'entity_filter_list':entities})
         
         # This seems a bit long winded, but it done this way to avoid
         # the type error showing up in the stack trace when there is an
         # error executing
         if not is_executed:
             result = stage.execute(df=df)
+            if entities is not None:
+                self.trace_update(
+                    log_method=logger.debug,
+                    **{'entity_filter_list': ('entity filter exists, but execute'
+                                              ' method for stage does not support '
+                                              ' entities parameter')})
         
         if isinstance(result,bool) and result:
             result = pd.DataFrame()
@@ -2119,6 +2201,11 @@ class JobController(object):
                 meta['is_due'] = True
                 meta['start_date'] = None
                 meta['backtrack'] = backtrack
+                # look for overrides in start and end dates
+                meta['start_date'] = self.get_payload_param('_start_ts_override',None)
+                meta['preload_from'] = meta['start_date']
+                meta['end_date'] = self.get_payload_param('_end_ts_override',execute_date)
+                # process checkpoint based start date
                 if meta['backtrack'] == 'checkpoint':
                     meta['is_checkpoint_driven'] = True
                     #retrieve data since the last checkpoint
@@ -2131,11 +2218,15 @@ class JobController(object):
                                 meta['prev_checkpoint'] +
                                 freq_to_timedelta('1us')
                                 )
+                    if meta['preload_from'] is None:
+                        meta['preload_from'] = meta['start_date']
+                # derive start date from custom backtrack setting
                 elif meta['backtrack'] is not None:
                     meta['start_date'] = (
                             meta['adjusted_exec_date'] - 
                             freq_to_timedelta(meta['backtrack'])
                             )
+                    # do not adjust preload start for backtracking
                 meta['mark_complete'] = [s]
                 last_schedule_due = s
                 all_due.append(s)
@@ -2426,10 +2517,18 @@ class JobController(object):
         
         if retries is None:
             retries = self.log_save_retries
-        
+
         trace = self.get_payload_param('_trace',None)
         if trace is not None:
-            tw = { 
+
+            if status == 'aborted':
+                text = 'Execution aborted'
+                logger_obj = logger.warning
+            else:
+                text = 'Execution complete'
+                logger_obj = logger.info
+
+            tw = {
                     'status': status,
                     'next_future_execution' : metadata['next_future_execution'],
                     'execution_date' : metadata['execution_date']
@@ -2437,7 +2536,8 @@ class JobController(object):
             tw = {**kw,**tw}
             trace.write(
                     created_by = self,
-                    text = 'Execution completed',
+                    text = text,
+                    log_method = logger_obj,
                     **tw
                     )
             trace.save()
@@ -2554,14 +2654,13 @@ class JobController(object):
                             df,
                             status='aborted',
                             message = None,
-                            raise_error = None,
                             **kw):
         '''
         Reflect failure in trace.
         Add null columns to the dataframe to represent function output
         Decide whether execution of the next stage can go ahead
         Decide whether exception should be raised
-        Return a tuple containing a bool (can_continue) and a dataframe
+        Return a dataframe with extra columns if a dataframe was provided as input
         '''
 
         err_info = {
@@ -2586,21 +2685,16 @@ class JobController(object):
                 msg = message,
                 **kw
                 )
-            
-        can_proceed = self.raise_error(exception=exception,
-                         msg=message,
-                         stageName=stage.name,
-                         raise_error = raise_error)
         
-        if can_proceed and kw['produces_output_items'] and isinstance(df,pd.DataFrame):
+        if kw.get('produces_output_items',False) and isinstance(df,pd.DataFrame):
             new_cols = kw['output_items']
             for c in new_cols:
                 df[c] = None
             if trace is not None:
-                kw['added_null_columns'] = new_cols 
-                trace.update_last_entry(msg = message ,**kw)
+                aw = {'added_null_columns': new_cols }
+                trace.update_last_entry(msg = None ,**aw)
             
-        return (can_proceed,df)
+        return df
 
 
     def handle_failed_start(self,metadata,
@@ -2948,7 +3042,7 @@ class JobController(object):
                     **kwargs)
                 
                 
-    def trace_update(self,msg, log_method = None, df = None, **kwargs):
+    def trace_update(self,msg=None, log_method = None, df = None, **kwargs):
         '''
         Update the most recent trace entry
         '''
@@ -3187,7 +3281,7 @@ class CalcPipeline:
                     dropna = dropna,
                     abort_on_fail = True)
         
-        #exceute special lookup stages
+        #excecute special lookup stages
         if not df.empty and len(special_lookup_stages) > 0:                
             for s in special_lookup_stages:
                 msg = 'Processing special lookup stage %s. ' %s.__class__.__name__
@@ -3314,10 +3408,7 @@ class CalcPipeline:
         return df
     
     def _execute_stage(self,stage,df,start_ts,end_ts,entities,register,to_csv,dropna, abort_on_fail): 
-        try:
-            abort_on_fail = stage._abort_on_fail
-        except AttributeError:
-            abort_on_fail = abort_on_fail
+
         try:
             name = stage.name
         except AttributeError:

@@ -14,7 +14,7 @@ The entity module contains sample entity types
 
 import logging
 import datetime as dt
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func, SmallInteger
 
 from . import metadata
 from . import bif
@@ -29,6 +29,87 @@ def f(df,parameters):
     out = series*parameters['param_1']
     return(out)
 '''
+
+def make_sample_entity(db, schema=None,
+                       name='as_sample_entity',
+                       register=False,
+                       data_days=1,
+                       freq='1min',
+                       entity_count=5,
+                       float_cols=5,
+                       string_cols=2,
+                       bool_cols=2,
+                       date_cols=2,
+                       drop_existing=True,
+                       include_generator=True):
+    """
+    Build a sample entity to use for testing.
+
+    Parameters
+    ----------
+    db : Database object
+        database where entity resides.
+    schema: str (optional)
+        name of database schema. Will be placed in the default schema if none specified.
+    name: str (optional)
+        by default the entity type will be called as_sample_entity
+    register: bool
+        register so that it is available in the UI
+    data_days : number
+        Number of days of sample data to generate
+    float_cols: list
+        Name of float columns to add
+    string_cols : list
+        Name of string columns to add
+    """
+
+    if entity_count is None:
+        entities = None
+    else:
+        entities = ['E%s' % x for x in list(range(entity_count))]
+
+    if isinstance(float_cols, int):
+        float_cols = ['float_%s' % x for x in list(range(float_cols))]
+    if isinstance(string_cols, int):
+        string_cols = ['string_%s' % x for x in list(range(string_cols))]
+    if isinstance(date_cols, int):
+        date_cols = ['date_%s' % x for x in list(range(date_cols))]
+    if isinstance(bool_cols, int):
+        bool_cols = ['bool_%s' % x for x in list(range(bool_cols))]
+
+    if drop_existing:
+        db.drop_table(table_name=name, schema=schema)
+
+    float_cols = [Column(x, Float()) for x in float_cols]
+    string_cols = [Column(x, String(255)) for x in string_cols]
+    bool_cols = [Column(x, SmallInteger) for x in bool_cols]
+    date_cols = [Column(x, DateTime) for x in date_cols]
+
+    functions = []
+    if include_generator:
+        sim = {'freq': freq}
+        generator = bif.EntityDataGenerator(ids=entities, parameters = sim)
+        functions.append(generator)
+
+    cols = []
+    cols.extend(float_cols)
+    cols.extend(string_cols)
+    cols.extend(bool_cols)
+    cols.extend(date_cols)
+
+    entity = metadata.BaseCustomEntityType(
+        name=name,
+        db=db,
+        columns=cols,
+        functions=functions,
+        generate_days=data_days,
+        drop_existing=drop_existing,
+        db_schema=schema
+    )
+
+    if register:
+        entity.register(publish_kpis=True,raise_error=True)
+    return entity
 
 class EmptyEntityType(metadata.EntityType):
     
@@ -79,7 +160,7 @@ class Boiler(metadata.BaseCustomEntityType):
                 'drop_existing' : False
                 }
 
-        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        generator = bif.EntityDataGenerator(ids=None,parameters = sim)
         functions.append(generator)
 
         # temperature depends on set point
@@ -161,6 +242,8 @@ class Robot(metadata.BaseCustomEntityType):
         #columns
         columns = []
         columns.append(Column('plant_code', String(50)))
+        columns.append(Column('tool_type', Float()))
+        columns.append(Column('acc', Float()))
         columns.append(Column('torque', Float()))
         columns.append(Column('load', Float()))
         columns.append(Column('speed', Float()))
@@ -175,9 +258,14 @@ class Robot(metadata.BaseCustomEntityType):
                 'activity_frequency': '4H',
                 'data_item_mean': {'torque': 12,
                                    'load': 375,
+                                   'load_rating' : 400,
                                    'speed': 3,
                                    'travel_time': 1
                                    },
+                'data_item_domain' : {
+                    'axes' : [1,2,3],
+                    'tool_type' : [907,803,691,909]
+                },
                 'scds': {'operator': [
                     'Fred K',
                     'Mary J',
@@ -196,7 +284,7 @@ class Robot(metadata.BaseCustomEntityType):
                         },
                 'drop_existing': False
                 }
-        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        generator = bif.EntityDataGenerator(ids=None,parameters = sim)
         functions.append(generator)
         
         functions.append(bif.PythonExpression(
@@ -258,16 +346,19 @@ class Robot(metadata.BaseCustomEntityType):
                         output_item = 'percent_meeting_target_duration'))
         
         # data type for operator cannot be infered automatically
-        # state it explicitley
+        # state it explicitly
         
         output_items_extended_metadata = {
                 'operator' : { "dataType" : "LITERAL" }
                 }
         
-        #dimension columns
+        # dimension columns
         dimension_columns = [
             Column('firmware',String(50)),
-            Column('manufacturer',String(50))
+            Column('manufacturer',String(50)),
+            Column('load_rating', Float()),
+            Column('axes',Float()),
+            Column('stats_acc',Float())
             ]
         
         
@@ -319,7 +410,7 @@ class PackagingHopper(metadata.BaseCustomEntityType):
             'drop_existing': False
         }
 
-        generator = bif.EntityDataGenerator(ids=None, **sim)
+        generator = bif.EntityDataGenerator(ids=None, parameters  = sim)
         functions.append(generator)
         # fill rate depends on temp
         functions.append(bif.PythonExpression(
@@ -392,7 +483,7 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
                 'drop_existing' : False
                 }
 
-        generator = bif.EntityDataGenerator(ids=None,**sim)                
+        generator = bif.EntityDataGenerator(ids=None,parameters = sim)
         functions.append(generator)
         
         functions.append(bif.PythonExpression(

@@ -5,6 +5,7 @@ from iotfunctions import bif
 from iotfunctions.metadata import EntityType
 from iotfunctions.db import Database
 from iotfunctions.enginelog import EngineLogging
+import datetime as dt
 
 EngineLogging.configure_console_logging(logging.DEBUG)
 
@@ -97,3 +98,26 @@ lake. Instead kpi data is written to the local filesystem in csv form.
 '''
 
 entity.exec_local_pipeline()
+
+'''
+
+By default, exec_local_pipelines executes on data created since the last
+execution. The last execution is inferred from the job log.
+
+The default end date for the execution is the current utc date.
+
+You can select custom start and end dates for execution.
+
+'''
+
+start = dt.datetime.utcnow() - dt.timedelta(days=7)
+end = dt.datetime.utcnow() - dt.timedelta(days=1)
+entity.exec_local_pipeline(start_ts=start,end_ts=end)
+
+'''
+You can also execute on a specific list of entities
+
+'''
+
+entity.exec_local_pipeline(entities=['73000','73001'])
+

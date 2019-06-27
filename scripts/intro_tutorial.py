@@ -39,7 +39,7 @@ Use PythonFunction to identify outliers
 fnstr = '''def f(df,parameters = None):
     import numpy as np
     threshold = df['distance'].mean() + 2 * df['distance'].std()
-    output = np.where(df['distance']>threshold,True,None)
+    output = np.where(df['distance']>threshold,1,0)
     return output
 '''
 

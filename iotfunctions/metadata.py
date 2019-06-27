@@ -19,7 +19,7 @@ import warnings
 import traceback
 import pandas as pd
 from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func
+from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func, MetaData
 from sqlalchemy.sql.sqltypes import TIMESTAMP,VARCHAR
 from ibm_db_sa.base import DOUBLE
 
@@ -30,65 +30,10 @@ from .pipeline import (CalcPipeline, DataReader, DropNull,
                        JobController, DataWriterFile,JobLogNull)
 from .util import (MemoryOptimizer, StageException, build_grouper,
                    categorize_args, reset_df_index)
+
 import iotfunctions as iotf
 
 logger = logging.getLogger(__name__)
-
-
-def make_sample_entity(db,schema=None,
-                      name = 'as_sample_entity',
-                      register = False,
-                      data_days = 1,
-                      float_cols = None,
-                      string_cols = None,
-                      drop_existing = True):
-    """
-    Get a sample entity to use for testing. Deprecated.
-    
-    Parameters
-    ----------
-    db : Database object
-        database where entity resides.
-    schema: str (optional)
-        name of database schema. Will be placed in the default schema if none specified.
-    name: str (optional)
-        by default the entity type will be called as_sample_entity
-    register: bool
-        register so that it is available in the UI
-    data_days : number
-        Number of days of sample data to generate
-    float_cols: list
-        Name of float columns to add
-    string_cols : list
-        Name of string columns to add
-    """
-    
-    warnings.warn('make_sample_entity() is deprecated. Use the entity module.',
-                      DeprecationWarning)
-    
-    if float_cols is None:
-        float_cols = ['temp', 'grade', 'throttle' ]
-    if string_cols is None:
-        string_cols = ['company']
-        
-    if drop_existing:
-        db.drop_table(table_name=name, schema=schema)        
-        
-    float_cols = [Column(x,Float()) for x in float_cols]
-    string_cols = [Column(x,String(255)) for x in string_cols]
-    args = []
-    args.extend(float_cols)
-    args.extend(string_cols)
-    
-    entity = EntityType(name,db, *args,
-                      **{
-                        '_timestamp' : 'evt_timestamp',
-                        '_db_schema' : schema
-                         })
-    entity.generate_data(days=data_days, drop_existing = True)
-    if register:
-        entity.register()
-    return entity
 
 def retrieve_entity_type_metadata(raise_error = True,**kwargs):
     '''
@@ -217,6 +162,7 @@ class EntityType(object):
     checkpoint_table = 'KPI_CHECKPOINT'  # deprecated,to be removed
     default_backtrack = None
     trace_df_changes = True
+    drop_existing = False
     # These two columns will be available in the dataframe of a pipeline
     _entity_id = 'deviceid'  # identify the instance
     _timestamp_col = '_timestamp'  # copy of the event timestamp from the index
@@ -265,7 +211,7 @@ class EntityType(object):
     save_trace_to_file = False
     drop_null_class = DropNull
     enable_downcast = False
-    allow_projection_list_trim = False
+    allow_projection_list_trim = True
 
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
@@ -278,6 +224,7 @@ class EntityType(object):
         self.logical_name = name
         name = name.lower()
         name = name.replace(' ','_')
+        name = name.replace('-', '_')
         self.name = name
         self.description = kwargs.get('description',None)
         if self.description is None:
@@ -355,6 +302,9 @@ class EntityType(object):
         functions = list(categorized.get('function',[]))
         constants = list(categorized.get('constant',[]))
         grains = list(categorized.get('granularity',[]))
+
+        if self.drop_existing and db is not None and not self.is_local:
+            self.drop_tables()
         
         #  create a database table if needed using cols
         if name is not None and db is not None and not self.is_local:
@@ -735,10 +685,12 @@ class EntityType(object):
                 start_hour = start[3]
                 start_min = start[4]
                 backtrack = f['backtrack']
-                backtrack_days = (backtrack['days'] +
-                                  backtrack['hours']/24 +
-                                  backtrack['minutes']/1440)
-                
+                if backtrack is not None:
+                    backtrack_days = (backtrack['days'] +
+                                      backtrack['hours']/24 +
+                                      backtrack['minutes']/1440)
+                else:
+                    backtrack_days = None
                 
                 existing_schedule = freqs.get(freq,None)
                 if existing_schedule is None:
@@ -1033,6 +985,16 @@ class EntityType(object):
                     raise
         
         return (df,ts_col_name)
+
+    def drop_tables(self):
+        '''
+        Drop tables known to be associated with this entity type
+
+        '''
+
+        self.db.drop_table(self.name, schema=self._db_schema)
+        self.drop_child_tables()
+
         
     def drop_child_tables(self):
         '''
@@ -1044,7 +1006,7 @@ class EntityType(object):
                    ' are not allowed to drop child tables ' )
             raise ValueError(msg)
         
-        tables = []
+        tables = [self._dimension_table_name]
         tables.extend(self.activity_tables.values())
         tables.extend(self.scd.values())
         [self.db.drop_table(x,self._db_schema) for x in tables]
@@ -1053,6 +1015,8 @@ class EntityType(object):
         
     def exec_local_pipeline(self,
                       start_ts = None,
+                      end_ts = None,
+                      entities = None,
                       **kw):
         '''
         Test the functions on an entity type
@@ -1068,10 +1032,13 @@ class EntityType(object):
         'trace_df_changes' : True,
         '_abort_on_fail' : True,
         'job_log_class' : JobLogNull,
-        '_auto_save_trace' : None
+        '_auto_save_trace' : None,
+        '_start_ts_override' : start_ts,
+        '_end_ts_override' : end_ts,
+        '_entity_filter_list' : entities
         }
         
-        kw = {**kw,**params}
+        kw = {**params,**kw}
         
         job = JobController(payload=self,**kw)
         job.execute()
@@ -1099,12 +1066,15 @@ class EntityType(object):
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type = self)
 
-    def get_local_column_lists_by_type(self,columns):
+    def get_local_column_lists_by_type(self,columns,known_categoricals_set=None):
         
         '''
         Examine a list of columns and poduce a tuple containing names
         of metric,dates,categoricals and others
         '''
+
+        if known_categoricals_set is None:
+            known_categoricals_set = set()
         
         metrics = []
         dates = []
@@ -1113,6 +1083,10 @@ class EntityType(object):
         
         if columns is None:
             columns = []
+
+        all_cols = set([x.name for x in columns])
+        # exclude known categoricals that are not present in table
+        known_categoricals_set = known_categoricals_set.intersection(all_cols)
         
         for c in columns:
             data_type = c.type
@@ -1126,6 +1100,15 @@ class EntityType(object):
                 others.append(c.name)
                 msg = 'Found column %s of unknown data type %s' %(c,data_type.__class__.__name__)
                 logger.warning(msg)
+
+        # reclassify categoricals that did were not correctly classified based on data type
+
+        for c in known_categoricals_set:
+            if c not in categoricals:
+                categoricals.append(c)
+            metrics = [x for x in metrics if x != c]
+            dates = [x for x in dates if x != c]
+            others = [x for x in others if x != c]
                     
         return (metrics,dates,categoricals,others)   
     
@@ -1308,6 +1291,11 @@ class EntityType(object):
             date_time_obj = dt.datetime.strptime(self._end_ts_override[0], '%Y-%m-%d %H:%M:%S')
             return date_time_obj
         return None
+
+
+    def get_stack_trace(self):
+
+        return(self._trace.get_stack_trace())
     
     def get_stage_type(self,stage):
         '''
@@ -1415,20 +1403,28 @@ class EntityType(object):
         if data_item_sd is None:
             data_item_sd = {}
         if data_item_domain is None:
-            data_item_domain = {}            
+            data_item_domain = {}
 
         if drop_existing and self.db is not None:
-            self.db.drop_table(self.name, schema = self._db_schema)
-            self.drop_child_tables()
+            self.drop_tables()
+
+        known_categoricals = set(data_item_domain.keys())
                 
         exclude_cols =  ['deviceid','devicetype','format','updated_utc','logicalinterface_id',self._timestamp]  
         if self.db is None or self.is_local:
             write = False
             msg = 'This is a local entity or entity with no database connection, test data will not be written'
             logger.debug(msg)
-            (metrics,dates,categoricals,others) = self.get_local_column_lists_by_type(columns)
+            (metrics,dates,categoricals,others) = self.get_local_column_lists_by_type(
+                columns,
+                known_categoricals_set= known_categoricals
+            )
         else:
-            (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(self.table,self._db_schema,exclude_cols = exclude_cols)
+            (metrics,dates,categoricals,others ) = self.db.get_column_lists_by_type(
+                self.table,
+                self._db_schema,
+                exclude_cols = exclude_cols,
+                known_categoricals_set= known_categoricals)
         msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' %(self.name,metrics,categoricals,dates)
         logger.debug(msg)
         
@@ -1443,7 +1439,11 @@ class EntityType(object):
         df = ts.execute()
         
         if self._dimension_table_name is not None:
-            self.generate_dimension_data(entities, write = write)
+            self.generate_dimension_data(entities,
+                                         write=write,
+                                         data_item_mean=data_item_mean,
+                                         data_item_sd=data_item_sd,
+                                         data_item_domain=data_item_domain)
         
         if write and self.db is not None:
             for o in others:
@@ -1486,8 +1486,17 @@ class EntityType(object):
             msg = ('Entity type has no db connection. Local entity types'
                    ' are not allowed to generate activity data ' )
             raise ValueError(msg)
-        
-        (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+
+        try:
+            (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(
+                table_name,
+                self._db_schema,
+                exclude_cols=[self._entity_id,'start_date','end_date'])
+        except KeyError:
+            metrics = []
+            dates = []
+            categoricals = []
+            others = []
         metrics.append('duration')
         categoricals.append('activity')
         ts = TimeSeriesGenerator(metrics=metrics,dates = dates,categoricals=categoricals,
@@ -1510,40 +1519,69 @@ class EntityType(object):
         return df
     
     
-    def generate_dimension_data(self,entities,write=True):
+    def generate_dimension_data(self,
+                                entities,
+                                write=True,
+                                data_item_mean = None,
+                                data_item_sd = None,
+                                data_item_domain = None):
         
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
                    ' are not allowed to generate dimension data ' )
             raise ValueError(msg)
-        
-        (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
-                                                self._dimension_table_name,
-                                                self._db_schema,exclude_cols = [self._entity_id])
-        
-        rows = len(entities)
-        data = {}
-        
-        for m in metrics:
-            data[m] = MetricGenerator(m).get_data(rows=rows)
 
-        for c in categoricals:
-            data[c] = CategoricalGenerator(c).get_data(rows=rows)            
-            
-        data[self._entity_id] = entities
-            
-        df = pd.DataFrame(data = data)
-        
-        for d in dates:
-            df[d] = DateGenerator(d).get_data(rows=rows)
-            df[d] = pd.to_datetime(df[d])
-            
-        if write:
-            self.db.write_frame(df,
-                                table_name = self._dimension_table_name,
-                                if_exists = 'replace',
-                                schema = self._db_schema)
-            
+        #check for existing dimension data
+        df_existing = self.db.read_dimension(self._dimension_table_name,schema=self._db_schema,entities=entities)
+        existing_entities = set(df_existing[self._entity_id])
+        # do not generate data for existing entities
+        entities = list(set(entities)-existing_entities)
+        if len(entities) > 0:
+
+            if data_item_mean is None:
+                data_item_mean = {}
+            if data_item_sd is None:
+                data_item_sd = {}
+            if data_item_domain is None:
+                data_item_domain = {}
+
+            known_categoricals = set(data_item_domain.keys())
+
+            (metrics, dates,categoricals, others ) = self.db.get_column_lists_by_type(
+                                                    self._dimension_table_name,
+                                                    self._db_schema,
+                                                    exclude_cols = [self._entity_id],
+                                                    known_categoricals_set = known_categoricals)
+
+            rows = len(entities)
+            data = {}
+
+            for m in metrics:
+                mean = data_item_mean.get(m,0)
+                sd = data_item_sd.get(m,1)
+                data[m] = MetricGenerator(m,mean=mean,sd=sd).get_data(rows=rows)
+
+            for c in categoricals:
+                categories = data_item_domain.get(c,None)
+                data[c] = CategoricalGenerator(c,categories).get_data(rows=rows)
+
+            data[self._entity_id] = entities
+
+            df = pd.DataFrame(data = data)
+
+            for d in dates:
+                df[d] = DateGenerator(d).get_data(rows=rows)
+                df[d] = pd.to_datetime(df[d])
+
+            if write:
+                self.db.write_frame(df,
+                                    table_name = self._dimension_table_name,
+                                    if_exists = 'append',
+                                    schema = self._db_schema)
+
+        else:
+            logger.debug('No new entities. Did not generate dimension data.')
+
     def get_entity_filter(self):
         '''
         Get the list of entity ids that are valid for pipeline processing. 
@@ -1590,7 +1628,13 @@ class EntityType(object):
         
         table_name = scd_obj.name
         msg = 'generating data for %s for %s days and %s seconds' %(table_name,days,seconds)
-        (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        try:
+            (metrics, dates, categoricals,others) = self.db.get_column_lists_by_type(table_name,self._db_schema,exclude_cols=[self._entity_id,'start_date','end_date'])
+        except KeyError:
+            metrics = []
+            dates = []
+            categoricals = [scd_obj.property_name.name]
+            others = []
         msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' %(metrics, dates, categoricals,others)
         logger.debug(msg)
         ts = TimeSeriesGenerator(metrics=metrics,
@@ -1611,12 +1655,6 @@ class EntityType(object):
         cols = [x for x in df.columns if x not in [self._timestamp]]
         df = df[cols]
         df['end_date'] = None
-        query,table = self.db.query(table_name, self._db_schema)
-        try:
-            edf = self.db.get_query_data(query)
-        except:
-            edf = pd.DataFrame()
-        df = pd.concat([df,edf],ignore_index = True,sort=False)
         if len(df.index) > 0:
             df = df.groupby([self._entity_id]).apply(self._set_end_date)
             try:
@@ -1626,7 +1664,8 @@ class EntityType(object):
             if write:
                 msg = 'Generated %s rows of data and inserted into %s' %(len(df.index),table_name)
                 logger.debug(msg)
-                self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema) 
+                self.db.write_frame(table_name = table_name, df = df, schema = self._db_schema,
+                                    if_exists='append')
         return df  
     
     def _get_scd_list(self):
@@ -2043,9 +2082,7 @@ class ServerEntityType(EntityType):
         db.load_catalog(install_missing=True, function_list=function_list)
 
         self.db = db
-        (self._functions,
-         self._invalid_stages,
-         self._disabled_stages) = self.build_function_objects(kpis)
+        (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
         
         self._schedules_dict = self.build_schedules(kpis)
         
@@ -2100,8 +2137,10 @@ class ServerEntityType(EntityType):
                 else:
                     value = p['value']
                 params[key] = value
-                logger.debug('Retrieved server constant %s with value%s',key,value)                
+                logger.debug('Retrieved server constant %s with value%s',key,value)
 
+        params['_timestamp'] = self._timestamp
+        params['_dimension_table_name'] = server_meta['dimensionsTable']
         
         # initialize entity type
                 
@@ -2122,14 +2161,12 @@ class ServerEntityType(EntityType):
             if not f.get('enabled', False):
               disabled.append(f)              
             else:
-                (package,module) = self.db.get_catalog_module(f['functionName'])
+                (package, module, class_name) = self.db.get_catalog_module(f['functionName'])
                 meta = {}
-                #meta['__module__'] = '%s.%s' %(package,module)
-                #meta['__class__'] =  f['functionName']
-                mod = importlib.import_module('%s.%s' %(package,module))
-                meta = {**meta,**f['input']}
-                meta = {**meta,**f['output']}
-                cls = getattr(mod,f['functionName'])
+                mod = importlib.import_module('%s.%s' % (package, module))
+                meta = {**meta, **f['input']}
+                meta = {**meta, **f['output']}
+                cls = getattr(mod, class_name)
                 try:
                     obj = cls(**meta)
                 except TypeError as e:
@@ -2262,6 +2299,7 @@ class BaseCustomEntityType(EntityType):
                   functions=None,
                   dimension_columns = None,
                   generate_days = 0,
+                  generate_entities = None,
                   drop_existing = False,
                   db_schema = None,
                   description = None,
@@ -2295,10 +2333,13 @@ class BaseCustomEntityType(EntityType):
         if description is None:
             description = self.__doc__
         
-        kwargs = {'_timestamp' : self.timestamp,
+        params = {'_timestamp' : self.timestamp,
                   '_db_schema' : db_schema,
-                  'description' : description
-                  } 
+                  'description' : description,
+                  'drop_existing' : drop_existing
+                  }
+
+        kwargs = {**params,**kwargs}
         
         super().__init__(name,
                          db,
@@ -2321,9 +2362,9 @@ class BaseCustomEntityType(EntityType):
                              g.__class__.__name__,
                              start,
                              drop_existing)
-                g.drop_existing = drop_existing
-                g.execute(df=None,start_ts = start) 
-                g.drop_existing = False
+                g.execute(df=None,
+                          start_ts = start,
+                          entities = generate_entities)
                 
         
     def publish_kpis(self,raise_error = True):
@@ -2515,6 +2556,23 @@ class Trace(object)    :
         
         return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,
                                execute_str)
+
+    def get_stack_trace(self):
+        '''
+        Extract stack trace entries. Return string.
+        '''
+
+        stack_trace = ''
+
+        for t in self.data:
+            entry = t.get('exception',None)
+            if entry is not None:
+                stack_trace = stack_trace + entry + '\n'
+            entry = t.get('stack_trace',None)
+            if entry is not None:
+                stack_trace = stack_trace + entry + '\n'
+
+        return stack_trace
         
     def reset(self,name=None,auto_save=None):
         '''
@@ -2598,7 +2656,7 @@ class Trace(object)    :
             self.auto_save_thread = None
             logger.debug('Stopping autosave on trace %s',self.name)
             
-    def update_last_entry(self,msg,log_method = None,df=None,**kw):
+    def update_last_entry(self,msg=None,log_method = None,df=None,**kw):
         '''
         Update the last trace entry. Include the contents of **kw.
         '''
@@ -2621,7 +2679,8 @@ class Trace(object)    :
             df_info = self._df_as_dict(df=df)
             last = {**last,**df_info}                
 
-        last['text'] = last['text'] + msg
+        if msg is not None:
+            last['text'] = last['text'] + msg
         self.data.append(last)
         
         #write trace update to the log

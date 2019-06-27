@@ -56,6 +56,7 @@ class Database(object):
     '''
     
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
+    bif_sql = "V1000-18.sql"
     
     def __init__(self,credentials = None, start_session = False, echo = False, tenant_id = None):
         
@@ -203,7 +204,8 @@ class Database(object):
                                                                      self.credentials['db2']['port'],
                                                                      self.credentials['db2']['databaseName'])
                     if 'security' in self.credentials['db2']:
-                        connection_string += 'SECURITY=%s' % self.credentials['db2']['security']
+                        if self.credentials['db2']['security']:
+                            connection_string += 'SECURITY=ssl;'
                 except KeyError:
                     # look for environment variable for the ICS DB2
                     try:
@@ -218,7 +220,7 @@ class Database(object):
                             ev = dict(item.split("=") for item in connection_string.split(";"))
                             connection_string  = 'db2+ibm_db://%s:%s@%s:%s/%s;' %(ev['UID'],ev['PWD'],ev['HOSTNAME'],ev['PORT'],ev['DATABASE'])
                             if 'SECURITY' in ev:
-                                connection_string += 'SECURITY=%s' % ev['SECURITY']
+                                connection_string += 'SECURITY=%s;' % ev['SECURITY']
                             self.credentials['db2'] =  {
                                 "username": ev['UID'],
                                 "password": ev['PWD'],
@@ -305,7 +307,7 @@ class Database(object):
                 'max' : func.max,
                 'mean' : func.avg,
                 'min' : func.min,
-                'std' : func.std,
+                'std' : func.stddev,
                 'sum' : func.sum
                 }
         
@@ -484,11 +486,13 @@ class Database(object):
         except KeyError:
             msg = 'Didnt drop table %s because it doesnt exist in schema %s' %(table_name,schema)
         else:
-            self.start_session()
-            self.metadata.drop_all(tables = [table], checkfirst = True) 
-            msg = 'Dropped table name %s' %table.name
-            self.session.commit()
-        logger.debug(msg)
+            if table is not None:
+                self.start_session()
+                self.metadata.drop_all(tables = [table], checkfirst = True)
+                self.metadata.remove(table)
+                msg = 'Dropped table name %s' %table.name
+                self.session.commit()
+                logger.debug(msg)
 
         
     def execute_job(self,entity_type,schema=None,**kwargs):
@@ -526,12 +530,13 @@ class Database(object):
         return data_type            
         
         
-    def get_catalog_module(self,class_name):
+    def get_catalog_module(self, function_name):
         
-        package = self.function_catalog[class_name]['package']
-        module = self.function_catalog[class_name]['module']
-        
-        return (package,module)        
+        package = self.function_catalog[function_name]['package']
+        module = self.function_catalog[function_name]['module']
+        class_name = self.function_catalog[function_name]['class_name']
+
+        return (package, module, class_name)
         
     def get_entity_type(self,name):
         '''
@@ -573,26 +578,31 @@ class Database(object):
         '''
         Get sql alchemchy table object for table name
         '''
-        
-        if isinstance(table_name,str):
-            kwargs = {
-                    'schema': schema
-                    }
-            try:
-                table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)        
-            except NoSuchTableError:
-                raise KeyError ('Table %s does not exist in the schema %s ' %(table_name,schema))
-        elif issubclass(table_name.__class__,BaseTable):
-            table = table_name.table
-        elif isinstance(table_name,Table):
-            table = table_name
+
+        if not table_name is None:
+
+            if isinstance(table_name,str):
+                kwargs = {
+                        'schema': schema
+                        }
+                try:
+                    table = Table(table_name, self.metadata, autoload=True,autoload_with=self.connection,**kwargs)
+                except NoSuchTableError:
+                    raise KeyError ('Table %s does not exist in the schema %s ' %(table_name,schema))
+            elif issubclass(table_name.__class__,BaseTable):
+                table = table_name.table
+            elif isinstance(table_name,Table):
+                table = table_name
+            else:
+                msg = 'Cannot get sql alchemcy table object for %s' %table_name
+                raise ValueError(msg)
+
         else:
-            msg = 'Cannot get sql alchemcy table object for %s' %table_name
-            raise ValueError(msg)
+            table = None
             
         return table
         
-    def get_column_lists_by_type(self, table, schema = None, exclude_cols = None):
+    def get_column_lists_by_type(self, table, schema = None, exclude_cols = None, known_categoricals_set=None):
         """
         Get metrics, dates and categoricals and others
         """
@@ -601,12 +611,20 @@ class Database(object):
         
         if exclude_cols is None:
             exclude_cols = []
+
+        if known_categoricals_set is None:
+            known_categoricals_set = set()
+
         metrics = []
         dates = []
         categoricals = []
         others = []
+
+        all_cols = set(self.get_column_names(table))
+        # exclude known categoricals that are not present in table
+        known_categoricals_set = known_categoricals_set.intersection(all_cols)
         
-        for c in self.get_column_names(table):
+        for c in all_cols:
             if not c in exclude_cols:
                 data_type = table.c[c].type
                 if isinstance(data_type,DOUBLE) or isinstance(data_type,Float):
@@ -619,6 +637,15 @@ class Database(object):
                     others.append(c)
                     msg = 'Found column %s of unknown data type %s' %(c,data_type.__class__.__name__)
                     logger.warning(msg)
+
+        # reclassify categoricals that were not correctly classified based on data type
+
+        for c in known_categoricals_set:
+            if c not in categoricals:
+                categoricals.append(c)
+            metrics = [x for x in metrics if x != c]
+            dates = [x for x in dates if x != c]
+            others = [x for x in others if x != c]
                     
         return (metrics,dates,categoricals,others)        
         
@@ -782,28 +809,33 @@ class Database(object):
         msg = 'running pip install for url %s' %url
         logger.debug(msg)
 
-        try:
-            completedProcess = subprocess.run(
-                    ['pip', 'install', 
-                     '--process-dependency-links',
-                     '--upgrade', url],
-                     stderr=subprocess.STDOUT,
-                     stdout=subprocess.PIPE,
-                     universal_newlines=True)
-        except Exception as e:
-            raise ImportError('pip install for url %s failed: \n%s',
-                           url, str(e)) 
-            
-        if completedProcess.returncode == 0:
-
-            importlib.invalidate_caches()
-            logger.debug('pip install for url %s was successful: \n %s',
-                         url, completedProcess.stdout)
-            
+        if self.system_package_url in url:
+            logger.warning(('Request to install package %s was ignored. This package'
+                            ' is pre-installed.'),
+                           url)
         else:
+            try:
+                completedProcess = subprocess.run(
+                        ['pip', 'install',
+                         '--process-dependency-links',
+                         '--upgrade', url],
+                         stderr=subprocess.STDOUT,
+                         stdout=subprocess.PIPE,
+                         universal_newlines=True)
+            except Exception as e:
+                raise ImportError('pip install for url %s failed: \n%s',
+                               url, str(e))
 
-            raise ImportError('pip install for url %s failed: \n %s.',
-                           url, completedProcess.stdout)
+            if completedProcess.returncode == 0:
+
+                importlib.invalidate_caches()
+                logger.debug('pip install for url %s was successful: \n %s',
+                             url, completedProcess.stdout)
+
+            else:
+
+                raise ImportError('pip install for url %s failed: \n %s.',
+                               url, completedProcess.stdout)
         
          
     def import_target(self,package,module,target,url=None):
@@ -816,7 +848,7 @@ class Database(object):
             impstr = 'from %s.%s import %s' %(package,module,target)
         else:
             impstr = 'from %s import %s' %(package,target)
-        logger.debug(impstr)
+        logger.debug('Verify the following import statement: %s' % impstr)
         try:
             exec(impstr)
         except BaseException:
@@ -844,8 +876,7 @@ class Database(object):
         --------
         dict keyed on function name
         '''
-        
-        imported = {}
+
         result = {}
 
         fns = json.loads(self.http_request('allFunctions',
@@ -853,53 +884,61 @@ class Database(object):
                                            request = 'GET',
                                            payload = None))
         for fn in fns:
-            path = fn["moduleAndTargetName"].split('.')
-            name = fn["moduleAndTargetName"]
-            if path is None:
-                msg = 'Cannot import %s it has an invalid module and path %s' %(name,path)
-                logger.warning(msg)
-                tobj = None
-                status = 'metadata_error'
-            else:
-                (package,module,target) = (path[0],path[1],path[2])
-                if (function_list is not None) and (target not in function_list):
-                    continue                
-                if install_missing:
-                    url = fn['url']
-                else:
-                    url = None
-                try:
-                    tobj,status = self.import_target(package=package,
-                                                     module=module,
-                                                     target=target,
-                                                     url=url)    
-                except Exception as e:
-                    msg = 'unknown error when importing: %s' %name
-                    logger.exception(msg)
-                    raise e
-            try:
-                (epackage,emodule) = imported[target]
-            except KeyError:
+            function_name = fn["name"]
+            if (function_list is not None) and (function_name not in function_list):
+                # Catalog function is not used by any KPI function. Therefore skip it!
+                continue
 
-                result[target] = {
-                        'package':package,
-                        'module':module,
-                        'status':status,
-                        'meta' :fn
-                        }
-                imported[target] = (package,module)
+            package_module_class_name = fn["moduleAndTargetName"]
+            if package_module_class_name is None:
+                msg = 'Cannot import function %s because its path is None.' % function_name
+                logger.warning(msg)
+                continue
+
+            path = package_module_class_name.split('.')
+            try:
+                (package, module, class_name) = (path[0], path[1], path[2])
+            except KeyError:
+                msg = 'Cannot import function %s because its path %s does not follow ' \
+                      'the form \'package.module.class_name\'' % (function_name, package_module_class_name)
+                logger.warning(msg)
+                continue
+
+            if install_missing:
+                url = fn['url']
             else:
-                if (package,module) != (epackage,emodule):
-                    logger.warning(
-                        ('Duplicate class name encountered on import of'
-                         ' %s. Ignored %s.%s'),name,package,module)
-                    
-            if status == 'target_error' and unregister_invalid_target:
-                self.unregister_functions([name])
-                msg = 'Unregistered invalid function %s' %name
-                logger.info(msg)
-        
-        logger.debug('Imported %s functions from catalog',len(imported))
+                url = None
+
+            try:
+                (dummy, status) = self.import_target(package=package,
+                                                     module=module,
+                                                     target=class_name,
+                                                     url=url)
+            except Exception as e:
+                msg = 'unknown error when importing function %s with path %s' % \
+                      (function_name, package_module_class_name)
+                logger.exception(msg)
+                raise e
+
+            if status =='ok':
+                result[function_name] = {'package': package,
+                                         'module': module,
+                                         'class_name': class_name,
+                                         'status': status,
+                                         'meta': fn
+                                         }
+            else:
+                if status == 'target_error' and unregister_invalid_target:
+                    self.unregister_functions([function_name])
+                    msg = 'Unregistered invalid function %s' % function_name
+                    logger.info(msg)
+                else:
+                    msg = 'The class %s for function %s could not be imported from repository %s.' % \
+                          (package_module_class_name, function_name, url)
+
+                    raise ImportError(msg)
+
+        logger.debug('Imported %s functions from catalog', len(result))
         self.function_catalog = result
                 
         return result
@@ -1000,7 +1039,28 @@ class Database(object):
             table.delete()
             self.commit()
             msg = 'Truncated table name %s' %table_name
-        logger.debug(msg)      
+        logger.debug(msg)
+
+    def read_dimension(self,dimension,schema,entities = None,columns = None, parse_dates=None):
+
+        '''
+
+        Read a dimension table. Return a dataframe.
+        Optionally filter on a list of entity ids.
+        Optionally specify specific column names
+        Optionally specify date columns to parse
+
+        '''
+
+        df = self.read_table(
+            table_name= dimension,
+            schema = schema,
+            entities= entities,
+            columns=columns,
+            parse_dates = parse_dates
+        )
+
+        return df
         
         
     def read_table(self,table_name,
@@ -1083,7 +1143,8 @@ class Database(object):
                        period_count = 1,
                        entities = None,
                        to_csv = False,
-                       filters = None):
+                       filters = None,
+                       deviceid_col = 'deviceid'):
         '''
         Pandas style aggregate function against db table
         
@@ -1109,6 +1170,8 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         filters: dict
             Keyed on dimension name. List of members.
+        deviceid_col: str
+            Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
         '''
         
         # process special aggregates (first and last)
@@ -1139,14 +1202,15 @@ class Database(object):
                     start_ts = start_ts,
                     end_ts = end_ts,
                     entities = entities,
-                    filters = filters
+                    filters = filters,
+                    deviceid_col = deviceid_col
                 )
         
         # process remaining aggregates
 
         if agg_dict:
         
-            (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+            (query,table,dim,pandas_aggregate,agg_dict,requires_dim) = self.query_agg(
                         agg_dict = agg_dict,
                         agg_outputs = agg_outputs,
                         table_name = table_name,
@@ -1158,7 +1222,8 @@ class Database(object):
                         start_ts = start_ts,
                         end_ts = end_ts,
                         entities = entities,
-                        filters = filters
+                        filters = filters,
+                        deviceid_col = deviceid_col
                     )
 
             #sql = query.statement.compile(compile_kwargs={"literal_binds": True})
@@ -1236,6 +1301,8 @@ class Database(object):
         
         if not isinstance(functions,list):
             functions = [functions]
+
+        pre_installed = []
             
         for f in functions:
             
@@ -1316,7 +1383,7 @@ class Database(object):
                                                                  metadata_output,
                                                                  db=self)
             except (AttributeError,NotImplementedError):
-                msg = 'Function %s has no build_ui method. It cannot be registered this way. Register using function_instance.register()' %name
+                msg = 'Function %s has no build_ui method. It cannot be registered.' %name
                 raise NotImplementedError (msg)
             payload = {
                 'name': name,
@@ -1328,17 +1395,47 @@ class Database(object):
                 'output':output_list,
                 'incremental_update': True if category == 'AGGREGATOR' else None,
                 'tags' : tags
-             }            
-            self.http_request(object_type='function',
-                              object_name=name,
-                              request="DELETE",
-                              payload=payload,
-                              raise_error = False)
-            self.http_request(object_type='function',
-                              object_name=name,
-                              request = "PUT",
-                              payload=payload,
-                              raise_error = raise_error)
+             }
+
+            if not is_preinstalled:
+
+                self.http_request(object_type='function',
+                                  object_name=name,
+                                  request="DELETE",
+                                  payload=payload,
+                                  raise_error = False)
+                self.http_request(object_type='function',
+                                  object_name=name,
+                                  request = "PUT",
+                                  payload=payload,
+                                  raise_error = raise_error)
+
+            else:
+
+                pre_installed.append(payload)
+
+        sql = ''
+        for p in pre_installed:
+
+            query = "INSERT INTO CATALOG_FUNCTION (FUNCTION_ID, TENANT_ID," \
+                    " NAME, DESCRIPTION, MODULE_AND_TARGET_NAME, URL, CATEGORY," \
+                    " INPUT, OUTPUT, INCREMENTAL_UPDATE, IMAGE)" \
+                    " VALUES( CATALOG_FUNCTION_SEQ.nextval,'###_IBM_###',"
+            query = query + "'%s'," %p['name']
+            query = query + "'%s'," %p['description'].replace("'",'"')
+            query = query + "'%s'," % p['moduleAndTargetName']
+            query = query + 'NULL, '
+            query = query + "'%s'," % p['category']
+            query = query + "'%s'," % json.dumps(p['input'])
+            query = query + "'%s'," % json.dumps(p['output'])
+            query = query + str(p['incremental_update']) + ', '
+            query = query + 'NULL)'
+
+            sql = sql + query
+            sql = sql + '\n'
+
+        return sql
+
 
     def register_module(self,module,url=None,raise_error=True,force_preinstall=False):
         '''
@@ -1346,6 +1443,7 @@ class Database(object):
         '''
         
         registered = set()
+        sql = ''
         for name, cls in inspect.getmembers(module):
             if inspect.isclass(cls) and cls not in registered:
                 try:
@@ -1354,7 +1452,7 @@ class Database(object):
                     is_deprecated = False
                 if not is_deprecated and cls.__module__ == module.__name__:
                     try:
-                        self.register_functions(cls,
+                        sql = sql + self.register_functions(cls,
                                                 raise_error = True,
                                                 url = url,
                                                 force_preinstall = force_preinstall)
@@ -1369,6 +1467,10 @@ class Database(object):
                             logger.debug('Error registering function: %s',str(e))
                     else:
                         registered.add(cls)
+
+        if len(sql) > 0:
+            with open(self.bif_sql, "w") as text_file:
+                print(sql, file=text_file)
                         
         return registered
 
@@ -1384,7 +1486,8 @@ class Database(object):
                         start_ts = None,
                         end_ts = None,
                         entities = None,
-                        filters = None):
+                        filters = None,
+                        deviceid_col = 'deviceid'):
         '''
         Strip out the special aggregates (first and last) from the an agg
         dict and execute each as separate query.
@@ -1409,6 +1512,8 @@ class Database(object):
             Retrieve data for a list of deviceids
         dimension: str
             Table name for dimension table. Dimension table will be joined on deviceid.
+        deviceid_col: str
+            Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
             
             
         Returns
@@ -1468,7 +1573,7 @@ class Database(object):
                     elif special_name == 'last':
                         time_agg_dict =  { timestamp: "max" }
 
-                    (filter_query,table,dim,pandas_aggregate,revised_agg_dict) = self.query_agg(
+                    (filter_query,table,dim,pandas_aggregate,revised_agg_dict,requires_dim) = self.query_agg(
                             agg_dict = time_agg_dict,
                             agg_outputs = { timestamp : 'timestamp_filter' },
                             table_name = table_name,
@@ -1480,7 +1585,8 @@ class Database(object):
                             start_ts = start_ts,
                             end_ts = end_ts,
                             entities = entities,
-                            filters = filters)
+                            filters = filters,
+                            deviceid_col = deviceid_col)
 
                     # only read rows where the metric is not Null
 
@@ -1505,14 +1611,21 @@ class Database(object):
                     col_aliases = [output_name if x == item else x for x in cols]
                     col_aliases[1] = 'timestamp_filter'
 
+                    if requires_dim:
+                        query_dim = dimension
+                    else:
+                        query_dim = None
+
                     query,table = self.query(
                         table_name = table_name,
                         schema = schema,
                         column_names = cols,
                         column_aliases= col_aliases,
                         timestamp_col= timestamp,
-                        dimension = dimension,
-                        filters = filters)
+                        dimension = query_dim,
+                        entities = entities,
+                        filters = filters,
+                        deviceid_col = deviceid_col)
 
                     query = self.subquery_join(query, filter_query, *keys, **project)
 
@@ -1586,7 +1699,8 @@ class Database(object):
               end_ts = None,
               entities = None,
               dimension = None,
-              filters = None
+              filters = None,
+              deviceid_col = 'deviceid'
               ):
         '''
         Build a sqlalchemy query object for a table. You can further manipulate the query object using standard
@@ -1611,6 +1725,8 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         filters: dict
             Dictionary keys on column name containing a list of members to include
+        deviceid_col: str
+            Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
         
         Returns
         -------
@@ -1658,7 +1774,7 @@ class Database(object):
         query = self.session.query(*query_args)
         
         if dim is not None:
-            query = query.join(dim, dim.c.deviceid == table.c.deviceid)
+            query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
         
         if not start_ts is None:
             if timestamp_col is None:
@@ -1671,7 +1787,7 @@ class Database(object):
                 raise ValueError(msg)            
             query = query.filter(table.c[timestamp_col] < end_ts)  
         if not entities is None:
-            query = query.filter(table.c.deviceid.in_(entities))
+            query = query.filter(table.c[deviceid_col].in_(entities))
             for d,members in list(filters.items()):
                 try:
                     col_obj = table.c[d]
@@ -1706,7 +1822,8 @@ class Database(object):
                 end_ts = None,
                 entities = None,
                 auto_null_filter = False,
-                filters = None
+                filters = None,
+                deviceid_col = 'deviceid'
                 ):
         '''
         Pandas style aggregate function against db table
@@ -1731,6 +1848,8 @@ class Database(object):
             Retrieve data for a list of deviceids
         dimension: str
             Table name for dimension table. Dimension table will be joined on deviceid.
+        deviceid_col: str
+            Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
         '''        
 
         if agg_outputs is None:
@@ -1739,17 +1858,44 @@ class Database(object):
         if groupby is None:
             groupby = []
 
+        if isinstance(groupby,str):
+            groupby = [groupby]
+
         if filters is None:
             filters = {}
 
         table = self.get_table(table_name,schema)
+        table_cols = set(self.get_column_names(table,schema))
+
+        requires_dim_join = False
+        dim_error = ''
         dim = None
+        dim_cols = set()
         if dimension is not None:
-            dim = self.get_table(table_name=dimension,schema=schema)
-        # assemble list as a set of aggregates to project 
-        
-        if isinstance(groupby,str):
-            groupby = [groupby]
+            try:
+                dim = self.get_table(table_name=dimension,schema=schema)
+                dim_cols = set(self.get_column_names(dim,schema))
+            except KeyError:
+                dim_error = 'Dimension table %s does not exist in schema %s.' %(dimension,schema)
+                logger.warning(dim_error)
+
+        # validate columns and  decide whether dim join is really needed
+        required_cols = set()
+        required_cols |= set(agg_dict.keys())
+        required_cols |= set(groupby)
+        required_cols |= set(filters.keys())
+
+        not_available = required_cols-table_cols
+        if len(not_available) == 0:
+            requires_dim_join = False
+            dim = None
+        else:
+            not_available = not_available - dim_cols
+            if len(not_available) > 0:
+                raise KeyError(('Query requires columns %s that are not present'
+                                 ' in the table or dimension. %s') % (not_available, dim_error))
+            else:
+                requires_dim_join = True
         
         args = []
         metric_filter = []
@@ -1829,8 +1975,8 @@ class Database(object):
             # push aggregates to the database
 
             query = self.session.query(*args).group_by(*grp)
-            if dimension is not None:
-                query = query.join(dim, dim.c.deviceid == table.c.deviceid)
+            if requires_dim_join:
+                query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
@@ -1842,7 +1988,7 @@ class Database(object):
                     raise ValueError(msg)
                 query = query.filter(table.c[timestamp] < end_ts)
             if not entities is None:
-                query = query.filter(table.c.deviceid.in_(entities))
+                query = query.filter(table.c[deviceid_col].in_(entities))
             for d,members in list(filters.items()):
                 try:
                     col_obj = table.c[d]
@@ -1875,8 +2021,9 @@ class Database(object):
                         start_ts = start_ts,
                         end_ts = end_ts,
                         entities = entities,
-                        dimension = dimension,
-                        filters = filters
+                        dimension = dim,
+                        filters = filters,
+                        deviceid_col = deviceid_col
                     )
         #filter out rows where all of the metrics are null
         #reduces volumes when dealing with sparse datasets
@@ -1885,7 +2032,7 @@ class Database(object):
         if auto_null_filter:
             query = query.filter(or_(*metric_filter))
             
-        return (query,table,dim,pandas_aggregate,agg_dict)
+        return (query,table,dim,pandas_aggregate,agg_dict,requires_dim_join)
     
     
     def query_column_aggregate(self, table_name, schema, column, aggregate,
@@ -1916,7 +2063,7 @@ class Database(object):
         
         agg_dict = { column: aggregate}
                 
-        (query,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+        (query,table,dim,pandas_aggregate,agg_dict,requires_dim) = self.query_agg(
                     agg_dict = agg_dict,
                     table_name = table_name,
                     schema = schema,
@@ -1954,7 +2101,7 @@ class Database(object):
         agg_dict = { column: regular_agg }
         
         #build query a aggregated on the regular dimension 
-        (query_a,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+        (query_a,table,dim,pandas_aggregate,agg_dict,requires_dim) = self.query_agg(
                     agg_dict = agg_dict,
                     table_name = table_name,
                     schema = schema,
@@ -1979,7 +2126,7 @@ class Database(object):
             raise ValueError(msg)
         
         #build query b aggregated
-        (query_b,table,dim,pandas_aggregate,agg_dict) = self.query_agg(
+        (query_b,table,dim,pandas_aggregate,agg_dict,requires_dim) = self.query_agg(
                     agg_dict = time_agg_dict,
                     table_name = table_name,
                     schema = schema,

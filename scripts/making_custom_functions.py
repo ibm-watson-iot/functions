@@ -167,7 +167,7 @@ class MultiplyTwoItems(BaseTransformer):
     Multiply two input items together to produce output column
     '''
     
-    def __init__(self, input_item_1, input_item_2, output_item):
+    def __init__(self, input_item_1, input_item_2, output_item ):
         self.input_item_1 = input_item_1
         self.input_item_2 = input_item_2
         self.output_item = output_item

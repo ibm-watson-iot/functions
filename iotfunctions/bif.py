@@ -28,7 +28,7 @@ from .base import (BaseTransformer, BaseEvent, BaseSCDLookup,
 
 from .ui import (UISingle,UIMultiItem,UIFunctionOutSingle,
                  UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
-                 UIText, UIStatusFlag)
+                 UIText, UIStatusFlag, UIParameters)
 
 from .util import adjust_probabilities, reset_df_index
 
@@ -881,11 +881,17 @@ class EntityDataGenerator(BasePreload):
     
     def __init__ (self, ids = None,
                   output_item = 'entity_data_generator',
-                  **parameters):
+                  parameters = None,
+                  **kw):
         if ids is None:
             ids = self.get_entity_ids()
+        if parameters is None:
+            parameters = {}
+        parameters = {**kw,**parameters}
+
         super().__init__(dummy_items = [], output_item = output_item)
         self.ids = ids
+        self.parameters = parameters
         self.set_params(**parameters)
         if self.data_item_mean is None:
             self.data_item_mean = {}
@@ -966,6 +972,7 @@ class EntityDataGenerator(BasePreload):
                                   description = 'Comma separate list of entity ids, e.g: X902-A01,X902-A03'
                                   )
                     )
+        inputs.append(UIParameters())
         #define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name = 'output_item',
