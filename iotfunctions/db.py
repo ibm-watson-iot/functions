@@ -289,7 +289,13 @@ class Database(object):
             self.entity_type_metadata[m['name']] = m
             
             
-    def _aggregate_item(self,table,column_name,aggregate,alias_column=None, dimension_table = None, timestamp_col = None):
+    def _aggregate_item(self,
+                        table,
+                        column_name,
+                        aggregate,
+                        alias_column=None,
+                        dimension_table = None,
+                        timestamp_col = None):
         
         if alias_column is None:
             if column_name == timestamp_col:
@@ -318,15 +324,15 @@ class Database(object):
             raise ValueError (msg)           
         
         try:
-            col = agg_function(table.c[column_name]).label(alias_column)
+            col = table.c[column_name]
         except KeyError:
             try:
-                col = agg_function(dimension_table.c[column_name]).label(alias_column)
+                col = dimension_table.c[column_name]
             except (KeyError,AttributeError):
                 msg = 'Aggregate column %s not present in table or on dimension' %column_name
                 raise KeyError(msg)
                 
-        return col
+        return (alias_column,col,agg_function)
     
     def _is_not_null(self, table, dimension_table, column):
         '''
@@ -341,6 +347,25 @@ class Database(object):
             except (KeyError,AttributeError):
                 msg = 'Column %s not found on time series or dimension table.' %column
                 raise ValueError(msg)
+
+
+    def build_aggregate_query(self,subquery, group_by, aggs):
+
+        # turn the subquery into a selectable
+        subquery = subquery.subquery('a').selectable
+
+        # build an aggregation query
+        args = []
+        grp = []
+        for alias, expression in list(group_by.items()):
+            args.append(subquery.c[alias])
+            grp.append(subquery.c[alias])
+        for alias, (metric, agg) in list(aggs.items()):
+            args.append(agg(subquery.c[alias]).label(alias))
+        query = self.session.query(*args)
+        query = query.group_by(*grp)
+
+        return query
 
     def calc_time_interval(self,start_ts,end_ts,period_type,period_count):
 
@@ -1475,6 +1500,20 @@ class Database(object):
         return registered
 
 
+    def prepare_aggregate_query(self,group_by, aggs):
+
+        # build a sub query.
+        sargs = []
+        for alias, expression in list(group_by.items()):
+            sargs.append(expression.label(alias))
+        for alias, (metric, agg) in list(aggs.items()):
+            sargs.append(metric.label(alias))
+        self.start_session()
+        query = self.session.query(*sargs)
+
+        return query
+
+
     def process_special_agg(self, table_name,
                         schema,
                         agg_dict,
@@ -1896,14 +1935,27 @@ class Database(object):
                                  ' in the table or dimension. %s') % (not_available, dim_error))
             else:
                 requires_dim_join = True
-        
-        args = []
+
+        agg_functions = {}
         metric_filter = []
+
         # aggregate dict is keyed on column - may contain a single aggregate function or a list of aggregation functions
+        # convert the pandas style aggregate dict into sql alchemy metadata
+        # expressed as a new dict keyed on the aggregate column name containing a tuple
+        # tuple has a sql alchemy column object to aggregate and a sql alchemy aggregation function to apply
+
         for col,aggs in agg_dict.items():
             if isinstance(aggs,str):
                 col_name = agg_outputs.get(col,col)
-                args.append(self._aggregate_item(table=table,column_name=col,aggregate=aggs,alias_column=col_name, dimension_table = dim, timestamp_col = timestamp))
+                (alias,col_obj,function) = self._aggregate_item(
+                    table=table,
+                    column_name=col,
+                    aggregate=aggs,
+                    alias_column=col_name,
+                    dimension_table = dim,
+                    timestamp_col = timestamp
+                )
+                agg_functions[alias] = (col_obj,function)
             elif isinstance(aggs,list):
                 for i,agg in enumerate(aggs):
                     try:
@@ -1914,58 +1966,71 @@ class Database(object):
                         logger.warning(msg)
                     else:
                         pass
-                    args.append(self._aggregate_item(table=table,column_name=col,aggregate=agg,alias_column=output,dimension_table = dim, timestamp_col = timestamp))
+                    (alias,col_obj,function) = self._aggregate_item(
+                        table=table,
+                        column_name=col,
+                        aggregate=agg,
+                        alias_column=output,
+                        dimension_table = dim,
+                        timestamp_col = timestamp)
+                    agg_functions[alias] = (col_obj, function)
             else:
-                msg = 'Aggregate dictionary is not in the correct form. Supply a single aggregate function as a string or a list of strings.'
+                msg = ('Aggregate dictionary is not in the correct form.'
+                       ' Supply a single aggregate function as a string or a list of strings.')
                 raise ValueError(msg)
+
+            # also construct metadata for a filter that will exclude any row of data that
+            # has null values for all columns that are aggregated
 
             if auto_null_filter:
                 metric_filter.append(self._is_not_null(table=table, dimension_table = dim ,column = col))
 
-        #assemble group by
-        grp = []
-        #attempt to push aggregates down to sql
-        #for db aggregates that can't be pushed, do them in pandas
+        # assemble group by
+
+        group_by_cols = {}
+
+        # attempt to push aggregates down to sql
+        # for db aggregates that can't be pushed, do them in pandas
+
         pandas_aggregate = None
         if time_grain is not None:
             if timestamp is None:
                 msg = 'You must supply a timestamp column when doing a time-based aggregate'
                 raise ValueError (msg)
             if time_grain == timestamp:
-                grp.append(table.c[timestamp].label(timestamp)) 
+                group_by_cols[timestamp] = table.c[timestamp]
             elif time_grain.endswith('min'):
                 minutes = int(time_grain[:-3])
-                grp.append(self._ts_col_rounded_to_minutes(table_name,schema,timestamp,minutes,timestamp)) 
+                group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(
+                    table_name, schema, timestamp, minutes, timestamp)
             elif time_grain.endswith('H'):
                 hours = int(time_grain[:-1])
-                grp.append(self._ts_col_rounded_to_hours(table_name,schema,timestamp,hours,timestamp))                 
+                group_by_cols[timestamp] = self._ts_col_rounded_to_hours(
+                    table_name,schema,timestamp,hours,timestamp)
             elif time_grain == 'day':
-                grp.append(func.date(table.c[timestamp]).label(timestamp))
+                group_by_cols[timestamp] = func.date(table.c[timestamp]).label(timestamp)
             elif time_grain == 'week':
-                grp.append(func.this_week(table.c[timestamp]).label(timestamp)) 
+                group_by_cols[timestamp] = func.this_week(table.c[timestamp]).label(timestamp)
             elif time_grain == 'month':
-                grp.append(func.this_month(table.c[timestamp]).label(timestamp)) 
+                group_by_cols[timestamp] = func.this_month(table.c[timestamp]).label(timestamp)
             elif time_grain == 'year':
-                grp.append(func.this_year(table.c[timestamp]).label(timestamp))
+                group_by_cols[timestamp] = func.this_year(table.c[timestamp]).label(timestamp)
             else:
                 pandas_aggregate = time_grain
 
         for g in groupby:
             try:
-                grp.append(table.c[g])
+                group_by_cols[g] = table.c[g]
             except KeyError:
                 if dimension is not None:
                     try:
-                        grp.append(dim.c[g])
+                        group_by_cols[g] = dim.c[g]
                     except KeyError:
                         msg = 'group by column %s not found in main table or dimension table' %g  
                         raise ValueError(msg)
                 else:
                     msg = 'group by column %s not found in main table and no dimension table specified' %g  
                     raise KeyError(msg)
-        args.extend(grp)
-
-        self.start_session()
 
         # if the query requires an aggregation function that cannot be translated to sql, it will be aggregated
         # after retrieval using pandas
@@ -1974,21 +2039,30 @@ class Database(object):
 
             # push aggregates to the database
 
-            query = self.session.query(*args).group_by(*grp)
+            # query is built in 2 stages
+            # stage 1 is a subquery that contains filters and joins but no aggregation
+            # stage 2 is aggregation of the subquery
+            # done this was to work around the fact that expressions with arguments cant be used in db2 group bys
+
+            subquery = self.prepare_aggregate_query(
+                group_by = group_by_cols,
+                aggs = agg_functions
+            )
+
             if requires_dim_join:
-                query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                query = query.filter(table.c[timestamp] >= start_ts)
+                subquery = subquery.filter(table.c[timestamp] >= start_ts)
             if not end_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                query = query.filter(table.c[timestamp] < end_ts)
+                subquery = subquery.filter(table.c[timestamp] < end_ts)
             if not entities is None:
-                query = query.filter(table.c[deviceid_col].in_(entities))
+                subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d,members in list(filters.items()):
                 try:
                     col_obj = table.c[d]
@@ -2003,11 +2077,24 @@ class Database(object):
                     raise ValueError('Invalid filter on %s. Provide a list of members to filter on not %s' %(
                         d,members ))
                 elif len(members) == 1:
-                    query = query.filter(col_obj == members[0])
+                    subquery = subquery.filter(col_obj == members[0])
                 elif len(members) == 0:
                     logger.debug('Ignored query filter on %s with no members',d)
                 else:
-                    query = query.filter(col_obj.in_(members[0]))
+                    subquery = subquery.filter(col_obj.in_(members[0]))
+
+            if auto_null_filter:
+                subquery = subquery.filter(or_(*metric_filter))
+
+            # build and aggregate query on the sub query
+
+            query = self.build_aggregate_query(
+                subquery=subquery,
+                group_by=group_by_cols,
+                aggs = agg_functions
+            )
+
+
         else:
 
             # do a non-aggregation query
@@ -2029,8 +2116,8 @@ class Database(object):
         #reduces volumes when dealing with sparse datasets
         #also essential when doing a query to get the first or last values as null values must be ignored
 
-        if auto_null_filter:
-            query = query.filter(or_(*metric_filter))
+            if auto_null_filter:
+                query = query.filter(or_(*metric_filter))
             
         return (query,table,dim,pandas_aggregate,agg_dict,requires_dim_join)
     
