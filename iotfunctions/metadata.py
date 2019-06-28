@@ -696,27 +696,32 @@ class EntityType(object):
                 if existing_schedule is None:
                     f[freq] = (start_hour,start_min,backtrack_days)
                 else:
+                    corrected_schedule = list(existing_schedule)
+
                     if existing_schedule[0] > start_hour:
-                        f[freq] = (start_hour,existing_schedule[1],existing_schedule[2])
+                        corrected_schedule[0] = start_hour
                         logger.warning(
                             ('There is a conflict in the schedule metadata.'
-                             ' Picked the earliest start hour of %s'
-                             ' for schedule %s.' %(freq,start_hour)
-                                        ))
+                             ' Picked the earlier start hour of %s instead of %s'
+                             ' for schedule %s.' % (start_hour, corrected_schedule[0], freq)
+                             ))
                     if existing_schedule[1] > start_min:
-                        f[freq] = (existing_schedule[0],start_min,existing_schedule[2])
+                        corrected_schedule[1] = start_min
                         logger.warning(
                             ('There is a conflict in the schedule metadata.'
-                             ' Picked the earliest start minute of %s'
-                             ' for schedule %s.' %(freq,start_min)
-                                        ))
-                    if existing_schedule[1] < backtrack_days:
-                        f[freq] = (existing_schedule[0],existing_schedule[0],backtrack_days)        
-                        logger.warning(
-                            ('There is a conflict in the schedule metadata.'
-                             ' Picked the longest backtrack of %s'
-                             ' for schedule %s.' %(freq,backtrack_days)
-                                        ))
+                             ' Picked the earlier start minute of %s instead of %s'
+                             ' for schedule %s.' % (start_min, existing_schedule[1], freq)
+                             ))
+                    if backtrack_days is not None:
+                        if existing_schedule[2] is None or existing_schedule[2] < backtrack_days:
+                            corrected_schedule[2] = backtrack_days
+                            logger.warning(
+                                ('There is a conflict in the schedule metadata.'
+                                 ' Picked the longer backtrack of %s instead of %s'
+                                 ' for schedule %s.' % (backtrack_days, existing_schedule[2], freq)
+                                 ))
+                    f[freq] = tuple(corrected_schedule)
+
                 freqs[freq] = f[freq] 
         
         return freqs    
