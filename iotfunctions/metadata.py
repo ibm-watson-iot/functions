@@ -441,8 +441,8 @@ class EntityType(object):
         try:
             (inputs,outputs) = obj.build_ui()
         except (AttributeError,NotImplementedError) as e:
-            msg = ('Cant get function metadata for %s. Implement the'
-                   ' build_metadata() method. %s' %(name,str(e)))
+            msg = ('Can\'t get metadata for function %s. Implement the'
+                   ' build_ui() method for this function. %s' % (name,str(e)))
             raise NotImplementedError (msg)
         
         input_args = {}
