@@ -441,13 +441,18 @@ class EntityType(object):
         try:
             (inputs,outputs) = obj.build_ui()
         except (AttributeError,NotImplementedError) as e:
-            msg = ('Can\'t get metadata for function %s. Implement the'
-                   ' build_ui() method for this function. %s' % (name,str(e)))
-            raise NotImplementedError (msg)
-        
-        input_args = {}
-        output_args = {}
-        output_meta = {}
+            try:
+                fn_metadata = obj._generate_metadata()
+                inputs = fn_metadata.get('input', None)
+                outputs = fn_metadata.get('outputs', None)
+            except (AttributeError, KeyError):
+                msg = ('Can\'t get metadata for function %s. Implement the'
+                       ' build_ui() method for this function. %s' % (name, str(e)))
+                raise NotImplementedError(msg)
+
+        input_args = {}  # this is not used. Included only to maintain compatibility of return signature
+        output_args = {} # this is not used. Included only to maintain compatibility of return signature
+        output_meta = {} # this is not used. Included only to maintain compatibility of return signature
         output_list = []
         
         # There are two ways to gather inputs to a function.
@@ -483,9 +488,19 @@ class EntityType(object):
         
         for a in args:
             try:
+                # get arg name and type from UI object
                 type_ = a.type_
                 arg = a.name
             except AttributeError as e:
+                try:
+                    # get arg name and type from legacy dict
+                    type_ = a.get('type',None)
+                    arg = a.get('name',None)
+                except AttributeError:
+                    type = None
+                    arg = None
+
+            if type_ is None or arg is None:
                 msg = ('Error while getting metadata from function. The inputs'
                        ' and outputs of the function are not described correctly'
                        ' using UIcontrols with a type_ and name %s' %e)
@@ -496,7 +511,7 @@ class EntityType(object):
             out_arg_value = None
             
             if type_ == 'DATA_ITEM':
-                # the argument is an input that contains a dataitem or
+                # the argument is an input that contains a data item or
                 # list of data items
                 
                 if isinstance(arg_value,list):
@@ -505,7 +520,6 @@ class EntityType(object):
                     input_set.add(arg_value)
                     
                 logger.debug('Using input items %s for %s', arg_value, arg)
-
 
             elif type_ == 'OUTPUT_DATA_ITEM':
                 
@@ -518,7 +532,7 @@ class EntityType(object):
             try:
                 out_arg = a.output_item
             except AttributeError:
-                pass
+                pass #  no need to check legacy dict for this property as it was not supported in the legacy dict
             else:
                 if out_arg is not None:
                     out_arg_value = getattr(obj,out_arg)
