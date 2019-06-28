@@ -552,7 +552,11 @@ class BaseFunction(object):
                 series = df[col]
             except KeyError:
                 try:
-                    series = df.index.get_level_values(col)
+                    index = df.index.get_level_values(col)
+                    if isinstance(index, pd.DatetimeIndex):
+                        series = index.to_series(keep_tz=True)
+                    else:
+                        series = index.to_series()
                 except KeyError:
                     pass
                 else:
