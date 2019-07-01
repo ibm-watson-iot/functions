@@ -1347,7 +1347,9 @@ class Database(object):
             module_obj = sys.modules[module]
             
             if url is None:
-                url = getattr(module_obj,'PACKAGE_URL')            
+                package_url = getattr(module_obj,'PACKAGE_URL')
+            else:
+                package_url = url            
             
             # the _IS_PREINSTALLED module variable is reserved for 
             # AS system functions
@@ -1360,7 +1362,7 @@ class Database(object):
                 
             if is_preinstalled:
                 if force_preinstall :
-                    if url != self.system_package_url:
+                    if package_url != self.system_package_url:
                         msg = ('Cannot register function %s. This '
                          ' module has _IS_PREINSTALLED = True'
                          ' but its catalog source is not the'
@@ -1372,9 +1374,9 @@ class Database(object):
                             continue
                     else:
                         # URL should not be set for preinstalled functions
-                        url = None
+                        package_url = None
                         logger.debug(('Registering preinstalled function %s with'
-                                      ' url %s') , name,url)
+                                      ' url %s') , name, package_url)
                 else:
                     msg = ('Cannot register function %s. This is a'
                                ' preinstalled function' %name )
@@ -1415,7 +1417,7 @@ class Database(object):
                 'description': f.__doc__,
                 'category': category,
                 'moduleAndTargetName': module_and_target,
-                'url': url,
+                'url': package_url,
                 'input': input_list,
                 'output':output_list,
                 'incremental_update': True if category == 'AGGREGATOR' else None,
