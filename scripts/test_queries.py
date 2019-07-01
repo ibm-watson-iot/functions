@@ -124,6 +124,7 @@ df = db.read_agg(table_name = table_name,
 )
 print(df)
 
+
 # Use a groupby to aggregate by one or more dimension
 
 agg = {'ambient_temp':['last']}
@@ -137,6 +138,8 @@ df = db.read_agg(table_name = table_name,
                  to_csv = True
 )
 print(df)
+
+
 
 # Aggregate by a combination of day and manufacturer
 
