@@ -48,6 +48,8 @@ for e in entities:
             end=dt.datetime.utcnow(),
             periods=row_count
             )
+    df['deviceid'] = df['id']
+    df['_timestamp'] = df['evt_timestamp']
     df = df.set_index(['id','evt_timestamp'])
     dfs.append(df)
 
@@ -159,6 +161,61 @@ def f(df,parameters = None):
 
 print(test_simple_fn(f,df,parameters={'rating':.25}))
 
+
+'''
+The following simple function shows how to do a lookup using a dictionary
+supplied as a parameter from the UI 
+'''
+
+def f(df,parameters=None):
+    import pandas as pd
+    # do a dictionary lookup
+    # parameters is a dictionary of two dictionaries
+    # the first is the lookup_item: name of the item being looked up
+    # the next is the data: dictionary that contains the lookup data
+    lookup_item = parameters.get('lookup_item',None)
+    data = parameters.get('data',None)
+    df['id_col'] = df['deviceid']
+    return df['id_col'].replace(data)
+
+params = {
+        'XA01' : 1,
+        'XA02' : 2,
+        'XA03' : 3
+        }
+
+print(test_simple_fn(f,df,parameters=params))
+
+
+'''
+If you need to access the timestamp in a PythonFunction, PythonExpression or
+custom function you can access it using the column name '_timestamp'
+'''
+
+def f(df,parameters = None):
+    #  calculate the age of each incoming record by comparing its timestamp with the current date
+    import datetime as dt
+    output = (dt.datetime.utcnow() - df['_timestamp']).dt.total_seconds() / (60 * 60 * 24)
+    return output
+
+print(test_simple_fn(f,df,parameters=None))
+
+
+'''
+If you need to access the id of the entity type in a PythonFunction, PythonExpression or
+custom function you can access it using the column name 'deviceid'
+'''
+
+def f(df,parameters = None):
+    #  calculate the age of each incoming record by comparing its timestamp with the current date
+    import numpy as np
+    output = np.where(df['deviceid']=='XA01', 1, 0)
+    return output
+
+print(test_simple_fn(f,df,parameters=None))
+
+
+
 '''
 There are also a few system parameters that will be automatically added to
 the parameters dictionary.
@@ -173,23 +230,3 @@ See sample_cos_function
 
 '''
 
-def f(df,parameters=None):
-    import pandas as pd
-    # do a dictionary lookup
-    # parameters is a dictionary of two dictionaries
-    # the first is the lookup_item: name of the item being looked up
-    # the next is the data: dictionary that contains the lookup data
-    lookup_item = parameters.get('lookup_item',None)
-    data = parameters.get('data',None)
-    df['id_col'] = df.index.get_level_values('id')
-    return df['id_col'].replace(data)
-
-params = {'lookup_item':'tool_version',
-          'data' : {
-            'XA01' : 1,
-            'XA02' : 2,
-            'XA03' : 3
-            }
-        }
-
-print(test_simple_fn(f,df,parameters=params))
