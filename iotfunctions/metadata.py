@@ -1344,7 +1344,7 @@ class EntityType(object):
                     return stage_type
         
         raise TypeError(('Could not identify stage type for stage'
-                        ' %s for the stage map. Adjust the stage map'
+                        ' %s from the stage map. Adjust the stage map'
                         ' for the entity type or define an appropriate'
                         ' is_<something> property on the class of the '
                         ' stage. Stage map is %s' % (stage.name, 
