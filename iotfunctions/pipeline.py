@@ -2150,12 +2150,15 @@ class JobController(object):
         try:
             return(getattr(self.payload,method_name)(**kwargs))
         except (TypeError,AttributeError):
-            logger.debug(('Returned default output for %s() on'
-                          ' payload %s %s. '
-                          ' Default value is: %s'),method_name,
-                          self.payload.__class__.__name__,self.payload.name,
-                          default_output)
-            return(default_output)
+            if default_output is not None:
+                logger.debug(('Returned default output for %s() on'
+                              ' payload %s %s. '
+                              ' Default value is: %s'),method_name,
+                              self.payload.__class__.__name__,self.payload.name,
+                              default_output)
+                return(default_output)
+            else:
+                raise
             
     def exec_stage_method(self,stage,method_name,default_output,**kwargs):
     
