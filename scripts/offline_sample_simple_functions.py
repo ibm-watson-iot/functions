@@ -173,4 +173,23 @@ See sample_cos_function
 
 '''
 
+def f(df,parameters=None):
+    import pandas as pd
+    # do a dictionary lookup
+    # parameters is a dictionary of two dictionaries
+    # the first is the lookup_item: name of the item being looked up
+    # the next is the data: dictionary that contains the lookup data
+    lookup_item = parameters.get('lookup_item',None)
+    data = parameters.get('data',None)
+    df['id_col'] = df.index.get_level_values('id')
+    return df['id_col'].replace(data)
 
+params = {'lookup_item':'tool_version',
+          'data' : {
+            'XA01' : 1,
+            'XA02' : 2,
+            'XA03' : 3
+            }
+        }
+
+print(test_simple_fn(f,df,parameters=params))
