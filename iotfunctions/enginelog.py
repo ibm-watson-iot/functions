@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class EngineLogging:
 
-    FORMATTER = logging.Formatter(fmt='%(asctime)s.%(msecs)03d %(name)s.%(funcName)s %(levelname)s %(message)s',
+    FORMATTER = logging.Formatter(fmt='%(asctime)s.%(msecs)03d %(levelname)s %(name)s.%(funcName)s %(message)s',
                                   datefmt='%Y-%m-%dT%H:%M:%S', style='%')
     consoleHandler = logging.StreamHandler(sys.stdout)
     consoleHandler.setFormatter(FORMATTER)
