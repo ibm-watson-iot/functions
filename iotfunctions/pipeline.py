@@ -333,8 +333,13 @@ class DataMerge(object):
         if len(self.df.index) > 0:
             id_index = self.df.index.get_level_values(0)
             ts_index = self.df.index.get_level_values(1)
+            usage = len(self.df.index) * len(col_names)
+        else:
+            usage = 0
+
+        merge_result = 'existing %s with new %s' % (existing, obj.__class__.__name__)
             
-        return 'existing %s with new %s' %(existing,obj.__class__.__name__)
+        return merge_result, usage
     
     def merge_dataframe(self,df,col_names,force_overwrite=True, col_map = None):
 
@@ -2065,7 +2070,7 @@ class JobController(object):
                     #execute the merge
                     else:
                         try:
-                            tw['merge_result'] = merge.execute(
+                            (tw['merge_result'],tw['usage']) = merge.execute(
                                     obj=result,
                                     col_names = new_cols,
                                     col_map = col_map)
@@ -2110,6 +2115,7 @@ class JobController(object):
         # The payload may optionally supply a specific list of 
         # entities to retrieve data from
         entities = self.exec_payload_method('get_entity_filter',None)
+        usage = 0
 
         # There are two possible signatures for the execute method
         try:
@@ -2118,26 +2124,31 @@ class JobController(object):
                                    end_ts=end_ts,
                                    entities = entities)
 
+            usage = self.get_stage_param(stage,'usage_',usage)
+
         except TypeError:
             is_executed = False
         else:
             is_executed = True
-            if entities is not None:
+            if entities is not None or usage > 0:
                 self.trace_update(
                     log_method = logger.debug,
-                    **{'entity_filter_list':entities})
+                    **{'entity_filter_list':entities,
+                       'usage': usage})
         
         # This seems a bit long winded, but it done this way to avoid
         # the type error showing up in the stack trace when there is an
         # error executing
         if not is_executed:
             result = stage.execute(df=df)
-            if entities is not None:
+            usage = self.get_stage_param(stage, 'usage_', usage)
+            if entities is not None or usage > 0:
                 self.trace_update(
                     log_method=logger.debug,
                     **{'entity_filter_list': ('entity filter exists, but execute'
                                               ' method for stage does not support '
-                                              ' entities parameter')})
+                                              ' entities parameter'),
+                       'usage' : usage})
         
         if isinstance(result,bool) and result:
             result = pd.DataFrame()
@@ -2149,16 +2160,14 @@ class JobController(object):
     
         try:
             return(getattr(self.payload,method_name)(**kwargs))
-        except (TypeError,AttributeError):
-            if default_output is not None:
-                logger.debug(('Returned default output for %s() on'
-                              ' payload %s %s. '
-                              ' Default value is: %s'),method_name,
-                              self.payload.__class__.__name__,self.payload.name,
-                              default_output)
-                return(default_output)
-            else:
-                raise
+        except (TypeError,AttributeError) as e:
+            logger.debug(('Returned default output for %s() on'
+                          ' payload %s %s. '
+                          ' Default value is: %s',
+                          ' Error: %s'),method_name,
+                          self.payload.__class__.__name__,self.payload.name,
+                          default_output, e)
+            return(default_output)
             
     def exec_stage_method(self,stage,method_name,default_output,**kwargs):
     

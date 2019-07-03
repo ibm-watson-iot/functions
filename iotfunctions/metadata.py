@@ -2558,6 +2558,7 @@ class Trace(object)    :
         self.df_cols = set()
         self.df_index = set()
         self.df_count = 0
+        self.usage = 0
         self.prev_ts = dt.datetime.utcnow()
         logger.debug('Starting trace')
         logger.debug('Trace name: %s',self.name )
@@ -2599,7 +2600,8 @@ class Trace(object)    :
         '''
         self.df_cols = set()
         self.df_index = set()
-        self.df_count = 0        
+        self.df_count = 0
+        self.usage = 0
         self.prev_ts = dt.datetime.utcnow()
         self.auto_save = auto_save
         if self.auto_save_thread is not None:
@@ -2680,6 +2682,9 @@ class Trace(object)    :
         Update the last trace entry. Include the contents of **kw.
         '''
         kw['updated'] = dt.datetime.utcnow()
+
+        self.usage = self.usage + kw.get('usage',0)
+        kw['cumulative_usage'] = self.usage
         
         try:
             last = self.data.pop()
@@ -2718,6 +2723,10 @@ class Trace(object)    :
         elapsed = (ts - self.prev_ts).total_seconds()
         self.prev_ts = ts
         kwargs['elapsed_time'] = elapsed
+
+        self.usage = self.usage + kwargs.get('usage',0)
+        kwargs['cumulative_usage'] = self.usage
+
         try:
             created_by_name = created_by.name
         except AttributeError:

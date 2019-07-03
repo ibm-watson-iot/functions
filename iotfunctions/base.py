@@ -1650,6 +1650,7 @@ class BaseDatabaseLookup(BaseTransformer):
     # database
     db = None
     _auto_create_lookup_table = False
+    usage_ = 0
     
     def __init__(self,
                  lookup_table_name,
