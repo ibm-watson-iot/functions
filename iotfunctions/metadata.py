@@ -442,10 +442,10 @@ class EntityType(object):
             (inputs,outputs) = obj.build_ui()
         except (AttributeError,NotImplementedError) as e:
             try:
-                fn_metadata = obj._generate_metadata()
+                fn_metadata = obj.metadata()
                 inputs = fn_metadata.get('input', None)
-                outputs = fn_metadata.get('outputs', None)
-            except (AttributeError, KeyError):
+                outputs = fn_metadata.get('output', None)
+            except (AttributeError, KeyError) as ex:
                 msg = ('Can\'t get metadata for function %s. Implement the'
                        ' build_ui() method for this function. %s' % (name, str(e)))
                 raise NotImplementedError(msg)
@@ -497,13 +497,13 @@ class EntityType(object):
                     type_ = a.get('type',None)
                     arg = a.get('name',None)
                 except AttributeError:
-                    type = None
+                    type_ = None
                     arg = None
 
             if type_ is None or arg is None:
                 msg = ('Error while getting metadata from function. The inputs'
                        ' and outputs of the function are not described correctly'
-                       ' using UIcontrols with a type_ and name %s' %e)
+                       ' using UIcontrols with a type_ %s and name %s' % (type_, arg))
                 raise TypeError(msg)
             
             arg_value = getattr(obj,arg)
@@ -790,7 +790,7 @@ class EntityType(object):
             
             # classify stage
             stage_type = self.get_stage_type(obj)
-            granularity = s.granularity
+            granularity = obj.granularity
             
             if granularity is not None and isinstance(granularity,str):
                 granularity = self._granularities_dict.get(granularity,False)
@@ -817,7 +817,7 @@ class EntityType(object):
             # add metadata derived from function registration and function args
             # input set and output list are crital metadata for the dependency model
             
-            (in_,out,out_meta,input_set,output_list) = self.build_arg_metadata(s)
+            (in_,out,out_meta,input_set,output_list) = self.build_arg_metadata(obj)
             
             obj._inputs = in_
             obj._outputs = out
@@ -855,12 +855,12 @@ class EntityType(object):
             
             for function_prop,list_obj in list(specials.items()):
                 try:
-                    is_function_prop = getattr(s, function_prop)
+                    is_function_prop = getattr(obj, function_prop)
                 except AttributeError:
                     is_function_prop = False
                     
                 if is_function_prop:
-                    list_obj.append(s)
+                    list_obj.append(obj)
             
         
         return stage_metadata

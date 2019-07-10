@@ -1690,14 +1690,14 @@ class JobController(object):
                         raise_error = True, #force an error to be raised
                         **meta
                         )
-                
-            can_proceed = True
+
             # look for schedules that were flagged 'is_due'.
             # These will be executed.
             
             for (schedule,meta) in list(schedule_metadata.items()):
                 
                 chunks = []
+                can_proceed = True
                 
                 if not meta['is_due']:
                     try:
