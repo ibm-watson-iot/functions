@@ -1405,7 +1405,7 @@ class BaseDataSource(BaseTransformer):
         '''
         Retrieve data and combine with pipeline data
         '''
-        new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
+        new_df = self.get_data(start_ts=start_ts,end_ts=end_ts,entities=entities)
         self.log_df_info(df,'source dataframe before merge')
         self.log_df_info(new_df,'additional data source to be merged')        
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
