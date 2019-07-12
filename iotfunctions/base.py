@@ -1670,10 +1670,10 @@ class BaseDBActivityMerge(BaseDataSource):
         self.outputs.extend(['activity_duration','additional_output_names'])
         self.optionalItems.extend(['additional_items'])
         
-    def execute(self,df):
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
         
         self.execute_by = [self._entity_type._entity_id]
-        df = super().execute(df)
+        df = super().execute(df, start_ts=start_ts, end_ts=end_ts, entities=entities)
         return df
         
     def get_data(self,
@@ -1699,9 +1699,9 @@ class BaseDBActivityMerge(BaseDataSource):
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
-                af = pd.read_sql(sql,
-                                 con = self._entity_type.db.connection,
-                                 parse_dates=[self._start_date,self._end_date])
+                af = pd.read_sql_query(sql,
+                                       con=self._entity_type.db.connection,
+                                       parse_dates=[self._start_date,self._end_date])
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
