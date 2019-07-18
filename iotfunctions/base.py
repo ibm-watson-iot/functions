@@ -163,7 +163,7 @@ class BaseFunction(object):
             (inputs,outputs) = self.build_ui()
         except (AttributeError,NotImplementedError):
             msg = ('Cant get function metadata for %s. Implement the'
-                   ' build_metadata() method.' %name)
+                   ' build_metadata() method.' %self.name)
             raise NotImplementedError (msg)
             
         input_args ={}
