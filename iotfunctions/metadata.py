@@ -691,8 +691,8 @@ class EntityType(object):
 
         # Optimizing the data frame size using downcasting
         memo = MemoryOptimizer()
-        #df = memo.downcastNumeric(df)              #uncomment only after testing better
-        memo.downcastNumeric(df)
+        df = memo.downcastNumeric(df)              #uncomment only after testing better
+        #memo.downcastNumeric(df)
         
         df = self.index_df(df)
 
@@ -1038,32 +1038,55 @@ class EntityType(object):
         '''
         Create an index on the deviceid and the timestamp
         '''
+        
+        if self._df_index_entity_id is None:
+            self._df_index_entity_id = self._entity_id
+
+        if self._timestamp_col is None:
+            self._timestamp_col = self._timestamp
     
-        if df.index.names != [self._entity_id,
+        if df.index.names != [self._df_index_entity_id,
                               self._timestamp]: 
             try:
-                df = df.set_index([self._entity_id,
+                df = df.set_index([self._df_index_entity_id,
                                    self._timestamp])
             except KeyError:
                 df = df.reset_index()
                 try:
-                    df = df.set_index([self._entity_id,
+                    df = df.set_index([self._df_index_entity_id,
                                        self._timestamp])
                 except KeyError:
-                    raise KeyError(('Error attempting to index time series'
+                    try:
+                        df[self._df_index_entity_id] = df[self._entity_id]
+                        df = df.set_index([self._df_index_entity_id,
+                                       self._timestamp])                    
+                    except KeyError:
+                        raise KeyError(('Error attempting to index time series'
                                     ' dataframe. Unable to locate index'
-                                    ' columns: %s, %s') 
-                                    %(self._entity_id,self._timestamp)
+                                    ' columns: %s or %s, %s') 
+                                    %(self._df_index_entity_id,
+                                      self._entity_id,
+                                      self._timestamp)
                                     )
-            logger.debug(('Indexed dataframe on %s, %s'),self._entity_id,
+            logger.debug(('Indexed dataframe on %s, %s'),self._df_index_entity_id,
                          self._timestamp)
             
         else:
             logger.debug(('Found existing index on %s, %s.'
-                          'No need to recreate index'),self._entity_id,
+                          'No need to recreate index'),self._df_index_entity_id,
                          self._timestamp)
+                
+        #create a dummy column for _entity_id
+        if self._entity_id != self._df_index_entity_id:
+            df[self._entity_id] = df.index.get_level_values(self._df_index_entity_id)
         
-        return df 
+
+        #create a dummy column for _timestamp
+        if self._timestamp != self._timestamp_col:
+            df[self._timestamp_col] = df.index.get_level_values(self._timestamp)
+
+        
+        return df    
 
     def is_base_item(self,item_name):
         '''

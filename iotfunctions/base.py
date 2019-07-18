@@ -1405,7 +1405,7 @@ class BaseDataSource(BaseTransformer):
         '''
         Retrieve data and combine with pipeline data
         '''
-        new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
+        new_df = self.get_data(start_ts=start_ts,end_ts=end_ts,entities=entities)
         self.log_df_info(df,'source dataframe before merge')
         self.log_df_info(new_df,'additional data source to be merged')        
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
@@ -1670,10 +1670,10 @@ class BaseDBActivityMerge(BaseDataSource):
         self.outputs.extend(['activity_duration','additional_output_names'])
         self.optionalItems.extend(['additional_items'])
         
-    def execute(self,df):
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
         
         self.execute_by = [self._entity_type._entity_id]
-        df = super().execute(df)
+        df = super().execute(df, start_ts=start_ts, end_ts=end_ts, entities=entities)
         return df
         
     def get_data(self,
@@ -1699,9 +1699,9 @@ class BaseDBActivityMerge(BaseDataSource):
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
-                af = pd.read_sql(sql,
-                                 con = self._entity_type.db.connection,
-                                 parse_dates=[self._start_date,self._end_date])
+                af = pd.read_sql_query(sql,
+                                       con=self._entity_type.db.connection,
+                                       parse_dates=[self._start_date,self._end_date])
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
@@ -1775,7 +1775,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     self.log_df_info(cdf,'No data in merge source, processing empty dataframe')
                 else:
                     self.log_df_info(cdf,'combined activity data after removing overlap')
-                    cdf['duration'] = (cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds() / 60
+                    cdf['duration'] = round((cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds()) / 60
                     
             for i,value in enumerate(self.input_activities):
                 cdf[self.activity_duration[i]] = np.where(cdf[self._activity]==value, cdf['duration'], None)
@@ -1872,7 +1872,7 @@ class BaseDBActivityMerge(BaseDataSource):
         c.index.name = self._start_date
         #use original data to update the new set of intervals in slices
         for index, row in df.iterrows():
-            end_date = row[self._end_date] - dt.timedelta(seconds=1)
+            end_date = row[self._end_date] - dt.timedelta(microseconds=1)
             c[row[self._start_date]:end_date] = row[self._activity]    
         df = c.to_frame().reset_index()
         if is_logged:
@@ -1880,7 +1880,7 @@ class BaseDBActivityMerge(BaseDataSource):
         
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
-        df[self._end_date] = df[self._end_date] - dt.timedelta(seconds=1)
+        df[self._end_date] = df[self._end_date] - dt.timedelta(microseconds=1)
         
         #remove gaps
         if self.remove_gaps:
@@ -2456,13 +2456,4 @@ class BaseClassifier(BaseEstimatorFunction):
         #mlp
         params = { 'hidden_layer_sizes' : [50,100,200,500]
                 }
-        self.estimators['mlp'] = (neural_network.MLPClassifier, params)        
-    
-    
-
-        
-
-    
-
-
-
+        self.estimators['mlp'] = (neural_network.MLPClassifier, params)

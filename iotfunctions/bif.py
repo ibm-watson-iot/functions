@@ -589,8 +589,8 @@ class IoTCosFunction(BaseTransformer):
         inputs = []
         inputs.append(UIMultiItem('input_items'))
         inputs.append(UISingle(name = 'function_name',
-                                              datatype=float,
-                                              description = 'Name of function object. Function object must be serialized to COS before you can use it'
+                               datatype=str,
+                               description = 'Name of function object. Function object must be serialized to COS before you can use it'
                                               )
                      )
         inputs.append(UISingle(name = 'parameters',
