@@ -181,6 +181,11 @@ class EntityType(object):
     _start_entity_id = 73000  #deprecated. Use parameters on EntityDataGenerator
     _auto_entity_count = 5  # deprecated. Use parameters on EntityDataGenerator
 
+    # pipeline work variables stages
+    _dimension_table = None
+    _scd_stages = None
+    _custom_calendar = None
+
     # variabes that will be set when loading from the server
     _entity_type_id = None
     logical_name = None
@@ -215,7 +220,9 @@ class EntityType(object):
 
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
-    
+    _is_initial_transform = True
+    _is_preload_complete = False
+
     def __init__(self, name, db, *args, **kwargs):
         
         logger.debug('Initializing new entity type using iotfunctions %s',
@@ -242,13 +249,9 @@ class EntityType(object):
         self._stage_type_map = self.default_stage_type_map()
         self._custom_exclude_col_from_auto_drop_nulls = []
         self._drop_all_null_rows = True
-        #pipeline work variables stages
-        self._dimension_table = None
-        self._scd_stages = []
-        self._custom_calendar = None
-        self._is_initial_transform = True
-        self._is_preload_complete = False
 
+        if self._scd_stages is None:
+            self._scd_stages = []
 
         if self._data_items is None:
             self._data_items = []
