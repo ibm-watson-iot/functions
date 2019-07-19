@@ -2774,6 +2774,56 @@ class Trace(object)    :
                 logger.warning(exception)
             if stack_trace is not None:
                 logger.warning(stack_trace)
+
+    def write_usage(self,db,start_ts=None,end_ts=None):
+        '''
+        Write usage stats to the usage log
+        '''
+
+        usage_logged = False
+        msg = 'No db object provided. Did not write usage'
+
+        usage = []
+        for i in self.data:
+            result = int(i.get('usage', 0))
+            if end_ts is None:
+                end_ts = dt.datetime.utcnow()
+
+            if start_ts is None:
+                elapsed = float(i.get('elapsed_time', '0'))
+                start_ts = end_ts - dt.timedelta(seconds=elapsed)
+
+            if result > 0:
+                entry = {
+                    "entityTypeName": self.parent.name,
+                    "kpiFunctionName": i.get('created_by', 'unknown'),
+                    "startTimestamp": str(start_ts),
+                    "endTimestamp": str(end_ts),
+                    "numberOfResultsProcessed": result
+                }
+                usage.append(entry)
+
+        if len(usage) > 0:
+
+            if db is not None:
+                try:
+                    db.http_request(object_type='usage',
+                                    object_name='',
+                                    request='POST',
+                                    payload = usage
+                                    )
+                except BaseException as e:
+                    msg = 'Unable to write usage. %s' %str(e)
+                else:
+                    usage_logged = True
+
+        else:
+            msg = 'No usage recorded for this execution'
+
+        if not usage_logged:
+            logger.info(msg)
+            if len(usage) > 0:
+                logger.info(usage)
             
     def _df_as_dict(self,df):
         

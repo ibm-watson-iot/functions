@@ -2531,6 +2531,8 @@ class JobController(object):
             retries = self.log_save_retries
 
         trace = self.get_payload_param('_trace',None)
+        db = self.get_payload_param('db',None)
+
         if trace is not None:
 
             if status == 'aborted':
@@ -2553,6 +2555,7 @@ class JobController(object):
                     **tw
                     )
             trace.save()
+            trace.write_usage(db=db)
             
         failed_log_updates = []
                     
