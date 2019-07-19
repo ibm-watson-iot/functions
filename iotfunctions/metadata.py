@@ -2751,13 +2751,29 @@ class Trace(object)    :
             entry = {**entry,**df_info}
         
         self.data.append(entry)
+
+        exception_type = entry.get('exception_type',None)
+        exception = entry.get('exception',None)
+        stack_trace = entry.get('stack_trace',None)
          
         try:
             if log_method is not None:
                 log_method(text)
+                if exception_type is not None:
+                    log_method(exception_type)
+                if exception is not None:
+                    log_method(exception)
+                if stack_trace is not None:
+                    log_method(stack_trace)
         except TypeError:
             msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' %text
-            logger.warning(msg)
+            logger.warning(text)
+            if exception_type is not None:
+                logger.warning(exception_type)
+            if exception is not None:
+                logger.warning(exception)
+            if stack_trace is not None:
+                logger.warning(stack_trace)
             
     def _df_as_dict(self,df):
         
