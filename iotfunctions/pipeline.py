@@ -649,6 +649,7 @@ class DataReader(object):
 class DataWriterException(Exception):
     
     def __init__(self, msg):
+        logger.error(msg)
         super().__init__(msg)
 
 
@@ -926,14 +927,14 @@ class Db2DataWriter:
         parmExtension = ''
 
         for dimension in dimensions:
-            quoted_dimension = dbhelper.quotingColumnName(dimension)
+            quoted_dimension = dbhelper.quoting_column_name(dimension)
             colExtension += ', ' + quoted_dimension
             parmExtension += ', ?'
 
         stmt = ('INSERT INTO %s.%s (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) ' +
-                'VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)') % \
-               (dbhelper.quotingSchemaName(self.schema_name),
-                dbhelper.quotingTableName(table_name),
+                'VALUES (?%s, ?, ?, ?, ?, CURRENT_TIMESTAMP)') % \
+               (dbhelper.quoting_schema_name(self.schema_name),
+                dbhelper.quoting_table_name(table_name),
                 colExtension,
                 parmExtension)
 
@@ -941,7 +942,7 @@ class Db2DataWriter:
 
     def create_delete_statement(self, table_name):
         stmt = ('DELETE FROM %s.%s' %
-                (dbhelper.quotingSchemaName(self.schema_name), dbhelper.quotingTableName(table_name)))
+                (dbhelper.quoting_schema_name(self.schema_name), dbhelper.quoting_table_name(table_name)))
         where1 = ('%s >= %s' % (KPI_TIMESTAMP_COLUMN, ' ? '))
         where2 = ('%s < %s' % (KPI_TIMESTAMP_COLUMN, ' ? '))
         stmt = '%s WHERE %s AND %s' % (stmt, where1, where2)
