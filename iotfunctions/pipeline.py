@@ -1313,10 +1313,13 @@ class JobController(object):
         data_items_dict = {}
         for d in self.get_payload_param('_data_items',None):
             data_items_dict[d['name']] = d
+
+        db = self.get_payload_param('db',None)
+        db_connection = db.connection.connect().connection.connection
         
         # Add a data write to spec
         params = {
-            'db_connection' : self.get_payload_param('db',None).connection,
+            'db_connection' : db_connection,
             'schema_name' : self.get_payload_param('_db_schema',None),
             'grains_metadata' : self.get_payload_param('_granularities_dict',None),
             'data_item_metadata' : data_items_dict
