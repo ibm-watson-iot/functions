@@ -1924,6 +1924,8 @@ class Database(object):
 
         # validate columns and  decide whether dim join is really needed
         required_cols = set()
+        agg_dict = dict((k.lower(), v) for k, v in agg_dict.iteritems())
+
         required_cols |= set(agg_dict.keys())
         required_cols |= set(groupby)
         required_cols |= set(filters.keys())
