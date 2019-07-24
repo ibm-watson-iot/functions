@@ -1549,15 +1549,20 @@ class JobController(object):
             s.build_status = 'Skipped due to dependency issue'
 
         return meta
-    
-    def build_trace_name(self,execute_date):
-        
+
+    def build_trace_name(self, execute_date):
+
         if execute_date is None:
             execute_date = dt.datetime.utcnow()
         execute_str = '{:%Y%m%d%H%M%S%f}'.format(execute_date)
-    
-        return '%s_%s_trace_%s' %(self.payload.__class__.__name__,
-                               self.name,execute_str)
+
+        # return '%s_%s_trace_%s' %(self.payload.__class__.__name__,self.name,execute_str)
+
+        trace_log_cos_path = ('%s/%s/%s/%s_trace_%s' %
+                              (self.payload.tenant_id, self.payload._entity_type_name, execute_date.strftime('%Y%m%d'),
+                               self.payload.__class__.__name__, execute_str))
+
+        return trace_log_cos_path
     
     def collapse_aggregation_stages(self,granularity, available_columns):
         '''
@@ -1669,7 +1674,7 @@ class JobController(object):
         constants = {}
         while execute_date <= execute_until:
 
-            EngineLogging.start_run_log(self.payload.tenant_id, self.payload.name)
+            EngineLogging.start_run_log(self.payload.tenant_id, self.payload._entity_type_name)
             logger.debug ((
                     'Starting execution number: %s with execution date: %s'),
                     execution_counter, execute_date
