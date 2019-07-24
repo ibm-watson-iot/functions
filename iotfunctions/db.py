@@ -407,7 +407,8 @@ class Database(object):
             self.start_session()
             self.metadata.drop_all(tables = [table], checkfirst = True) 
             msg = 'Dropped table name %s' %table.name
-            self.session.commit()
+            self.commit()
+            self.metadata = MetaData(self.connection) # refresh metadata after dropping table
         logger.debug(msg)
 
         
