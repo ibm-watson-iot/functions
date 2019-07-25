@@ -426,11 +426,11 @@ class Database(object):
             logger.error('Not able to GET %s from COS bucket %s' % (filename, bucket))
         return obj
     
-    def cos_save(self, persisted_object, filename, bucket=None, binary=False):
+    def cos_save(self, persisted_object, filename, bucket=None, binary=False, serialize=True):
         if bucket is None:
             bucket = self.credentials['config']['bos_runtime_bucket']
         if self.cos_client is not None:
-            ret = self.cos_client.cos_put(key=filename, payload=persisted_object, bucket=bucket, binary=binary)
+            ret = self.cos_client.cos_put(key=filename, payload=persisted_object, bucket=bucket, binary=binary, serialize=serialize)
         else:
             ret = None
         if ret is None:
@@ -981,7 +981,8 @@ class Database(object):
             self.cos_save(fn,
                           filename = filename,
                           bucket = bucket,
-                          binary = True)
+                          binary = True,
+                          serialize = True)
             
         return fn
     

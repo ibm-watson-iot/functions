@@ -188,6 +188,7 @@ class EntityType(object):
 
     # variabes that will be set when loading from the server
     _entity_type_id = None
+    _entity_type_name = None
     logical_name = None
     _timestamp = 'evt_timestamp'
     _dimension_table_name = None
@@ -2116,6 +2117,7 @@ class ServerEntityType(EntityType):
         
         #  map server properties to entitty type properties
         self._entity_type_id  =server_meta['entityTypeId']
+        self._entity_type_name = logical_name
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
         self._dimension_table_name = server_meta['dimensionsTable']
@@ -2575,10 +2577,14 @@ class Trace(object)    :
         
     def build_trace_name(self):
         
-        execute_str = '{:%Y%m%d%H%M%S%f}'.format(dt.datetime.utcnow())
-        
-        return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,
-                               execute_str)
+        #execute_str = '{:%Y%m%d%H%M%S%f}'.format(dt.datetime.utcnow())
+        today = dt.datetime.utcnow()
+        trace_log_cos_path = ('%s/%s/%s/auto_trace_%s' %
+                               (self.parent.tenant_id, self.parent._entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
+
+        #return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,execute_str)
+        return trace_log_cos_path
+
 
     def get_stack_trace(self):
         '''
@@ -2655,7 +2661,7 @@ class Trace(object)    :
                 trace = str(self.as_json())
                 self.db.cos_save(persisted_object=trace,
                          filename=self.name,
-                         binary=False)
+                         binary=False, serialize=False)
                 logger.debug('Saved trace to cos %s', self.name)
         try:
             save_to_file = self.parent.save_trace_to_file
