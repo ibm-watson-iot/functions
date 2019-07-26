@@ -333,8 +333,13 @@ class DataMerge(object):
         if len(self.df.index) > 0:
             id_index = self.df.index.get_level_values(0)
             ts_index = self.df.index.get_level_values(1)
+            usage = len(self.df.index) * len(col_names)
+        else:
+            usage = 0
+
+        merge_result = 'existing %s with new %s' % (existing, obj.__class__.__name__)
             
-        return 'existing %s with new %s' %(existing,obj.__class__.__name__)
+        return merge_result, usage
     
     def merge_dataframe(self,df,col_names,force_overwrite=True, col_map = None):
 
@@ -644,6 +649,7 @@ class DataReader(object):
 class DataWriterException(Exception):
     
     def __init__(self, msg):
+        logger.error(msg)
         super().__init__(msg)
 
 
@@ -921,14 +927,14 @@ class Db2DataWriter:
         parmExtension = ''
 
         for dimension in dimensions:
-            quoted_dimension = dbhelper.quotingColumnName(dimension)
+            quoted_dimension = dbhelper.quoting_column_name(dimension)
             colExtension += ', ' + quoted_dimension
             parmExtension += ', ?'
 
         stmt = ('INSERT INTO %s.%s (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) ' +
-                'VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)') % \
-               (dbhelper.quotingSchemaName(self.schema_name),
-                dbhelper.quotingTableName(table_name),
+                'VALUES (?%s, ?, ?, ?, ?, CURRENT_TIMESTAMP)') % \
+               (dbhelper.quoting_schema_name(self.schema_name),
+                dbhelper.quoting_table_name(table_name),
                 colExtension,
                 parmExtension)
 
@@ -936,7 +942,7 @@ class Db2DataWriter:
 
     def create_delete_statement(self, table_name):
         stmt = ('DELETE FROM %s.%s' %
-                (dbhelper.quotingSchemaName(self.schema_name), dbhelper.quotingTableName(table_name)))
+                (dbhelper.quoting_schema_name(self.schema_name), dbhelper.quoting_table_name(table_name)))
         where1 = ('%s >= %s' % (KPI_TIMESTAMP_COLUMN, ' ? '))
         where2 = ('%s < %s' % (KPI_TIMESTAMP_COLUMN, ' ? '))
         stmt = '%s WHERE %s AND %s' % (stmt, where1, where2)
@@ -1155,7 +1161,7 @@ class JobController(object):
     # aggegregating data, writing data and merging the results of 
     # the execution of a stage with data produced from prior stages
     data_aggregator = DataAggregator
-    data_writer = DataWriterFile
+    data_writer = Db2DataWriter
     data_merge = DataMerge
     job_log_class = JobLog
     
@@ -1540,15 +1546,20 @@ class JobController(object):
             s.build_status = 'Skipped due to dependency issue'
 
         return meta
-    
-    def build_trace_name(self,execute_date):
-        
+
+    def build_trace_name(self, execute_date):
+
         if execute_date is None:
             execute_date = dt.datetime.utcnow()
         execute_str = '{:%Y%m%d%H%M%S%f}'.format(execute_date)
-    
-        return '%s_%s_trace_%s' %(self.payload.__class__.__name__,
-                               self.name,execute_str)
+
+        # return '%s_%s_trace_%s' %(self.payload.__class__.__name__,self.name,execute_str)
+
+        trace_log_cos_path = ('%s/%s/%s/%s_trace_%s' %
+                              (self.payload.tenant_id, self.payload._entity_type_name, execute_date.strftime('%Y%m%d'),
+                               self.payload.__class__.__name__, execute_str))
+
+        return trace_log_cos_path
     
     def collapse_aggregation_stages(self,granularity, available_columns):
         '''
@@ -1660,7 +1671,7 @@ class JobController(object):
         constants = {}
         while execute_date <= execute_until:
 
-            EngineLogging.start_run_log(self.payload.tenant_id, self.payload.name)
+            EngineLogging.start_run_log(self.payload.tenant_id, self.payload._entity_type_name)
             logger.debug ((
                     'Starting execution number: %s with execution date: %s'),
                     execution_counter, execute_date
@@ -1685,14 +1696,14 @@ class JobController(object):
                         raise_error = True, #force an error to be raised
                         **meta
                         )
-                
-            can_proceed = True
+
             # look for schedules that were flagged 'is_due'.
             # These will be executed.
             
             for (schedule,meta) in list(schedule_metadata.items()):
                 
                 chunks = []
+                can_proceed = True
                 
                 if not meta['is_due']:
                     try:
@@ -2065,7 +2076,7 @@ class JobController(object):
                     #execute the merge
                     else:
                         try:
-                            tw['merge_result'] = merge.execute(
+                            (tw['merge_result'],tw['usage']) = merge.execute(
                                     obj=result,
                                     col_names = new_cols,
                                     col_map = col_map)
@@ -2110,6 +2121,7 @@ class JobController(object):
         # The payload may optionally supply a specific list of 
         # entities to retrieve data from
         entities = self.exec_payload_method('get_entity_filter',None)
+        usage = 0
 
         # There are two possible signatures for the execute method
         try:
@@ -2118,26 +2130,31 @@ class JobController(object):
                                    end_ts=end_ts,
                                    entities = entities)
 
+            usage = self.get_stage_param(stage,'usage_',usage)
+
         except TypeError:
             is_executed = False
         else:
             is_executed = True
-            if entities is not None:
+            if entities is not None or usage > 0:
                 self.trace_update(
                     log_method = logger.debug,
-                    **{'entity_filter_list':entities})
+                    **{'entity_filter_list':entities,
+                       'usage': usage})
         
         # This seems a bit long winded, but it done this way to avoid
         # the type error showing up in the stack trace when there is an
         # error executing
         if not is_executed:
             result = stage.execute(df=df)
-            if entities is not None:
+            usage = self.get_stage_param(stage, 'usage_', usage)
+            if entities is not None or usage > 0:
                 self.trace_update(
                     log_method=logger.debug,
                     **{'entity_filter_list': ('entity filter exists, but execute'
                                               ' method for stage does not support '
-                                              ' entities parameter')})
+                                              ' entities parameter'),
+                       'usage' : usage})
         
         if isinstance(result,bool) and result:
             result = pd.DataFrame()
@@ -2149,12 +2166,13 @@ class JobController(object):
     
         try:
             return(getattr(self.payload,method_name)(**kwargs))
-        except (TypeError,AttributeError):
+        except (TypeError,AttributeError) as e:
             logger.debug(('Returned default output for %s() on'
                           ' payload %s %s. '
-                          ' Default value is: %s'),method_name,
+                          ' Default value is: %s',
+                          ' Error: %s'),method_name,
                           self.payload.__class__.__name__,self.payload.name,
-                          default_output)
+                          default_output, e)
             return(default_output)
             
     def exec_stage_method(self,stage,method_name,default_output,**kwargs):
@@ -2519,6 +2537,8 @@ class JobController(object):
             retries = self.log_save_retries
 
         trace = self.get_payload_param('_trace',None)
+        db = self.get_payload_param('db',None)
+
         if trace is not None:
 
             if status == 'aborted':
@@ -2541,6 +2561,7 @@ class JobController(object):
                     **tw
                     )
             trace.save()
+            trace.write_usage(db=db)
             
         failed_log_updates = []
                     

@@ -181,8 +181,14 @@ class EntityType(object):
     _start_entity_id = 73000  #deprecated. Use parameters on EntityDataGenerator
     _auto_entity_count = 5  # deprecated. Use parameters on EntityDataGenerator
 
+    # pipeline work variables stages
+    _dimension_table = None
+    _scd_stages = None
+    _custom_calendar = None
+
     # variabes that will be set when loading from the server
     _entity_type_id = None
+    _entity_type_name = None
     logical_name = None
     _timestamp = 'evt_timestamp'
     _dimension_table_name = None
@@ -215,7 +221,9 @@ class EntityType(object):
 
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
-    
+    _is_initial_transform = True
+    _is_preload_complete = False
+
     def __init__(self, name, db, *args, **kwargs):
         
         logger.debug('Initializing new entity type using iotfunctions %s',
@@ -242,13 +250,9 @@ class EntityType(object):
         self._stage_type_map = self.default_stage_type_map()
         self._custom_exclude_col_from_auto_drop_nulls = []
         self._drop_all_null_rows = True
-        #pipeline work variables stages
-        self._dimension_table = None
-        self._scd_stages = []
-        self._custom_calendar = None
-        self._is_initial_transform = True
-        self._is_preload_complete = False
 
+        if self._scd_stages is None:
+            self._scd_stages = []
 
         if self._data_items is None:
             self._data_items = []
@@ -442,10 +446,10 @@ class EntityType(object):
             (inputs,outputs) = obj.build_ui()
         except (AttributeError,NotImplementedError) as e:
             try:
-                fn_metadata = obj._generate_metadata()
+                fn_metadata = obj.metadata()
                 inputs = fn_metadata.get('input', None)
-                outputs = fn_metadata.get('outputs', None)
-            except (AttributeError, KeyError):
+                outputs = fn_metadata.get('output', None)
+            except (AttributeError, KeyError) as ex:
                 msg = ('Can\'t get metadata for function %s. Implement the'
                        ' build_ui() method for this function. %s' % (name, str(e)))
                 raise NotImplementedError(msg)
@@ -497,13 +501,13 @@ class EntityType(object):
                     type_ = a.get('type',None)
                     arg = a.get('name',None)
                 except AttributeError:
-                    type = None
+                    type_ = None
                     arg = None
 
             if type_ is None or arg is None:
                 msg = ('Error while getting metadata from function. The inputs'
                        ' and outputs of the function are not described correctly'
-                       ' using UIcontrols with a type_ and name %s' %e)
+                       ' using UIcontrols with a type_ %s and name %s' % (type_, arg))
                 raise TypeError(msg)
             
             arg_value = getattr(obj,arg)
@@ -790,7 +794,7 @@ class EntityType(object):
             
             # classify stage
             stage_type = self.get_stage_type(obj)
-            granularity = s.granularity
+            granularity = obj.granularity
             
             if granularity is not None and isinstance(granularity,str):
                 granularity = self._granularities_dict.get(granularity,False)
@@ -817,7 +821,7 @@ class EntityType(object):
             # add metadata derived from function registration and function args
             # input set and output list are crital metadata for the dependency model
             
-            (in_,out,out_meta,input_set,output_list) = self.build_arg_metadata(s)
+            (in_,out,out_meta,input_set,output_list) = self.build_arg_metadata(obj)
             
             obj._inputs = in_
             obj._outputs = out
@@ -855,12 +859,12 @@ class EntityType(object):
             
             for function_prop,list_obj in list(specials.items()):
                 try:
-                    is_function_prop = getattr(s, function_prop)
+                    is_function_prop = getattr(obj, function_prop)
                 except AttributeError:
                     is_function_prop = False
                     
                 if is_function_prop:
-                    list_obj.append(s)
+                    list_obj.append(obj)
             
         
         return stage_metadata
@@ -1344,7 +1348,7 @@ class EntityType(object):
                     return stage_type
         
         raise TypeError(('Could not identify stage type for stage'
-                        ' %s for the stage map. Adjust the stage map'
+                        ' %s from the stage map. Adjust the stage map'
                         ' for the entity type or define an appropriate'
                         ' is_<something> property on the class of the '
                         ' stage. Stage map is %s' % (stage.name, 
@@ -2113,6 +2117,7 @@ class ServerEntityType(EntityType):
         
         #  map server properties to entitty type properties
         self._entity_type_id  =server_meta['entityTypeId']
+        self._entity_type_name = logical_name
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
         self._dimension_table_name = server_meta['dimensionsTable']
@@ -2558,6 +2563,7 @@ class Trace(object)    :
         self.df_cols = set()
         self.df_index = set()
         self.df_count = 0
+        self.usage = 0
         self.prev_ts = dt.datetime.utcnow()
         logger.debug('Starting trace')
         logger.debug('Trace name: %s',self.name )
@@ -2571,10 +2577,14 @@ class Trace(object)    :
         
     def build_trace_name(self):
         
-        execute_str = '{:%Y%m%d%H%M%S%f}'.format(dt.datetime.utcnow())
-        
-        return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,
-                               execute_str)
+        #execute_str = '{:%Y%m%d%H%M%S%f}'.format(dt.datetime.utcnow())
+        today = dt.datetime.utcnow()
+        trace_log_cos_path = ('%s/%s/%s/auto_trace_%s' %
+                               (self.parent.tenant_id, self.parent._entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
+
+        #return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,execute_str)
+        return trace_log_cos_path
+
 
     def get_stack_trace(self):
         '''
@@ -2599,7 +2609,8 @@ class Trace(object)    :
         '''
         self.df_cols = set()
         self.df_index = set()
-        self.df_count = 0        
+        self.df_count = 0
+        self.usage = 0
         self.prev_ts = dt.datetime.utcnow()
         self.auto_save = auto_save
         if self.auto_save_thread is not None:
@@ -2650,7 +2661,7 @@ class Trace(object)    :
                 trace = str(self.as_json())
                 self.db.cos_save(persisted_object=trace,
                          filename=self.name,
-                         binary=False)
+                         binary=False, serialize=False)
                 logger.debug('Saved trace to cos %s', self.name)
         try:
             save_to_file = self.parent.save_trace_to_file
@@ -2680,6 +2691,9 @@ class Trace(object)    :
         Update the last trace entry. Include the contents of **kw.
         '''
         kw['updated'] = dt.datetime.utcnow()
+
+        self.usage = self.usage + kw.get('usage',0)
+        kw['cumulative_usage'] = self.usage
         
         try:
             last = self.data.pop()
@@ -2718,6 +2732,10 @@ class Trace(object)    :
         elapsed = (ts - self.prev_ts).total_seconds()
         self.prev_ts = ts
         kwargs['elapsed_time'] = elapsed
+
+        self.usage = self.usage + kwargs.get('usage',0)
+        kwargs['cumulative_usage'] = self.usage
+
         try:
             created_by_name = created_by.name
         except AttributeError:
@@ -2739,13 +2757,79 @@ class Trace(object)    :
             entry = {**entry,**df_info}
         
         self.data.append(entry)
+
+        exception_type = entry.get('exception_type',None)
+        exception = entry.get('exception',None)
+        stack_trace = entry.get('stack_trace',None)
          
         try:
             if log_method is not None:
                 log_method(text)
+                if exception_type is not None:
+                    log_method(exception_type)
+                if exception is not None:
+                    log_method(exception)
+                if stack_trace is not None:
+                    log_method(stack_trace)
         except TypeError:
             msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' %text
-            logger.warning(msg)
+            logger.warning(text)
+            if exception_type is not None:
+                logger.warning(exception_type)
+            if exception is not None:
+                logger.warning(exception)
+            if stack_trace is not None:
+                logger.warning(stack_trace)
+
+    def write_usage(self,db,start_ts=None,end_ts=None):
+        '''
+        Write usage stats to the usage log
+        '''
+
+        usage_logged = False
+        msg = 'No db object provided. Did not write usage'
+
+        usage = []
+        for i in self.data:
+            result = int(i.get('usage', 0))
+            if end_ts is None:
+                end_ts = dt.datetime.utcnow()
+
+            if start_ts is None:
+                elapsed = float(i.get('elapsed_time', '0'))
+                start_ts = end_ts - dt.timedelta(seconds=elapsed)
+
+            if result > 0:
+                entry = {
+                    "entityTypeName": self.parent.name,
+                    "kpiFunctionName": i.get('created_by', 'unknown'),
+                    "startTimestamp": str(start_ts),
+                    "endTimestamp": str(end_ts),
+                    "numberOfResultsProcessed": result
+                }
+                usage.append(entry)
+
+        if len(usage) > 0:
+
+            if db is not None:
+                try:
+                    db.http_request(object_type='usage',
+                                    object_name='',
+                                    request='POST',
+                                    payload = usage
+                                    )
+                except BaseException as e:
+                    msg = 'Unable to write usage. %s' %str(e)
+                else:
+                    usage_logged = True
+
+        else:
+            msg = 'No usage recorded for this execution'
+
+        if not usage_logged:
+            logger.info(msg)
+            if len(usage) > 0:
+                logger.info(usage)
             
     def _df_as_dict(self,df):
         
