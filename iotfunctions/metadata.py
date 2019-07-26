@@ -218,6 +218,7 @@ class EntityType(object):
     drop_null_class = DropNull
     enable_downcast = False
     allow_projection_list_trim = True
+    _write_usage = False
 
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance

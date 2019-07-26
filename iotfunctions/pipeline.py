@@ -2561,7 +2561,10 @@ class JobController(object):
                     **tw
                     )
             trace.save()
-            trace.write_usage(db=db)
+
+            write_usage = self.get_payload_param('_write_usage', True)
+            if write_usage:
+                trace.write_usage(db=db)
             
         failed_log_updates = []
                     
