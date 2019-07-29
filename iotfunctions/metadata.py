@@ -264,7 +264,7 @@ class EntityType(object):
         self.set_params(**kwargs)
         
         #Start a trace to record activity on the entity type
-        self._trace = Trace(name=None,parent=self,db=db)
+        self._trace = Trace(object_name=None,parent=self,db=db)
         
         if self._disabled_stages is None:
             self._disabled_stages = []
@@ -2549,7 +2549,7 @@ class Trace(object)    :
     
     save_trace_to_file = False 
     
-    def __init__(self,name=None,parent=None,db=None):
+    def __init__(self,object_name=None,parent=None,db=None):
         if parent is None:
             parent = self
         self.parent = parent            
@@ -2557,9 +2557,7 @@ class Trace(object)    :
         self.auto_save = None
         self.auto_save_thread = None
         self.stop_event = None
-        if name is None:
-            name = self.build_trace_name()
-        self.name = name
+        (self.name,self.cos_path) = self.build_trace_name(object_name=object_name, execution_date=None)
         self.data = []
         self.df_cols = set()
         self.df_index = set()
@@ -2574,18 +2572,24 @@ class Trace(object)    :
         
     def as_json(self):      
                 
-        return json.dumps(self.data,indent=4)        
-        
-    def build_trace_name(self):
-        
-        #execute_str = '{:%Y%m%d%H%M%S%f}'.format(dt.datetime.utcnow())
-        today = dt.datetime.utcnow()
-        trace_log_cos_path = ('%s/%s/%s/auto_trace_%s' %
-                               (self.parent.tenant_id, self.parent._entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
+        return json.dumps(self.data,indent=4)
 
-        #return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,execute_str)
-        return trace_log_cos_path
+    def build_trace_name(self,object_name,execution_date):
 
+        try:
+            (trace_name,cos_path) = self.parent.build_trace_name(object_name=object_name,
+                                                                 execution_date=execution_date)
+        except AttributeError:
+            if object_name is None:
+                object_name = self.parent.name
+            if execution_date is None:
+                execution_date = dt.datetime.utcnow()
+            trace_name = 'auto_trace_%s_%s' % (object_name, execution_date.strftime('%Y%m%d%H%M%S'))
+            cos_path = ('%s/%s/%s/%s_trace_%s' %
+                                  (self.parent.tenant_id, object_name, execution_date.strftime('%Y%m%d'),
+                                   object_name, execution_date.strftime('%H%M%S')))
+
+        return (trace_name,cos_path)
 
     def get_stack_trace(self):
         '''
@@ -2604,7 +2608,7 @@ class Trace(object)    :
 
         return stack_trace
         
-    def reset(self,name=None,auto_save=None):
+    def reset(self,object_name=None,execution_date=None,auto_save=None):
         '''
         Clear trace information and rename trace
         '''
@@ -2618,9 +2622,9 @@ class Trace(object)    :
             logger.debug('Reseting trace %s', self.name)
             self.stop()
         self.data = []
-        if name is None:
-            name = self.build_trace_name()
-        self.name = name
+        (self.name,self.cos_path) = self.build_trace_name(object_name=object_name,
+                                                          execution_date=execution_date)
+
         logger.debug('Started a new trace %s ', self.name)
         if self.auto_save is not None and self.auto_save > 0:
             logger.debug('Initiating auto save for trace')
@@ -2661,9 +2665,9 @@ class Trace(object)    :
             else:
                 trace = str(self.as_json())
                 self.db.cos_save(persisted_object=trace,
-                         filename=self.name,
+                         filename=self.cos_path,
                          binary=False, serialize=False)
-                logger.debug('Saved trace to cos %s', self.name)
+                logger.debug('Saved trace to cos %s', self.cos_path)
         try:
             save_to_file = self.parent.save_trace_to_file
         except AttributeError:

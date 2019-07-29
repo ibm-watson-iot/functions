@@ -1547,19 +1547,24 @@ class JobController(object):
 
         return meta
 
-    def build_trace_name(self, execute_date):
+    def build_trace_name(self, object_name, execute_date):
+
+        if object_name is None:
+            try:
+                object_name = self.payload.name
+            except AttributeError:
+                object_name = self.payload.__class__.__name__
 
         if execute_date is None:
             execute_date = dt.datetime.utcnow()
-        execute_str = '{:%Y%m%d%H%M%S%f}'.format(execute_date)
 
-        # return '%s_%s_trace_%s' %(self.payload.__class__.__name__,self.name,execute_str)
+        trace_name = 'auto_trace_%s_%s' % (object_name, execute_date.strftime('%Y%m%d%H%M%S'))
 
         trace_log_cos_path = ('%s/%s/%s/%s_trace_%s' %
-                              (self.payload.tenant_id, self.payload._entity_type_name, execute_date.strftime('%Y%m%d'),
-                               self.payload.__class__.__name__, execute_str))
+                              (self.payload.tenant_id, object_name, execute_date.strftime('%Y%m%d'),
+                               object_name, execute_date.strftime('H%M%S')))
 
-        return trace_log_cos_path
+        return (trace_name, trace_log_cos_path)
     
     def collapse_aggregation_stages(self,granularity, available_columns):
         '''
@@ -2222,7 +2227,9 @@ class JobController(object):
                 # look for overrides in start and end dates
                 meta['start_date'] = self.get_payload_param('_start_ts_override',None)
                 meta['preload_from'] = meta['start_date']
-                meta['end_date'] = self.get_payload_param('_end_ts_override',execute_date)
+                meta['end_date'] = self.get_payload_param('_end_ts_override',None)
+                if meta['end_date'] is None:
+                    meta['end_date'] = execute_date
                 # process checkpoint based start date
                 if meta['backtrack'] == 'checkpoint':
                     meta['is_checkpoint_driven'] = True
@@ -2878,11 +2885,12 @@ class JobController(object):
         if trace is None:
             trace_name = None
         else:
-            trace_name = self.build_trace_name(metadata['execution_date'])
             trace.reset(
-                    name=trace_name,
+                    object_name=None,
+                    execution_date = metadata['execution_date'],
                     auto_save= self.get_payload_param('_auto_save_trace',None)
                     )
+            trace_name = trace.name
             trace.write(
                     created_by = self,
                     text = 'Started job',
