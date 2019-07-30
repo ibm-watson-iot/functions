@@ -188,7 +188,6 @@ class EntityType(object):
 
     # variabes that will be set when loading from the server
     _entity_type_id = None
-    _entity_type_name = None
     logical_name = None
     _timestamp = 'evt_timestamp'
     _dimension_table_name = None
@@ -598,7 +597,7 @@ class EntityType(object):
                 
         return stages
     
-    def build_granularities(self,grain_meta,freq_lookup):
+    def build_granularities(self,grain_meta,freq_lookup, entity_name):
         '''
         Convert AS granularity metadata to a list of granularity objects.
         '''
@@ -637,7 +636,7 @@ class EntityType(object):
                     name= g['name'],
                     grouper = grouper,
                     dimensions = dimensions,
-                    entity_name = self.logical_name,
+                    entity_name = entity_name,
                     timestamp = self._timestamp,
                     entity_id = entity_id,
                     custom_calendar_keys = custom_calendar_keys,
@@ -1749,8 +1748,8 @@ class EntityType(object):
         #build a dictionary of granularity objects keyed by granularity name
         grains_metadata = self.build_granularities(
                             grain_meta = meta['granularities'],
-                            freq_lookup = meta.get('frequencies')
-                            )        
+                            freq_lookup = meta.get('frequencies'),
+                            entity_name = self.logical_name)
         
         params = {
                 '_functions' : kpis,
@@ -2113,12 +2112,11 @@ class ServerEntityType(EntityType):
         #build a dictionary of granularity objects keyed by granularity name
         self._granularities_dict = self.build_granularities(
                             grain_meta = server_meta['granularities'],
-                            freq_lookup = server_meta.get('frequencies')
-                            )        
+                            freq_lookup = server_meta.get('frequencies'),
+                            entity_name = logical_name)
         
         #  map server properties to entitty type properties
         self._entity_type_id  =server_meta['entityTypeId']
-        self._entity_type_name = logical_name
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
         self._dimension_table_name = server_meta['dimensionsTable']

@@ -1676,7 +1676,7 @@ class JobController(object):
         constants = {}
         while execute_date <= execute_until:
 
-            EngineLogging.start_run_log(self.payload.tenant_id, self.payload._entity_type_name)
+            EngineLogging.start_run_log(self.payload.tenant_id, self.payload.logical_name)
             logger.debug ((
                     'Starting execution number: %s with execution date: %s'),
                     execution_counter, execute_date
