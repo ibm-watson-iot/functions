@@ -229,7 +229,7 @@ class EntityType(object):
         logger.debug('Initializing new entity type using iotfunctions %s',
                      iotf.__version__)
         
-        self.logical_name = name
+        #self.logical_name = name
         name = name.lower()
         name = name.replace(' ','_')
         name = name.replace('-', '_')
@@ -597,7 +597,7 @@ class EntityType(object):
                 
         return stages
     
-    def build_granularities(self,grain_meta,freq_lookup, entity_name):
+    def build_granularities(self,grain_meta,freq_lookup):
         '''
         Convert AS granularity metadata to a list of granularity objects.
         '''
@@ -636,7 +636,7 @@ class EntityType(object):
                     name= g['name'],
                     grouper = grouper,
                     dimensions = dimensions,
-                    entity_name = entity_name,
+                    entity_name = self.logical_name,
                     timestamp = self._timestamp,
                     entity_id = entity_id,
                     custom_calendar_keys = custom_calendar_keys,
@@ -1748,8 +1748,8 @@ class EntityType(object):
         #build a dictionary of granularity objects keyed by granularity name
         grains_metadata = self.build_granularities(
                             grain_meta = meta['granularities'],
-                            freq_lookup = meta.get('frequencies'),
-                            entity_name = self.logical_name)
+                            freq_lookup = meta.get('frequencies')
+                            )
         
         params = {
                 '_functions' : kpis,
@@ -2109,17 +2109,18 @@ class ServerEntityType(EntityType):
         
         self._schedules_dict = self.build_schedules(kpis)
         
-        #build a dictionary of granularity objects keyed by granularity name
-        self._granularities_dict = self.build_granularities(
-                            grain_meta = server_meta['granularities'],
-                            freq_lookup = server_meta.get('frequencies'),
-                            entity_name = logical_name)
-        
         #  map server properties to entitty type properties
+        self.logical_name = logical_name
         self._entity_type_id  =server_meta['entityTypeId']
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
         self._dimension_table_name = server_meta['dimensionsTable']
+
+        #build a dictionary of granularity objects keyed by granularity name
+        self._granularities_dict = self.build_granularities(
+                            grain_meta = server_meta['granularities'],
+                            freq_lookup = server_meta.get('frequencies'),
+                            )
         
         #  set the data items metadata directly - no need to create cols
         #  as table is assumed to exist already since this is a 
@@ -2579,7 +2580,12 @@ class Trace(object)    :
                                                                  execution_date=execution_date)
         except AttributeError:
             if object_name is None:
-                object_name = self.parent.name
+
+                try:
+                    object_name = self.parent.logical_name
+                except AttributeError:
+                    object_name = self.parent.name
+
             if execution_date is None:
                 execution_date = dt.datetime.utcnow()
             trace_name = 'auto_trace_%s_%s' % (object_name, execution_date.strftime('%Y%m%d%H%M%S'))
