@@ -2113,7 +2113,8 @@ class ServerEntityType(EntityType):
         (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
         
         self._schedules_dict = self.build_schedules(kpis)
-        
+
+        self.logical_name = logical_name
         #build a dictionary of granularity objects keyed by granularity name
         self._granularities_dict = self.build_granularities(
                             grain_meta = server_meta['granularities'],
