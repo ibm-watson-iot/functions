@@ -638,7 +638,7 @@ class DataReader(object):
             
         if len(outputs) == 0:
             raise StageException(
-                ('The data reader get_data_items_list() methor returned no'
+                ('The data reader get_data_items_list() method returned no'
                  ' data items'
                  ),self)               
             

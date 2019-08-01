@@ -229,8 +229,12 @@ class EntityType(object):
         
         logger.debug('Initializing new entity type using iotfunctions %s',
                      iotf.__version__)
-        
-        self.logical_name = name
+
+        try:
+            logical_name = self.logical_name
+        except AttributeError:
+            self.logical_name = name
+
         name = name.lower()
         name = name.replace(' ','_')
         name = name.replace('-', '_')
