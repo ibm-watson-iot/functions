@@ -1760,6 +1760,10 @@ class ShiftCalendar(BaseTransformer):
         super().__init__()
     
     def get_data(self,start_date,end_date):
+        if start_date is None:
+            raise ValueError('Start date is required when building data for a shift calendar')
+        if end_date is None:
+            raise ValueError('End date is required when building data for a shift calendar')
         start_date = start_date.date()
         end_date = end_date.date()
         dates = pd.DatetimeIndex(start=start_date,end=end_date,freq='1D').tolist()
@@ -1787,14 +1791,20 @@ class ShiftCalendar(BaseTransformer):
         df = reset_df_index(df,auto_index_name = self.auto_index_name)
         entity_type = self.get_entity_type()
         (df,ts_col) = entity_type.df_sort_timestamp(df)
-        calendar_df = self.get_data(start_date= df[ts_col].min(), end_date = df[ts_col].max())
-        df = pd.merge_asof(left = df,
-                           right = calendar_df,
-                           left_on = ts_col,
-                           right_on = self.period_start_date,
-                           direction = 'backward')
+        start_date = df[ts_col].min()
+        end_date = df[ts_col].max()
+
+        if len(df.index) > 0:
+
+            calendar_df = self.get_data(start_date= start_date, end_date = end_date)
+            df = pd.merge_asof(left = df,
+                               right = calendar_df,
+                               left_on = ts_col,
+                               right_on = self.period_start_date,
+                               direction = 'backward')
             
-        df = self._entity_type.index_df(df)
+            df = self._entity_type.index_df(df)
+
         return df
     
     @classmethod

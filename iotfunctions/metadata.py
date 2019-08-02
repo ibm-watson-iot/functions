@@ -228,8 +228,12 @@ class EntityType(object):
         
         logger.debug('Initializing new entity type using iotfunctions %s',
                      iotf.__version__)
-        
-        #self.logical_name = name
+
+        try:
+            logical_name = self.logical_name
+        except AttributeError:
+            self.logical_name = name
+
         name = name.lower()
         name = name.replace(' ','_')
         name = name.replace('-', '_')
@@ -2108,9 +2112,15 @@ class ServerEntityType(EntityType):
         (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
         
         self._schedules_dict = self.build_schedules(kpis)
+
+        self.logical_name = logical_name
+        #build a dictionary of granularity objects keyed by granularity name
+        self._granularities_dict = self.build_granularities(
+                            grain_meta = server_meta['granularities'],
+                            freq_lookup = server_meta.get('frequencies')
+                            )        
         
         #  map server properties to entitty type properties
-        self.logical_name = logical_name
         self._entity_type_id  =server_meta['entityTypeId']
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
