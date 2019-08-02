@@ -638,7 +638,7 @@ class DataReader(object):
             
         if len(outputs) == 0:
             raise StageException(
-                ('The data reader get_data_items_list() methor returned no'
+                ('The data reader get_data_items_list() method returned no'
                  ' data items'
                  ),self)               
             
@@ -649,6 +649,7 @@ class DataReader(object):
 class DataWriterException(Exception):
     
     def __init__(self, msg):
+        logger.error(msg)
         super().__init__(msg)
 
 
@@ -926,14 +927,14 @@ class Db2DataWriter:
         parmExtension = ''
 
         for dimension in dimensions:
-            quoted_dimension = dbhelper.quotingColumnName(dimension)
+            quoted_dimension = dbhelper.quoting_column_name(dimension)
             colExtension += ', ' + quoted_dimension
             parmExtension += ', ?'
 
         stmt = ('INSERT INTO %s.%s (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) ' +
-                'VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)') % \
-               (dbhelper.quotingSchemaName(self.schema_name),
-                dbhelper.quotingTableName(table_name),
+                'VALUES (?%s, ?, ?, ?, ?, CURRENT_TIMESTAMP)') % \
+               (dbhelper.quoting_schema_name(self.schema_name),
+                dbhelper.quoting_table_name(table_name),
                 colExtension,
                 parmExtension)
 
@@ -941,7 +942,7 @@ class Db2DataWriter:
 
     def create_delete_statement(self, table_name):
         stmt = ('DELETE FROM %s.%s' %
-                (dbhelper.quotingSchemaName(self.schema_name), dbhelper.quotingTableName(table_name)))
+                (dbhelper.quoting_schema_name(self.schema_name), dbhelper.quoting_table_name(table_name)))
         where1 = ('%s >= %s' % (KPI_TIMESTAMP_COLUMN, ' ? '))
         where2 = ('%s < %s' % (KPI_TIMESTAMP_COLUMN, ' ? '))
         stmt = '%s WHERE %s AND %s' % (stmt, where1, where2)
@@ -1001,7 +1002,7 @@ class JobLog(object):
                 self.table.c.schedule == schedule,
                 self.table.c.status == 'running'                  
                     ))
-        df = pd.read_sql(sql=q,con=self.db.connection)
+        df = pd.read_sql_query(sql=q,con=self.db.connection)
         
         if len(df.index)>0:
             upd = self.table.update().values(status='abandoned').\
@@ -1160,7 +1161,7 @@ class JobController(object):
     # aggegregating data, writing data and merging the results of 
     # the execution of a stage with data produced from prior stages
     data_aggregator = DataAggregator
-    data_writer = DataWriterFile
+    data_writer = Db2DataWriter
     data_merge = DataMerge
     job_log_class = JobLog
     
@@ -1545,15 +1546,25 @@ class JobController(object):
             s.build_status = 'Skipped due to dependency issue'
 
         return meta
-    
-    def build_trace_name(self,execute_date):
-        
+
+    def build_trace_name(self, object_name, execute_date):
+
+        if object_name is None:
+            try:
+                object_name = self.payload.name
+            except AttributeError:
+                object_name = self.payload.__class__.__name__
+
         if execute_date is None:
             execute_date = dt.datetime.utcnow()
-        execute_str = '{:%Y%m%d%H%M%S%f}'.format(execute_date)
-    
-        return '%s_%s_trace_%s' %(self.payload.__class__.__name__,
-                               self.name,execute_str)
+
+        trace_name = 'auto_trace_%s_%s' % (object_name, execute_date.strftime('%Y%m%d%H%M%S'))
+
+        trace_log_cos_path = ('%s/%s/%s/%s_trace_%s' %
+                              (self.payload.tenant_id, object_name, execute_date.strftime('%Y%m%d'),
+                               object_name, execute_date.strftime('H%M%S')))
+
+        return (trace_name, trace_log_cos_path)
     
     def collapse_aggregation_stages(self,granularity, available_columns):
         '''
@@ -1665,7 +1676,7 @@ class JobController(object):
         constants = {}
         while execute_date <= execute_until:
 
-            EngineLogging.start_run_log(self.payload.tenant_id, self.payload.name)
+            EngineLogging.start_run_log(self.payload.tenant_id, self.payload.logical_name)
             logger.debug ((
                     'Starting execution number: %s with execution date: %s'),
                     execution_counter, execute_date
@@ -2216,7 +2227,9 @@ class JobController(object):
                 # look for overrides in start and end dates
                 meta['start_date'] = self.get_payload_param('_start_ts_override',None)
                 meta['preload_from'] = meta['start_date']
-                meta['end_date'] = self.get_payload_param('_end_ts_override',execute_date)
+                meta['end_date'] = self.get_payload_param('_end_ts_override',None)
+                if meta['end_date'] is None:
+                    meta['end_date'] = execute_date
                 # process checkpoint based start date
                 if meta['backtrack'] == 'checkpoint':
                     meta['is_checkpoint_driven'] = True
@@ -2531,6 +2544,8 @@ class JobController(object):
             retries = self.log_save_retries
 
         trace = self.get_payload_param('_trace',None)
+        db = self.get_payload_param('db',None)
+
         if trace is not None:
 
             if status == 'aborted':
@@ -2553,6 +2568,10 @@ class JobController(object):
                     **tw
                     )
             trace.save()
+
+            write_usage = self.get_payload_param('_write_usage', True)
+            if write_usage:
+                trace.write_usage(db=db)
             
         failed_log_updates = []
                     
@@ -2560,7 +2579,7 @@ class JobController(object):
             wrote_log = False
             for i in retries:
                 try:
-                    self.job_log.update(name = self.name,
+                    self.job_log.update(name = self.payload.logical_name,
                                     schedule = m,
                                     execution_date = metadata['execution_date'],
                                     status = status,
@@ -2577,7 +2596,7 @@ class JobController(object):
                 
             if not wrote_log and status == 'complete':
                 entry = {'schedule':m,
-                         'name':self.name,
+                         'name':self.payload.logical_name,
                          'execution_date':metadata['execution_date'],
                          'status': status,
                          'next_execution_date' : metadata['next_future_execution']
@@ -2866,11 +2885,13 @@ class JobController(object):
         if trace is None:
             trace_name = None
         else:
-            trace_name = self.build_trace_name(metadata['execution_date'])
             trace.reset(
-                    name=trace_name,
+                    object_name=None,
+                    execution_date = metadata['execution_date'],
                     auto_save= self.get_payload_param('_auto_save_trace',None)
                     )
+            trace_name = trace.name
+            trace_cos_path = trace.cos_path
             trace.write(
                     created_by = self,
                     text = 'Started job',
@@ -2879,8 +2900,8 @@ class JobController(object):
                     )
                     
         for m in metadata['mark_complete']:
-            self.job_log.clear_old_running(name=self.name,schedule=m)
-            self.job_log.insert(name = self.name,
+            self.job_log.clear_old_running(name=self.payload.logical_name,schedule=m)
+            self.job_log.insert(name = self.payload.logical_name,
                                 schedule = m,
                                 execution_date = metadata['execution_date'],
                                 previous_execution_date = metadata['previous_execution_date'],
@@ -2888,7 +2909,7 @@ class JobController(object):
                                 status = status,
                                 startup_log = startup_log,
                                 execution_log = execution_log,
-                                trace = trace_name)
+                                trace = trace_cos_path)
                         
             
     def raise_error(self,exception,msg='',stageName=None, raise_error=None):

@@ -34,7 +34,7 @@ class EngineLogging:
     @classmethod
     def start_setup_log(cls, tenant_id, entity_type_name):
         today = dt.datetime.utcnow()
-        cls.setupLogCosPath = ('%s/%s/%s/%s.setup.gz' %
+        cls.setupLogCosPath = ('%s/%s/%s/%s_setup.gz' %
                                (tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
         root_logger = logging.getLogger()
         handler = logging.FileHandler(cls.SETUP_LOG_NAME, mode='w')
@@ -63,7 +63,7 @@ class EngineLogging:
     @classmethod
     def start_run_log(cls, tenant_id, entity_type_name):
         today = dt.datetime.utcnow()
-        cls.runLogCosPath = ('%s/%s/%s/%s.gz' %
+        cls.runLogCosPath = ('%s/%s/%s/%s_run.gz' %
                              (tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
         root_logger = logging.getLogger()
         handler = logging.FileHandler(cls.RUN_LOG_NAME, mode='w')
@@ -102,7 +102,7 @@ class EngineLogging:
             if bucket is not None and len(bucket) > 0:
                 try:
                     with open(file_name, 'r') as file:
-                        cls.cosClient.cos_put(cos_path, gzip.compress(file.read().encode()), bucket=bucket)
+                        cls.cosClient.cos_put(cos_path, gzip.compress(file.read().encode()), bucket=bucket, serialize=False)
                 except Exception as ex:
                     raise Exception(('The log file %s could not be transferred to Object Store '
                                     'in bucket %s under %s: %s') %

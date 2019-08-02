@@ -181,6 +181,11 @@ class EntityType(object):
     _start_entity_id = 73000  #deprecated. Use parameters on EntityDataGenerator
     _auto_entity_count = 5  # deprecated. Use parameters on EntityDataGenerator
 
+    # pipeline work variables stages
+    _dimension_table = None
+    _scd_stages = None
+    _custom_calendar = None
+
     # variabes that will be set when loading from the server
     _entity_type_id = None
     logical_name = None
@@ -212,16 +217,23 @@ class EntityType(object):
     drop_null_class = DropNull
     enable_downcast = False
     allow_projection_list_trim = True
+    _write_usage = False
 
     #deprecated class variables (to be removed)
     _checkpoint_by_entity = True # manage a separate checkpoint for each entity instance
-    
+    _is_initial_transform = True
+    _is_preload_complete = False
+
     def __init__(self, name, db, *args, **kwargs):
         
         logger.debug('Initializing new entity type using iotfunctions %s',
                      iotf.__version__)
-        
-        self.logical_name = name
+
+        try:
+            logical_name = self.logical_name
+        except AttributeError:
+            self.logical_name = name
+
         name = name.lower()
         name = name.replace(' ','_')
         name = name.replace('-', '_')
@@ -242,13 +254,9 @@ class EntityType(object):
         self._stage_type_map = self.default_stage_type_map()
         self._custom_exclude_col_from_auto_drop_nulls = []
         self._drop_all_null_rows = True
-        #pipeline work variables stages
-        self._dimension_table = None
-        self._scd_stages = []
-        self._custom_calendar = None
-        self._is_initial_transform = True
-        self._is_preload_complete = False
 
+        if self._scd_stages is None:
+            self._scd_stages = []
 
         if self._data_items is None:
             self._data_items = []
@@ -259,7 +267,7 @@ class EntityType(object):
         self.set_params(**kwargs)
         
         #Start a trace to record activity on the entity type
-        self._trace = Trace(name=None,parent=self,db=db)
+        self._trace = Trace(object_name=None,parent=self,db=db)
         
         if self._disabled_stages is None:
             self._disabled_stages = []
@@ -1745,7 +1753,7 @@ class EntityType(object):
         grains_metadata = self.build_granularities(
                             grain_meta = meta['granularities'],
                             freq_lookup = meta.get('frequencies')
-                            )        
+                            )
         
         params = {
                 '_functions' : kpis,
@@ -2104,7 +2112,8 @@ class ServerEntityType(EntityType):
         (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
         
         self._schedules_dict = self.build_schedules(kpis)
-        
+
+        self.logical_name = logical_name
         #build a dictionary of granularity objects keyed by granularity name
         self._granularities_dict = self.build_granularities(
                             grain_meta = server_meta['granularities'],
@@ -2116,6 +2125,12 @@ class ServerEntityType(EntityType):
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
         self._dimension_table_name = server_meta['dimensionsTable']
+
+        #build a dictionary of granularity objects keyed by granularity name
+        self._granularities_dict = self.build_granularities(
+                            grain_meta = server_meta['granularities'],
+                            freq_lookup = server_meta.get('frequencies'),
+                            )
         
         #  set the data items metadata directly - no need to create cols
         #  as table is assumed to exist already since this is a 
@@ -2543,7 +2558,7 @@ class Trace(object)    :
     
     save_trace_to_file = False 
     
-    def __init__(self,name=None,parent=None,db=None):
+    def __init__(self,object_name=None,parent=None,db=None):
         if parent is None:
             parent = self
         self.parent = parent            
@@ -2551,9 +2566,7 @@ class Trace(object)    :
         self.auto_save = None
         self.auto_save_thread = None
         self.stop_event = None
-        if name is None:
-            name = self.build_trace_name()
-        self.name = name
+        (self.name,self.cos_path) = self.build_trace_name(object_name=object_name, execution_date=None)
         self.data = []
         self.df_cols = set()
         self.df_index = set()
@@ -2568,14 +2581,29 @@ class Trace(object)    :
         
     def as_json(self):      
                 
-        return json.dumps(self.data,indent=4)        
-        
-    def build_trace_name(self):
-        
-        execute_str = '{:%Y%m%d%H%M%S%f}'.format(dt.datetime.utcnow())
-        
-        return 'auto_trace_%s_%s' %(self.parent.__class__.__name__,
-                               execute_str)
+        return json.dumps(self.data,indent=4)
+
+    def build_trace_name(self,object_name,execution_date):
+
+        try:
+            (trace_name,cos_path) = self.parent.build_trace_name(object_name=object_name,
+                                                                 execution_date=execution_date)
+        except AttributeError:
+            if object_name is None:
+
+                try:
+                    object_name = self.parent.logical_name
+                except AttributeError:
+                    object_name = self.parent.name
+
+            if execution_date is None:
+                execution_date = dt.datetime.utcnow()
+            trace_name = 'auto_trace_%s_%s' % (object_name, execution_date.strftime('%Y%m%d%H%M%S'))
+            cos_path = ('%s/%s/%s/%s_trace_%s' %
+                                  (self.parent.tenant_id, object_name, execution_date.strftime('%Y%m%d'),
+                                   object_name, execution_date.strftime('%H%M%S')))
+
+        return (trace_name,cos_path)
 
     def get_stack_trace(self):
         '''
@@ -2594,7 +2622,7 @@ class Trace(object)    :
 
         return stack_trace
         
-    def reset(self,name=None,auto_save=None):
+    def reset(self,object_name=None,execution_date=None,auto_save=None):
         '''
         Clear trace information and rename trace
         '''
@@ -2608,9 +2636,9 @@ class Trace(object)    :
             logger.debug('Reseting trace %s', self.name)
             self.stop()
         self.data = []
-        if name is None:
-            name = self.build_trace_name()
-        self.name = name
+        (self.name,self.cos_path) = self.build_trace_name(object_name=object_name,
+                                                          execution_date=execution_date)
+
         logger.debug('Started a new trace %s ', self.name)
         if self.auto_save is not None and self.auto_save > 0:
             logger.debug('Initiating auto save for trace')
@@ -2651,9 +2679,9 @@ class Trace(object)    :
             else:
                 trace = str(self.as_json())
                 self.db.cos_save(persisted_object=trace,
-                         filename=self.name,
-                         binary=False)
-                logger.debug('Saved trace to cos %s', self.name)
+                         filename=self.cos_path,
+                         binary=False, serialize=False)
+                logger.debug('Saved trace to cos %s', self.cos_path)
         try:
             save_to_file = self.parent.save_trace_to_file
         except AttributeError:
@@ -2748,13 +2776,79 @@ class Trace(object)    :
             entry = {**entry,**df_info}
         
         self.data.append(entry)
+
+        exception_type = entry.get('exception_type',None)
+        exception = entry.get('exception',None)
+        stack_trace = entry.get('stack_trace',None)
          
         try:
             if log_method is not None:
                 log_method(text)
+                if exception_type is not None:
+                    log_method(exception_type)
+                if exception is not None:
+                    log_method(exception)
+                if stack_trace is not None:
+                    log_method(stack_trace)
         except TypeError:
             msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' %text
-            logger.warning(msg)
+            logger.warning(text)
+            if exception_type is not None:
+                logger.warning(exception_type)
+            if exception is not None:
+                logger.warning(exception)
+            if stack_trace is not None:
+                logger.warning(stack_trace)
+
+    def write_usage(self,db,start_ts=None,end_ts=None):
+        '''
+        Write usage stats to the usage log
+        '''
+
+        usage_logged = False
+        msg = 'No db object provided. Did not write usage'
+
+        usage = []
+        for i in self.data:
+            result = int(i.get('usage', 0))
+            if end_ts is None:
+                end_ts = dt.datetime.utcnow()
+
+            if start_ts is None:
+                elapsed = float(i.get('elapsed_time', '0'))
+                start_ts = end_ts - dt.timedelta(seconds=elapsed)
+
+            if result > 0:
+                entry = {
+                    "entityTypeName": self.parent.name,
+                    "kpiFunctionName": i.get('created_by', 'unknown'),
+                    "startTimestamp": str(start_ts),
+                    "endTimestamp": str(end_ts),
+                    "numberOfResultsProcessed": result
+                }
+                usage.append(entry)
+
+        if len(usage) > 0:
+
+            if db is not None:
+                try:
+                    db.http_request(object_type='usage',
+                                    object_name='',
+                                    request='POST',
+                                    payload = usage
+                                    )
+                except BaseException as e:
+                    msg = 'Unable to write usage. %s' %str(e)
+                else:
+                    usage_logged = True
+
+        else:
+            msg = 'No usage recorded for this execution'
+
+        if not usage_logged:
+            logger.info(msg)
+            if len(usage) > 0:
+                logger.info(usage)
             
     def _df_as_dict(self,df):
         

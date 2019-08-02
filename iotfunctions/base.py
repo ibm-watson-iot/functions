@@ -885,9 +885,9 @@ class BaseFunction(object):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading scd %s from %s to %s using %s' %(table_name, start_ts, end_ts, query.statement)
         logger.debug(msg)
-        df = pd.read_sql(query.statement,
-                         con = self._entity_type.db.connection,
-                         parse_dates=[self._start_date,self._end_date])
+        df = pd.read_sql_query(query.statement,
+                               con = self._entity_type.db.connection,
+                               parse_dates=[self._start_date,self._end_date])
         return df
    
     
@@ -1520,7 +1520,7 @@ class BaseDataSource(BaseTransformer):
         '''
         Retrieve data and combine with pipeline data
         '''
-        new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
+        new_df = self.get_data(start_ts=start_ts,end_ts=end_ts,entities=None)
         new_df = self._entity_type.index_df(new_df)
         self.log_df_info(df,'source dataframe before merge')
         self.log_df_info(new_df,'additional data source to be merged')        
@@ -1689,7 +1689,7 @@ class BaseDatabaseLookup(BaseTransformer):
             '''
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
-            df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
+            df = pd.read_sql_query(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
             df.columns = [x.lower() for x in list(df.columns)]            
             return(list(df.columns))
                         
@@ -1712,10 +1712,10 @@ class BaseDatabaseLookup(BaseTransformer):
 
         msg = ' function attempted to excecute sql %s. ' %self.sql
         self.trace_append(msg)
-        df_sql = pd.read_sql(self.sql, 
-                             self.db.connection,
-                             index_col=self.lookup_keys,
-                             parse_dates=self.parse_dates)
+        df_sql = pd.read_sql_query(self.sql, 
+                                   self.db.connection,
+                                   index_col=self.lookup_keys,
+                                   parse_dates=self.parse_dates)
         msg = 'Lookup returned columns %s. ' %','.join(list(df_sql.columns))
         self.trace_append(msg)
         
@@ -1807,7 +1807,7 @@ class BaseDBActivityMerge(BaseDataSource):
     def execute(self,df,start_ts=None,end_ts=None,entities=None):
         
         self.execute_by = [self._entity_type._entity_id]
-        df = super().execute(df)
+        df = super().execute(df, start_ts=start_ts, end_ts=end_ts, entities=entities)
         return df
         
     def get_data(self,
@@ -1833,9 +1833,9 @@ class BaseDBActivityMerge(BaseDataSource):
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
-                af = pd.read_sql(sql,
-                                 con = self._entity_type.db.connection,
-                                 parse_dates=[self._start_date,self._end_date])
+                af = pd.read_sql_query(sql,
+                                       con = self._entity_type.db.connection,
+                                       parse_dates=[self._start_date,self._end_date])
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
@@ -2079,9 +2079,9 @@ class BaseDBActivityMerge(BaseDataSource):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading activity %s from %s to %s using %s' %(activity_code,start_ts,end_ts,query.statement )
         logger.debug(msg)
-        df = pd.read_sql(query.statement,
-                         con = self._entity_type.db.connection,
-                         parse_dates=[self._start_date,self._end_date])
+        df = pd.read_sql_query(query.statement,
+                               con = self._entity_type.db.connection,
+                               parse_dates=[self._start_date,self._end_date])
         
         return df
 

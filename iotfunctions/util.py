@@ -331,9 +331,10 @@ class CosClient:
         root = etree.fromstring(str.encode(result))
         return [elem.text for elem in root.findall('Contents/Key', root.nsmap)]
 
-    def cos_put(self, key, payload, bucket, binary=False):
+    def cos_put(self, key, payload, bucket, binary=False, serialize=True):
         if payload is not None:
-            payload = pickle.dumps(payload)
+            if serialize:
+                payload = pickle.dumps(payload)
         else:
             payload = ''
 
