@@ -1986,6 +1986,7 @@ class BaseDBActivityMerge(BaseDataSource):
         dates |= set((df[self._start_date].tolist()))
         dates |= set((df[self._end_date].tolist()))
         dates |= set(self.add_dates)
+
         #scd changes are another potential interruption
         if self._entity_scd_dict is not None:
             has_scd={}
@@ -1997,7 +1998,13 @@ class BaseDBActivityMerge(BaseDataSource):
                     has_scd[scd_property]=False
         dates = list(dates)
         dates.sort()
-        
+
+        # Check for invalid values in dates
+        for date in dates:
+            if pd.isna(date) or not isinstance(date, dt.datetime):
+                msg = 'The data set start date/end date/activity code contains an invalid date value: %s' % date
+                raise TypeError(msg)
+
         #initialize series to track history of activities
         c = pd.Series(data='_gap_',index = dates)
         c.index = pd.to_datetime(c.index)
