@@ -1676,7 +1676,7 @@ class JobController(object):
         constants = {}
         while execute_date <= execute_until:
 
-            EngineLogging.start_run_log(self.payload.tenant_id, self.payload._entity_type_name)
+            EngineLogging.start_run_log(self.payload.tenant_id, self.payload.logical_name)
             logger.debug ((
                     'Starting execution number: %s with execution date: %s'),
                     execution_counter, execute_date
@@ -2579,7 +2579,7 @@ class JobController(object):
             wrote_log = False
             for i in retries:
                 try:
-                    self.job_log.update(name = self.name,
+                    self.job_log.update(name = self.payload.logical_name,
                                     schedule = m,
                                     execution_date = metadata['execution_date'],
                                     status = status,
@@ -2596,7 +2596,7 @@ class JobController(object):
                 
             if not wrote_log and status == 'complete':
                 entry = {'schedule':m,
-                         'name':self.name,
+                         'name':self.payload.logical_name,
                          'execution_date':metadata['execution_date'],
                          'status': status,
                          'next_execution_date' : metadata['next_future_execution']
@@ -2891,6 +2891,7 @@ class JobController(object):
                     auto_save= self.get_payload_param('_auto_save_trace',None)
                     )
             trace_name = trace.name
+            trace_cos_path = trace.cos_path
             trace.write(
                     created_by = self,
                     text = 'Started job',
@@ -2899,8 +2900,8 @@ class JobController(object):
                     )
                     
         for m in metadata['mark_complete']:
-            self.job_log.clear_old_running(name=self.name,schedule=m)
-            self.job_log.insert(name = self.name,
+            self.job_log.clear_old_running(name=self.payload.logical_name,schedule=m)
+            self.job_log.insert(name = self.payload.logical_name,
                                 schedule = m,
                                 execution_date = metadata['execution_date'],
                                 previous_execution_date = metadata['previous_execution_date'],
@@ -2908,7 +2909,7 @@ class JobController(object):
                                 status = status,
                                 startup_log = startup_log,
                                 execution_log = execution_log,
-                                trace = trace_name)
+                                trace = trace_cos_path)
                         
             
     def raise_error(self,exception,msg='',stageName=None, raise_error=None):
