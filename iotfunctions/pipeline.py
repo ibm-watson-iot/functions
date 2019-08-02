@@ -1002,7 +1002,7 @@ class JobLog(object):
                 self.table.c.schedule == schedule,
                 self.table.c.status == 'running'                  
                     ))
-        df = pd.read_sql(sql=q,con=self.db.connection)
+        df = pd.read_sql_query(sql=q,con=self.db.connection)
         
         if len(df.index)>0:
             upd = self.table.update().values(status='abandoned').\
