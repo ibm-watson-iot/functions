@@ -230,7 +230,7 @@ class EntityType(object):
                      iotf.__version__)
 
         try:
-            logical_name = self.logical_name
+            self.logical_name = self.logical_name
         except AttributeError:
             self.logical_name = name
 
