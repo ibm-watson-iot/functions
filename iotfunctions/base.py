@@ -62,6 +62,7 @@ class BaseFunction(object):
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
     requires_input_items = True
     produces_output_items = True
+    _allow_empty_df = False
     # internal work variables set by AS job processing
     name = None # name of function    
     _entity_type = None #  EntityType object that this function belongs to
@@ -542,7 +543,20 @@ class BaseFunction(object):
         '''
         series = self._get_series(df,[self._entity_type._timestamp,self._entity_type._timestamp_col])
         return series
-    
+
+    def get_trace(self):
+
+        '''
+        Return the current active trace object for entity type
+        '''
+
+        try:
+            trace = self.get_entity_type_param('_trace')
+        except AttributeError:
+            trace = None
+
+        return trace
+
     def _get_series(self,df,col_names):
         
         if isinstance(col_names,str):
@@ -1480,6 +1494,7 @@ class BaseDataSource(BaseTransformer):
     source_entity_id = 'deviceid'
     source_timestamp = 'evt_timestamp'
     auto_conform_index = True
+    _allow_empty_df = True
     
     def __init__(self, input_items, output_items=None, dummy_items = None):
         self.input_items = input_items
@@ -1777,6 +1792,7 @@ class BaseDBActivityMerge(BaseDataSource):
     # the start and end dates for activities are assumed to be designated by specific columns
     # the type of activity performed on or using an entity is designated by the 'activity' column
     _activity = 'activity'
+    _allow_empty_df = True
     
     def __init__(self,
                  input_activities,
@@ -2170,6 +2186,7 @@ class BasePreload(BaseTransformer):
     is_preload = True
     requires_input_items = False
     _abort_on_fail = True # if the preload fails do not proceed with execution
+    _allow_empty_df = True
     
     def __init__(self, dummy_items, output_item = None):
         super().__init__()
@@ -2204,6 +2221,8 @@ class BaseMetadataProvider(BasePreload):
     Metadata providers do not transform data. They merely add metadata to the entity type
     to make it available to other functions in the pipeline.
     """
+
+    _allow_empty_df = True
     
     def __init__(self, dummy_items, output_item = 'is_parameters_set', **kwargs):
         super().__init__(dummy_items = dummy_items, output_item= output_item)

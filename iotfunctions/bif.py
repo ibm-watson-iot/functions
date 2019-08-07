@@ -948,7 +948,9 @@ class EntityDataGenerator(BasePreload):
         kw = {'rows_generated' : len(df.index),
               'start_ts' : start_ts,
               'seconds' : seconds}
-        self.trace_append(msg='%s Generated data. ' %self.__class__.__name__,df=df,**kw)
+
+        trace = self.get_trace()
+        trace.update_last_entry(df=df,**kw)
 
         self.usage_ = len(df.index)
         
