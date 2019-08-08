@@ -2,10 +2,11 @@ import json
 import logging
 import datetime as dt
 import pandas as pd
-from iotfunctions.pipeline import JobController, DataWriterFile
+from iotfunctions.pipeline import JobController, DataWriterFile, DataAggregator
 from iotfunctions.db import Database
 from iotfunctions.base import BaseTransformer, BaseDataSource
 from iotfunctions.enginelog import EngineLogging
+from iotfunctions.metadata import Granularity
 
 EngineLogging.configure_console_logging(logging.DEBUG)
 
@@ -451,5 +452,67 @@ The dependent_task ran after the job_task and broken_task, combining the results
 
 '''
 
+'''
+So far we have used the JobController to read and transform low level input data.
+The JobController can also create summary data. When creating summary data,
+you need to indicate the level of granularity for the summary by building a
+Granularity object. 
+
+The daily grain, summaries by "id" at the "day" grain.
+
+'''
+
+daily = Granularity(
+    name = 'daily',
+    freq = 'D',                 # pandas frequency string
+    timestamp= 'evt_timestamp', # build time aggregations using this datetime col
+    entity_id = 'id',            # aggregate by id
+    dimensions = None,
+    entity_name = None
+)
+
+'''
+You also need a DataAggregator object that contains the metadata about
+which aggregation functions are applied to which data items, which
+input items are needed for aggregation and names the output items
+produced by the aggregation.
+
+In this example we will supply a prebuilt DataAggregator object. You
+can also have the JobController build a DataAggregator object for you
+using a lists of "simple_aggregate" and "complex_aggregate" functions.
+
+'''
+
+day_agg = DataAggregator(
+    name= 'day_agg',
+    granularity = daily,
+    agg_dict = {
+        'x1' : ['sum'],
+        'x2' : ['min','max']
+    },
+    input_items = ['x1','x2'],
+    output_items = ['x1','x2_min','x2_max']
+    )
+
+stages = {
+    ('get_data',None) : [sample_data],
+    ('transform',None) :  [job_task],
+    ('aggregate',daily) : day_agg
+}
+
+my_job = CustomJob('basic_tutorial_job',db=db,stages=stages)
+j = JobController(payload=my_job, save_trace_to_file = True, data_writer = DataWriterFile )
+j.execute()
+
+'''
+After executing the JobController object you will find two new csv files in the scripts folder.
+1) The input level file that contains the input data and calcs performed at the input level
+2) A summary level file that contains the aggregation results
+
+This is what the aggregation results look like:
+id	evt_timestamp	x1	x2_min	x2_max
+A01	8/8/2019 0:00	3	4 	    3
+
+'''
 
 

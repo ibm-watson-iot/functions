@@ -2444,9 +2444,7 @@ class Granularity(object):
     Parameters:
     -----------
     name: str
-        
-    grouper: pandas Grouper object
-    
+
     dimensions: list of data items used as dimension keys in group by
     
     entity_id: str. column name used to group by entity id. None if not
@@ -2458,6 +2456,9 @@ class Granularity(object):
     names to be grouped on
     
     custom_calendar: function object
+
+    grouper: pandas Grouper object. Optional. If not provided, the
+    grouper will be built using other arguments
     
     '''
 

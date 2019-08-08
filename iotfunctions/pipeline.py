@@ -80,12 +80,16 @@ class DataAggregator(object):
     _discard_prior_on_merge = True
     produces_output_items = True
 
-    def __init__(self,name,granularity,agg_dict,complex_aggregators,input_items,
-                 output_items):
+    def __init__(self,name,granularity,agg_dict,input_items,
+                 output_items, complex_aggregators = None):
 
         self.name = name
         self._agg_dict = agg_dict
         self._granularity = granularity
+
+        if complex_aggregators is None:
+            complex_aggregators = []
+
         self._complex_aggregators = complex_aggregators
         self.input_items = input_items
         self.output_items = output_items
@@ -1237,8 +1241,12 @@ class JobController(object):
                                 start_hour,start_min,backtrack_days)
         for key,value in list(self.stage_metadata.items()):
             out += 'Stages of type: %s at grain %s: \n' %(key[0],key[1])
-            for v in value:
-                out += '   %s\n' %str(v)
+            if isinstance(value,list):
+                for v in value:
+                    out += '   %s\n' %str(v)
+            else:
+                out += '   %s\n' %str(value)
+
         out += '\n'
 
         return out
@@ -1374,33 +1382,41 @@ class JobController(object):
             build_metadata['spec'] = []
             build_metadata['available_colums'] = input_level_items
 
-            # Simple aggregates are collapsed together for performance
-            # The agg_dict is a pandas aggregate_dictionary keyed by column 
-            # with a list of aggregation rules
-            result = self.collapse_aggregation_stages(
-                    granularity=g,
-                    available_columns = build_metadata['available_colums'])
-            (agg_dict, complex_aggregators, collapsed_stages, inputs, outputs) = result
-            build_metadata['required_inputs'] |= set(inputs)
-            build_metadata['available_colums'] |= set(outputs)
+            # Look for a predefined DataAggregator object
+            aggregate_stage = self.get_aggregate_stage(g)
+            if aggregate_stage is not None:
+                build_metadata['required_inputs'] |= aggregate_stage._input_set
 
-            logger.debug(('Collapsed aggregation stages %s down to a single"'),
-                         [x.name for x in collapsed_stages]
-                          )
-            logger.debug(agg_dict)
+            else:
+                # Build an aggregate_stage from discrete aggregate functions
+                # Simple aggregates are collapsed together for performance
+                # The agg_dict is a pandas aggregate_dictionary keyed by column
+                # with a list of aggregation rules
+                result = self.collapse_aggregation_stages(
+                        granularity=g,
+                        available_columns = build_metadata['available_colums'])
+                (agg_dict, complex_aggregators, collapsed_stages, inputs, outputs) = result
+                build_metadata['required_inputs'] |= set(inputs)
+                build_metadata['available_colums'] |= set(outputs)
 
-            # The job controller uses a generic DataAggregator to perform simple 
-            # aggregations using an agg_dict and complex aggregators using apply
-            aggregate_stage = self.data_aggregator(
-                    name= 'auto_aggregate',
-                    granularity = g,
-                    agg_dict = agg_dict,
-                    complex_aggregators = complex_aggregators,
-                    input_items = inputs,
-                    output_items = outputs
-                    )
+                logger.debug(('Collapsed aggregation stages %s down to a single"'),
+                             [x.name for x in collapsed_stages]
+                              )
+                logger.debug(agg_dict)
+
+                # The job controller uses a generic DataAggregator to perform simple
+                # aggregations using an agg_dict and complex aggregators using apply
+                aggregate_stage = self.data_aggregator(
+                        name= 'auto_aggregate',
+                        granularity = g,
+                        agg_dict = agg_dict,
+                        complex_aggregators = complex_aggregators,
+                        input_items = inputs,
+                        output_items = outputs
+                        )
+
             build_metadata['spec'].append(aggregate_stage)
-            build_metadata['available_columns'] |= set(outputs)
+            build_metadata['available_columns'] |= set(aggregate_stage._output_list)
             logger.debug('Added aggregregator to job spec: %s', aggregate_stage)
 
             # Add transform stages for grain to job_spec 
@@ -2097,7 +2113,7 @@ class JobController(object):
 
                 if discard_prior_data:
                     tw['merge_result'] = 'replaced prior data'
-                    result = self.payload.index_df(result)
+                    result = self.exec_payload_method('index_df',result,df=result)
                     merge.df = result
 
                 elif produces_output_items:
@@ -2384,6 +2400,24 @@ class JobController(object):
 
         return stages,new_cols,required_input_set, data_source_projection_list
 
+    def get_aggregate_stage(self,granularity):
+
+        aggregate_stage = self.stage_metadata.get(('aggregate',granularity),None)
+        if isinstance(aggregate_stage,DataAggregator):
+            return aggregate_stage
+        elif aggregate_stage is None:
+            return None
+        else:
+            try:
+                aggregate_stage = aggregate_stage[0]
+            except TypeError:
+                pass
+            else:
+                if isinstance(aggregate_stage, DataAggregator):
+                    return aggregate_stage
+
+        msg = 'A stage of type "aggregate" should contain a single Aggregate object not %s' %aggregate_stage
+        raise ValueError(msg)
 
     @classmethod
     def get_agg_stage_types(cls):
