@@ -26,7 +26,7 @@ useful to run these locally to debug. This script shows how to do this.
 db = Database(credentials = credentials)
 db_schema = None #  set if you are not using the default
 
-entity_name = 'mike_robot_july_24'  # choose a valid entity type name
+entity_name = 'mike_robot_31'  # choose a valid entity type name
 test_entity = ServerEntityType(entity_name,db=db,db_schema=db_schema)
 
 '''

@@ -1495,6 +1495,7 @@ class BaseDataSource(BaseTransformer):
     source_timestamp = 'evt_timestamp'
     auto_conform_index = True
     _allow_empty_df = True
+    requires_input_items = False
     
     def __init__(self, input_items, output_items=None, dummy_items = None):
         self.input_items = input_items
@@ -1536,7 +1537,10 @@ class BaseDataSource(BaseTransformer):
         Retrieve data and combine with pipeline data
         '''
         new_df = self.get_data(start_ts=start_ts,end_ts=end_ts,entities=None)
-        new_df = self._entity_type.index_df(new_df)
+        try:
+            new_df = self._entity_type.index_df(new_df)
+        except AttributeError:
+            pass
         self.log_df_info(df,'source dataframe before merge')
         self.log_df_info(new_df,'additional data source to be merged')        
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
@@ -1570,7 +1574,10 @@ class BaseDataSource(BaseTransformer):
         else:
             raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
-        df = self._entity_type.index_df(df)
+        try:
+            df = self._entity_type.index_df(df)
+        except AttributeError:
+            pass
         return df
 
 

@@ -2598,10 +2598,10 @@ class JobController(object):
 
         if requires_input and input_set is None:
             name = self.get_stage_param(stage,'name',stage.__class__.__name__)
-            msg = ('Function %s requires input items to be declared'
-                   'using the _input_set instance variable as the class'
+            msg = ('Function %s requires input items to be declared '
+                   'using the _input_set instance variable as the class '
                    'variable requires_input_items is set to True. '
-                   'Make sure _input_set contains a valid set of data'
+                   'Make sure _input_set contains a valid set of data '
                    'items or set requires_input_items to False' % name)
             raise ValueError(msg)
 
@@ -2621,11 +2621,11 @@ class JobController(object):
 
         if produces_output and output_list is None:
             name = self.get_stage_param(stage, 'name', stage.__class__.__name__)
-            msg = ('Function %s requires input items to be declared'
-                   'using the _output_list instance variable as the class'
+            msg = ('Function %s requires output items to be declared '
+                   'using the _output_list instance variable as the class '
                    'variable produces_output_items is set to True. '
-                   'Make sure _output_list contains a valid set of data'
-                   'items or set produces_output_items to False' % name)
+                   'Make sure _output_list contains a valid set of data '
+                   'items or set produces_output_items to False ' % name)
             raise ValueError(msg)
 
         if output_list is None:
