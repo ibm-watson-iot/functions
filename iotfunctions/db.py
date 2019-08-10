@@ -1695,6 +1695,7 @@ class Database(object):
         '''
         Returns a column expression that rounds the timestamp to the specified number of minutes
         '''
+
         a = self.get_table(table_name,schema)
         col = a.c[column_name]
         hour = func.add_hours(func.timestamp(func.date(col)),func.hour(col))

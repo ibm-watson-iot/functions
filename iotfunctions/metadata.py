@@ -17,6 +17,7 @@ import time
 import threading
 import warnings
 import traceback
+from collections import OrderedDict
 import pandas as pd
 from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func, MetaData
@@ -26,7 +27,7 @@ from ibm_db_sa.base import DOUBLE
 from . import db as db_module
 from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator,
                          CategoricalGenerator)
-from .pipeline import (CalcPipeline, DataReader, DropNull,
+from .pipeline import (CalcPipeline, DataReader, DropNull, DataAggregator,
                        JobController, DataWriterFile, JobLogNull, Trace)
 from .util import (MemoryOptimizer, StageException, build_grouper,
                    categorize_args, reset_df_index)
@@ -428,6 +429,29 @@ class EntityType(object):
 
         self._scd_stages.append(scd_lookup)
 
+
+    def  build_agg_dict_from_meta_list(self,meta_list):
+
+        agg_dict = OrderedDict()
+        input_items = set()
+        output_items = []
+
+        for f in meta_list:
+
+            input_item = f['input'].get('source')
+            output_item = f['output'].get('name')
+            aggregate = f['functionName']
+
+            try:
+                agg_dict[input_item].append(aggregate)
+            except KeyError:
+                agg_dict[input_item]=[aggregate]
+
+            input_items.add(input_item)
+            output_items.append(output_item)
+
+        return (agg_dict, input_items, output_items)
+
     def build_arg_metadata(self, obj):
 
         '''
@@ -755,6 +779,7 @@ class EntityType(object):
         '''
 
         stage_metadata = dict()
+        aggregators = dict()
 
         # Add a data_reader stage. This will read entity data.
 
@@ -820,21 +845,25 @@ class EntityType(object):
                 stage_metadata[(stage_type, granularity)] = [obj]
 
             # add metadata derived from function registration and function args
-            # input set and output list are crital metadata for the dependency model
+            # input set and output list are critical metadata for the dependency model
 
-            (in_, out, out_meta, input_set, output_list) = self.build_arg_metadata(obj)
+            if obj._input_set is not None and obj._output_list is not None:
+                logger.debug('Input set and output list were preset for function %s',obj.name)
+            else:
+                #get the input set and output list from the function argument metadata
+                (in_, out, out_meta, input_set, output_list) = self.build_arg_metadata(obj)
 
-            obj._inputs = in_
-            obj._outputs = out
-            obj._output_items_extended_metadata = out_meta
-            obj._input_set = input_set
-            obj._output_list = output_list
+                obj._inputs = in_
+                obj._outputs = out
+                obj._output_items_extended_metadata = out_meta
+                obj._input_set = input_set
+                obj._output_list = output_list
 
             # The stage may have metadata parameters that need to be 
             # copied onto the entity type
             try:
                 entity_metadata = obj._metadata_params
-            except KeyError:
+            except AttributeError:
                 entity_metadata = {}
                 logger.debug(('Function %s has no _metadata_params'
                               ' property. This property allows the stage'
@@ -975,6 +1004,7 @@ class EntityType(object):
         return [('preload', 'is_preload'),
                 ('get_data', 'is_data_source'),
                 ('transform', 'is_transformer'),
+                ('aggregate' , 'is_data_aggregator'),
                 ('simple_aggregate', 'is_simple_aggregator'),
                 ('complex_aggregate', 'is_complex_aggregator'),
                 ]
@@ -1081,6 +1111,41 @@ class EntityType(object):
         self._custom_calendar = None
         self._is_initial_transform = True
         return CalcPipeline(stages=stages, entity_type=self)
+
+    def get_function_replacement_metadata(self,meta):
+
+        '''
+        replace incoming function metadata for aggregate functions with
+        metadata that will be used to build a DataAggregator
+        '''
+
+        replacement = {
+            'Sum' : 'sum',
+            'Minimum' : 'min',
+            'Maximum' : 'max',
+            'Mean' : 'mean',
+            'Medium' : 'median',
+            'Count' : 'count',
+            'Distinct_count' : 'count_distinct',
+            'StandardDeviation' : 'std',
+            'Variance' : 'var',
+            'Product' : 'product',
+            'First' : 'first',
+            'Last' : 'last'
+        }
+
+        name = meta.get('functionName',None)
+        replacement_name = replacement.get(name,None)
+
+        if replacement_name is not None:
+
+            meta['functionName'] = replacement_name
+            return (meta.get('granularity',None),meta)
+
+        else:
+
+            return (None,None)
+
 
     def get_local_column_lists_by_type(self, columns, known_categoricals_set=None):
 
@@ -2049,6 +2114,10 @@ class ServerEntityType(EntityType):
 
     def __init__(self, logical_name, db, db_schema):
 
+        self.db = db
+        self.logical_name = logical_name
+
+
         # get server metadata
         server_meta = db.http_request(object_type='engineInput',
                                       object_name=logical_name,
@@ -2064,7 +2133,6 @@ class ServerEntityType(EntityType):
                     ' type properties for %s.' % logical_name))
 
         # functions
-
         kpis = server_meta.get('kpiDeclarations', [])
         if kpis is None:
             kpis = []
@@ -2075,20 +2143,16 @@ class ServerEntityType(EntityType):
         else:
             function_list = [x['functionName'] for x in kpis]
 
-        #  cache function catalog metadata in the db object
-        db.load_catalog(install_missing=True, function_list=function_list)
-
-        self.db = db
-        (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
-
-        self._schedules_dict = self.build_schedules(kpis)
-
-        self.logical_name = logical_name
         # build a dictionary of granularity objects keyed by granularity name
         self._granularities_dict = self.build_granularities(
             grain_meta=server_meta['granularities'],
             freq_lookup=server_meta.get('frequencies')
         )
+
+        #turn function metadata into function objects
+        (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
+
+        self._schedules_dict = self.build_schedules(kpis)
 
         #  map server properties to entitty type properties
         self._entity_type_id = server_meta['entityTypeId']
@@ -2160,29 +2224,68 @@ class ServerEntityType(EntityType):
         functions = []
         invalid = []
         disabled = []
+        replaced = {}
+        valid_kpis = []
 
         for f in server_kpis:
+
+            # skip disabled functions
+
             if not f.get('enabled', False):
                 disabled.append(f)
             else:
-                (package, module, class_name) = self.db.get_catalog_module(f['functionName'])
-                meta = {}
-                mod = importlib.import_module('%s.%s' % (package, module))
-                meta = {**meta, **f['input']}
-                meta = {**meta, **f['output']}
-                cls = getattr(mod, class_name)
-                try:
-                    obj = cls(**meta)
-                except TypeError as e:
-                    logger.warning(
-                        ('Unable build %s object. The arguments are mismatched'
-                         ' with the function metadata. You may need to'
-                         ' re-register the function. %s' % (f['functionName'], str(e))
-                         )
-                    )
-                    invalid.append(f)
+
+                # find functions that must be replaced
+
+                (granularity,replacement_metadata) = self.get_function_replacement_metadata(f)
+                if replacement_metadata is not None:
+                    try:
+                        replaced[granularity].append(replacement_metadata)
+                    except KeyError:
+                        replaced[granularity] = [replacement_metadata]
                 else:
-                    functions.append(obj)
+                    valid_kpis.append(f)
+
+        #  cache function catalog metadata in the db object
+        valid_kpi_names = [x.get('functionName') for x in valid_kpis]
+        self.db.load_catalog(install_missing=True, function_list=valid_kpi_names)
+
+        for f in valid_kpis:
+
+            # build function object using metadata
+
+            (package, module, class_name) = self.db.get_catalog_module(f['functionName'])
+            meta = {}
+            mod = importlib.import_module('%s.%s' % (package, module))
+            meta = {**meta, **f['input']}
+            meta = {**meta, **f['output']}
+            cls = getattr(mod, class_name)
+            try:
+                obj = cls(**meta)
+            except TypeError as e:
+                logger.warning(
+                    ('Unable build %s object. The arguments are mismatched'
+                     ' with the function metadata. You may need to'
+                     ' re-register the function. %s' % (f['functionName'], str(e))
+                     )
+                )
+                invalid.append(f)
+            else:
+                functions.append(obj)
+
+        for (granularity_name,meta_list) in list(replaced.items()):
+
+            (agg_dict,input_items,output_items) = self.build_agg_dict_from_meta_list(meta_list)
+
+            data_agg = DataAggregator(
+                name = '%s_aggregator' %granularity_name,
+                granularity = self._granularities_dict.get(granularity_name,None),
+                agg_dict = agg_dict,
+                input_items = input_items,
+                output_items = output_items
+            )
+
+            functions.append(data_agg)
 
         return (functions, invalid, disabled)
 

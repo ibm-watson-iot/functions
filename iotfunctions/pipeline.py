@@ -79,13 +79,14 @@ class DataAggregator(object):
     _allow_empty_df = False
     _discard_prior_on_merge = True
     produces_output_items = True
+    is_data_aggregator = True
 
     def __init__(self,name,granularity,agg_dict,input_items,
                  output_items, complex_aggregators = None):
 
         self.name = name
         self._agg_dict = agg_dict
-        self._granularity = granularity
+        self.granularity = granularity
 
         if complex_aggregators is None:
             complex_aggregators = []
@@ -100,7 +101,7 @@ class DataAggregator(object):
     def __str__(self):
 
         msg = 'Aggregator: %s with granularity: %s. ' %(self.name,
-                                                        self._granularity.name)
+                                                        self.granularity.name)
         for key,value in list(self._agg_dict.items()):
             msg = msg + ' Aggregates %s using %s .' %(key,value)
         for s in self._complex_aggregators:
@@ -111,7 +112,7 @@ class DataAggregator(object):
     def execute(self,df=None):
 
         gfs = []
-        group = df.groupby(self._granularity.grouper)
+        group = df.groupby(self.granularity.grouper)
 
         if not self._agg_dict is None and self._agg_dict:
             gf = group.agg(self._agg_dict)
@@ -123,7 +124,7 @@ class DataAggregator(object):
 
         df.columns = self.output_items
 
-        logger.info('Completed aggregation: %s', self._granularity.name)
+        logger.info('Completed aggregation: %s', self.granularity.name)
         return df
 
 
@@ -1204,8 +1205,9 @@ class JobController(object):
         self.job_log = self.job_log_class(self)
         #get metadata from payload
         self.stage_metadata = self.exec_payload_method(
-                'classify_stages',
-                None)
+                method_name = 'classify_stages',
+                raise_error = True,
+                default_output = None)
 
         # Assemble a collection of candidate schedules to execute
         # If the payload does not have a schedule use the default
@@ -1219,14 +1221,7 @@ class JobController(object):
                           ' explicitly to overide the default schedule'),
                           self.default_schedule[0])
 
-        if self.stage_metadata is None:
-            raise ValueError((
-                    'The playload for this job does not have valid metadata.'
-                    ' To execute a payload using the JobController, the '
-                    ' payload must have a "classify_stages" method that'
-                    ' returns an appropriate dict containing all of the'
-                    ' metadata for the job stages that will be executed. '
-                    ))
+
         else:
             logger.info('Initialized job.\n')
             logger.info(str((self)))
@@ -2113,7 +2108,11 @@ class JobController(object):
 
                 if discard_prior_data:
                     tw['merge_result'] = 'replaced prior data'
-                    result = self.exec_payload_method('index_df',result,df=result)
+                    result = self.exec_payload_method(
+                        method_name = 'index_df',
+                        default_output=result,
+                        raise_error = False,
+                        df=result)
                     merge.df = result
 
                 elif produces_output_items:
@@ -2174,7 +2173,10 @@ class JobController(object):
 
         # The payload may optionally supply a specific list of 
         # entities to retrieve data from
-        entities = self.exec_payload_method('get_entity_filter',None)
+        entities = self.exec_payload_method(
+            method_name = 'get_entity_filter',
+            default_output=None,
+            raise_error = False)
         usage = 0
 
         # There are two possible signatures for the execute method
@@ -2216,18 +2218,25 @@ class JobController(object):
         return result
 
 
-    def exec_payload_method(self,method_name,default_output,**kwargs):
+    def exec_payload_method(self,method_name,default_output,raise_error=False,**kwargs):
 
         try:
-            return(getattr(self.payload,method_name)(**kwargs))
-        except (TypeError,AttributeError) as e:
+            result = getattr(self.payload,method_name)(**kwargs)
+        except BaseException as e:
+
             logger.debug(('Returned default output for %s() on'
-                          ' payload %s %s. '
-                          ' Default value is: %s',
-                          ' Error: %s'),method_name,
-                          self.payload.__class__.__name__,self.payload.name,
-                          default_output, e)
-            return(default_output)
+                      ' payload %s %s. '
+                      ' Default value is: %s'),method_name,
+                      self.payload.__class__.__name__,self.payload.name,
+                      default_output)
+
+            result = default_output
+
+            method_exists = hasattr(self.payload.__class__, method_name) and callable(getattr(self.payload.__class__, method_name))
+            if raise_error or method_exists :
+                raise e
+
+        return result
 
     def exec_stage_method(self,stage,method_name,default_output,**kwargs):
 
@@ -2441,8 +2450,9 @@ class JobController(object):
                                             self.default_chunk_size)
 
         if start_date is None:
-            start_date = self.exec_payload_method('get_early_timestamp',
-                                                  None)
+            start_date = self.exec_payload_method(method_name='get_early_timestamp',
+                                                  default_output=None,
+                                                  raise_error = False)
             if start_date is not None:
                 logger.debug(
                         'Early timestamp obtained from payload as %s'
@@ -2464,8 +2474,9 @@ class JobController(object):
                                 interval=schedule
                                 )
             chunk_start = self.exec_payload_method(
-                            'get_adjusted_start_date',
-                            chunk_start,
+                            method_name='get_adjusted_start_date',
+                            default_output=chunk_start,
+                            raise_error = False,
                             **{'start_date' : chunk_start})
             chunk_end = chunk_start + freq_to_timedelta(chunk_size)
             chunk_end = min(chunk_end,end_date)
@@ -2476,8 +2487,9 @@ class JobController(object):
             while chunk_end < end_date:
                 chunk_start = chunk_end + freq_to_timedelta('1us')
                 chunk_start = self.exec_payload_method(
-                                'get_adjusted_start_date',
-                                chunk_start,
+                                method_name = 'get_adjusted_start_date',
+                                default_output=chunk_start,
+                                raise_error = False,
                                 **{'start_date' : chunk_start})
                 chunk_end = chunk_start + freq_to_timedelta(chunk_size)
                 chunk_end = min(chunk_end,end_date)
