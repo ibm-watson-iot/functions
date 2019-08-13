@@ -883,16 +883,17 @@ class EntityDataGenerator(BasePreload):
                   output_item = 'entity_data_generator',
                   parameters = None,
                   **kw):
-        if ids is None:
-            ids = self.get_entity_ids()
+
         if parameters is None:
             parameters = {}
         parameters = {**kw,**parameters}
-
-        super().__init__(dummy_items = [], output_item = output_item)
-        self.ids = ids
         self.parameters = parameters
         self.set_params(**parameters)
+        super().__init__(dummy_items = [], output_item = output_item)
+        if ids is None:
+            ids = self.get_entity_ids()
+        self.ids = ids
+
         if self.data_item_mean is None:
             self.data_item_mean = {}
         if self.data_item_sd is None:
@@ -961,7 +962,7 @@ class EntityDataGenerator(BasePreload):
         '''
         Generate a list of entity ids
         '''
-        ids = [str(73000 + x) for x in list(range(5))]
+        ids = [str(self.start_entity_id + x) for x in list(range(self.auto_entity_count))]
         return (ids)
 
     @classmethod

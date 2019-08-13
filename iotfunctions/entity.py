@@ -246,9 +246,9 @@ class BuildingWorkstation (metadata.BaseCustomEntityType):
 
         # dimension columns
         dimension_columns = []
-        columns.append(Column('building', String(50)))
-        columns.append(Column('floor', String(50)))
-        columns.append(Column('zone', String(50)))
+        dimension_columns.append(Column('building', String(50)))
+        dimension_columns.append(Column('floor', String(50)))
+        dimension_columns.append(Column('zone', String(50)))
 
         # functions
         functions = []
