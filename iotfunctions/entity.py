@@ -210,7 +210,84 @@ class Boiler(metadata.BaseCustomEntityType):
                          generate_days = generate_days,
                          drop_existing = drop_existing,
                          description = description,
-                         db_schema = db_schema)        
+                         db_schema = db_schema)
+
+
+class BuildingWorkstation (metadata.BaseCustomEntityType):
+
+    '''
+    Sample entity type for monitoring a building. Monitor comfort levels, energy
+    consumption and occupany.
+    '''
+
+
+    def __init__(self,
+                 name,
+                 db,
+                 db_schema=None,
+                 description=None,
+                 generate_days=10,
+                 drop_existing=False):
+
+        # constants
+        constants = []
+
+        physical_name = name.lower()
+
+        # granularities
+        granularities = []
+
+        # columns
+        columns = []
+        columns.append(Column('temperature', Float()))
+        columns.append(Column('motion', Float()))
+        columns.append(Column('humidity', Float()))
+        columns.append(Column('co2', Float()))
+
+        # dimension columns
+        dimension_columns = []
+        columns.append(Column('building', String(50)))
+        columns.append(Column('floor', String(50)))
+        columns.append(Column('zone', String(50)))
+
+        # functions
+        functions = []
+        # simulation settings
+        sim = {
+            'freq': '5min',
+            'auto_entity_count' : 100,
+            'data_item_mean': {'temperature': 22,
+                               'motion': 1,
+                               'humidity': 50,
+                               'co2': 1
+                               },
+            'data_item_domain': {
+                'building' : ['Riverside','Collonade','Mariners Way'],
+                'floor': [1,2,3,4,5],
+                'zone': ['NE','NW','SE','SW']
+            },
+            'drop_existing': False
+        }
+        generator = bif.EntityDataGenerator(ids=None, parameters=sim)
+        functions.append(generator)
+
+        # data type for operator cannot be inferred automatically
+        # state it explicitly
+
+        output_items_extended_metadata = {}
+
+        super().__init__(name=name,
+                         db = db,
+                         constants = constants,
+                         granularities = granularities,
+                         columns=columns,
+                         functions = functions,
+                         dimension_columns = dimension_columns,
+                         output_items_extended_metadata = output_items_extended_metadata,
+                         generate_days = generate_days,
+                         drop_existing = drop_existing,
+                         description = description,
+                         db_schema = db_schema)
 
         
 class Robot(metadata.BaseCustomEntityType):
