@@ -122,6 +122,50 @@ class EmptyEntityType(metadata.EntityType):
               }        
         super().__init__(name,db, *args,**kw)
 
+class SampleBlankEntity(metadata.BaseCustomEntityType):
+    '''
+    This sample shows simulated time series data for an industrial boiler.
+    It demostrates how to perform Monte Carlo simulation. It also
+    shows how to apply heuristics to detect leaks.
+    '''
+
+    def __init__(self, name, db, db_schema=None, description=None,
+                 generate_days=10, drop_existing=False):
+        # constants
+        constants = []
+
+        # granularities
+        granularities = []
+
+        columns = []
+        # columns
+
+        functions = []
+        # simulation settings
+        sim = {
+            'data_item_mean': {
+                               },
+            'drop_existing': False
+        }
+
+        # dimension columns
+        dimension_columns = [ ]
+
+        super().__init__(name=name,
+                         db=db,
+                         constants=constants,
+                         granularities=granularities,
+                         columns=columns,
+                         functions=functions,
+                         dimension_columns=dimension_columns,
+                         output_items_extended_metadata={},
+                         generate_days=generate_days,
+                         drop_existing=drop_existing,
+                         description=description,
+                         db_schema=db_schema)
+
+
+
 class Boiler(metadata.BaseCustomEntityType):
     
     '''
