@@ -62,6 +62,7 @@ class BaseFunction(object):
     _is_instance_level_logged = False # Some operations are carried out at an entity instance level. If logged, they produce a lot of log.
     requires_input_items = True
     produces_output_items = True
+    _allow_empty_df = False
     # internal work variables set by AS job processing
     name = None # name of function    
     _entity_type = None #  EntityType object that this function belongs to
@@ -542,7 +543,20 @@ class BaseFunction(object):
         '''
         series = self._get_series(df,[self._entity_type._timestamp,self._entity_type._timestamp_col])
         return series
-    
+
+    def get_trace(self):
+
+        '''
+        Return the current active trace object for entity type
+        '''
+
+        try:
+            trace = self.get_entity_type_param('_trace')
+        except AttributeError:
+            trace = None
+
+        return trace
+
     def _get_series(self,df,col_names):
         
         if isinstance(col_names,str):
@@ -885,9 +899,9 @@ class BaseFunction(object):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading scd %s from %s to %s using %s' %(table_name, start_ts, end_ts, query.statement)
         logger.debug(msg)
-        df = pd.read_sql(query.statement,
-                         con = self._entity_type.db.connection,
-                         parse_dates=[self._start_date,self._end_date])
+        df = pd.read_sql_query(query.statement,
+                               con = self._entity_type.db.connection,
+                               parse_dates=[self._start_date,self._end_date])
         return df
    
     
@@ -1480,6 +1494,8 @@ class BaseDataSource(BaseTransformer):
     source_entity_id = 'deviceid'
     source_timestamp = 'evt_timestamp'
     auto_conform_index = True
+    _allow_empty_df = True
+    requires_input_items = False
     
     def __init__(self, input_items, output_items=None, dummy_items = None):
         self.input_items = input_items
@@ -1520,8 +1536,11 @@ class BaseDataSource(BaseTransformer):
         '''
         Retrieve data and combine with pipeline data
         '''
-        new_df = self.get_data(start_ts=None,end_ts=None,entities=None)
-        new_df = self._entity_type.index_df(new_df)
+        new_df = self.get_data(start_ts=start_ts,end_ts=end_ts,entities=None)
+        try:
+            new_df = self._entity_type.index_df(new_df)
+        except AttributeError:
+            pass
         self.log_df_info(df,'source dataframe before merge')
         self.log_df_info(new_df,'additional data source to be merged')        
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
@@ -1555,7 +1574,10 @@ class BaseDataSource(BaseTransformer):
         else:
             raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
-        df = self._entity_type.index_df(df)
+        try:
+            df = self._entity_type.index_df(df)
+        except AttributeError:
+            pass
         return df
 
 
@@ -1689,7 +1711,7 @@ class BaseDatabaseLookup(BaseTransformer):
             '''
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
-            df = pd.read_sql(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
+            df = pd.read_sql_query(self.sql, con = self.db, index_col=lup_keys, parse_dates=date_cols)
             df.columns = [x.lower() for x in list(df.columns)]            
             return(list(df.columns))
                         
@@ -1712,10 +1734,10 @@ class BaseDatabaseLookup(BaseTransformer):
 
         msg = ' function attempted to excecute sql %s. ' %self.sql
         self.trace_append(msg)
-        df_sql = pd.read_sql(self.sql, 
-                             self.db.connection,
-                             index_col=self.lookup_keys,
-                             parse_dates=self.parse_dates)
+        df_sql = pd.read_sql_query(self.sql, 
+                                   self.db.connection,
+                                   index_col=self.lookup_keys,
+                                   parse_dates=self.parse_dates)
         msg = 'Lookup returned columns %s. ' %','.join(list(df_sql.columns))
         self.trace_append(msg)
         
@@ -1777,6 +1799,7 @@ class BaseDBActivityMerge(BaseDataSource):
     # the start and end dates for activities are assumed to be designated by specific columns
     # the type of activity performed on or using an entity is designated by the 'activity' column
     _activity = 'activity'
+    _allow_empty_df = True
     
     def __init__(self,
                  input_activities,
@@ -1807,7 +1830,7 @@ class BaseDBActivityMerge(BaseDataSource):
     def execute(self,df,start_ts=None,end_ts=None,entities=None):
         
         self.execute_by = [self._entity_type._entity_id]
-        df = super().execute(df)
+        df = super().execute(df, start_ts=start_ts, end_ts=end_ts, entities=entities)
         return df
         
     def get_data(self,
@@ -1833,9 +1856,9 @@ class BaseDBActivityMerge(BaseDataSource):
         #execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
-                af = pd.read_sql(sql,
-                                 con = self._entity_type.db.connection,
-                                 parse_dates=[self._start_date,self._end_date])
+                af = pd.read_sql_query(sql,
+                                       con = self._entity_type.db.connection,
+                                       parse_dates=[self._start_date,self._end_date])
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
@@ -1986,6 +2009,7 @@ class BaseDBActivityMerge(BaseDataSource):
         dates |= set((df[self._start_date].tolist()))
         dates |= set((df[self._end_date].tolist()))
         dates |= set(self.add_dates)
+
         #scd changes are another potential interruption
         if self._entity_scd_dict is not None:
             has_scd={}
@@ -1997,7 +2021,13 @@ class BaseDBActivityMerge(BaseDataSource):
                     has_scd[scd_property]=False
         dates = list(dates)
         dates.sort()
-        
+
+        # Check for invalid values in dates
+        for date in dates:
+            if pd.isna(date) or not isinstance(date, dt.datetime):
+                msg = 'The data set start date/end date/activity code contains an invalid date value: %s' % date
+                raise TypeError(msg)
+
         #initialize series to track history of activities
         c = pd.Series(data='_gap_',index = dates)
         c.index = pd.to_datetime(c.index)
@@ -2072,9 +2102,9 @@ class BaseDBActivityMerge(BaseDataSource):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading activity %s from %s to %s using %s' %(activity_code,start_ts,end_ts,query.statement )
         logger.debug(msg)
-        df = pd.read_sql(query.statement,
-                         con = self._entity_type.db.connection,
-                         parse_dates=[self._start_date,self._end_date])
+        df = pd.read_sql_query(query.statement,
+                               con = self._entity_type.db.connection,
+                               parse_dates=[self._start_date,self._end_date])
         
         return df
 
@@ -2163,6 +2193,7 @@ class BasePreload(BaseTransformer):
     is_preload = True
     requires_input_items = False
     _abort_on_fail = True # if the preload fails do not proceed with execution
+    _allow_empty_df = True
     
     def __init__(self, dummy_items, output_item = None):
         super().__init__()
@@ -2197,6 +2228,8 @@ class BaseMetadataProvider(BasePreload):
     Metadata providers do not transform data. They merely add metadata to the entity type
     to make it available to other functions in the pipeline.
     """
+
+    _allow_empty_df = True
     
     def __init__(self, dummy_items, output_item = 'is_parameters_set', **kwargs):
         super().__init__(dummy_items = dummy_items, output_item= output_item)

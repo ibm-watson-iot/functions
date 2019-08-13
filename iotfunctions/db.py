@@ -1044,7 +1044,7 @@ class Database(object):
         
         '''
         
-        df = pd.read_sql(sql=query.statement, con = self.connection )
+        df = pd.read_sql_query(sql=query.statement, con = self.connection )
         return df
         
         
@@ -1136,27 +1136,7 @@ class Database(object):
                              end_ts = end_ts,
                              entities = entities,
                              dimension = dimension)
-        df = pd.read_sql(sql=q.statement,con=self.connection,parse_dates=parse_dates,columns=columns)
-        return(df)
-        
-    def read_sql(self,sql,parse_dates =None,columns=None):
-        '''
-        Read whole table and return as dataframe
-        '''
-        df = pd.read_sql(sql,con=self.connection,parse_dates=parse_dates,columns=columns)
-        return(df)
-
-    def read_query(self,query,parse_dates =None,columns=None):
-        '''
-        Read whole table and return as dataframe
-        '''
-        
-        try:
-            query = query.statement
-        except AttributeError:
-            pass
-        
-        df = pd.read_sql(query,con=self.connection,parse_dates=parse_dates,columns=columns)
+        df = pd.read_sql_query(sql=q.statement,con=self.connection,parse_dates=parse_dates)
         return(df)
         
     def read_agg(self, table_name, schema, agg_dict,
@@ -1255,7 +1235,7 @@ class Database(object):
                     )
 
             #sql = query.statement.compile(compile_kwargs={"literal_binds": True})
-            df = pd.read_sql(query.statement,con = self.connection)
+            df = pd.read_sql_query(query.statement,con = self.connection)
             logger.debug(query.statement)
 
             # combine special aggregates with regular database aggregates
@@ -1674,7 +1654,7 @@ class Database(object):
                     query = self.subquery_join(query, filter_query, *keys, **project)
 
                     #execute
-                    df_result = pd.read_sql(query,con = self.connection)
+                    df_result = pd.read_sql_query(query,con = self.connection)
 
                     if pandas_aggregate is not None:
                         df_result = resample(df=df_result,
@@ -1715,6 +1695,7 @@ class Database(object):
         '''
         Returns a column expression that rounds the timestamp to the specified number of minutes
         '''
+
         a = self.get_table(table_name,schema)
         col = a.c[column_name]
         hour = func.add_hours(func.timestamp(func.date(col)),func.hour(col))
@@ -1867,7 +1848,10 @@ class Database(object):
                 entities = None,
                 auto_null_filter = False,
                 filters = None,
-                deviceid_col = 'deviceid'
+                deviceid_col = 'deviceid',
+                kvp_device_id_col = 'entity_id',
+                kvp_key_col = 'KEY',
+                kvp_timestamp_col = 'TIMESTAMP'
                 ):
         '''
         Pandas style aggregate function against db table
@@ -1923,12 +1907,23 @@ class Database(object):
                 dim_error = 'Dimension table %s does not exist in schema %s.' %(dimension,schema)
                 logger.warning(dim_error)
 
-        # validate columns and  decide whether dim join is really needed
         required_cols = set()
-
-        required_cols |= set(agg_dict.keys())
         required_cols |= set(groupby)
         required_cols |= set(filters.keys())
+
+        # work out whether this is a kvp or regular table
+
+        if kvp_key_col in table_cols and kvp_device_id_col in table_cols and kvp_timestamp_col in table_cols:
+            is_kvp = True
+            kvp_keys = set(agg_dict.keys())
+            timestamp_col = kvp_timestamp_col
+        else:
+            is_kvp = False
+            required_cols |= set(agg_dict.keys())
+            kvp_keys = None
+            timestamp_col = timestamp
+
+        # validate columns and  decide whether dim join is really needed
 
         not_available = required_cols-table_cols
         if len(not_available) == 0:

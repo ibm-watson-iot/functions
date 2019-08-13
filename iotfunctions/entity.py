@@ -131,7 +131,7 @@ class Boiler(metadata.BaseCustomEntityType):
     '''
 
     def __init__(self,name,db,db_schema=None, description = None,
-                 generate_days = 0, drop_existing = False):
+                 generate_days = 10, drop_existing = False):
         
         #constants
         constants = []
@@ -387,7 +387,7 @@ class PackagingHopper(metadata.BaseCustomEntityType):
                  db,
                  db_schema=None,
                  description=None,
-                 generate_days=0,
+                 generate_days=10,
                  drop_existing=False):
         constants = []
         granularities = []
@@ -459,7 +459,7 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
     '''
     
     def __init__(self,name,db,db_schema=None,description = None,
-                 generate_days = 0, drop_existing = False):
+                 generate_days = 10, drop_existing = False):
         
         
         constants = []
