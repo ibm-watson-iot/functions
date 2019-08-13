@@ -1984,12 +1984,12 @@ class Database(object):
             requires_dim_join = False
             dim = None
         else:
-            not_available = not_available - dim_cols
-            if len(not_available) > 0:
-                raise KeyError(('Query requires columns %s that are not present'
-                                 ' in the table or dimension. %s') % (not_available, dim_error))
-            else:
-                requires_dim_join = True
+            d = [x.lower() for x in dim_cols]
+            for m in not_available:
+                if m.lower() not in d:
+                    raise KeyError(('Query requires columns %s that are not present'
+                                    ' in the table or dimension. %s') % (m, dim_error))
+            requires_dim_join = True
 
         agg_functions = {}
         metric_filter = []
