@@ -1027,6 +1027,54 @@ class Database(object):
         result_query = select(projection_list).select_from(join)
         return result_query
 
+    def subquery_join_with_filters(self, left_query, right_query, filters, table, *args, **kwargs):
+        '''
+        Perform an equijoin between two sql alchemy query objects, filtering the left query by the keys in the right query
+        args are the names of the keys to join on, e.g 'deviceid', 'timestamp'.
+        Use string args for joins on common names. Use tuples like ('timestamp','evt_timestamp') for joins on different column names.
+        By default the join acts as a filter. It does not return columns from the right query. To return a custom projection list
+        specify **kwargs as a dict keyed on column name with an alias names.
+        '''
+        left_query = left_query.subquery('a')
+        right_query = right_query.subquery('b')
+        joins = []
+        projection_list = []
+        covered_columns = set()
+
+        for col in args:
+            if isinstance(col, str):
+                joins.append(left_query.c[col] == right_query.c[col])
+            else:
+                joins.append(left_query.c[col[0]] == right_query.c[col[1]])
+
+        for each_filter_name in filters.keys():
+            newtcolumn = Column(each_filter_name)
+            if isinstance(filters[each_filter_name], str):
+                joins.append(newtcolumn == filters[each_filter_name])
+            else:
+                joins.append(newtcolumn == filters[each_filter_name][0])
+
+        for (col, alias) in list(kwargs.items()):
+            try:
+                projection_list.append(right_query.c[col].label(alias))
+            except KeyError:
+                try:
+                    projection_list.append(left_query.c[col].label(alias))
+                except KeyError:
+                    raise KeyError('Column % s not included in left or right query' % col)
+
+        if len(projection_list) == 0:
+            # add left hand cols to project list if not already added from right
+            for col_obj in list(left_query.c.values()):
+                projection_list.append(col_obj)
+
+        join_condition = and_(*joins)
+        join = left_query.join(right_query, join_condition)
+        result_query = select(projection_list).select_from(join)
+
+        return result_query
+
+
     def set_isolation_level(self, conn):
         if DB2_INSTALLED:
             with conn.connect() as con:
@@ -1623,6 +1671,9 @@ class Database(object):
 
                     project = {output_name: output_name}
                     cols = [item,timestamp]
+                    if filters is not None:
+                        for each_filter_name in filters.keys():
+                            cols.append(each_filter_name)
                     keys = ['timestamp_filter']
                     if groupby is not None:
                         cols.extend(groupby)
@@ -1651,8 +1702,12 @@ class Database(object):
                         filters = filters,
                         deviceid_col = deviceid_col)
 
-                    query = self.subquery_join(query, filter_query, *keys, **project)
-
+                    if filters is not None:
+                        table = self.get_table(table_name, schema)
+                        query = self.subquery_join_with_filters(query, filter_query, filters, table, *keys, **project)
+                    else:
+                        query = self.subquery_join(query, filter_query, *keys, **project)
+                    logger.debug(query.statement)
                     #execute
                     df_result = pd.read_sql_query(query,con = self.connection)
 
