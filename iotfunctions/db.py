@@ -1707,7 +1707,6 @@ class Database(object):
                         query = self.subquery_join_with_filters(query, filter_query, filters, table, *keys, **project)
                     else:
                         query = self.subquery_join(query, filter_query, *keys, **project)
-                    logger.debug(query.statement)
                     #execute
                     df_result = pd.read_sql_query(query,con = self.connection)
 
