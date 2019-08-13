@@ -122,6 +122,7 @@ class EmptyEntityType(metadata.EntityType):
               }        
         super().__init__(name,db, *args,**kw)
 
+
 class SampleBlankEntity(metadata.BaseCustomEntityType):
     '''
     This sample shows simulated time series data for an industrial boiler.
@@ -163,8 +164,6 @@ class SampleBlankEntity(metadata.BaseCustomEntityType):
                          drop_existing=drop_existing,
                          description=description,
                          db_schema=db_schema)
-
-
 
 class Boiler(metadata.BaseCustomEntityType):
     
