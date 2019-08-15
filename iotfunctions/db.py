@@ -1993,6 +1993,11 @@ class Database(object):
             is_kvp = True
             kvp_keys = set(agg_dict.keys())
             timestamp_col = kvp_timestamp_col
+            if ( 'deviceid' in groupby):
+                required_cols.remove('deviceid')
+                required_cols.add("entity_id")
+                groupby.remove("deviceid")
+                groupby.append("entity_id")
         else:
             is_kvp = False
             required_cols |= set(agg_dict.keys())
