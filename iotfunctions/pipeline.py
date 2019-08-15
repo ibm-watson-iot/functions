@@ -1815,7 +1815,7 @@ class JobController(object):
                     )
 
 
-            # evalute the all candidate schedules that were indentified when
+            # evalute all candidate schedules that were indentified when
             # the job controller was initialized. 
             # The resulting dictionary contains a dictionary of status items
             # about each schedule
@@ -1889,7 +1889,8 @@ class JobController(object):
                         (df,can_proceed) = self.execute_stages(preload_stages,
                                             start_ts=meta['preload_from'],
                                             end_ts=meta['end_date'],
-                                            df=None)
+                                            df=None,
+                                            granularity = 'preload')
                     except BaseException as e:
                         msg = 'Aborted execution. Error getting preload stages'
                         can_proceed = self.handle_failed_execution(
@@ -2005,7 +2006,8 @@ class JobController(object):
                                     start_ts=chunk_start,
                                     end_ts=chunk_end,
                                     df=None,
-                                    constants = constants)
+                                    constants = constants,
+                                    granularity=None)
                         except BaseException as e:
                              self.handle_failed_execution(
                                     meta,
@@ -2028,7 +2030,8 @@ class JobController(object):
                                             stages = stages,
                                             start_ts=chunk_start,
                                             end_ts=chunk_end,
-                                            df=df)
+                                            df=df,
+                                            granularity = grain)
                                 except BaseException as e:
                                      self.handle_failed_execution(
                                             meta,
@@ -2102,7 +2105,7 @@ class JobController(object):
             execute_date = dt.datetime.utcnow()
 
 
-    def execute_stages(self,stages,df,start_ts,end_ts,constants=None):
+    def execute_stages(self,stages,df,start_ts,end_ts,constants=None, granularity = None):
         '''
         Execute a series of stages contained in a job spec. 
         Combine the execution results with the incoming dataframe.
@@ -2123,6 +2126,7 @@ class JobController(object):
         #create a new data_merge object using the dataframe provided
         merge = self.data_merge(df=df,constants=constants)
         can_proceed = True
+        counter = 0
 
         for s in stages:
 
@@ -2175,7 +2179,6 @@ class JobController(object):
 
             if can_proceed:
                 #execute stage and handle errors
-
                 try:
 
                     result = self.execute_stage(stage=s,
@@ -2196,22 +2199,15 @@ class JobController(object):
 
                     result = df
 
-
             if can_proceed:
+
+                # combine result with data from prior stages
 
                 # get a column map from the stage if it has one
 
                 col_map = self.exec_stage_method(s,'get_column_map',None)
-
-                # combine result with data from prior stages
-
                 if discard_prior_data:
                     tw['merge_result'] = 'replaced prior data'
-                    result = self.exec_payload_method(
-                        method_name = 'index_df',
-                        default_output=result,
-                        raise_error = False,
-                        df=result)
                     merge.df = result
 
                 elif produces_output_items:
@@ -2249,6 +2245,64 @@ class JobController(object):
                                                  ' produce any new data items '
                                                  ' during execution' )
 
+            if can_proceed and granularity != 'preload':
+
+                # check that the dataframe is indexed
+                # if granularity is None, this is an input level stage: use the payloads index_df method to index it
+                # remember the index structure in case it needs to be reindexed later
+                # no need to do any of this if these are preload stages
+
+                if counter == 0:
+
+                    if granularity is None:
+
+                        try:
+
+                            result = self.exec_payload_method(
+                                method_name='index_df',
+                                default_output=result,
+                                raise_error=True,
+                                df=result)
+
+                        except BaseException as e:
+
+                            tw['index'] = 'Unknown error validating index: %s' %e
+                            df = self.handle_failed_stage(
+                                exception=e,
+                                message='Indexing error',
+                                stage=s,
+                                df=df,
+                                **tw)
+                            merge.df = df
+                            can_proceed = False
+
+                    original_index_names =  get_index_names(result)
+                    tw['index'] = original_index_names
+
+                else:
+
+                    # This is not the first stage in this round of processing
+                    # Restore the index if it doesn't match the original
+
+                    if get_index_names(result) != original_index_names:
+
+                        try:
+
+                            result = result.set_index(original_index_names)
+                            tw['index'] = 'restored original index'
+
+                        except BaseException as e:
+
+                            tw['index'] = 'Unable to restore original index'
+                            df = self.handle_failed_stage(
+                                    exception = e,
+                                    message = 'Indexing error',
+                                    stage = s,
+                                    df = df,
+                                    **tw)
+                            merge.df = df
+                            can_proceed = False
+
             #Write results of execution to trace
             tw['can_proceed'] = can_proceed
 
@@ -2259,6 +2313,7 @@ class JobController(object):
                     **tw)
 
             df = merge.df
+            counter += 1
 
         return (df, can_proceed)
 

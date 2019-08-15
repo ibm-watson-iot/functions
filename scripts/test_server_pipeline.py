@@ -34,11 +34,6 @@ Examine the entity type metadata
 '''
 print (test_entity)
 
-'''
-Show input level time series data
-'''
-df = db.read_table(table_name=test_entity.name, schema=db_schema)
-print(df.head())
 
 '''
 To test the execution of kpi calculations defined for the entity type locally
