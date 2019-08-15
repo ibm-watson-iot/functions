@@ -29,6 +29,8 @@ from . import dbhelper
 from .enginelog import EngineLogging
 from .util import (log_df_info, freq_to_timedelta, StageException,
                    get_index_names, reset_df_index)
+from .ui import UIMultiItem, UISingle
+
 
 import pandas as pd
 import warnings
@@ -54,6 +56,102 @@ DEFAULT_DATAFRAME_INDEX_TIMESTAMP = 'timestamp'
 
 
 logger = logging.getLogger(__name__)
+
+
+class AggregateItems(object):
+    '''
+    Use common aggregation methods to aggregate one or more data items
+
+    '''
+
+    is_system_function = True
+    _allow_empty_df = False
+    produces_output_items = True
+    is_simple_aggregator = True
+    granularity = None
+    _input_set = None
+
+    def __init__(self, input_items, aggregation_function, output_items=None):
+
+        super().__init__()
+
+        self.input_items = input_items
+        self.aggregation_function = aggregation_function
+
+        if output_items is None:
+            output_items = ['%s_%s' % (x, aggregation_function) for x in self.input_items]
+
+        self.output_items = output_items
+        self._output_list = []
+        self._output_list.extend(self.output_items)
+
+    def get_aggregation_method(self):
+
+        # Aggregation methods may either be strings like 'sum' or 'count' or class methods
+        # get_available_methods returns a dictionary that converts aggregation method names to class names when needed
+
+        methods = self.get_available_methods()
+        out = methods.get(self.aggregation_function,None)
+        if out is None:
+            raise ValueError('Invalid aggregation function specified: %s'
+                             % self.aggregation_function)
+
+        return out
+
+    def get_input_set(self):
+
+        out = set(self.input_items)
+        gran =  self.granularity
+        if gran is not None:
+            out |= set(gran.dimensions)
+        else:
+            raise ValueError ('Aggregate function %s has no granularity' %self.aggregation_function)
+
+        return out
+
+    @classmethod
+    def build_ui(cls):
+
+        inputs = []
+        inputs.append(UIMultiItem(name='input_items',
+                                  datatype=None,
+                                  description=('Choose the data items'
+                                               ' that you would like to'
+                                               ' aggregate'),
+                                  output_item='output_items',
+                                  is_output_datatype_derived=True
+                                  ))
+
+        aggregate_names = list(cls.get_available_methods().keys())
+
+        inputs.append(UISingle(name='aggregation_function',
+                               description='Choose aggregation function',
+                               values=aggregate_names))
+
+        return (inputs, [])
+
+    @classmethod
+    def count_distinct(cls, series):
+
+        return len(series.dropna().unique())
+
+    @classmethod
+    def get_available_methods(cls):
+
+        return {
+            'sum': 'sum',
+            'count': 'count',
+            'count_distinct': cls.count_distinct,
+            'min': 'min',
+            'max': 'max',
+            'mean': 'mean',
+            'median': 'median',
+            'std': 'std',
+            'var': 'var',
+            'first': 'first',
+            'last': 'last',
+            'product': 'product'
+        }
 
 
 class DataAggregator(object):
@@ -1628,7 +1726,7 @@ class JobController(object):
                 raise StageException(msg,s.name)
 
             input_set = self.get_stage_input_set(s,raise_error=True)
-            input_items = list(input_set)
+            input_items = s.input_items
             output_list = self.get_stage_output_list(s,raise_error=True)
 
             for i,item in enumerate(input_items):
@@ -1648,7 +1746,7 @@ class JobController(object):
                 else:
                     o_dict[item].append(output)
 
-            inputs |= input_items
+            inputs |= input_set
 
         outputs = []
         for o in o_dict.values():
@@ -1944,11 +2042,12 @@ class JobController(object):
 
                 #write results of this execution to the log
 
-                if can_proceed:
+                if not meta['is_due']:
+                    status = 'skipped'
+                elif can_proceed:
                     status = 'complete'
                 else:
                     status = 'aborted'
-
                 try:
                     self.log_completion(metadata = meta,
                                     status = status)
@@ -1970,7 +2069,7 @@ class JobController(object):
                         if stack_trace is None:
                             msg = 'Execution was aborted. Unable to retrieve stack trace for exception: %s' %exception
                         else:
-                            msg = 'Execution was aborted: /n %s' %stack_trace
+                            msg = 'Execution was aborted: \n %s' %stack_trace
                         raise RuntimeError( msg )
 
             try:

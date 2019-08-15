@@ -27,8 +27,8 @@ from ibm_db_sa.base import DOUBLE
 from . import db as db_module
 from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator,
                          CategoricalGenerator)
-from .pipeline import (CalcPipeline, DataReader, DropNull, DataAggregator,
-                       JobController, DataWriterFile, JobLogNull, Trace)
+from .pipeline import (CalcPipeline, DataReader, DropNull,
+                       JobController, DataWriterFile, JobLogNull, Trace, AggregateItems)
 from .util import (MemoryOptimizer, StageException, build_grouper,
                    categorize_args, reset_df_index)
 
@@ -626,7 +626,8 @@ class EntityType(object):
 
     def build_granularities(self, grain_meta, freq_lookup):
         '''
-        Convert AS granularity metadata to a list of granularity objects.
+        Convert AS granularity metadata to granularity objects.
+
         '''
         out = {}
         for g in grain_meta:
@@ -703,12 +704,16 @@ class EntityType(object):
 
     def build_schedules(self, metadata):
         '''
-        Build a dictionary of schedule metdata from the schedules contained
+        Build a dictionary of schedule metadata from the schedules contained
         within function definitions.
         
         The schedule dictionary is keyed on a pandas freq string. This
         frequency denotes the schedule interval. The dictionary contains a
         tuple (start_hour,start_minute,backtrack_days)
+
+        Returns
+        -------
+        tuple containing updated metadata and a dict of schedules
         
         Example
         -------
@@ -767,6 +772,7 @@ class EntityType(object):
                     f[freq] = tuple(corrected_schedule)
 
                 freqs[freq] = f[freq]
+                f['schedule'] = freq
 
         return freqs
 
@@ -847,17 +853,41 @@ class EntityType(object):
             # add metadata derived from function registration and function args
             # input set and output list are critical metadata for the dependency model
 
-            if obj._input_set is not None and obj._output_list is not None:
-                logger.debug('Input set and output list were preset for function %s',obj.name)
-            else:
-                #get the input set and output list from the function argument metadata
-                (in_, out, out_meta, input_set, output_list) = self.build_arg_metadata(obj)
+            # there are three ways to set them
+            # 1) using the instance variables _input_set and _output_list
+            # 2) using the methods get_input_set and get_output_list
+            # 3) using the function's registration metadata
 
-                obj._inputs = in_
-                obj._outputs = out
-                obj._output_items_extended_metadata = out_meta
-                obj._input_set = input_set
-                obj._output_list = output_list
+            if obj._input_set is not None:
+                logger.debug('Input set was preset for function %s',obj.name)
+                input_set = obj._input_set
+            else:
+                try:
+                    input_set = obj.get_input_set()
+                except AttributeError:
+                    input_set = None
+
+            if obj._output_list is not None:
+                logger.debug('Output list set was preset for function %s', obj.name)
+                output_list = obj._output_list
+            else:
+                try:
+                    output_list = obj.get_output_list()
+                except AttributeError:
+                    output_list = None
+
+            if input_set is None or output_list is None:
+                #get the input set and output list from the function argument metadata
+                (in_, out, out_meta, reg_input_set, reg_output_list) = self.build_arg_metadata(obj)
+                if input_set is None:
+                    input_set = reg_input_set
+                if output_list is None:
+                    output_list = reg_output_list
+
+            # set the _input_set and _output_list
+
+            obj._input_set = input_set
+            obj._output_list = output_list
 
             # The stage may have metadata parameters that need to be 
             # copied onto the entity type
@@ -1124,9 +1154,9 @@ class EntityType(object):
             'Minimum' : 'min',
             'Maximum' : 'max',
             'Mean' : 'mean',
-            'Medium' : 'median',
+            'Median' : 'median',
             'Count' : 'count',
-            'Distinct_count' : 'count_distinct',
+            'DistinctCount' : 'count_distinct',
             'StandardDeviation' : 'std',
             'Variance' : 'var',
             'Product' : 'product',
@@ -1323,7 +1353,7 @@ class EntityType(object):
         '''
 
         items = [x.get('columnName') for x in self._data_items
-                 if x.get('type') == 'METRIC']
+            if x.get('type') == 'METRIC' or x.get('type') == 'DIMENSION']
 
         return items
 
@@ -1762,51 +1792,6 @@ class EntityType(object):
         else:
             return False
 
-    def load_entity_type_functions(self, meta=None):
-
-        '''
-        Retrieve AS metadata for entity type. Returns a dict of
-        with elemenents:
-            
-            _functions : list of function objects
-            _schedules_dict : dictionary of relevant schedules
-            _granularities_dict: dictionary of relevant granularities
-            
-        '''
-
-        if meta is None:
-            meta = self.db.http_request(object_type='engineInput',
-                                        object_name=self.logical_name,
-                                        request='GET')
-            try:
-                meta = json.loads(meta)
-            except (TypeError, json.JSONDecodeError):
-                raise RuntimeError((
-                    'API call to server did not retrieve valid entity '
-                    ' type properties. No metadata received.'))
-
-        # build a dictionary of the schedule objects keyed by freq
-        kpis = meta.get('kpiDeclarations', [])
-        if kpis is None:
-            kpis = []
-        schedules_dict = self.build_schedules(kpis)
-
-        # build a dictionary of granularity objects keyed by granularity name
-        grains_metadata = self.build_granularities(
-            grain_meta=meta['granularities'],
-            freq_lookup=meta.get('frequencies')
-        )
-
-        params = {
-            '_functions': kpis,
-            '_schedules_dict': schedules_dict,
-            '_granularities_dict': grains_metadata
-        }
-
-        self.set_params(**params)
-
-        return params
-
     def make_dimension(self, name=None, *args, **kw):
         '''
         Add dimension table by specifying additional columns
@@ -2149,22 +2134,26 @@ class ServerEntityType(EntityType):
             freq_lookup=server_meta.get('frequencies')
         )
 
-        #turn function metadata into function objects
-        (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
+        #replace granularity name with granularity object
+        for k in kpis:
+            k['granularity'] =  self._granularities_dict.get(k.get('granularity',None),'unknown')
+            if k['granularity'] == 'unknown':
+                k['granularity'] = None
+                logger.warning('Invalid granularity %s for function %s using None',
+                               k.get('granularity'),k['functionName'])
+
+        # build a schedules dict keyed by freq
 
         self._schedules_dict = self.build_schedules(kpis)
+
+        #turn function metadata into function objects
+        (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
 
         #  map server properties to entitty type properties
         self._entity_type_id = server_meta['entityTypeId']
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
         self._dimension_table_name = server_meta['dimensionsTable']
-
-        # build a dictionary of granularity objects keyed by granularity name
-        self._granularities_dict = self.build_granularities(
-            grain_meta=server_meta['granularities'],
-            freq_lookup=server_meta.get('frequencies'),
-        )
 
         #  set the data items metadata directly - no need to create cols
         #  as table is assumed to exist already since this is a 
@@ -2224,7 +2213,6 @@ class ServerEntityType(EntityType):
         functions = []
         invalid = []
         disabled = []
-        replaced = {}
         valid_kpis = []
 
         for f in server_kpis:
@@ -2239,10 +2227,16 @@ class ServerEntityType(EntityType):
 
                 (granularity,replacement_metadata) = self.get_function_replacement_metadata(f)
                 if replacement_metadata is not None:
-                    try:
-                        replaced[granularity].append(replacement_metadata)
-                    except KeyError:
-                        replaced[granularity] = [replacement_metadata]
+
+                    obj = AggregateItems(
+                        input_items = [replacement_metadata.get('input').get('source')],
+                        aggregation_function = replacement_metadata.get('functionName'),
+                        output_items = [replacement_metadata.get('output').get('name')]
+                    )
+                    obj.granularity = replacement_metadata.get('granularity',None)
+                    obj.schedule = replacement_metadata.get('schedule', None)
+                    functions.append(obj)
+
                 else:
                     valid_kpis.append(f)
 
@@ -2271,21 +2265,9 @@ class ServerEntityType(EntityType):
                 )
                 invalid.append(f)
             else:
+                obj.granularity = f.get('granularity',None)
+                obj.schedule = f.get('schedule', None)
                 functions.append(obj)
-
-        for (granularity_name,meta_list) in list(replaced.items()):
-
-            (agg_dict,input_items,output_items) = self.build_agg_dict_from_meta_list(meta_list)
-
-            data_agg = DataAggregator(
-                name = '%s_aggregator' %granularity_name,
-                granularity = self._granularities_dict.get(granularity_name,None),
-                agg_dict = agg_dict,
-                input_items = input_items,
-                output_items = output_items
-            )
-
-            functions.append(data_agg)
 
         return (functions, invalid, disabled)
 
