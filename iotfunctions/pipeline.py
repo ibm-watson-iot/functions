@@ -3448,7 +3448,7 @@ class CalcPipeline:
             name = stage.__class__.__name__
         #check to see if incoming data has a conformed index, conform if needed
         try:
-            df = stage.conform_index(df=df)
+            pass  #kohlmann df = stage.conform_index(df=df)
         except AttributeError:
             pass
         except KeyError as e:
