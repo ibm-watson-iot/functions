@@ -26,7 +26,7 @@ useful to run these locally to debug. This script shows how to do this.
 db = Database(credentials = credentials)
 db_schema = None #  set if you are not using the default
 
-entity_name = 'mike_robot_july_24'  # choose a valid entity type name
+entity_name = 'JOB_Test_1'  # choose a valid entity type name
 test_entity = ServerEntityType(entity_name,db=db,db_schema=db_schema)
 
 '''
@@ -34,11 +34,6 @@ Examine the entity type metadata
 '''
 print (test_entity)
 
-'''
-Show input level time series data
-'''
-df = db.read_table(table_name=test_entity.name, schema=db_schema)
-print(df.head())
 
 '''
 To test the execution of kpi calculations defined for the entity type locally

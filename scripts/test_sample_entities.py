@@ -15,9 +15,9 @@ with open('credentials_as_dev.json', encoding='utf-8') as F:
 db = Database(credentials = credentials)
 db_schema = None #  set if you are not using the default
 
-table_name = 'mike_test_robot_june_26'
+table_name = 'mike_test_building'
 
-e1 = entity.Robot(name=table_name,
+e1 = entity.BuildingWorkstation(name=table_name,
                             db=db,
                             drop_existing=True,
                             generate_days=25)

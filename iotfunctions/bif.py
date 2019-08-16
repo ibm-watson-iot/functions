@@ -84,80 +84,7 @@ class ActivityDuration(BaseDBActivityMerge):
                               ))
         outputs = []
 
-        return (inputs,outputs)  
-
-class AggregateItems(BaseSimpleAggregator):
-
-    '''
-    Use common aggregation methods to aggregate one or more data items
-    
-    '''
-    
-    def __init__(self,input_items,aggregation_function,output_items=None):
-        
-        super().__init__()
-        
-        self.input_items = input_items
-        self.aggregation_function = aggregation_function
-        
-        if output_items is None:
-            output_items = ['%s_%s' %(x,aggregation_function) for x in self.input_items]
-        
-        self.output_items = output_items
-        
-    def get_aggregation_method(self):
-        
-        out = self.get_available_methods().get(self.aggregation_function,None)
-        if out is None:
-            raise ValueError('Invalid aggregation function specified: %s'
-                             %self.aggregation_function)
-        
-        return out 
-        
-    @classmethod
-    def build_ui(cls):
-        
-        inputs = []
-        inputs.append(UIMultiItem(name = 'input_items',
-                                  datatype= None,
-                                  description = ('Choose the data items'
-                                                 ' that you would like to'
-                                                 ' aggregate'),
-                                  output_item = 'output_items',
-                                  is_output_datatype_derived = True
-                                          ))
-                                  
-        aggregate_names = list(cls.get_available_methods().keys())
-                                  
-        inputs.append(UISingle(name = 'aggregation_function',
-                               description = 'Choose aggregation function',
-                               values = aggregate_names))
-        
-        return (inputs,[])
-    
-    @classmethod
-    def count_distinct(cls,series):
-        
-        return len(series.dropna().unique())                                  
-        
-    @classmethod
-    def get_available_methods(cls):
-        
-        return {
-                'sum' : 'sum',
-                'count' : 'count',
-                'count_distinct' : cls.count_distinct,
-                'min' : 'min',
-                'max' : 'max',
-                'mean' : 'mean',
-                'median' : 'median',
-                'std' : 'std',
-                'var' : 'var',
-                'first': 'first',
-                'last': 'last',
-                'product' : 'product'
-                }
-
+        return (inputs,outputs)
 
 class AggregateWithExpression(BaseSimpleAggregator):
     
@@ -883,16 +810,17 @@ class EntityDataGenerator(BasePreload):
                   output_item = 'entity_data_generator',
                   parameters = None,
                   **kw):
-        if ids is None:
-            ids = self.get_entity_ids()
+
         if parameters is None:
             parameters = {}
         parameters = {**kw,**parameters}
-
-        super().__init__(dummy_items = [], output_item = output_item)
-        self.ids = ids
         self.parameters = parameters
         self.set_params(**parameters)
+        super().__init__(dummy_items = [], output_item = output_item)
+        if ids is None:
+            ids = self.get_entity_ids()
+        self.ids = ids
+
         if self.data_item_mean is None:
             self.data_item_mean = {}
         if self.data_item_sd is None:
@@ -948,7 +876,9 @@ class EntityDataGenerator(BasePreload):
         kw = {'rows_generated' : len(df.index),
               'start_ts' : start_ts,
               'seconds' : seconds}
-        self.trace_append(msg='%s Generated data. ' %self.__class__.__name__,df=df,**kw)
+
+        trace = self.get_trace()
+        trace.update_last_entry(df=df,**kw)
 
         self.usage_ = len(df.index)
         
@@ -959,7 +889,7 @@ class EntityDataGenerator(BasePreload):
         '''
         Generate a list of entity ids
         '''
-        ids = [str(73000 + x) for x in list(range(5))]
+        ids = [str(self.start_entity_id + x) for x in list(range(self.auto_entity_count))]
         return (ids)
 
     @classmethod
