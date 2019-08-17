@@ -464,7 +464,7 @@ The daily grain, summaries by "id" at the "day" grain.
 
 daily = Granularity(
     name = 'daily',
-    freq = 'D',                 # pandas frequency string
+    freq = '1D',                 # pandas frequency string
     timestamp= 'evt_timestamp', # build time aggregations using this datetime col
     entity_id = 'id',            # aggregate by id
     dimensions = None,

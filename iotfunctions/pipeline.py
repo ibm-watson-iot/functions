@@ -1252,7 +1252,7 @@ class JobController(object):
         >>>     #do something special
     
     '''
-    # tupple has freq round hour,round minute, backtrack
+    # tuple has freq round hour,round minute, backtrack
     default_schedule = ('5min',None,None,None)
     default_chunk_size = '7d'
     default_is_schedule_progressive = True
@@ -2023,14 +2023,37 @@ class JobController(object):
 
                     for (grain,stages) in list(job_spec.items()):
 
-                        if can_proceed and grain not in ['input_level','skipped_stages']:
+                        if can_proceed and grain is not None and grain not in ['input_level','skipped_stages','preload']:
+
+                                if self.get_payload_param('aggregate_complete_periods',True):
+
+                                    try:
+                                        if isinstance(grain,str):
+                                            grain_dict = self.get_payload_param('_granularities_dict',{})
+                                            granularity = grain_dict.get(grain)
+                                        else:
+                                            granularity = grain
+
+                                        (grain_df,revised_date) = granularity.align_df_to_start_date(df)
+
+                                    except BaseException as e:
+                                        msg = 'Error aligning input data to granularity %s' %grain
+                                        self.trace_add(msg=msg, log_method=logger.warning, error = e)
+                                        grain_df = df
+
+                                    else:
+                                        msg = 'Aligned input data to granularity %s' % grain
+                                        self.trace_add(msg=msg,revised_date=revised_date)
+                                else:
+
+                                    grain_df = df
 
                                 try:
                                     (result,can_proceed) = self.execute_stages(
                                             stages = stages,
                                             start_ts=chunk_start,
                                             end_ts=chunk_end,
-                                            df=df,
+                                            df=grain_df,
                                             granularity = grain)
                                 except BaseException as e:
                                      self.handle_failed_execution(

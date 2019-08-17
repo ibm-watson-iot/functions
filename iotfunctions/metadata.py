@@ -160,6 +160,7 @@ class EntityType(object):
     is_entity_type = True
     is_local = False
     auto_create_table = True
+    aggregate_complete_periods = True # align data for aggregation with time grain to avoid partial periods
     log_table = 'KPI_LOGGING'  # deprecated, to be removed
     checkpoint_table = 'KPI_CHECKPOINT'  # deprecated,to be removed
     default_backtrack = None
@@ -629,6 +630,8 @@ class EntityType(object):
         Convert AS granularity metadata to granularity objects.
 
         '''
+
+
         out = {}
         for g in grain_meta:
             grouper = []
@@ -647,6 +650,9 @@ class EntityType(object):
                             ' must exist in the frequency lookup %s' % (
                                 g['frequency'], freq_lookup)
                     ))
+                # add a number to the frequency to make it compatible with pd.Timedelta
+                if freq[0] not in ['1','2','3','4','5','6','7','8','9']:
+                    freq = '1' + freq
                 grouper.append(pd.Grouper(key=self._timestamp,
                                           freq=freq))
             custom_calendar = None
@@ -2594,6 +2600,41 @@ class Granularity(object):
             )
 
         self.grouper = grouper
+
+    def align_df_to_start_date(self,df,min_date = None):
+
+        '''
+        Align a dataframe to the granularity by filtering out times periods that
+        are incomplete, ie: started before the earliest date in the dataframe.
+
+        example: consider a daily grain with a dateframe containing data
+        from 2019/08/05 8:09am. After alignment the dataframe will be filtered
+        to exclude timestamps before the start of the first complete day (2019/08/06).
+        '''
+
+        if min_date is None:
+            min_date = df[self.timestamp].min()
+
+        period_end = self.get_period_end(min_date)
+        df = df[(df[self.timestamp] > period_end)]
+
+        return (df,period_end)
+
+    def get_period_end(self,date):
+
+        '''
+        Get the start date of the next period after <date>
+        '''
+
+        if self.custom_calendar is not None:
+            result = self.custom_calendar.get_period_end(date)
+        else:
+            series = pd.DatetimeIndex(data=[date])
+            rounded = series.round(self.freq)
+            result = rounded - dt.timedelta(microseconds=1)
+            result = result.min()
+
+        return result
 
     def __str__(self):
 
