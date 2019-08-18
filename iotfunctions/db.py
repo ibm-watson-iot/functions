@@ -349,10 +349,12 @@ class Database(object):
         '''
 
         try:
-            return table.c[column].isnot(None)
+            return (self.get_column_object(table,column)).isnot(None)
+            #return table.c[column].isnot(None)
         except KeyError:
             try:
-                return dimension_table.c[column].isnot(None)
+                return (self.get_column_object(dimension_table,column)).isnot(None)
+               #return dimension_table.c[column].isnot(None)
             except (KeyError, AttributeError):
                 msg = 'Column %s not found on time series or dimension table.' % column
                 raise ValueError(msg)
