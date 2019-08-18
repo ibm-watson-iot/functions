@@ -29,6 +29,8 @@ from . import dbhelper
 from .enginelog import EngineLogging
 from .util import (log_df_info, freq_to_timedelta, StageException,
                    get_index_names, reset_df_index)
+from .ui import UIMultiItem, UISingle
+
 
 import pandas as pd
 import warnings
@@ -54,6 +56,102 @@ DEFAULT_DATAFRAME_INDEX_TIMESTAMP = 'timestamp'
 
 
 logger = logging.getLogger(__name__)
+
+
+class AggregateItems(object):
+    '''
+    Use common aggregation methods to aggregate one or more data items
+
+    '''
+
+    is_system_function = True
+    _allow_empty_df = False
+    produces_output_items = True
+    is_simple_aggregator = True
+    granularity = None
+    _input_set = None
+
+    def __init__(self, input_items, aggregation_function, output_items=None):
+
+        super().__init__()
+
+        self.input_items = input_items
+        self.aggregation_function = aggregation_function
+
+        if output_items is None:
+            output_items = ['%s_%s' % (x, aggregation_function) for x in self.input_items]
+
+        self.output_items = output_items
+        self._output_list = []
+        self._output_list.extend(self.output_items)
+
+    def get_aggregation_method(self):
+
+        # Aggregation methods may either be strings like 'sum' or 'count' or class methods
+        # get_available_methods returns a dictionary that converts aggregation method names to class names when needed
+
+        methods = self.get_available_methods()
+        out = methods.get(self.aggregation_function,None)
+        if out is None:
+            raise ValueError('Invalid aggregation function specified: %s'
+                             % self.aggregation_function)
+
+        return out
+
+    def get_input_set(self):
+
+        out = set(self.input_items)
+        gran =  self.granularity
+        if gran is not None:
+            out |= set(gran.dimensions)
+        else:
+            raise ValueError ('Aggregate function %s has no granularity' %self.aggregation_function)
+
+        return out
+
+    @classmethod
+    def build_ui(cls):
+
+        inputs = []
+        inputs.append(UIMultiItem(name='input_items',
+                                  datatype=None,
+                                  description=('Choose the data items'
+                                               ' that you would like to'
+                                               ' aggregate'),
+                                  output_item='output_items',
+                                  is_output_datatype_derived=True
+                                  ))
+
+        aggregate_names = list(cls.get_available_methods().keys())
+
+        inputs.append(UISingle(name='aggregation_function',
+                               description='Choose aggregation function',
+                               values=aggregate_names))
+
+        return (inputs, [])
+
+    @classmethod
+    def count_distinct(cls, series):
+
+        return len(series.dropna().unique())
+
+    @classmethod
+    def get_available_methods(cls):
+
+        return {
+            'sum': 'sum',
+            'count': 'count',
+            'count_distinct': cls.count_distinct,
+            'min': 'min',
+            'max': 'max',
+            'mean': 'mean',
+            'median': 'median',
+            'std': 'std',
+            'var': 'var',
+            'first': 'first',
+            'last': 'last',
+            'product': 'product'
+        }
 
 
 class DataAggregator(object):
@@ -1154,7 +1252,7 @@ class JobController(object):
         >>>     #do something special
     
     '''
-    # tupple has freq round hour,round minute, backtrack
+    # tuple has freq round hour,round minute, backtrack
     default_schedule = ('5min',None,None,None)
     default_chunk_size = '7d'
     default_is_schedule_progressive = True
@@ -1628,7 +1726,7 @@ class JobController(object):
                 raise StageException(msg,s.name)
 
             input_set = self.get_stage_input_set(s,raise_error=True)
-            input_items = list(input_set)
+            input_items = s.input_items
             output_list = self.get_stage_output_list(s,raise_error=True)
 
             for i,item in enumerate(input_items):
@@ -1648,7 +1746,7 @@ class JobController(object):
                 else:
                     o_dict[item].append(output)
 
-            inputs |= input_items
+            inputs |= input_set
 
         outputs = []
         for o in o_dict.values():
@@ -1717,7 +1815,7 @@ class JobController(object):
                     )
 
 
-            # evalute the all candidate schedules that were indentified when
+            # evalute all candidate schedules that were indentified when
             # the job controller was initialized. 
             # The resulting dictionary contains a dictionary of status items
             # about each schedule
@@ -1791,7 +1889,8 @@ class JobController(object):
                         (df,can_proceed) = self.execute_stages(preload_stages,
                                             start_ts=meta['preload_from'],
                                             end_ts=meta['end_date'],
-                                            df=None)
+                                            df=None,
+                                            granularity = 'preload')
                     except BaseException as e:
                         msg = 'Aborted execution. Error getting preload stages'
                         can_proceed = self.handle_failed_execution(
@@ -1907,7 +2006,8 @@ class JobController(object):
                                     start_ts=chunk_start,
                                     end_ts=chunk_end,
                                     df=None,
-                                    constants = constants)
+                                    constants = constants,
+                                    granularity=None)
                         except BaseException as e:
                              self.handle_failed_execution(
                                     meta,
@@ -1923,14 +2023,38 @@ class JobController(object):
 
                     for (grain,stages) in list(job_spec.items()):
 
-                        if can_proceed and grain not in ['input_level','skipped_stages']:
+                        if can_proceed and grain is not None and grain not in ['input_level','skipped_stages','preload']:
+
+                                if self.get_payload_param('aggregate_complete_periods',True):
+
+                                    try:
+                                        if isinstance(grain,str):
+                                            grain_dict = self.get_payload_param('_granularities_dict',{})
+                                            granularity = grain_dict.get(grain)
+                                        else:
+                                            granularity = grain
+
+                                        (grain_df,revised_date) = granularity.align_df_to_start_date(df)
+
+                                    except BaseException as e:
+                                        msg = 'Error aligning input data to granularity %s' %grain
+                                        self.trace_add(msg=msg, log_method=logger.warning, error = e)
+                                        grain_df = df
+
+                                    else:
+                                        msg = 'Aligned input data to granularity %s' % grain
+                                        self.trace_add(msg=msg,revised_date=revised_date)
+                                else:
+
+                                    grain_df = df
 
                                 try:
                                     (result,can_proceed) = self.execute_stages(
                                             stages = stages,
                                             start_ts=chunk_start,
                                             end_ts=chunk_end,
-                                            df=df)
+                                            df=grain_df,
+                                            granularity = grain)
                                 except BaseException as e:
                                      self.handle_failed_execution(
                                             meta,
@@ -1944,11 +2068,12 @@ class JobController(object):
 
                 #write results of this execution to the log
 
-                if can_proceed:
+                if not meta['is_due']:
+                    status = 'skipped'
+                elif can_proceed:
                     status = 'complete'
                 else:
                     status = 'aborted'
-
                 try:
                     self.log_completion(metadata = meta,
                                     status = status)
@@ -1970,7 +2095,7 @@ class JobController(object):
                         if stack_trace is None:
                             msg = 'Execution was aborted. Unable to retrieve stack trace for exception: %s' %exception
                         else:
-                            msg = 'Execution was aborted: /n %s' %stack_trace
+                            msg = 'Execution was aborted: \n %s' %stack_trace
                         raise RuntimeError( msg )
 
             try:
@@ -2003,7 +2128,7 @@ class JobController(object):
             execute_date = dt.datetime.utcnow()
 
 
-    def execute_stages(self,stages,df,start_ts,end_ts,constants=None):
+    def execute_stages(self,stages,df,start_ts,end_ts,constants=None, granularity = None):
         '''
         Execute a series of stages contained in a job spec. 
         Combine the execution results with the incoming dataframe.
@@ -2024,6 +2149,7 @@ class JobController(object):
         #create a new data_merge object using the dataframe provided
         merge = self.data_merge(df=df,constants=constants)
         can_proceed = True
+        counter = 0
 
         for s in stages:
 
@@ -2076,7 +2202,6 @@ class JobController(object):
 
             if can_proceed:
                 #execute stage and handle errors
-
                 try:
 
                     result = self.execute_stage(stage=s,
@@ -2097,22 +2222,15 @@ class JobController(object):
 
                     result = df
 
-
             if can_proceed:
+
+                # combine result with data from prior stages
 
                 # get a column map from the stage if it has one
 
                 col_map = self.exec_stage_method(s,'get_column_map',None)
-
-                # combine result with data from prior stages
-
                 if discard_prior_data:
                     tw['merge_result'] = 'replaced prior data'
-                    result = self.exec_payload_method(
-                        method_name = 'index_df',
-                        default_output=result,
-                        raise_error = False,
-                        df=result)
                     merge.df = result
 
                 elif produces_output_items:
@@ -2150,6 +2268,64 @@ class JobController(object):
                                                  ' produce any new data items '
                                                  ' during execution' )
 
+            if can_proceed and granularity != 'preload':
+
+                # check that the dataframe is indexed
+                # if granularity is None, this is an input level stage: use the payloads index_df method to index it
+                # remember the index structure in case it needs to be reindexed later
+                # no need to do any of this if these are preload stages
+
+                if counter == 0:
+
+                    if granularity is None:
+
+                        try:
+
+                            result = self.exec_payload_method(
+                                method_name='index_df',
+                                default_output=result,
+                                raise_error=True,
+                                df=result)
+
+                        except BaseException as e:
+
+                            tw['index'] = 'Unknown error validating index: %s' %e
+                            df = self.handle_failed_stage(
+                                exception=e,
+                                message='Indexing error',
+                                stage=s,
+                                df=df,
+                                **tw)
+                            merge.df = df
+                            can_proceed = False
+
+                    original_index_names =  get_index_names(result)
+                    tw['index'] = original_index_names
+
+                else:
+
+                    # This is not the first stage in this round of processing
+                    # Restore the index if it doesn't match the original
+
+                    if get_index_names(result) != original_index_names:
+
+                        try:
+
+                            result = result.set_index(original_index_names)
+                            tw['index'] = 'restored original index'
+
+                        except BaseException as e:
+
+                            tw['index'] = 'Unable to restore original index'
+                            df = self.handle_failed_stage(
+                                    exception = e,
+                                    message = 'Indexing error',
+                                    stage = s,
+                                    df = df,
+                                    **tw)
+                            merge.df = df
+                            can_proceed = False
+
             #Write results of execution to trace
             tw['can_proceed'] = can_proceed
 
@@ -2160,6 +2336,7 @@ class JobController(object):
                     **tw)
 
             df = merge.df
+            counter += 1
 
         return (df, can_proceed)
 
@@ -3615,7 +3792,7 @@ class CalcPipeline:
             name = stage.__class__.__name__
         #check to see if incoming data has a conformed index, conform if needed
         try:
-            df = stage.conform_index(df=df)
+            pass  #kohlmann df = stage.conform_index(df=df)
         except AttributeError:
             pass
         except KeyError as e:
