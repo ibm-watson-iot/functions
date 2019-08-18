@@ -1849,6 +1849,7 @@ class JobController(object):
                                                schedule_metadata = meta)
                     except BaseException as e:
                         logger.warning('Error logging non-execution data: %s',e)
+                        exception = e
 
                     can_proceed = False
 
@@ -1886,7 +1887,7 @@ class JobController(object):
 
                     logger.debug('Executing preload stages:')
                     try:
-                        (df,can_proceed) = self.execute_stages(preload_stages,
+                        (df,can_proceed,has_no_data) = self.execute_stages(preload_stages,
                                             start_ts=meta['preload_from'],
                                             end_ts=meta['end_date'],
                                             df=None,
@@ -1975,6 +1976,7 @@ class JobController(object):
                                 stage_name = 'get_chunks)'
                                 )
                          can_proceed = False
+                         exception = e
 
 
                 for i,(chunk_start,chunk_end) in enumerate(chunks):
@@ -2001,7 +2003,7 @@ class JobController(object):
                         # execute input level stages
 
                         try:
-                            (df,can_proceed) = self.execute_stages(
+                            (df,can_proceed,has_no_data) = self.execute_stages(
                                     stages = job_spec['input_level'],
                                     start_ts=chunk_start,
                                     end_ts=chunk_end,
@@ -2034,12 +2036,16 @@ class JobController(object):
                                         else:
                                             granularity = grain
 
-                                        (grain_df,revised_date) = granularity.align_df_to_start_date(df)
+                                        (grain_df,revised_date) = granularity.align_df_to_start_date(
+                                            df = df,
+                                            min_date = chunk_start
+                                        )
 
                                     except BaseException as e:
                                         msg = 'Error aligning input data to granularity %s' %grain
                                         self.trace_add(msg=msg, log_method=logger.warning, error = e)
                                         grain_df = df
+                                        exception = e
 
                                     else:
                                         msg = 'Aligned input data to granularity %s' % grain
@@ -2049,7 +2055,7 @@ class JobController(object):
                                     grain_df = df
 
                                 try:
-                                    (result,can_proceed) = self.execute_stages(
+                                    (result,can_proceed,has_no_data) = self.execute_stages(
                                             stages = stages,
                                             start_ts=chunk_start,
                                             end_ts=chunk_end,
@@ -2065,6 +2071,8 @@ class JobController(object):
                                      can_proceed = False
                                      exception = e
 
+                                if has_no_data and exception is None:
+                                    can_proceed = True
 
                 #write results of this execution to the log
 
@@ -2086,6 +2094,7 @@ class JobController(object):
                             exception = e,
                             raise_error = True
                             )
+                    exception = e
 
                 if status == 'aborted':
 
@@ -2095,7 +2104,7 @@ class JobController(object):
                         if stack_trace is None:
                             msg = 'Execution was aborted. Unable to retrieve stack trace for exception: %s' %exception
                         else:
-                            msg = 'Execution was aborted: \n %s' %stack_trace
+                            msg = 'Execution was aborted: %s\n %s' %(exception,stack_trace)
                         raise RuntimeError( msg )
 
             try:
@@ -2150,6 +2159,7 @@ class JobController(object):
         merge = self.data_merge(df=df,constants=constants)
         can_proceed = True
         counter = 0
+        has_no_data = False
 
         for s in stages:
 
@@ -2193,6 +2203,7 @@ class JobController(object):
                 if not self.get_stage_param(s,'_allow_empty_df',True) and (
                         merge.df is None or len(df.index)==0):
                     can_proceed = False
+                    has_no_data = True
                     ssg = ( ' Unable to execute stage.'
                             ' Function received an empty dataframe as'
                             ' input. Processing will halt as this function'
@@ -2268,7 +2279,7 @@ class JobController(object):
                                                  ' produce any new data items '
                                                  ' during execution' )
 
-            if can_proceed and granularity != 'preload':
+            if granularity != 'preload':
 
                 # check that the dataframe is indexed
                 # if granularity is None, this is an input level stage: use the payloads index_df method to index it
@@ -2277,7 +2288,7 @@ class JobController(object):
 
                 if counter == 0:
 
-                    if granularity is None:
+                    if granularity is None and can_proceed:
 
                         try:
 
@@ -2299,10 +2310,12 @@ class JobController(object):
                             merge.df = df
                             can_proceed = False
 
-                    original_index_names =  get_index_names(result)
+                        original_index_names =  get_index_names(result)
+                    else:
+                        original_index_names = []
                     tw['index'] = original_index_names
 
-                else:
+                elif can_proceed:
 
                     # This is not the first stage in this round of processing
                     # Restore the index if it doesn't match the original
@@ -2338,7 +2351,7 @@ class JobController(object):
             df = merge.df
             counter += 1
 
-        return (df, can_proceed)
+        return (df, can_proceed,has_no_data)
 
     def execute_stage(self,stage,df,start_ts,end_ts):
 
