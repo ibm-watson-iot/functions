@@ -163,6 +163,7 @@ class EntityType(object):
     aggregate_complete_periods = True # align data for aggregation with time grain to avoid partial periods
     log_table = 'KPI_LOGGING'  # deprecated, to be removed
     checkpoint_table = 'KPI_CHECKPOINT'  # deprecated,to be removed
+    chunk_size = None # use job controller default chunk
     default_backtrack = None
     trace_df_changes = True
     drop_existing = False
