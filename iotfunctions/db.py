@@ -1669,6 +1669,10 @@ class Database(object):
                     metric_filter = self._is_not_null(table=table, dimension_table=dim, column=item)
                     filter_query = filter_query.filter(metric_filter)
 
+                    if time_grain is not None:
+                        timestamp_col_obj = self.get_column_object(table, timestamp)
+                        timecolumnobj = Column("timestamp_filter")
+                        filter_query = filter_query.filter(timestamp_col_obj == timecolumnobj)
                     # prepare a main query containing
                     # define the join keys
                     # define a projection list containing the output item and groupby cols
