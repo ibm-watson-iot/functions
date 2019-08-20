@@ -1709,7 +1709,7 @@ class Database(object):
                         entities=entities,
                         filters=filters,
                         deviceid_col=deviceid_col)
-
+                    query = query.filter(metric_filter)
                     if filters is not None:
                         table = self.get_table(table_name, schema)
                         query = self.subquery_join_with_filters(query, filter_query, filters, table, *keys, **project)
