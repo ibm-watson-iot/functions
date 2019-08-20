@@ -797,7 +797,7 @@ class EntityDataGenerator(BasePreload):
     scd_frequency = '1D'
     activity_frequency = '3D'
     start_entity_id = 73000 #used to build entity ids
-    auto_entity_count = 5 #default number of entities to generate data fo
+    auto_entity_count = 5 #default number of entities to generate data for
     data_item_mean = None
     data_item_sd = None
     data_item_domain = None

@@ -1479,7 +1479,9 @@ class EntityType(object):
                       freq='1min', scd_freq='1D', write=True, drop_existing=False,
                       data_item_mean=None, data_item_sd=None,
                       data_item_domain=None,
-                      columns=None):
+                      columns=None,
+                      start_entity_id = None,
+                      auto_entity_count = None):
         '''
         Generate random time series data for entities
         
@@ -1506,7 +1508,11 @@ class EntityType(object):
         
         '''
         if entities is None:
-            entities = [str(self._start_entity_id + x) for x in list(range(self._auto_entity_count))]
+            if start_entity_id is None:
+                start_entity_id = self._start_entity_id
+            if auto_entity_count is None:
+                auto_entity_count = self._auto_entity_count
+            entities = [str(start_entity_id + x) for x in list(range(auto_entity_count))]
 
         if data_item_mean is None:
             data_item_mean = {}
