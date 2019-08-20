@@ -1071,16 +1071,17 @@ class EntityType(object):
 
         return (df, ts_col_name)
 
-    def drop_tables(self):
+    def drop_tables(self,recreate=False):
         '''
         Drop tables known to be associated with this entity type
 
         '''
 
-        self.db.drop_table(self.name, schema=self._db_schema)
-        self.drop_child_tables()
+        self.db.drop_table(self.name, schema=self._db_schema,recreate=recreate)
+        self.drop_child_tables(recreate = recreate)
 
-    def drop_child_tables(self):
+
+    def drop_child_tables(self,recreate=False):
         '''
         Drop all child tables
         '''
@@ -1090,10 +1091,13 @@ class EntityType(object):
                    ' are not allowed to drop child tables ')
             raise ValueError(msg)
 
-        tables = [self._dimension_table_name]
+        if self._dimension_table_name is None:
+            tables = []
+        else:
+            tables = [self._dimension_table_name]
         tables.extend(self.activity_tables.values())
         tables.extend(self.scd.values())
-        [self.db.drop_table(x, self._db_schema) for x in tables]
+        [self.db.drop_table(x, self._db_schema,recreate=recreate) for x in tables]
         msg = 'dropped tables %s' % tables
         logger.info(msg)
 
@@ -1512,7 +1516,7 @@ class EntityType(object):
             data_item_domain = {}
 
         if drop_existing and self.db is not None:
-            self.drop_tables()
+            self.drop_tables(recreate = True)
 
         known_categoricals = set(data_item_domain.keys())
 

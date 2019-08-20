@@ -166,5 +166,17 @@ use 'test_local_pipeline'.
 
 entity.exec_local_pipeline()
 
+'''
+So far we have only looked at the ability to create numerical and categorical time
+series data. You can also automatically generate dimensional attributes. 
+'''
+
+entity.make_dimension(
+    'sim_test_dimension',
+    Column('manufacturer', String(50)),
+)
+
+entity.register(raise_error=True)
+entity.generate_data(days=0.5, drop_existing=True)
 
 

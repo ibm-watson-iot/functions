@@ -512,7 +512,7 @@ class Database(object):
             logger.debug(msg)
         self.commit()
 
-    def drop_table(self, table_name, schema=None):
+    def drop_table(self, table_name, schema=None, recreate = False):
 
         try:
             table = self.get_table(table_name, schema)
@@ -526,6 +526,11 @@ class Database(object):
                 msg = 'Dropped table name %s' % table.name
                 self.session.commit()
                 logger.debug(msg)
+
+        if recreate:
+            self.create(tables=[table])
+            msg = 'Recreated table %s'
+            logger.debug(msg,table_name)
 
     def execute_job(self, entity_type, schema=None, **kwargs):
 
@@ -617,6 +622,7 @@ class Database(object):
                 }
                 try:
                     table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
+                    table.indexes = set()
                 except NoSuchTableError:
                     raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
             elif issubclass(table_name.__class__, BaseTable):
