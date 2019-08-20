@@ -49,10 +49,7 @@ fn = AlertExpression(
         alert_name = 'is_high_x1')
 fn.execute_local_test(db=db,db_schema=db_schema)
 
-
-
 from iotfunctions.bif import DateDifference
-
 fn = DateDifference(date_1 = 'd1', date_2 = 'd2', num_days = 'difference')
 
 '''

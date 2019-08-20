@@ -1406,7 +1406,6 @@ class RandomNoise(BaseTransformer):
                                description = "Standard deviation of noise")
                       )
         inputs.append(UIMultiItem(name = 'input_items',
-                               datatype=str,
                                description = "Chose data items to add noise to",
                                output_item = 'output_items',
                                is_output_datatype_derived = True)
@@ -1736,6 +1735,13 @@ class ShiftCalendar(BaseTransformer):
             df = self._entity_type.index_df(df)
 
         return df
+
+    def get_period_end(self,date):
+
+        df = self.get_data(date,date)
+        result = df[self.period_end_date].max()
+
+        return result
     
     @classmethod
     def build_ui(cls):

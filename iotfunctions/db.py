@@ -349,10 +349,12 @@ class Database(object):
         '''
 
         try:
-            return table.c[column].isnot(None)
+            return (self.get_column_object(table,column)).isnot(None)
+            #return table.c[column].isnot(None)
         except KeyError:
             try:
-                return dimension_table.c[column].isnot(None)
+                return (self.get_column_object(dimension_table,column)).isnot(None)
+               #return dimension_table.c[column].isnot(None)
             except (KeyError, AttributeError):
                 msg = 'Column %s not found on time series or dimension table.' % column
                 raise ValueError(msg)
@@ -1667,6 +1669,10 @@ class Database(object):
                     metric_filter = self._is_not_null(table=table, dimension_table=dim, column=item)
                     filter_query = filter_query.filter(metric_filter)
 
+                    if time_grain is not None:
+                        timestamp_col_obj = self.get_column_object(table, timestamp)
+                        timecolumnobj = Column("timestamp_filter")
+                        filter_query = filter_query.filter(timestamp_col_obj == timecolumnobj)
                     # prepare a main query containing
                     # define the join keys
                     # define a projection list containing the output item and groupby cols
@@ -1703,7 +1709,7 @@ class Database(object):
                         entities=entities,
                         filters=filters,
                         deviceid_col=deviceid_col)
-
+                    query = query.filter(metric_filter)
                     if filters is not None:
                         table = self.get_table(table_name, schema)
                         query = self.subquery_join_with_filters(query, filter_query, filters, table, *keys, **project)
