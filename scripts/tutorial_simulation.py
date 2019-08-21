@@ -317,7 +317,7 @@ In this tutorial you learned:
 -- You saw how this applied to both time series data and dimension data
 -- You also saw how to model dependent variables using AS functions.
 
-This tutorial showed how to model a very simple system. You can use the exaxt same
+This tutorial showed how to model a very simple system. You can use the exact same
 techniques to build realistic simulations of much more complex systems.
 
 '''

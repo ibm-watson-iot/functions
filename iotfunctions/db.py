@@ -2490,6 +2490,7 @@ class BaseTable(object):
                 logger.debug(msg)
         self.table = Table(self.name, self.database.metadata, *args, **kw)
         self.id_col = Column(self._entity_id, String(50))
+        self.table.create(checkfirst=True)
 
     def create(self):
         self.table.create()

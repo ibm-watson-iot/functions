@@ -2636,8 +2636,9 @@ class JobController(object):
         '''
 
         chunks = []
-        chunk_size = self.get_payload_param('chunk_size',
-                                            self.default_chunk_size)
+        chunk_size = self.get_payload_param('chunk_size',None)
+        if chunk_size is None:
+            chunk_size = self.default_chunk_size
 
         if start_date is None:
             start_date = self.exec_payload_method(method_name='get_early_timestamp',
