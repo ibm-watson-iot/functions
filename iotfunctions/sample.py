@@ -83,8 +83,6 @@ class DateDifferenceReference(BaseTransformer):
 
         if self.date_1 is None or self.date_1 == self._entity_type._timestamp:
             ds_1 = self.get_timestamp_series(df)
-            if isinstance(ds_1, pd.DatetimeIndex):
-                ds_1 = pd.Series(data=ds_1, index=df.index)
             ds_1 = pd.to_datetime(ds_1)
         else:
             ds_1 = df[self.date_1]
