@@ -166,4 +166,17 @@ deviceid    start_date                  end_date                    owner
 73004       2019-07-24-23.59.00.000001  2019-07-27-22.10.25.940353  unknown
 73004	    2019-07-27-22.10.25.940354	2019-08-14-22.10.25.940353	Steve S
 
+
+Closing Comments:
+-----------------
+
+This tutorial demonstrated how to use the EntityDataGenerator to build a SCD
+table and how to use the SCDLookup function to merge SCD data with time series
+data.
+
+Normally you would create your own SCD tables and populate them yourself. When
+doing this, they should be created with the same set of mandatory columns:
+deviceid, start_date, end_date along with a single column for the scd property
+that the table holds.
+
 '''
