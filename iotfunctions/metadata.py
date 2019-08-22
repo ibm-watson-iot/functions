@@ -364,6 +364,9 @@ class EntityType(object):
             self._functions = []
         self._functions.extend(functions)
 
+        if name is not None and db is not None and not self.is_local:
+            db.entity_type_metadata[self.logical_name] = self
+
         logger.debug(('Initialized entity type %s'), str(self))
 
     def add_activity_table(self, name, activities, *args, **kwargs):

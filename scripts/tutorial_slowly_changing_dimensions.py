@@ -43,7 +43,7 @@ possible values.
 
 '''
 
-entity_name = 'scd_test'                    # you can give your entity type a better nane
+entity_name = 'scd_test'                    # you can give your entity type a better name
 db = Database(credentials = credentials)
 db_schema = None                            # set if you are not using the default
 

@@ -591,12 +591,24 @@ class Database(object):
                 msg = 'No entity called %s in the cached metadata.' % name
                 raise ValueError(msg)
 
-        timestamp = metadata['metricTimestampColumn']
-        schema = metadata['schemaName']
-        dim_table = metadata['dimensionTableName']
-        entity_type_id = metadata.get('entityTypeId', None)
+        try:
+            timestamp = metadata['metricTimestampColumn']
+            schema = metadata['schemaName']
+            dim_table = metadata['dimensionTableName']
+            entity_type_id = metadata.get('entityTypeId', None)
+        except TypeError:
+            try:
+                is_entity_type = metadata.is_entity_type
+            except AttributeError:
+                is_entity_type = False
 
-        entity = md.EntityType(name=name,
+            if is_entity_type:
+                entity = metadata
+            else:
+                msg = 'Entity %s not found in the database metadata' %name
+                raise KeyError(msg)
+        else:
+            entity = md.EntityType(name=name,
                                db=self,
                                **{
                                    'auto_create_table': False,
@@ -2790,7 +2802,7 @@ class BaseTable(object):
         self.table.create(checkfirst=True)
 
     def create(self):
-        self.table.create()
+        self.table.create(checkfirst=True)
 
     def get_column_names(self):
         """
