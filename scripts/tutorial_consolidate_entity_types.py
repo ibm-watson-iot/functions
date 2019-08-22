@@ -32,7 +32,7 @@ devices.
 
 '''
 
-child1 = ('temp_data','temp')               # (device name, metric name)
+child1 = ('temp_data','temperature')               # (device name, metric name)
 child2 = ('motion_data', 'motion')
 consolidated = 'work_area_test'
 device_count = 20
@@ -58,8 +58,8 @@ db_schema = None                            # set if you are not using the defau
 
 
 sim_parameters = {
-    "data_item_mean" : {'temp': 22},
-    "data_item_sd": {'temp': 2 },
+    "data_item_mean" : {'temperature': 22},
+    "data_item_sd": {'temperature': 2 },
     "data_item_domain" : {'motion' : [0,1],
                           'work_area' : work_areas,
                           'zone_id' : ['N','S','E','W']},
@@ -99,7 +99,7 @@ for (data_source_name,metric_name) in [child1,child2]:
 
 This is what the generated data looks like: Time series data for temperature:
 
-DEVICEID	EVT_TIMESTAMP	            DEVICETYPE	    LOGICALINTERFACE_ID	EVENTTYPE	FORMAT	UPDATED_UTC	TEMP
+DEVICEID	EVT_TIMESTAMP	            DEVICETYPE	    LOGICALINTERFACE_ID	EVENTTYPE	FORMAT	UPDATED_UTC	TEMPERATURE
 10001	    2019-08-22-21.18.10.884128	temp_data		                    ep                  			21.602888736326957
 10017	    2019-08-22-21.23.10.884128	temp_data		                    ye			                    23.517696994037884
 
@@ -130,7 +130,7 @@ DEVICEID    WORK_AREA
 
 This is what the generated data looks like for motion:
 
-DEVICEID	EVT_TIMESTAMP	            DEVICETYPE	    LOGICALINTERFACE_ID	EVENTTYPE	FORMAT	UPDATED_UTC	TEMP
+DEVICEID	EVT_TIMESTAMP	            DEVICETYPE	    LOGICALINTERFACE_ID	EVENTTYPE	FORMAT	UPDATED_UTC MOTION
 20002	    2019-08-22-21.21.29.979137	motion_data		                    vy			                    1
 20012	    2019-08-22-21.26.29.979137	motion_data		                    ee			                    1
 
@@ -195,14 +195,8 @@ entity = EntityType(consolidated, db,
 
 
 '''
-Important:
 We also added two expression to the entity: comfort_level and is_occupied. These
-are there to show how to work with child_entity_data, but they also serve another 
-purpose: to instruct AS that data items provided by the data source are actually
-used in the calc pipeline. AS automatically trims queries to exclude data sources
-and columns that are not needed in any calculations. If these calculated items
-were not defined, AS would not process the child data sources.
- 
+are there to show how to work with child_entity_data. 
  
 Execute the local pipeline. This will read the child entity type data and compute
 comfort_level and is_occupied.

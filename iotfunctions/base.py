@@ -1498,6 +1498,7 @@ class BaseDataSource(BaseTransformer):
     auto_conform_index = True
     _allow_empty_df = True
     requires_input_items = False
+    allow_projection_list_trim = True
     
     def __init__(self, input_items, output_items=None, dummy_items = None):
         self.input_items = input_items

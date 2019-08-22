@@ -987,6 +987,7 @@ class GetEntityData(BaseDataSource):
     """
 
     merge_method = 'outer'
+    allow_projection_list_trim = False
 
     def __init__(self, source_entity_type_name, key_map_column, input_items,
                  output_items=None):

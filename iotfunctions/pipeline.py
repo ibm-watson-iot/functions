@@ -1532,8 +1532,8 @@ class JobController(object):
 
         #Trim data sources to retieve only the data items required as inputs
         allow_trim = self.get_payload_param('allow_projection_list_trim',False)
-        if allow_trim:
-            for stage,cols in list(build_metadata['data_source_projection_list'].items()):
+        for stage,cols in list(build_metadata['data_source_projection_list'].items()):
+            if self.get_stage_param(stage,'allow_projection_list_trim', allow_trim):
                 required_cols = set(build_metadata['required_inputs'])
                 # The payload may designate that certain columns are not allowed to be
                 # trimmed
@@ -1561,10 +1561,10 @@ class JobController(object):
                     self.trace_add(msg = msg,
                                    created_by = stage,
                                    log_method = logger.info)
-        else:
-            logger.debug(('Projection list trimming is disabled for the entity type.'
-                         ' Retrieving all source items. To enable'
-                         ' trimming set allow_projection_list_trim to True'))
+            else:
+                logger.debug(('Projection list trimming is disabled for stage.'
+                     ' Retrieving all source items. To enable'
+                     ' trimming set allow_projection_list_trim to True'))
 
         logger.debug('Build of job spec is complete.')
         logger.debug('-------------------------------')
