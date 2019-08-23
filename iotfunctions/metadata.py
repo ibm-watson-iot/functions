@@ -1328,7 +1328,10 @@ class EntityType(object):
         if self.enable_downcast:
             memo = MemoryOptimizer()
             df = memo.downcastNumeric(df)
-        df = self.index_df(df)
+        try:
+            df = self.index_df(df)
+        except (AttributeError,KeyError):
+            pass
 
         return df
 

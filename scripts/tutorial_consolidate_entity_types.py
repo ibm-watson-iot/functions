@@ -204,3 +204,34 @@ comfort_level and is_occupied.
 '''
 
 entity.exec_local_pipeline()
+
+'''
+
+The outputs from pipeline execution are shown:
+
+id	evt_timestamp	    deviceid	temperature	    evt_timestamp	motion	comfort_level	is_occupied
+w19	2019/08/23 13:25	w19	        20.31762829	    25:00.9		            -1.18237171	
+w2	2019/08/23 13:30	w2	        23.04951994	    30:00.9		            1.549519936	
+w4	2019/08/23 13:25	w4		                    25:08.1	        0		                 0
+w9	2019/08/23 13:30	w9		                    30:08.1     	0		                 0
+
+By default the data from the various data sources are merged using a full outer join.
+This means each row of data from each device is present in the merged data. The dataframe is
+sparse as the timestamps the different data sources do not match.
+
+If you attempted to build transformation functions directly on this merged dataset that involved
+data from both datasources, the results would likely be rather meaningless because of all of the
+null values in this non-time aligned data.
+ 
+The easiest way to time align the data is aggregate it, e.g. to the hour level. You can
+define meaningful functions acting on the dense aggregated data.
+
+Closing Comments:
+
+In this tutorial we build two device level entity types and learned to consolidate them 
+under a single higher level construct - where that higher level construct is denoted
+by a common dimension on each device. 
+
+'''
+
+

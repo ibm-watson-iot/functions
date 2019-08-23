@@ -1544,42 +1544,49 @@ class BaseDataSource(BaseTransformer):
             new_df = self._entity_type.index_df(new_df)
         except AttributeError:
             pass
-        self.log_df_info(df,'source dataframe before merge')
-        self.log_df_info(new_df,'additional data source to be merged')        
-        overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
-        if self.merge_method == 'outer':
-            #new_df is expected to be indexed on id and timestamp
-            index_names = df.index.names
-            df = df.join(new_df,how='outer',sort=True,on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp],rsuffix ='_new_')
-            df.index.rename(index_names,inplace=True)
-            df = self._coallesce_columns(df=df,cols=overlapping_columns)
-        elif self.merge_method == 'nearest': 
-            overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_type._entity_id,self._entity_type._timestamp]]
-            try:
-                df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
-            except ValueError:
-                new_df = new_df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
+        if df is None or len(df.index) == 0:
+            df = new_df
+            logger.debug('Incoming dataframe is empty. Replaced with data from %s', self.name)
+        elif new_df is None or len(new_df.index) == 0:
+            logger.debug('No data retrieved from data source %s',self.name)
+        else:
+            # both dataframes have data. Merge them.
+            self.log_df_info(df,'source dataframe before merge')
+            self.log_df_info(new_df,'additional data source to be merged')
+            overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
+            if self.merge_method == 'outer':
+                #new_df is expected to be indexed on id and timestamp
+                index_names = df.index.names
+                df = df.join(new_df,how='outer',sort=True,on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp],rsuffix ='_new_')
+                df.index.rename(index_names,inplace=True)
+                df = self._coallesce_columns(df=df,cols=overlapping_columns)
+            elif self.merge_method == 'nearest':
+                overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_type._entity_id,self._entity_type._timestamp]]
                 try:
                     df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
                 except ValueError:
-                    df = df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
-                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp_col,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
-            df = self._coallesce_columns(df=df,cols=overlapping_columns)
-        elif self.merge_method == 'concat':
-            df = pd.concat([df,new_df],sort=True)
-        elif self.merge_method == 'replace':
-            orginal_df = df
-            df = new_df
-            #add back item names from the original df so that they don't vanish from the pipeline
-            for i in orginal_df.columns:
-                if i not in df.columns:
-                    df[i] = orginal_df[i].max() #preserve type. value is not important
-        else:
-            raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
+                    new_df = new_df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
+                    try:
+                        df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
+                    except ValueError:
+                        df = df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
+                        df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp_col,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
+                df = self._coallesce_columns(df=df,cols=overlapping_columns)
+            elif self.merge_method == 'concat':
+                df = pd.concat([df,new_df],sort=True)
+            elif self.merge_method == 'replace':
+                orginal_df = df
+                df = new_df
+                # add back item names from the original df so that they don't vanish from the pipeline
+                for i in orginal_df.columns:
+                    if i not in df.columns:
+                        df[i] = orginal_df[i].max() # preserve type. value is not important
+            else:
+                raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
         try:
             df = self._entity_type.index_df(df)
-        except AttributeError:
+        except (KeyError,AttributeError):
             pass
         return df
 
