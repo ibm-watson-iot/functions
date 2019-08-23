@@ -558,7 +558,9 @@ class BaseFunction(object):
         return trace
 
     def _get_series(self,df,col_names):
-        
+        '''
+        Always return a series with the same (multi-)index as the input dataframe !!!
+        '''
         if isinstance(col_names,str):
             col_names = [col_names]
         for col in col_names:
@@ -568,9 +570,9 @@ class BaseFunction(object):
                 try:
                     index = df.index.get_level_values(col)
                     if isinstance(index, pd.DatetimeIndex):
-                        series = index.to_series(keep_tz=True)
+                        series = index.to_series(keep_tz=True, index=df.index)
                     else:
-                        series = index.to_series()
+                        series = index.to_series(index=df.index)
                 except KeyError:
                     pass
                 else:
@@ -1496,6 +1498,7 @@ class BaseDataSource(BaseTransformer):
     auto_conform_index = True
     _allow_empty_df = True
     requires_input_items = False
+    allow_projection_list_trim = True
     
     def __init__(self, input_items, output_items=None, dummy_items = None):
         self.input_items = input_items

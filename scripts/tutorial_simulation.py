@@ -113,7 +113,7 @@ You can try the same from the UI using the parameters above when configuring the
 
 Alternatively we can add the EntityDataGenerator to the entity type as follows:
 
-Note: There are a few additional parameters available when operating this way: 
+While we are at it, let's change the number of entity types we are simulating
 -- Need more entity types? Change the value of auto_entity_count
 -- Want a different starting range for entity type ids? set start_entity_id
 
@@ -166,5 +166,158 @@ use 'test_local_pipeline'.
 
 entity.exec_local_pipeline()
 
+'''
+So far we have only looked at the ability to create numerical and categorical time
+series data. You can also automatically generate dimensional attributes. 
+'''
+
+entity.make_dimension(
+    'sim_test_dimension',
+    Column('manufacturer', String(50)),
+)
+
+entity.register(raise_error=True)
+entity.generate_data(days=0.5, drop_existing=True, **sim_parameters)
+
+'''
+
+Look at the data that was loaded into sim_test_dimension.
+
+You should see something like this.
+
+device_id   manufacturer
+73004	    GHI Industries
+73000	    GHI Industries
+73003	    Rentech
+73002	    GHI Industries
+73001	    Rentech
+
+"manufacturer" is another one of those magic column names that will use a default 
+domain of values. 
+
+Let's add additional numeric and non-numeric data to the dimension and set 
+simulation parameters for them.
+
+load_rating is a numeric dimension property with a mean of 500 and a default standard deviation
+maintenance_org has a custom domain 
+
+Important: When altering the dimension it is important to drop it first. The make_dimension
+method attempts to reuse an existing table if there is one. In this case there is one and it
+contains the wrong columns. We must drop it first so that make_dimension can create
+a new dimension.
+
+'''
+
+db.drop_table('sim_test_dimension',schema=db_schema)
+
+entity.make_dimension(
+    'sim_test_dimension',
+    Column('manufacturer', String(50)),
+    Column('load_rating', Float()),
+    Column('maintenance_org', String(50))
+)
+
+sim_parameters = {
+    "data_item_mean" : {'temp': 22,
+                        'pressure' : 320,
+                        'load_rating' : 500 },
+    "data_item_sd": {'temp': 2,
+                     'pressure': 5},
+    "data_item_domain" : {'category_code' : ['A','B','C'],
+                          'maintenance_org' : ['Lunar Parts','Relco']},
+    "start_entity_id" : 1000,
+    "auto_entity_count"  : 10,
+    "freq"  : '30S'    # 30 sec
+}
+
+entity.register(raise_error=True)
+entity.generate_data(days=0.5, drop_existing=True, **sim_parameters)
+
+'''
+
+This is what the new dimension looks like
+
+devicid     manufacturer    load_rating         maintenance_org
+1004	    GHI Industries	500.89830511533046	Relco
+1005	    Rentech	        499.9407055104487	Lunar Parts
+1008	    GHI Industries	500.79630237063606	Relco
+1001	    Rentech	        500.00507522504734	Relco
+1006	    Rentech	        498.48278537970765	Lunar Parts
+1007	    GHI Industries	499.2788278282351	Relco
+1002	    GHI Industries	501.1063668253522	Relco
+1000	    GHI Industries	501.1359844685311	Relco
+1003	    Rentech	        501.45477263284033	Relco
+1009	    Rentech	        499.94029397932167	Lunar Parts
 
 
+With what you have seen so far, generate_data and the AS function EntityDataGenerator allow 
+for the simulation independent variables. Real world systems have a mix of independent and 
+dependent variables. You can use AS functions to simulate dependent variables.
+
+Consider and extension to this example where operating temperature is dependent ambient
+temperature (temp) and load. We can model the relationship between these variables using
+an AS function. In this example the relationship is simple enough to be modeled using a
+PythonExpression. You could PythonFunctions or custom functions to model more complex
+relationships.
+
+We will also add some random noise to the result of the expression. This will allow our
+simulation to retain some of the random variation typically seen in the real world.
+
+'''
+
+temp_function = bif.PythonExpression(
+    expression = 'df["temp"]+df["pressure"]/300*5',
+    output_name = 'operating_temperature_work'
+)
+
+
+entity = EntityType(entity_name,db,
+                    Column('temp',Float()),
+                    Column('pressure', Float()),
+                    Column('company_code',String(50)),
+                    Column('category_code',String(5)),
+                    bif.EntityDataGenerator(
+                        parameters= sim_parameters,
+                        data_item = 'is_generated'
+                            ),
+                    temp_function,
+                    bif.RandomNoise(
+                        input_items = ['operating_temperature_work'],
+                        standard_deviation= 1,
+                        output_items= ['operating_temperature']
+                    ),
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+
+
+
+entity.exec_local_pipeline()
+
+'''
+Note:  
+entity.generate_data only writes simulated random data to the AS input table. It
+does not retrieve this data and apply AS functions to it.
+
+id	    evt_timestamp	temp	    pressure	deviceid	_timestamp	entitydatagenerator	operating_temperature_work	operating_temperature
+1005	04:38.5	        22.82177094	327.0609021	1005	    04:38.5	    TRUE	            28.27278598	                27.9994426
+1004	05:08.5	        22.78203275	321.8376423	1004	    05:08.5	    TRUE	            28.14599345	                27.95332118
+1006	05:38.5	        23.77231385	313.3748436	1006	    05:38.5	    TRUE	            28.99522791	                30.04482662
+1000	06:08.5	        24.23746302	329.5324336	1000	    06:08.5	    TRUE	            29.72967024	                27.95621538
+1006	06:38.5	        24.26086898	321.2665546	1006	    06:38.5	    TRUE	            29.61531155	                29.18479368
+1009	07:08.5	        26.14706462	321.1545257	1009	    07:08.5	    TRUE	            31.49964005	                32.32444398
+1000	07:38.5	        20.27024524	313.5222948	1000	    07:38.5	    TRUE	            25.49561682	                25.74210273
+ 
+
+When executing AS functions locally it is necessary to execute an AS pipeline as above
+
+In this tutorial you learned:
+-- How to load independent numeric and categorical values into AS input tables
+-- You saw how this applied to both time series data and dimension data
+-- You also saw how to model dependent variables using AS functions.
+
+This tutorial showed how to model a very simple system. You can use the exact same
+techniques to build realistic simulations of much more complex systems.
+
+'''
