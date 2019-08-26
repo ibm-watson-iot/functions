@@ -1810,6 +1810,7 @@ class BaseDBActivityMerge(BaseDataSource):
     # the type of activity performed on or using an entity is designated by the 'activity' column
     _activity = 'activity'
     _allow_empty_df = True
+    allow_projection_list_trim = False
     
     def __init__(self,
                  input_activities,
