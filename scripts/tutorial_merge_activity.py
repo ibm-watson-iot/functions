@@ -294,7 +294,7 @@ Wrapping up
 
 In this tutorial you have seen how to use the ActivityDuration function to calculate 
 duration metrics from activity start and end dates. You saw it allocate durations
-between  slowly changing dimensions and shifts. You also saw how it can be configured
+between slowly changing dimensions and shifts. You also saw how it can be configured
 to not allow overlap in time allocation between different activities. 
 
 
