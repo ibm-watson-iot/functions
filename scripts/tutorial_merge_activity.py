@@ -301,8 +301,10 @@ to not allow overlap in time allocation between different activities.
 Developer Notes
 ----------------
 
-This is one of the more complex built in functions. The base class for this ActivityDuration
+This is one of the more complex built in functions. The base class BaseDBActivityMerge
 is more general as it supports reading data from multiple activity tables and reading
-custom tables that don't conform to the standard column names via custom sql.  
+custom tables that don't conform to the standard column names via custom sql. If you are
+developing other functions that need to be aware of a custom calendar or the presence of
+slowly changing dimensions, BaseDBActivityMerge is a good reference.
 
 '''
