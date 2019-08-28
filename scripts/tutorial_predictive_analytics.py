@@ -59,6 +59,10 @@ fn_noise = bif.RandomNoise(  # add noise to y1 and y3 to produce y2 and y4
     output_items=['y2', 'y4']
 )
 
+job_settings = {
+    'delete_existing_models' : True,
+}
+
 entity = EntityType(entity_name,db,
                     Column('x1',Float()),
                     Column('x2',Float()),
@@ -78,7 +82,7 @@ entity = EntityType(entity_name,db,
                       })
 entity.register(raise_error=True)
 start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
-entity.exec_local_pipeline(start_ts=start_date)
+entity.exec_local_pipeline(start_ts=start_date,**job_settings)
 
 '''
 When we execute the pipeline, it runs the preload generator, builds the target variables
@@ -98,7 +102,74 @@ x1	            x3	            deviceid	x2	        _timestamp	        entitydatag
 0.552446078	    -0.909958249	73004	    1.443942632	2019/08/25 22:56	TRUE	                1.318287756	    -1.138745963	 0.384865548	-0.677763842	1.31826046
 0.337931424	    1.107722852	    73004	    0.031767608	2019/08/25 23:01	TRUE	                1.657889509	    0.082430039	    1.404252135	    0.296344757	    1.657816656
 
-Let's see what happens if we try the same with predicting y0.
+The trace provides a lot of insight into the model training process:
+
+The SimpleRegressor looks for an existing model in COS. To make sure that there was none,
+we set the job parameter, "delete_existing_models" to True.
+
+In the trace we see that there was no existing model for y1 so training is required.
+
+"predicting target y1": "{'training_required': 'Training required because there is no existing model', 'use_existing_model': False}",
+
+During training, the SimpleReggressor trained 5 models, evaluated each against a test dataset and kept the best model.
+
+"Trained model: 0": "{'eval_metric_name': 'r2_score', 'col_name': 'y1_predicted', 'name': 'model.predict_test.SimpleRegressor.y1', 'eval_metric_test': 0.9986195070793537, 'eval_metric_train': 0.9995248209793295, 'evaluation_outcome': 'No prior model, first created is best', 'target': 'y1', 'params': {'learning_rate': 0.05, 'loss': 'ls', 'n_estimators': 100, 'min_samples_split': 5, 'max_depth': 4}, 'estimator_name': 'gradient_boosted_regressor', 'shelf_life_days': None, 'features': ['x1', 'x2', 'x3']}",
+"Trained model: 1": "{'eval_metric_name': 'r2_score', 'col_name': 'y1_predicted', 'name': 'model.predict_test.SimpleRegressor.y1', 'eval_metric_test': 0.998773736716654, 'eval_metric_train': 0.9993632345825462, 'evaluation_outcome': 'Higher than previous best of 0.9986195070793537. New metric is 0.998773736716654', 'target': 'y1', 'params': {'learning_rate': 0.05, 'loss': 'ls', 'n_estimators': 250, 'min_samples_split': 9, 'max_depth': 2}, 'estimator_name': 'gradient_boosted_regressor', 'shelf_life_days': None, 'features': ['x1', 'x2', 'x3']}",
+"Trained model: 2": "{'eval_metric_name': 'r2_score', 'col_name': 'y1_predicted', 'name': 'model.predict_test.SimpleRegressor.y1', 'eval_metric_test': 0.9999999904193875, 'eval_metric_train': 0.9999999905143194, 'evaluation_outcome': 'Higher than previous best of 0.998773736716654. New metric is 0.9999999904193875', 'target': 'y1', 'params': {'tol': 0.005, 'max_iter': 5000}, 'estimator_name': 'sgd_regressor', 'shelf_life_days': None, 'features': ['x1', 'x2', 'x3']}",
+"Trained model: 3": "{'eval_metric_name': 'r2_score', 'col_name': 'y1_predicted', 'name': 'model.predict_test.SimpleRegressor.y1', 'eval_metric_test': 0.9992890097471945, 'eval_metric_train': 0.9999613533343915, 'target': 'y1', 'params': {'learning_rate': 0.05, 'loss': 'ls', 'n_estimators': 1000, 'min_samples_split': 2, 'max_depth': 4}, 'estimator_name': 'gradient_boosted_regressor', 'shelf_life_days': None, 'features': ['x1', 'x2', 'x3']}",
+"Trained model: 4": "{'eval_metric_name': 'r2_score', 'col_name': 'y1_predicted', 'name': 'model.predict_test.SimpleRegressor.y1', 'eval_metric_test': 0.9999999912219784, 'eval_metric_train': 0.9999999912985721, 'evaluation_outcome': 'Higher than previous best of 0.9999999904193875. New metric is 0.9999999912219784', 'target': 'y1', 'params': {'tol': 0.001, 'max_iter': 10000}, 'estimator_name': 'sgd_regressor', 'shelf_life_days': None, 'features': ['x1', 'x2', 'x3']}",
+
+The last model was the best so saved it to COS for later and used it for scoring.
+
+If we execute again without deleting existing models, there will be no need to
+retrain. Scoring will take place using the existing saved model.
+
+'''
+
+job_settings = {
+    'delete_existing_models' : False,
+}
+
+entity = EntityType(entity_name,db,
+                    Column('x1',Float()),
+                    Column('x2',Float()),
+                    Column('x3',Float()),
+                    Column('y0',Float()),
+                    fn_gen,
+                    fn_dep1,
+                    fn_dep2,
+                    fn_noise,
+                    estimator.SimpleRegressor(
+                        features = ['x1','x2','x3'],
+                        targets = ['y1'],
+                        predictions = ['y1_predicted']),
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+entity.register(raise_error=True)
+start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
+entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+
+'''
+
+The trace confirms that the SimpleRegressor reused the existing model.
+
+"predicting target y1": "{'training_required': 'Existing model has not expired and eval metric is good', 'use_existing_model': True}",
+
+We can confirm that the model is good by comparing the predictions with actuals on this newly regenerated data.
+
+y1	            y1_predicted
+-8.914096764	-8.888921485
+-2.219113188	-2.203265514
+1.968634163	    1.977106634
+-0.959846407	-0.950027128
+4.312884893	    4.312573849
+8.264972582	    8.267702692
+9.587129826	    9.586387549
+
+We included y0 as a "bogus" target in the simulated data. It is random. Let's see what happens if we
+try to predict it.
 
 '''
 
@@ -168,3 +239,23 @@ job_settings = {
 entity.register(raise_error=True)
 start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
 entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+
+'''
+y_predict is null
+
+This is expected behavior
+The SimpleRegressor couln't fit a model with acceptable accuracy (r2 > 0.5) so it
+did not perform scoring.
+
+The trace provides confirmation of this:
+"predicting target y0": "{'use_existing_model': False, 'training_required': 'Training required because there is no existing model'}"
+
+You can also see the 5 unsuccessful attempts to train a model:
+
+"Trained model: 0": "{'eval_metric_train': 0.027373912353378937, 'estimator_name': 'gradient_boosted_regressor', 'eval_metric_name': 'r2_score', 'evaluation_outcome': 'No prior model, first created is best', 'features': ['x1', 'x2', 'x3'], 'target': 'y0', 'shelf_life_days': None, 'col_name': 'y0_predicted', 'params': {'n_estimators': 250, 'loss': 'ls', 'learning_rate': 0.02, 'min_samples_split': 9, 'max_depth': 2}, 'name': 'model.predict_test.SimpleRegressor.y0', 'eval_metric_test': -0.002655277863766292}",
+"Trained model: 1": "{'eval_metric_train': 0.004603787971566575, 'estimator_name': 'sgd_regressor', 'eval_metric_name': 'r2_score', 'evaluation_outcome': 'Higher than previous best of -0.002655277863766292. New metric is -0.0007227555842390654', 'features': ['x1', 'x2', 'x3'], 'target': 'y0', 'shelf_life_days': None, 'col_name': 'y0_predicted', 'params': {'tol': 0.002, 'max_iter': 1000}, 'name': 'model.predict_test.SimpleRegressor.y0', 'eval_metric_test': -0.0007227555842390654}",
+"Trained model: 2": "{'eval_metric_train': 0.09419041443126963, 'estimator_name': 'gradient_boosted_regressor', 'eval_metric_name': 'r2_score', 'features': ['x1', 'x2', 'x3'], 'target': 'y0', 'shelf_life_days': None, 'col_name': 'y0_predicted', 'params': {'n_estimators': 500, 'loss': 'ls', 'learning_rate': 0.05, 'min_samples_split': 5, 'max_depth': 2}, 'name': 'model.predict_test.SimpleRegressor.y0', 'eval_metric_test': -0.013250721331356186}",
+"Trained model: 3": "{'eval_metric_train': 0.04354194300816494, 'estimator_name': 'gradient_boosted_regressor', 'eval_metric_name': 'r2_score', 'features': ['x1', 'x2', 'x3'], 'target': 'y0', 'shelf_life_days': None, 'col_name': 'y0_predicted', 'params': {'n_estimators': 100, 'loss': 'ls', 'learning_rate': 0.02, 'min_samples_split': 5, 'max_depth': 4}, 'name': 'model.predict_test.SimpleRegressor.y0', 'eval_metric_test': -0.0029473827611010694}",
+"Trained model: 4": "{'eval_metric_train': 0.2570767933935436, 'estimator_name': 'gradient_boosted_regressor', 'eval_metric_name': 'r2_score', 'features': ['x1', 'x2', 'x3'], 'target': 'y0', 'shelf_life_days': None, 'col_name': 'y0_predicted', 'params': {'n_estimators': 100, 'loss': 'ls', 'learning_rate': 0.02, 'min_samples_split': 9, 'max_depth': 10}, 'name': 'model.predict_test.SimpleRegressor.y0', 'eval_metric_test': -0.03436886346855683}",
+
+'''

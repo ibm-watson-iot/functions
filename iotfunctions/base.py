@@ -2316,7 +2316,8 @@ class BaseEstimatorFunction(BaseTransformer):
         unprocessed_targets = []
         unprocessed_targets.extend(self.targets)
         for i,target in enumerate(self.targets):
-            logger.debug('processing target %s' %target)
+            results = {}
+            trace_message = 'predicting target %s' %target
             features = self.make_feature_list(features=self.features,
                                               df = df,
                                               unprocessed_targets = unprocessed_targets)
@@ -2325,7 +2326,9 @@ class BaseEstimatorFunction(BaseTransformer):
             model = db.cos_load(filename= model_name,
                                 bucket=bucket,
                                 binary=True)
-            if self.decide_training_required(model):
+            training_required, results['training_required'] = self.decide_training_required(model)
+            if training_required:
+                results['use_existing_model'] = False
                 if model is None:
                     model = Model(name = model_name,
                                   estimator = None,
@@ -2339,6 +2342,12 @@ class BaseEstimatorFunction(BaseTransformer):
                                   col_name = self.predictions[i]
                                   )
                 models.append(model)
+            else:
+                results['use_existing_model'] = True
+
+            trace = self.get_trace()
+            kw = {trace_message:results}
+            trace.update_last_entry(**kw)
             unprocessed_targets.append(target)
         return(models)
         
@@ -2354,6 +2363,7 @@ class BaseEstimatorFunction(BaseTransformer):
         if bucket is None:
             bucket = self.get_bucket_name()
         models = []
+        trace_dict = {}
         for i,target in enumerate(self.targets):
             model_name = self.get_model_name(target)
             #retrieve existing model
@@ -2362,31 +2372,33 @@ class BaseEstimatorFunction(BaseTransformer):
                                 binary=True)
             if model is not None:
                 models.append(model)
+                trace_dict[model_name] = 'Retrieved existing model from COS'
             else:
-                logger.warning('Unable to retrieve model %s from COS. No predictions',
-                               model_name)
+                trace_dict[model_name] = 'Unable to retrieve model from COS'
+
+        trace = self.get_trace()
+        trace.update_last_entry(**trace_dict)
+
         return(models)        
         
     def decide_training_required(self,model):
         if self.auto_train:
             if model is None:
                 msg = 'Training required because there is no existing model'
-                logger.debug(msg)
-                return True
+                return True,msg
             elif model.expiry_date is not None and model.expiry_date <= dt.datetime.utcnow():
                 msg = 'Training required model expired on %s' %model.expiry_date
-                logger.debug(msg)                
-                return True
+                return True, msg
             elif self.greater_is_better and model.eval_metric_test < self.stop_auto_improve_at:
                 msg = 'Training required because eval metric of %s is lower than threshold %s ' %(model.eval_metric_test,self.stop_auto_improve_at)
-                logger.debug(msg)                                
-                return True
+                return True, msg
             elif not self.greater_is_better and model.eval_metric_test > self.stop_auto_improve_at:
                 msg = 'Training required because eval metric of %s is higher than threshold %s ' %(model.eval_metric_test,self.stop_auto_improve_at)
-                logger.debug(msg)                                
-                return True            
+                return True, msg
+            else:
+                return False, 'Existing model has not expired and eval metric is good'
         else:
-            return False
+            return False, 'Automatic model training is disabled using the auto_train = False'
         
     def delete_models(self,model_names=None):
         '''
@@ -2498,45 +2510,48 @@ class BaseEstimatorFunction(BaseTransformer):
 
         # fit a model for each estimator
 
-        for (name, estimator, params) in estimators:
+        for counter,(name, estimator, params) in enumerate(estimators):
             estimator = self.fit_with_search_cv(estimator = estimator,
                                                 params = params,
                                                 df_train = df_train,
                                                 target = target,
                                                 features = features)
-            eval_metric_train = estimator.score(df_train[features],df_train[target])
-            msg = 'Trained estimator %s with an %s score of %s' %(self.__class__.__name__, metric_name, eval_metric_train)
-            logger.debug(msg)
-            model = Model(name = self.get_model_name(target_name = target),
-                          target = target,
-                          features = features,
-                          params = estimator.best_params_,
-                          eval_metric_name = metric_name,
-                          eval_metric_train = eval_metric_train,
-                          estimator = estimator,
-                          estimator_name = name,
-                          shelf_life_days = self.shelf_life_days,
-                          col_name = col_name)
-            eval_metric_test = model.test(df_test)
+            trace_msg = 'Trained model: %s' %counter
+            results = {
+                'name' : self.get_model_name(target_name = target),
+                'target' : target,
+                'features' : features,
+                'params' : estimator.best_params_,
+                'eval_metric_name' : metric_name,
+                'eval_metric_train' : estimator.score(df_train[features],df_train[target]),
+                'estimator_name' : name,
+                'shelf_life_days' : self.shelf_life_days,
+                'col_name' : col_name
+            }
+            model = Model(estimator = estimator,**results)
+            results['eval_metric_test'] = model.test(df_test)
             trained_models.append(model)
 
             # decide whether the fit is better than the previous best fit
 
             if best_test_metric is None:
                 best_model = model
-                best_test_metric = eval_metric_test
-                msg = 'No prior model, first created is best'
-                logger.debug(msg)
-            elif self.greater_is_better and eval_metric_test > best_test_metric:
-                msg = 'Higher than previous best of %s. New metric is %s' %(best_test_metric,eval_metric_test)
+                best_test_metric = results['eval_metric_test']
+                results['evaluation_outcome'] = 'No prior model, first created is best'
+            elif self.greater_is_better and results['eval_metric_test'] > best_test_metric:
+                results['evaluation_outcome'] = 'Higher than previous best of %s. New metric is %s' %(
+                    best_test_metric,results['eval_metric_test'])
                 best_model = model
-                best_test_metric = eval_metric_test        
-                logger.debug(msg)
-            elif not self.greater_is_better and eval_metric_test < best_test_metric:
-                msg = 'Lower than previous best of %s. New metric is %s' %(best_test_metric,eval_metric_test)
+                best_test_metric = results['eval_metric_test']
+            elif not self.greater_is_better and results['eval_metric_test'] < best_test_metric:
+                results['evaluation_outcome'] = 'Lower than previous best of %s. New metric is %s' %(
+                    best_test_metric,results['eval_metric_test'])
                 best_model = model
-                best_test_metric = eval_metric_test
-                logger.debug(msg)
+                best_test_metric = results['eval_metric_test']
+
+            trace = self.get_trace()
+            kw = {trace_msg: results}
+            trace.update_last_entry(**kw)
         
         return best_model
     
