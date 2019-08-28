@@ -1456,7 +1456,7 @@ class EntityType(object):
             else:
                 date_time_obj = dt.datetime.strptime(self._start_ts_override[0], '%Y-%m-%d %H:%M:%S')
             return date_time_obj
-        return date_time_obj
+        return None
 
     def get_replacement(self, obj):
         '''
