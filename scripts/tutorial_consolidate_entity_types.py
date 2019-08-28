@@ -228,7 +228,7 @@ define meaningful functions acting on the dense aggregated data.
 
 Closing Comments:
 
-In this tutorial we build two device level entity types and learned to consolidate them 
+In this tutorial we built two device level entity types and learned to consolidate them 
 under a single higher level construct - where that higher level construct is denoted
 by a common dimension on each device. 
 

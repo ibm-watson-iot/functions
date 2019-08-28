@@ -1132,6 +1132,13 @@ class EntityType(object):
         kw = {**params, **kw}
 
         job = JobController(payload=self, **kw)
+
+        # propagate parameters to functions
+
+        for f in self._functions:
+            for key, value in list(kw.items()):
+                setattr(f, key, value)
+
         job.execute()
 
     def get_attributes_dict(self):

@@ -44,24 +44,30 @@ entity_name = 'predict_test'                    # you can give your entity type 
 db = Database(credentials = credentials)
 db_schema = None                                # set if you are not using the default
 db.drop_table(entity_name)
+
+fn_gen = bif.EntityDataGenerator(output_item='generator_ok')
+fn_dep1 = bif.PythonExpression(  # linear relatoionship
+    '5*df["x1"]-df["x2"]',
+    'y1')
+fn_dep2 = bif.PythonExpression(
+    'df["x1"]*df["x1"]-df["x2"]',  # non-linear relationship
+    'y3'
+)
+fn_noise = bif.RandomNoise(  # add noise to y1 and y3 to produce y2 and y4
+    input_items=['y1', 'y3'],
+    standard_deviation=.5,
+    output_items=['y2', 'y4']
+)
+
 entity = EntityType(entity_name,db,
                     Column('x1',Float()),
                     Column('x2',Float()),
                     Column('x3',Float()),
-                    Column('y_0',Float()),
-                    bif.EntityDataGenerator(output_item='generator_ok'),
-                    bif.PythonExpression(       # linear relatoionship
-                        '5*df["x1"]-df["x2"]',
-                        'y1'),
-                    bif.PythonExpression(
-                        'df["x1"]*df["x1"]-df["x2"]',   # non-linear relationship
-                        'y3'
-                    ),
-                    bif.RandomNoise(                # add noise to y1 and y3 to produce y2 and y4
-                        input_items = ['y1','y3'],
-                        standard_deviation= .5,
-                        output_items= ['y2','y4']
-                    ),
+                    Column('y0',Float()),
+                    fn_gen,
+                    fn_dep1,
+                    fn_dep2,
+                    fn_noise,
                     estimator.SimpleRegressor(
                         features = ['x1','x2','x3'],
                         targets = ['y1'],
@@ -92,54 +98,73 @@ x1	            x3	            deviceid	x2	        _timestamp	        entitydatag
 0.552446078	    -0.909958249	73004	    1.443942632	2019/08/25 22:56	TRUE	                1.318287756	    -1.138745963	 0.384865548	-0.677763842	1.31826046
 0.337931424	    1.107722852	    73004	    0.031767608	2019/08/25 23:01	TRUE	                1.657889509	    0.082430039	    1.404252135	    0.296344757	    1.657816656
 
-The log provides a lot of insight as to what happened under the covers during model training.
-
-2019-08-27T15:41:54.644 DEBUG iotfunctions.base.make_estimators Selected estimators ['gradient_boosted_regressor', 'gradient_boosted_regressor', 'sgd_regressor', 'gradient_boosted_regressor', 'sgd_regressor']
-C:\Users\mike\Anaconda3\envs\functions\lib\site-packages\sklearn\model_selection\_split.py:1978: FutureWarning: The default value of cv will change from 3 to 5 in version 0.22. Specify it explicitly to silence this warning.
-  warnings.warn(CV_WARNING, FutureWarning)
-    
-2019-08-27T15:41:56.549 DEBUG iotfunctions.base.fit_with_search_cv Used randomize search cross validation to find best hyper parameters for estimator RandomizedSearchCV
-2019-08-27T15:41:56.560 DEBUG iotfunctions.base.find_best_model Trained estimator SimpleRegressor with an r2_score score of 0.9998844604767325
-2019-08-27T15:41:56.564 INFO iotfunctions.metadata.test evaluated model model.predict_test.SimpleRegressor.y1 with evaluation metric value 0.9989645842025136
-2019-08-27T15:41:56.564 DEBUG iotfunctions.base.find_best_model No prior model, first created is best
-C:\Users\mike\Anaconda3\envs\functions\lib\site-packages\sklearn\model_selection\_split.py:1978: FutureWarning: The default value of cv will change from 3 to 5 in version 0.22. Specify it explicitly to silence this warning.
-  warnings.warn(CV_WARNING, FutureWarning)
-2019-08-27T15:41:57.371 DEBUG iotfunctions.base.fit_with_search_cv Used randomize search cross validation to find best hyper parameters for estimator RandomizedSearchCV
-2019-08-27T15:41:57.384 DEBUG iotfunctions.base.find_best_model Trained estimator SimpleRegressor with an r2_score score of 0.9821804618200153
-2019-08-27T15:41:57.388 INFO iotfunctions.metadata.test evaluated model model.predict_test.SimpleRegressor.y1 with evaluation metric value 0.9805138574145589
-C:\Users\mike\Anaconda3\envs\functions\lib\site-packages\sklearn\model_selection\_split.py:1978: FutureWarning: The default value of cv will change from 3 to 5 in version 0.22. Specify it explicitly to silence this warning.
-  warnings.warn(CV_WARNING, FutureWarning)
-2019-08-27T15:41:57.424 DEBUG iotfunctions.base.fit_with_search_cv Used randomize search cross validation to find best hyper parameters for estimator RandomizedSearchCV
-2019-08-27T15:41:57.425 DEBUG iotfunctions.base.find_best_model Trained estimator SimpleRegressor with an r2_score score of 0.9999999910107339
-2019-08-27T15:41:57.426 INFO iotfunctions.metadata.test evaluated model model.predict_test.SimpleRegressor.y1 with evaluation metric value 0.999999990975172
-2019-08-27T15:41:57.426 DEBUG iotfunctions.base.find_best_model Higher than previous best of 0.9989645842025136. New metric is 0.999999990975172
-C:\Users\mike\Anaconda3\envs\functions\lib\site-packages\sklearn\model_selection\_split.py:1978: FutureWarning: The default value of cv will change from 3 to 5 in version 0.22. Specify it explicitly to silence this warning.
-  warnings.warn(CV_WARNING, FutureWarning)
-2019-08-27T15:42:00.912 DEBUG iotfunctions.base.fit_with_search_cv Used randomize search cross validation to find best hyper parameters for estimator RandomizedSearchCV
-2019-08-27T15:42:00.919 DEBUG iotfunctions.base.find_best_model Trained estimator SimpleRegressor with an r2_score score of 0.9995330671315739
-2019-08-27T15:42:00.921 INFO iotfunctions.metadata.test evaluated model model.predict_test.SimpleRegressor.y1 with evaluation metric value 0.9988003605416698
-C:\Users\mike\Anaconda3\envs\functions\lib\site-packages\sklearn\model_selection\_split.py:1978: FutureWarning: The default value of cv will change from 3 to 5 in version 0.22. Specify it explicitly to silence this warning.
-  warnings.warn(CV_WARNING, FutureWarning)
-2019-08-27T15:42:00.949 DEBUG iotfunctions.base.fit_with_search_cv Used randomize search cross validation to find best hyper parameters for estimator RandomizedSearchCV
-2019-08-27T15:42:00.950 DEBUG iotfunctions.base.find_best_model Trained estimator SimpleRegressor with an r2_score score of 0.9999999908477505
-2019-08-27T15:42:00.951 INFO iotfunctions.metadata.test evaluated model model.predict_test.SimpleRegressor.y1 with evaluation metric value 0.999999990808704
-2019-08-27T15:42:00.952 DEBUG iotfunctions.base.execute Trained model: {
- "eval_metric_name": "r2_score",
- "target": "y1",
- "features": [
-  "x1",
-  "x2",
-  "x3"
- ],
- "name": "model.predict_test.SimpleRegressor.y1",
- "estimator_name": "sgd_regressor",
- "trained_date": "2019-08-27T22:41:57.425850",
- "eval_metric_train": 0.9999999910107339,
- "expiry_date": null,
- "eval_metric_test": 0.999999990975172
-}
-
-
+Let's see what happens if we try the same with predicting y0.
 
 '''
 
+fn_regression =    estimator.SimpleRegressor(
+                        features = ['x1','x2','x3'],
+                        targets = ['y0'],
+                        predictions = ['y0_predicted'])
+
+entity = EntityType(entity_name,db,
+                    Column('x1',Float()),
+                    Column('x2',Float()),
+                    Column('x3',Float()),
+                    Column('y0',Float()),
+                    fn_gen,
+                    fn_dep1,
+                    fn_dep2,
+                    fn_noise,
+                    fn_regression,
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+entity.register(raise_error=True)
+start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
+entity.exec_local_pipeline(start_ts=start_date)
+
+'''
+As expected, the results were less than spectacular. The estimator function still produced
+a model, but it was a bad one. The r2 evaluation metric for the model on the test
+dataset was 0.0078. 1 is a good value for r2. 0 is the really bad - the same as
+random predictions. This score was close to zero. Since y0 is a random variable
+with no relation to the features x1,x2 and x3, this is exactly as expected. 
+
+y0	            y0_predicted
+1.001255086	    0.327983859
+-0.453189058	0.446344744
+0.588423838     0.372199524
+0.111952277     0.414435226
+-0.099508104	0.358838611
+1.14504302	    0.319323414
+0.516061775	    0.272804999
+1.060961476	    0.491862264
+1.17796182	    0.479088163
+1.229812989	    0.399665254
+-0.227189551	0.312524269
+1.784261783	    0.284606893
+1.23220452	    0.364813048
+-1.46457623	    0.407106247
+0.792823309	    0.347049342
+2.256637189	    0.471299716
+-0.930970096	0.403213826
+1.299849719	    0.353700911
+
+The SimpleRegressor function has a couple of thresholds that you can set that
+govern acceptable evaluation metrics. Let's start with setting
+acceptable_score_for_model_acceptance. This is the minimal evaluation
+metric value at which the model will actually be deloyed and used.
+ 
+We will increase this to 0.5 and see what happens.
+
+'''
+job_settings = {
+    'delete_existing_models' : True,
+    'acceptable_score_for_model_acceptance' : 0.5
+}
+
+entity.register(raise_error=True)
+start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
+entity.exec_local_pipeline(start_ts=start_date,**job_settings)

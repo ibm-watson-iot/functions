@@ -2161,15 +2161,19 @@ class BaseSCDLookup(BaseTransformer):
                                           'start_date': self._entity_type._timestamp})
         cols = [x for x in resource_df.columns if x not in ['end_date']]
         resource_df = resource_df[cols]
+        if self.merge_nearest_tolerance is not None:
+            tolerance = pd.to_timedelta(self.merge_nearest_tolerance)
+        else:
+            tolerance = None
         try:
-            df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
+            df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=tolerance)
         except ValueError:
             resource_df = resource_df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
             try:
-                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
+                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=tolerance)
             except ValueError:
                 df = df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
-                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
+                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=tolerance)
         
         msg = 'After scd lookup of %s from table %s. ' %(scd_property,self.table_name)
         self.trace_append(msg, df = df)
