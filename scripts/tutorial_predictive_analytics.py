@@ -168,6 +168,12 @@ y1	            y1_predicted
 8.264972582	    8.267702692
 9.587129826	    9.586387549
 
+The SimpleRegressor will continue using this model until its shelf life expiration date is reached.
+
+'''
+
+'''
+
 We included y0 as a "bogus" target in the simulated data. It is random. Let's see what happens if we
 try to predict it.
 
@@ -257,5 +263,39 @@ You can also see the 5 unsuccessful attempts to train a model:
 "Trained model: 2": "{'eval_metric_train': 0.09419041443126963, 'estimator_name': 'gradient_boosted_regressor', 'eval_metric_name': 'r2_score', 'features': ['x1', 'x2', 'x3'], 'target': 'y0', 'shelf_life_days': None, 'col_name': 'y0_predicted', 'params': {'n_estimators': 500, 'loss': 'ls', 'learning_rate': 0.05, 'min_samples_split': 5, 'max_depth': 2}, 'name': 'model.predict_test.SimpleRegressor.y0', 'eval_metric_test': -0.013250721331356186}",
 "Trained model: 3": "{'eval_metric_train': 0.04354194300816494, 'estimator_name': 'gradient_boosted_regressor', 'eval_metric_name': 'r2_score', 'features': ['x1', 'x2', 'x3'], 'target': 'y0', 'shelf_life_days': None, 'col_name': 'y0_predicted', 'params': {'n_estimators': 100, 'loss': 'ls', 'learning_rate': 0.02, 'min_samples_split': 5, 'max_depth': 4}, 'name': 'model.predict_test.SimpleRegressor.y0', 'eval_metric_test': -0.0029473827611010694}",
 "Trained model: 4": "{'eval_metric_train': 0.2570767933935436, 'estimator_name': 'gradient_boosted_regressor', 'eval_metric_name': 'r2_score', 'features': ['x1', 'x2', 'x3'], 'target': 'y0', 'shelf_life_days': None, 'col_name': 'y0_predicted', 'params': {'n_estimators': 100, 'loss': 'ls', 'learning_rate': 0.02, 'min_samples_split': 9, 'max_depth': 10}, 'name': 'model.predict_test.SimpleRegressor.y0', 'eval_metric_test': -0.03436886346855683}",
+
+The next time the pipeline runs, the SimpleRegressor will try to train the model again.
+
+In this example you saw how the parameter  acceptable_score_for_model_acceptance governs
+whether or not a model is suitable for scoring.
+
+There is another important lifecyle management parameter: stop_auto_improve_at
+
+This parameter also influences the decision about whether retraining is required.
+
+Let's use these parameters to tell the SimpleRegressor that it can accept any model with a score
+of better than 0, but that it should continue trying to improve until it gets at least 0.5.
+
+'''
+
+job_settings = {
+    'delete_existing_models' : False,
+    'acceptable_score_for_model_acceptance' : 0,
+    'stop_auto_improve_at' : 0.5
+}
+
+entity.register(raise_error=True)
+start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
+entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+
+#execute twice to confirm that retraining takes place again
+
+entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+
+'''
+During this execution we see that scores were produced on both
+and training took place on both executions. The current model
+is the best model selected from the 10 training attempts in 2 runs.
+
 
 '''
