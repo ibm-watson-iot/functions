@@ -82,7 +82,8 @@ entity = EntityType(entity_name,db,
                       })
 entity.register(raise_error=True)
 start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
-entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+entity.exec_local_pipeline(start_ts = start_date,
+                           **job_settings)
 
 '''
 When we execute the pipeline, it runs the preload generator, builds the target variables
@@ -148,8 +149,7 @@ entity = EntityType(entity_name,db,
                       '_db_schema' : db_schema
                       })
 entity.register(raise_error=True)
-start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
-entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+entity.exec_local_pipeline(**job_settings)
 
 '''
 
@@ -199,8 +199,7 @@ entity = EntityType(entity_name,db,
                       '_db_schema' : db_schema
                       })
 entity.register(raise_error=True)
-start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
-entity.exec_local_pipeline(start_ts=start_date)
+entity.exec_local_pipeline()
 
 '''
 As expected, the results were less than spectacular. The estimator function still produced
@@ -243,8 +242,7 @@ job_settings = {
 }
 
 entity.register(raise_error=True)
-start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
-entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+entity.exec_local_pipeline(**job_settings)
 
 '''
 y_predict is null
@@ -285,17 +283,314 @@ job_settings = {
 }
 
 entity.register(raise_error=True)
-start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
-entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+entity.exec_local_pipeline(**job_settings)
 
 #execute twice to confirm that retraining takes place again
 
-entity.exec_local_pipeline(start_ts=start_date,**job_settings)
+entity.exec_local_pipeline(**job_settings)
 
 '''
 During this execution we see that scores were produced on both
 and training took place on both executions. The current model
 is the best model selected from the 10 training attempts in 2 runs.
 
+This is confirmed by looking at the the trace. For the second run,
+we see that training was required because the evaluation metric of
+the existing saved model was a lot worse that the threshold of 0.5
+we set to stop trying to auto improve.
+
+"predicting target y0": 
+    "{'use_existing_model': False,
+    'training_required': 'Training required because eval metric of 0.00970788893100738 is lower than threshold 0.5 '}"
 
 '''
+
+'''
+Anomaly Detection
+-----------------
+
+You have seen how to predict continuous target variables using
+the SimpleRegressor. Next we will use the SimpleAnomaly function
+to detect anomalies.
+
+This function uses a common anomaly detection method that is appropriate
+for continuous variables that are dependent on other variables. SimpleAnomaly
+learns how the dependent variables influence the target variable and
+signals anomalies when the behavior of the target variable is not consistent
+with the expected behavior given the current value of the dependent variables.
+This similar to how the human brain reasons that something is abnormal. Consider
+this examples:
+
+Body temperature is a vital sign that a doctor will look at to assess whether you
+are healthy or not. The body's control systems try to keep it at 37.5 deg c, but
+there is natural fluctuation due to activity levels and ambient temperature. If 
+your temperature is elevated when you are not active and the ambient temperature is
+cool, things are not normal. You could be fighting an infection or there could be
+something wrong with bodies "control system". Applying the SimpleAnomaly to this:
+
+Temperature is the target variable
+Ambient temperature and activity levels are dependent variables 
+
+Given a dataset with these three variables, the SimpleAnomaly function would 
+learn to what extent ambient temperature and activity level influence body
+temperature. It uses a regression model to do this. When asked to asses
+current heath it looks at the current ambient temperature and activity level
+and predicts an expected body temperature. It compares this expected
+temperature with the actual temperature. If there is a big discrepancy, it
+will fire an anomaly. 
+
+Going back to our theoretical dataset, we can look for anomalies in a
+target variable like y0 by learning how x0,x1 and x2 generally influence
+y0 and comparing expected y0 values for current conditions with the actual.
+
+The decision on whether the function should flag an anomaly is based
+on a threshold that is specified in absolute terms. It is the amount by
+which the prediction is allowed to deviate from the actual before
+being considered anomalous.
+
+In this case we will pick a threshold of 0.1.
+
+'''
+
+job_settings = {
+    'delete_existing_models' : False,
+    'acceptable_score_for_model_acceptance' : 0,
+    'stop_auto_improve_at' : 0.5
+}
+
+fn_anomaly =    estimator.SimpleAnomaly(
+                        features = ['x1','x2','x3'],
+                        targets = ['y0'],
+                        threshold = 0.1,
+                        predictions = ['y0_predicted'],
+                        alerts = ['is_y0_anomalous'])
+
+entity = EntityType(entity_name,db,
+                    Column('x1',Float()),
+                    Column('x2',Float()),
+                    Column('x3',Float()),
+                    Column('y0',Float()),
+                    fn_gen,
+                    fn_dep1,
+                    fn_dep2,
+                    fn_noise,
+                    fn_anomaly,
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+
+entity.register(raise_error=True)
+entity.exec_local_pipeline(**job_settings)
+
+#execute twice to confirm that retraining takes place again
+
+entity.exec_local_pipeline(**job_settings)
+
+'''
+Remember y0 is our random target. It doesn't actually depend
+on x1, x2, x3. We don't expect to get a very useful anomaly model
+in this case. Lets take a look at the results:
+
+You can see from this excerpt of data that just about everything is
+considered an anomaly. The _diff_ column is the  difference between the actual y0
+and the expected value. is_y0_anomalouts is the result of applying the 
+threshold of 0.1 on this difference. Most values are higher than 0.1, but
+by definition most values cannot be anomalous.
+
+You could tune the value of the threshold to generate less anomalies,
+but due the random nature of y0, you are still not going to get
+much value out of the regression model that SimpleAnomaly uses.
+
+y0_predicted	_diff_	        is_y0_anomalous
+0.148911586	    0.017228086	
+0.068895482	    1.19954035	    TRUE
+0.171716881	    0.573374091	    TRUE
+0.128188401	    1.095526216	    TRUE
+0.068908685	    2.146038295	    TRUE
+0.080552529	    1.835924766	    TRUE
+0.085319997	    0.468626563	    TRUE
+0.124128451	    0.595960581	    TRUE
+0.105868593	    0.720648667	    TRUE
+0.106374665	    0.326403435	    TRUE
+0.188517019	    0.138092869	    TRUE
+0.12840895	    1.652023681	    TRUE
+0.144089779	    0.022511803	
+0.115236473	    0.522783676	    TRUE
+0.088660681	    0.437407609	    TRUE
+0.12077182	    1.48033842	    TRUE
+0.149030284	    0.500443332	    TRUE
+0.147967567	    0.504174252	    TRUE
+
+
+y1 is a much better target variable for this type of analysis as there
+are strong relationships between it and x1,x2 and x3 - which give the
+SimpleAnomaly function something meaningful to learn.
+
+Let's try with y1 and the same threshold.
+
+'''
+
+fn_anomaly =    estimator.SimpleAnomaly(
+                        features = ['x1','x2','x3'],
+                        targets = ['y1'],
+                        threshold = 0.1,
+                        predictions = ['y1_predicted'],
+                        alerts = ['is_y1_anomalous'])
+
+entity = EntityType(entity_name,db,
+                    Column('x1',Float()),
+                    Column('x2',Float()),
+                    Column('x3',Float()),
+                    Column('y0',Float()),
+                    fn_gen,
+                    fn_dep1,
+                    fn_dep2,
+                    fn_noise,
+                    fn_anomaly,
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+
+entity.register(raise_error=True)
+entity.exec_local_pipeline(**job_settings)
+
+'''
+
+In this case the model that predicts y1 is really good and
+our similation didn't produce any anomalies as it built from
+y1 as a direct relationship to x1 and x2. As expected the
+function didn't surface any anomaly alerts.
+
+
+y1_predicted	_diff_	        is_y1_anomalous
+1.432046803	    7.61E-05	
+3.978147948	    0.000273796	
+2.307444654	    0.000139722	
+6.748467128	    0.000556308	
+2.887648671	    0.000207577	
+1.053012751	    2.53E-05	
+6.362118179	    0.000546561	
+-6.932208167	0.000745435	
+3.511583723	    0.000292661	
+-1.507275972	0.000238595	
+4.00209016	    0.000313736	
+6.382033722	    0.000554816	
+1.169717459	    3.37E-05	
+3.419706755	    0.000249889	
+-1.531651846	0.000210832	
+-1.296438696	0.000183461	
+0.672559407	    2.31E-05	
+2.375522374	    0.000143346	
+-5.690252067	0.000601254	
+10.45646298	    0.00090671	
+-2.571439113	0.000320949	
+2.321642476	    0.00013742	
+2.298718608	    0.000137921	
+5.699365083	    0.000451406	
+2.292040798	    0.000137157	
+2.045272784	    0.000115537	
+4.568234049	    0.000424747	
+0.426481937	    1.84E-05	
+
+To demonstrate how useful an anomaly model this is, you
+could throw in a few rows of data where the value of y1
+was random or built from an alternative relationship
+to x1 and x2. This values of y1 would stand out like
+sore thumbs and would be flagged as anomalies. 
+
+'''
+
+'''
+Classification Model
+--------------------
+
+The final model that we will build is a classification model.
+Classification models predict discrete / categorical targets.
+
+We don't have a categorical target, but we will make one by
+applying another function to the data. The function we will use
+builds z using the pandas cut method that segments data into 3
+bins
+
+'''
+
+fn_cat = bif.PythonExpression(
+            'pd.cut(df["y1"],bins = 3, labels = [100,101,908])',
+            output_name = 'z'
+)
+
+job_settings = {
+    'delete_existing_models' : True
+}
+
+entity = EntityType(entity_name,db,
+                    Column('x1',Float()),
+                    Column('x2',Float()),
+                    Column('x3',Float()),
+                    Column('y0',Float()),
+                    fn_gen,
+                    fn_dep1,
+                    fn_dep2,
+                    fn_noise,
+                    fn_cat,
+                    estimator.SimpleClassifier(
+                        features = ['x1','x2','x3'],
+                        targets = ['z'],
+                        predictions = ['z_predicted']),
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+entity.register(raise_error=True)
+entity.exec_local_pipeline(**job_settings)
+
+'''
+The SimpleClassifier did a good job. Here is a sample.
+
+z	    z_predicted
+908	    908
+101	    101
+101	    101
+101	    101
+101	    101
+101	    101
+101	    101
+101	    101
+908	    908
+101	    101
+101	    101
+101	    101
+101	    101
+101	    101
+101	    101
+
+All predictions were correct in this sample.
+
+Wrapping up
+------------
+
+In this tutorial you saw the basics behind building and using regression models,
+anomaly models and classification models. You also got a thorough overview of
+model management and the configuration parameters you can use to alter its
+behavior.
+
+The framework that these predictive functions were built around are a set of
+base classes: BaseEstimatorFunction; BaseRegressor, BaseClassifier.
+
+You can use SimpleRegressor, SimpleClassifier, SimpleBinaryClassifier and
+SimpleAnomaly as is, or you can use them as examples how how to build your
+own predictive functions while taking advantage of all the of the model
+lifecycle, model evaluation and model scoring features of the base classes.
+
+When building your own estimator you can make simple tweaks like choosing
+different scikit estimator classes or your own parameter maps for hyper-parameter
+tuning. You can also predefine feature engineering functions or other
+transformation functions as pre-processors. If you need to specialize futher
+you can swap out built in methods for model selection, test/train split etc
+with your own custom implementations of these methods. Take a look at the
+source code (estimator.py) and see how simple it is to build predictive functions. 
+
+'''
+
