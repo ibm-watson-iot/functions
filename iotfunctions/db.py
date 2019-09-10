@@ -250,7 +250,13 @@ class Database(object):
 
         self.http = urllib3.PoolManager()
         try:
+            currentDT = datetime.datetime.now()
+            logger.debug("------Before COS Client ....")
+            logger.debug(str(currentDT))
             self.cos_client = CosClient(self.credentials)
+            currentDT = datetime.datetime.now()
+            logger.debug("-------After COS client....")
+            logger.debug(str(currentDT))
         except KeyError:
             msg = 'Unable to setup a cos client due to missing credentials. COS writes disabled'
             logger.warning(msg)
@@ -274,6 +280,9 @@ class Database(object):
         self.metadata = MetaData(self.connection)
         logger.debug('Db connection established')
 
+        currentDT = datetime.datetime.now()
+        logger.debug("_____________Before metaload....")
+        logger.debug(str(currentDT))
         # cache entity types
         self.entity_type_metadata = {}
         metadata = self.http_request(object_type='allEntityTypes',
@@ -286,6 +295,9 @@ class Database(object):
                 metadata = json.loads(metadata)
             except:
                 metadata = None
+        currentDT = datetime.datetime.now()
+        logger.debug("_____________After metaload....")
+        logger.debug(str(currentDT))
         if metadata is None:
             msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
             logger.warning(msg)
@@ -634,8 +646,14 @@ class Database(object):
                     'schema': schema
                 }
                 try:
+                    currentDT = datetime.datetime.now()
+                    logger.debug("*************Before table load....")
+                    logger.debug(str(currentDT))
                     table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
                     table.indexes = set()
+                    currentDT = datetime.datetime.now()
+                    logger.debug("*************After table load....")
+                    logger.debug(str(currentDT))
                 except NoSuchTableError:
                     raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
             elif issubclass(table_name.__class__, BaseTable):
@@ -1317,6 +1335,7 @@ class Database(object):
             currentDT = datetime.datetime.now()
             logger.debug("After SQL Stmt Execution....")
             logger.debug(str(currentDT))
+
             # combine special aggregates with regular database aggregates
 
             if df_special is not None:
