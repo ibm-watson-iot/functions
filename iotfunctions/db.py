@@ -1309,14 +1309,14 @@ class Database(object):
                 deviceid_col=deviceid_col
             )
             currentDT = datetime.datetime.now()
-            print("Before SQL STMT Execution .....")
-            print(str(currentDT))
+            logger.debug("Before SQL STMT Execution .....")
+            logger.debug(str(currentDT))
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
             df = pd.read_sql_query(query.statement, con=self.connection)
             logger.debug(query.statement)
             currentDT = datetime.datetime.now()
-            print("After SQL Stmt Execution....")
-            print(str(currentDT))
+            logger.debug("After SQL Stmt Execution....")
+            logger.debug(str(currentDT))
             # combine special aggregates with regular database aggregates
 
             if df_special is not None:
