@@ -16,6 +16,7 @@ import json
 import inspect
 import sys
 import importlib
+import datetime
 
 import pandas as pd
 import subprocess
@@ -1307,11 +1308,15 @@ class Database(object):
                 filters=filters,
                 deviceid_col=deviceid_col
             )
-
+            currentDT = datetime.datetime.now()
+            print("Before SQL STMT Execution .....")
+            print(str(currentDT))
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
             df = pd.read_sql_query(query.statement, con=self.connection)
             logger.debug(query.statement)
-
+            currentDT = datetime.datetime.now()
+            print("After SQL Stmt Execution....")
+            print(str(currentDT))
             # combine special aggregates with regular database aggregates
 
             if df_special is not None:
