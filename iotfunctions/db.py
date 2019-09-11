@@ -61,7 +61,7 @@ class Database(object):
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
     bif_sql = "V1000-18.sql"
 
-    def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None):
+    def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None,entity_metadata=None,entity_type=None):
 
         self.function_catalog = {}  # metadata for functions in catalog
         self.write_chunk_size = 1000
@@ -250,13 +250,7 @@ class Database(object):
 
         self.http = urllib3.PoolManager()
         try:
-            currentDT = datetime.datetime.now()
-            logger.debug("------Before COS Client ....")
-            logger.debug(str(currentDT))
             self.cos_client = CosClient(self.credentials)
-            currentDT = datetime.datetime.now()
-            logger.debug("-------After COS client....")
-            logger.debug(str(currentDT))
         except KeyError:
             msg = 'Unable to setup a cos client due to missing credentials. COS writes disabled'
             logger.warning(msg)
@@ -280,30 +274,30 @@ class Database(object):
         self.metadata = MetaData(self.connection)
         logger.debug('Db connection established')
 
-        currentDT = datetime.datetime.now()
-        logger.debug("_____________Before metaload....")
-        logger.debug(str(currentDT))
         # cache entity types
         self.entity_type_metadata = {}
-        metadata = self.http_request(object_type='allEntityTypes',
+        metadata = None
+
+        if entity_metadata is None:
+            metadata = self.http_request(object_type='allEntityTypes',
                                      object_name='',
                                      request='GET',
                                      payload={},
                                      object_name_2='')
-        if metadata is not None:
-            try:
-                metadata = json.loads(metadata)
-            except:
-                metadata = None
-        currentDT = datetime.datetime.now()
-        logger.debug("_____________After metaload....")
-        logger.debug(str(currentDT))
-        if metadata is None:
-            msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
-            logger.warning(msg)
-            metadata = []
-        for m in metadata:
-            self.entity_type_metadata[m['name']] = m
+            if metadata is not None:
+                try:
+                    metadata = json.loads(metadata)
+                    if metadata is None:
+                        msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
+                        logger.warning(msg)
+                    for m in metadata:
+                        self.entity_type_metadata[m['name']] = m
+                except:
+                    metadata = None
+        else:
+            metadata = entity_metadata
+            self.entity_type_metadata[entity_type] = metadata
+
 
     def _aggregate_item(self,
                         table,
@@ -646,14 +640,8 @@ class Database(object):
                     'schema': schema
                 }
                 try:
-                    currentDT = datetime.datetime.now()
-                    logger.debug("*************Before table load....")
-                    logger.debug(str(currentDT))
                     table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
                     table.indexes = set()
-                    currentDT = datetime.datetime.now()
-                    logger.debug("*************After table load....")
-                    logger.debug(str(currentDT))
                 except NoSuchTableError:
                     raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
             elif issubclass(table_name.__class__, BaseTable):
@@ -1326,15 +1314,9 @@ class Database(object):
                 filters=filters,
                 deviceid_col=deviceid_col
             )
-            currentDT = datetime.datetime.now()
-            logger.debug("Before SQL STMT Execution .....")
-            logger.debug(str(currentDT))
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
             df = pd.read_sql_query(query.statement, con=self.connection)
             logger.debug(query.statement)
-            currentDT = datetime.datetime.now()
-            logger.debug("After SQL Stmt Execution....")
-            logger.debug(str(currentDT))
 
             # combine special aggregates with regular database aggregates
 
