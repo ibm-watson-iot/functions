@@ -7,7 +7,7 @@ setup(
     version='2.0.3',
     packages=find_packages(),
     install_requires=[
-        'dill==0.2.5',
+        'dill==0.3.0',
         'urllib3==1.22',
         'sqlalchemy==1.3.5',
         'numpy==1.14.5',
