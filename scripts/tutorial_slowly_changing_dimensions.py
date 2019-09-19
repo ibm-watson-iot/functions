@@ -155,7 +155,7 @@ deviceid    start_date                  end_date                    owner
 
 This data has a gap from 2019-07-25 to 2019-07-27-22.10.25.940354
 
-A time series entry occuring within that gap, e.g. 2019-07-26 will still carry
+A time series entry occurring within that gap, e.g. 2019-07-26 will still carry
 an owner of Jane S.
 
 If instead you would like to see the gap, pre-process the input data to look like
@@ -166,6 +166,54 @@ deviceid    start_date                  end_date                    owner
 73004       2019-07-24-23.59.00.000001  2019-07-27-22.10.25.940353  unknown
 73004	    2019-07-27-22.10.25.940354	2019-08-14-22.10.25.940353	Steve S
 
+You can also influence behave this behavior using the merge_nearest_tolerance
+property. This controls the maximum amount of time that a row will be 
+carried forward for.
+
+'''
+
+entity = EntityType(entity_name,db,
+                    Column('temp',Float()),
+                    Column('pressure', Float()),
+                    Column('company_code',String(50)),
+                    Column('category_code',String(5)),
+                    bif.EntityDataGenerator(
+                        parameters= sim_parameters,
+                        data_item = 'is_generated'
+                            ),
+                    bif.SCDLookup(table_name=scd_name,
+                                  output_item='owner'),
+                    **{
+                      '_timestamp' : 'evt_timestamp',
+                      '_db_schema' : db_schema
+                      })
+
+job_params = {
+    'merge_nearest_tolerance' : '1D'
+}
+
+db.drop_table(scd_name,schema=db_schema)
+start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
+entity.exec_local_pipeline(start_ts=start_date, **job_params)
+
+'''
+
+This is what the owner change data looks like for deviceid 73004.
+Harry was marked as owner on aug 26 16:36
+
+deviceid    start_date                                              owner
+73004	    2019-08-17-16.36.10.812144	2019-08-18-16.36.10.812143	Jane S
+73004	    2019-08-18-16.36.10.812144	2019-08-26-16.36.10.812143	John H
+73004	    2019-08-26-16.36.10.812144	2019-08-28-16.36.10.812143	Harry L
+73004	    2019-08-28-16.36.10.812144	2262-04-11-23.47.16.854775	Harry L
+
+This is the result of the SCD lookup:
+
+deviceid    evt_timestamp       owner
+73004	    2019/8/27 16:36	   	Harry L
+73004	    2019/8/27 16:37	    	
+
+The owner is Harry L up until a day after aug 26 16:36.
 
 Closing Comments:
 -----------------

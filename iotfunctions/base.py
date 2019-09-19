@@ -1544,42 +1544,49 @@ class BaseDataSource(BaseTransformer):
             new_df = self._entity_type.index_df(new_df)
         except AttributeError:
             pass
-        self.log_df_info(df,'source dataframe before merge')
-        self.log_df_info(new_df,'additional data source to be merged')        
-        overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
-        if self.merge_method == 'outer':
-            #new_df is expected to be indexed on id and timestamp
-            index_names = df.index.names
-            df = df.join(new_df,how='outer',sort=True,on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp],rsuffix ='_new_')
-            df.index.rename(index_names,inplace=True)
-            df = self._coallesce_columns(df=df,cols=overlapping_columns)
-        elif self.merge_method == 'nearest': 
-            overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_type._entity_id,self._entity_type._timestamp]]
-            try:
-                df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
-            except ValueError:
-                new_df = new_df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
+        if df is None or len(df.index) == 0:
+            df = new_df
+            logger.debug('Incoming dataframe is empty. Replaced with data from %s', self.name)
+        elif new_df is None or len(new_df.index) == 0:
+            logger.debug('No data retrieved from data source %s',self.name)
+        else:
+            # both dataframes have data. Merge them.
+            self.log_df_info(df,'source dataframe before merge')
+            self.log_df_info(new_df,'additional data source to be merged')
+            overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
+            if self.merge_method == 'outer':
+                #new_df is expected to be indexed on id and timestamp
+                index_names = df.index.names
+                df = df.join(new_df,how='outer',sort=True,on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp],rsuffix ='_new_')
+                df.index.rename(index_names,inplace=True)
+                df = self._coallesce_columns(df=df,cols=overlapping_columns)
+            elif self.merge_method == 'nearest':
+                overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_type._entity_id,self._entity_type._timestamp]]
                 try:
                     df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
                 except ValueError:
-                    df = df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
-                    df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp_col,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
-            df = self._coallesce_columns(df=df,cols=overlapping_columns)
-        elif self.merge_method == 'concat':
-            df = pd.concat([df,new_df],sort=True)
-        elif self.merge_method == 'replace':
-            orginal_df = df
-            df = new_df
-            #add back item names from the original df so that they don't vanish from the pipeline
-            for i in orginal_df.columns:
-                if i not in df.columns:
-                    df[i] = orginal_df[i].max() #preserve type. value is not important
-        else:
-            raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
+                    new_df = new_df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
+                    try:
+                        df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
+                    except ValueError:
+                        df = df.sort_values([self._entity_type._timestamp_col,self._entity_type._entity_id])
+                        df = pd.merge_asof(left=df,right=new_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp_col,tolerance=self.merge_nearest_tolerance,suffixes=[None,'_new_'])
+                df = self._coallesce_columns(df=df,cols=overlapping_columns)
+            elif self.merge_method == 'concat':
+                df = pd.concat([df,new_df],sort=True)
+            elif self.merge_method == 'replace':
+                orginal_df = df
+                df = new_df
+                # add back item names from the original df so that they don't vanish from the pipeline
+                for i in orginal_df.columns:
+                    if i not in df.columns:
+                        df[i] = orginal_df[i].max() # preserve type. value is not important
+            else:
+                raise ValueError('Error in function definition. Invalid merge_method (%s) specified for time series merge. Use outer, concat or nearest')
         df = self.rename_cols(df,input_names=self.input_items,output_names = self.output_items)
         try:
             df = self._entity_type.index_df(df)
-        except AttributeError:
+        except (KeyError,AttributeError):
             pass
         return df
 
@@ -1803,6 +1810,7 @@ class BaseDBActivityMerge(BaseDataSource):
     # the type of activity performed on or using an entity is designated by the 'activity' column
     _activity = 'activity'
     _allow_empty_df = True
+    allow_projection_list_trim = False
     
     def __init__(self,
                  input_activities,
@@ -2153,15 +2161,19 @@ class BaseSCDLookup(BaseTransformer):
                                           'start_date': self._entity_type._timestamp})
         cols = [x for x in resource_df.columns if x not in ['end_date']]
         resource_df = resource_df[cols]
+        if self.merge_nearest_tolerance is not None:
+            tolerance = pd.to_timedelta(self.merge_nearest_tolerance)
+        else:
+            tolerance = None
         try:
-            df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
+            df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=tolerance)
         except ValueError:
             resource_df = resource_df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
             try:
-                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
+                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=tolerance)
             except ValueError:
                 df = df.sort_values([self._entity_type._timestamp,self._entity_type._entity_id])
-                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=self.merge_nearest_tolerance)
+                df = pd.merge_asof(left=df,right=resource_df,by=self._entity_type._entity_id,on=self._entity_type._timestamp,tolerance=tolerance)
         
         msg = 'After scd lookup of %s from table %s. ' %(scd_property,self.table_name)
         self.trace_append(msg, df = df)
@@ -2304,7 +2316,8 @@ class BaseEstimatorFunction(BaseTransformer):
         unprocessed_targets = []
         unprocessed_targets.extend(self.targets)
         for i,target in enumerate(self.targets):
-            logger.debug('processing target %s' %target)
+            results = {}
+            trace_message = 'predicting target %s' %target
             features = self.make_feature_list(features=self.features,
                                               df = df,
                                               unprocessed_targets = unprocessed_targets)
@@ -2313,7 +2326,9 @@ class BaseEstimatorFunction(BaseTransformer):
             model = db.cos_load(filename= model_name,
                                 bucket=bucket,
                                 binary=True)
-            if self.decide_training_required(model):
+            training_required, results['training_required'] = self.decide_training_required(model)
+            if training_required:
+                results['use_existing_model'] = False
                 if model is None:
                     model = Model(name = model_name,
                                   estimator = None,
@@ -2327,6 +2342,12 @@ class BaseEstimatorFunction(BaseTransformer):
                                   col_name = self.predictions[i]
                                   )
                 models.append(model)
+            else:
+                results['use_existing_model'] = True
+
+            trace = self.get_trace()
+            kw = {trace_message:results}
+            trace.update_last_entry(**kw)
             unprocessed_targets.append(target)
         return(models)
         
@@ -2342,6 +2363,7 @@ class BaseEstimatorFunction(BaseTransformer):
         if bucket is None:
             bucket = self.get_bucket_name()
         models = []
+        trace_dict = {}
         for i,target in enumerate(self.targets):
             model_name = self.get_model_name(target)
             #retrieve existing model
@@ -2350,31 +2372,33 @@ class BaseEstimatorFunction(BaseTransformer):
                                 binary=True)
             if model is not None:
                 models.append(model)
+                trace_dict[model_name] = 'Retrieved existing model from COS'
             else:
-                logger.warning('Unable to retrieve model %s from COS. No predictions',
-                               model_name)
+                trace_dict[model_name] = 'Unable to retrieve model from COS'
+
+        trace = self.get_trace()
+        trace.update_last_entry(**trace_dict)
+
         return(models)        
         
     def decide_training_required(self,model):
         if self.auto_train:
             if model is None:
                 msg = 'Training required because there is no existing model'
-                logger.debug(msg)
-                return True
+                return True,msg
             elif model.expiry_date is not None and model.expiry_date <= dt.datetime.utcnow():
                 msg = 'Training required model expired on %s' %model.expiry_date
-                logger.debug(msg)                
-                return True
+                return True, msg
             elif self.greater_is_better and model.eval_metric_test < self.stop_auto_improve_at:
                 msg = 'Training required because eval metric of %s is lower than threshold %s ' %(model.eval_metric_test,self.stop_auto_improve_at)
-                logger.debug(msg)                                
-                return True
+                return True, msg
             elif not self.greater_is_better and model.eval_metric_test > self.stop_auto_improve_at:
                 msg = 'Training required because eval metric of %s is higher than threshold %s ' %(model.eval_metric_test,self.stop_auto_improve_at)
-                logger.debug(msg)                                
-                return True            
+                return True, msg
+            else:
+                return False, 'Existing model has not expired and eval metric is good'
         else:
-            return False
+            return False, 'Automatic model training is disabled using the auto_train = False'
         
     def delete_models(self,model_names=None):
         '''
@@ -2486,45 +2510,48 @@ class BaseEstimatorFunction(BaseTransformer):
 
         # fit a model for each estimator
 
-        for (name, estimator, params) in estimators:
+        for counter,(name, estimator, params) in enumerate(estimators):
             estimator = self.fit_with_search_cv(estimator = estimator,
                                                 params = params,
                                                 df_train = df_train,
                                                 target = target,
                                                 features = features)
-            eval_metric_train = estimator.score(df_train[features],df_train[target])
-            msg = 'Trained estimator %s with an %s score of %s' %(self.__class__.__name__, metric_name, eval_metric_train)
-            logger.debug(msg)
-            model = Model(name = self.get_model_name(target_name = target),
-                          target = target,
-                          features = features,
-                          params = estimator.best_params_,
-                          eval_metric_name = metric_name,
-                          eval_metric_train = eval_metric_train,
-                          estimator = estimator,
-                          estimator_name = name,
-                          shelf_life_days = self.shelf_life_days,
-                          col_name = col_name)
-            eval_metric_test = model.test(df_test)
+            trace_msg = 'Trained model: %s' %counter
+            results = {
+                'name' : self.get_model_name(target_name = target),
+                'target' : target,
+                'features' : features,
+                'params' : estimator.best_params_,
+                'eval_metric_name' : metric_name,
+                'eval_metric_train' : estimator.score(df_train[features],df_train[target]),
+                'estimator_name' : name,
+                'shelf_life_days' : self.shelf_life_days,
+                'col_name' : col_name
+            }
+            model = Model(estimator = estimator,**results)
+            results['eval_metric_test'] = model.test(df_test)
             trained_models.append(model)
 
             # decide whether the fit is better than the previous best fit
 
             if best_test_metric is None:
                 best_model = model
-                best_test_metric = eval_metric_test
-                msg = 'No prior model, first created is best'
-                logger.debug(msg)
-            elif self.greater_is_better and eval_metric_test > best_test_metric:
-                msg = 'Higher than previous best of %s. New metric is %s' %(best_test_metric,eval_metric_test)
+                best_test_metric = results['eval_metric_test']
+                results['evaluation_outcome'] = 'No prior model, first created is best'
+            elif self.greater_is_better and results['eval_metric_test'] > best_test_metric:
+                results['evaluation_outcome'] = 'Higher than previous best of %s. New metric is %s' %(
+                    best_test_metric,results['eval_metric_test'])
                 best_model = model
-                best_test_metric = eval_metric_test        
-                logger.debug(msg)
-            elif not self.greater_is_better and eval_metric_test < best_test_metric:
-                msg = 'Lower than previous best of %s. New metric is %s' %(best_test_metric,eval_metric_test)
+                best_test_metric = results['eval_metric_test']
+            elif not self.greater_is_better and results['eval_metric_test'] < best_test_metric:
+                results['evaluation_outcome'] = 'Lower than previous best of %s. New metric is %s' %(
+                    best_test_metric,results['eval_metric_test'])
                 best_model = model
-                best_test_metric = eval_metric_test
-                logger.debug(msg)
+                best_test_metric = results['eval_metric_test']
+
+            trace = self.get_trace()
+            kw = {trace_msg: results}
+            trace.update_last_entry(**kw)
         
         return best_model
     

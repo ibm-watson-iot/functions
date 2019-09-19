@@ -617,6 +617,7 @@ class DropNull(object):
     is_system_function = True
     produces_output_items = False
     requires_input_items = False
+    _allow_empty_df = False
     name = 'drop_null'
 
     def __init__(self,exclude_cols=None):
@@ -631,16 +632,18 @@ class DropNull(object):
 
     def execute(self,df):
 
-        msg = 'columns excluded when dropping null rows %s' %self.exclude_cols
-        logger.debug(msg)
-        subset = [x for x in df.columns if x not in self.exclude_cols]
-        msg = 'columns considered when dropping null rows %s' %subset
-        logger.debug(msg)
-        for col in subset:
-            count = df[col].count()
-            msg = '%s count not null: %s' %(col,count)
+        if len(df.index) > 0:
+
+            msg = 'columns excluded when dropping null rows %s' %self.exclude_cols
             logger.debug(msg)
-        df = df.dropna(how='all', subset = subset )
+            subset = [x for x in df.columns if x not in self.exclude_cols]
+            msg = 'columns considered when dropping null rows %s' %subset
+            logger.debug(msg)
+            for col in subset:
+                count = df[col].count()
+                msg = '%s count not null: %s' %(col,count)
+                logger.debug(msg)
+            df = df.dropna(how='all', subset = subset )
 
         return df
 
@@ -2020,12 +2023,15 @@ class JobController(object):
                              can_proceed = False
                              exception = e
                         else:
-                            auto_index_name = self.get_payload_param('auto_index_name','_auto_index_')
-                            df = reset_df_index(df,auto_index_name = auto_index_name)
+                            if not has_no_data:
+                                auto_index_name = self.get_payload_param('auto_index_name', '_auto_index_')
+                                df = reset_df_index(df,auto_index_name = auto_index_name)
+                            else:
+                                can_proceed = True
 
                     for (grain,stages) in list(job_spec.items()):
 
-                        if can_proceed and grain is not None and grain not in ['input_level','skipped_stages','preload']:
+                        if not has_no_data and can_proceed and grain is not None and grain not in ['input_level','skipped_stages','preload']:
 
                                 if self.get_payload_param('aggregate_complete_periods',True):
 

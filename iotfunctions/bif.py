@@ -249,6 +249,53 @@ class AlertOutOfRange(BaseEvent):
         return (inputs, outputs)
 
 
+class AlertTrueFalseValue(BaseEvent):
+    """
+    Fire alert when metric exceeds an upper threshold'.
+    """
+
+    def __init__(self, input_item, upper_threshold=None,
+                 alert_name='alert_name', ):
+        self.input_item = input_item
+        self.upper_threshold = float(upper_threshold)
+        self.alert_name = alert_name
+        super().__init__()
+
+    def _calc(self, df):
+        '''
+        unused
+        '''
+
+    def execute(self, df):
+        df = df.copy()
+        df[self.alert_name] = np.where(df[self.input_item] >= self.upper_threshold, True, False)
+
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name='input_item',
+                                   datatype=None,
+                                   description='Item to alert on'
+                                   ))
+        inputs.append(UISingle(name='upper_threshold',
+                               datatype=float,
+                               description='Alert when item value is higher than this value'
+                               ))
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name='alert_name',
+                                           datatype=bool,
+                                           description='Output of alert function'
+                                           ))
+        return (inputs, outputs)
+
+    def _getMetadata(self, df=None, new_df=None, inputs=None, outputs=None, constants=None):
+        return self.build_ui()
+
+
 class AlertHighValue(BaseEvent):
     """
     Fire alert when metric exceeds an upper threshold'.

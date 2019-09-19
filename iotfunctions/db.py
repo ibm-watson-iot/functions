@@ -16,6 +16,7 @@ import json
 import inspect
 import sys
 import importlib
+import datetime
 
 import pandas as pd
 import subprocess
@@ -60,7 +61,7 @@ class Database(object):
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
     bif_sql = "V1000-18.sql"
 
-    def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None):
+    def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None,entity_metadata=None,entity_type=None):
 
         self.function_catalog = {}  # metadata for functions in catalog
         self.write_chunk_size = 1000
@@ -275,22 +276,28 @@ class Database(object):
 
         # cache entity types
         self.entity_type_metadata = {}
-        metadata = self.http_request(object_type='allEntityTypes',
+        metadata = None
+
+        if entity_metadata is None:
+            metadata = self.http_request(object_type='allEntityTypes',
                                      object_name='',
                                      request='GET',
                                      payload={},
                                      object_name_2='')
-        if metadata is not None:
-            try:
-                metadata = json.loads(metadata)
-            except:
-                metadata = None
-        if metadata is None:
-            msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
-            logger.warning(msg)
-            metadata = []
-        for m in metadata:
-            self.entity_type_metadata[m['name']] = m
+            if metadata is not None:
+                try:
+                    metadata = json.loads(metadata)
+                    if metadata is None:
+                        msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
+                        logger.warning(msg)
+                    for m in metadata:
+                        self.entity_type_metadata[m['name']] = m
+                except:
+                    metadata = None
+        else:
+            metadata = entity_metadata
+            self.entity_type_metadata[entity_type] = metadata
+
 
     def _aggregate_item(self,
                         table,
@@ -1079,10 +1086,16 @@ class Database(object):
 
         for each_filter_name in filters.keys():
             newtcolumn = Column(each_filter_name)
-            if isinstance(filters[each_filter_name], str):
-                joins.append(newtcolumn == filters[each_filter_name])
+            if left_query.c[each_filter_name] is not None:
+                if isinstance(filters[each_filter_name], str):
+                    joins.append(left_query.c[each_filter_name] == filters[each_filter_name])
+                else:
+                    joins.append(left_query.c[each_filter_name]  == filters[each_filter_name][0])
             else:
-                joins.append(newtcolumn == filters[each_filter_name][0])
+                if isinstance(filters[each_filter_name], str):
+                    joins.append(newtcolumn == filters[each_filter_name])
+                else:
+                    joins.append(newtcolumn == filters[each_filter_name][0])
 
         for (col, alias) in list(kwargs.items()):
             try:
@@ -1307,7 +1320,6 @@ class Database(object):
                 filters=filters,
                 deviceid_col=deviceid_col
             )
-
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
             df = pd.read_sql_query(query.statement, con=self.connection)
             logger.debug(query.statement)
@@ -1710,6 +1722,10 @@ class Database(object):
                             project[g] = g
                     if time_grain is not None:
                         project[timestamp] = timestamp
+
+                    # remove any duplicates from cols
+                    cols = list(dict.fromkeys(cols))
+
 
                     col_aliases = [output_name if x == item else x for x in cols]
                     col_aliases[1] = 'timestamp_filter'

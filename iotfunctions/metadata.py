@@ -1132,6 +1132,13 @@ class EntityType(object):
         kw = {**params, **kw}
 
         job = JobController(payload=self, **kw)
+
+        # propagate parameters to functions
+
+        for f in self._functions:
+            for key, value in list(kw.items()):
+                setattr(f, key, value)
+
         job.execute()
 
     def get_attributes_dict(self):
@@ -1328,7 +1335,10 @@ class EntityType(object):
         if self.enable_downcast:
             memo = MemoryOptimizer()
             df = memo.downcastNumeric(df)
-        df = self.index_df(df)
+        try:
+            df = self.index_df(df)
+        except (AttributeError,KeyError):
+            pass
 
         return df
 
@@ -1448,7 +1458,10 @@ class EntityType(object):
 
     def get_start_ts_override(self):
         if self._start_ts_override is not None:
-            date_time_obj = dt.datetime.strptime(self._start_ts_override[0], '%Y-%m-%d %H:%M:%S')
+            if isinstance(self._start_ts_override,dt.datetime):
+                date_time_obj = self._start_ts_override
+            else:
+                date_time_obj = dt.datetime.strptime(self._start_ts_override[0], '%Y-%m-%d %H:%M:%S')
             return date_time_obj
         return None
 
