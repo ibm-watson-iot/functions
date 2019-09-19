@@ -1086,10 +1086,13 @@ class Database(object):
 
         for each_filter_name in filters.keys():
             newtcolumn = Column(each_filter_name)
-            if isinstance(filters[each_filter_name], str):
-                joins.append(newtcolumn == filters[each_filter_name])
+            if left_query.c[each_filter_name] is not None:
+                joins.append(left_query.c[each_filter_name] == filters[each_filter_name])
             else:
-                joins.append(newtcolumn == filters[each_filter_name][0])
+                if isinstance(filters[each_filter_name], str):
+                    joins.append(newtcolumn == filters[each_filter_name])
+                else:
+                    joins.append(newtcolumn == filters[each_filter_name][0])
 
         for (col, alias) in list(kwargs.items()):
             try:
@@ -1716,6 +1719,10 @@ class Database(object):
                             project[g] = g
                     if time_grain is not None:
                         project[timestamp] = timestamp
+
+                    # remove any duplicates from cols
+                    cols = list(dict.fromkeys(cols))
+
 
                     col_aliases = [output_name if x == item else x for x in cols]
                     col_aliases[1] = 'timestamp_filter'
