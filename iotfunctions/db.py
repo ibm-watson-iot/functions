@@ -1087,7 +1087,10 @@ class Database(object):
         for each_filter_name in filters.keys():
             newtcolumn = Column(each_filter_name)
             if left_query.c[each_filter_name] is not None:
-                joins.append(left_query.c[each_filter_name] == filters[each_filter_name])
+                if isinstance(filters[each_filter_name], str):
+                    joins.append(left_query.c[each_filter_name] == filters[each_filter_name])
+                else:
+                    joins.append(left_query.c[each_filter_name]  == filters[each_filter_name][0])
             else:
                 if isinstance(filters[each_filter_name], str):
                     joins.append(newtcolumn == filters[each_filter_name])
