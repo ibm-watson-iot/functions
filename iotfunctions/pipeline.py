@@ -22,6 +22,7 @@ import datetime as dt
 import numpy as np
 import time
 import traceback
+import threading
 from collections import OrderedDict
 
 import ibm_db
