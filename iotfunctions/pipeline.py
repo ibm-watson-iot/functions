@@ -40,6 +40,7 @@ from pandas.api.types import (is_bool_dtype, is_numeric_dtype, is_string_dtype,
 from sqlalchemy import (MetaData, Table, Column, Integer, SmallInteger, String,
                         DateTime, Float, and_, func, select)
 
+#Kohlmann verify location of the following constants
 DATA_ITEM_TYPE_BOOLEAN = 'BOOLEAN'
 DATA_ITEM_TYPE_NUMBER = 'NUMBER'
 DATA_ITEM_TYPE_LITERAL = 'LITERAL'
@@ -48,6 +49,9 @@ DATA_ITEM_TYPE_TIMESTAMP = 'TIMESTAMP'
 DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
 DATA_ITEM_TRANSIENT_KEY = 'transient'
 DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
+DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
+
+METADATA_TYPE_KEY = 'type'
 
 KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
 KPI_TIMESTAMP_COLUMN = 'TIMESTAMP'
@@ -763,7 +767,7 @@ class DataWriterException(Exception):
         super().__init__(msg)
 
 
-class Db2DataWriter:
+class SqlAlchemyDataWriter:
     '''
     Stage that writes the calculated data items to database.
     '''
@@ -784,7 +788,7 @@ class Db2DataWriter:
     COLUMN_NAME_TIMESTAMP_MAX = 'timestamp_max'
     COLUMN_NAME_ENTITY_ID = 'entity_id'
 
-    #Kohlmann move outside of Db2DataWriter
+    #Kohlmann move outside of SqlAlchemyDataWriter
     ITEM_NAME_TIMESTAMP_MIN = 'TIMESTAMP_MIN'
     ITEM_NAME_TIMESTAMP_MAX = 'TIMESTAMP_MAX'
 
@@ -799,7 +803,7 @@ class Db2DataWriter:
 
     def __str__(self):
 
-        return 'System generated Db2DataWriter stage: %s' % self.name
+        return 'System generated SqlAlchemyDataWriter stage: %s' % self.name
 
     def execute(self, df=None, start_ts=None, end_ts=None, entities=None):
 
@@ -838,6 +842,8 @@ class Db2DataWriter:
                 logger.debug('Deleting old data items from table %s for time range [%s, %s]' %
                              (table_name, start_ts, end_ts))
 
+                start_time = dt.datetime.utcnow()
+
                 if time_series_avail:
                     timestamp_column_min = table_object.c.get(self.COLUMN_NAME_TIMESTAMP)
                     timestamp_column_max = timestamp_column_min
@@ -856,7 +862,8 @@ class Db2DataWriter:
                     txt = str(result_object.rowcount)
                 else:
                     txt = 'Old'
-                logger.info('%s data items have been deleted from table %s' % (txt, table_name))
+                logger.info('%s data items have been deleted from table %s. Elapsed time in sec: %.3f' %
+                            (txt, table_name, (dt.datetime.utcnow() - start_time)/dt.timedelta(microseconds=1000)/1000))
 
             except Exception as exc:
                 raise DataWriterException('Execution of the delete statement for table %s failed: %s' %
@@ -867,6 +874,8 @@ class Db2DataWriter:
         col_props = col_props.items()
 
         counter = 0
+        sql_alchemy_timedelta = dt.timedelta()
+        start_time = dt.datetime.utcnow()
         # Loop over rows of data frame, loop over data item in rows
         for df_row in df.itertuples():
             ix = getattr(df_row, 'Index')
@@ -912,8 +921,8 @@ class Db2DataWriter:
                 row_list.append(row)
 
                 # Write data to database when we have reached the max number per bulk
-                if len(row_list) >= Db2DataWriter.MAX_NUMBER_OF_ROWS_FOR_SQL:
-                    self._persist_row_list(table_name, insert_object, row_list)
+                if len(row_list) >= self.MAX_NUMBER_OF_ROWS_FOR_SQL:
+                    sql_alchemy_timedelta += self._persist_row_list(table_name, insert_object, row_list)
                     counter += len(row_list)
                     logger.info('Number of data item values persisted so far: %d (%s)' % (counter, table_name))
                     row_list.clear()
@@ -921,18 +930,24 @@ class Db2DataWriter:
         # Write remaining data (final bulk for each table)) to database
         for table_name, (table_object, delete_object, insert_object, index_name_pos, row_list) in table_props.items():
             if len(row_list) > 0:
-                self._persist_row_list(table_name, insert_object, row_list)
+                sql_alchemy_timedelta += self._persist_row_list(table_name, insert_object, row_list)
                 counter += len(row_list)
                 logger.info('Number of data item values persisted so far: %d (%s)' % (counter, table_name))
                 row_list.clear()
-        logger.info('Total number of persisted data item values: %d' % counter)
+
+        logger.info('Total number of persisted data item values: %d, Elapsed time in sec: %.3f, '
+                    'SqlAlchemy time in sec: %.3f' %
+                    (counter, (dt.datetime.utcnow() - start_time)/dt.timedelta(microseconds=1000)/1000,
+                     sql_alchemy_timedelta/dt.timedelta(microseconds=1000)/1000))
 
     def _persist_row_list(self, table_name, insert_object, row_list):
         try:
+            start_time = dt.datetime.utcnow()
             self.db_connection.execute(insert_object, row_list)
         except Exception as exc:
             raise DataWriterException('Persisting data item values to table %s failed: %s' %
                                       (table_name, str(exc))) from exc
+        return (dt.datetime.utcnow() - start_time)
 
     def _get_active_cols_properties(self, df):
 
@@ -950,11 +965,11 @@ class Db2DataWriter:
         first_loop_cycle = True
         for col_name, col_type in df.dtypes.iteritems():
             metadata = self.data_item_metadata.get(col_name)
-            if metadata is not None:
+            if metadata is not None and metadata.get(METADATA_TYPE_KEY) != 'METRIC':
                 if metadata.get(DATA_ITEM_TRANSIENT_KEY, False) is False:
                     table_name = metadata.get(DATA_ITEM_SOURCETABLE_KEY)
                     data_item_type = metadata.get(DATA_ITEM_COLUMN_TYPE_KEY)
-                    kpi_func_dto = metadata.get('kpiFunctionDto')
+                    kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
                     if table_name is None:
                         logger.warning('No table name defined for data item ' + col_name +
                                        '. The data item will not been written to the database.')
@@ -1295,7 +1310,7 @@ class JobController(object):
     # aggegregating data, writing data and merging the results of 
     # the execution of a stage with data produced from prior stages
     data_aggregator = DataAggregator
-    data_writer = Db2DataWriter
+    data_writer = SqlAlchemyDataWriter
     data_merge = DataMerge
     job_log_class = JobLog
 
@@ -2334,7 +2349,7 @@ class JobController(object):
                             tw['index'] = 'Unknown error validating index: %s' %e
                             df = self.handle_failed_stage(
                                 exception=e,
-                                message='Indexing error',
+                                message='Indexing error: ',
                                 stage=s,
                                 df=df,
                                 **tw)
@@ -2363,7 +2378,7 @@ class JobController(object):
                             tw['index'] = 'Unable to restore original index'
                             df = self.handle_failed_stage(
                                     exception = e,
-                                    message = 'Indexing error',
+                                    message = 'Indexing error: ',
                                     stage = s,
                                     df = df,
                                     **tw)
