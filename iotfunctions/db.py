@@ -23,7 +23,7 @@ import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, Boolean, ForeignKey, \
     create_engine, Float, func, and_, or_
-from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR, BOOLEAN, NullType
+from sqlalchemy.sql.sqltypes import FLOAT, TIMESTAMP, VARCHAR, BOOLEAN, NullType
 from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
@@ -33,15 +33,15 @@ from . import pipeline as pp
 from .enginelog import EngineLogging
 
 logger = logging.getLogger(__name__)
-DB2_INSTALLED = True
-try:
-    from ibm_db_sa.base import DOUBLE
-    import ibm_db
-    import ibm_db_dbi
-except ImportError:
-    DB2_INSTALLED = False
-    msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
-    logger.warning(msg)
+# DB2_INSTALLED = True
+# try:
+#     from ibm_db_sa.base import DOUBLE
+#     import ibm_db
+#     import ibm_db_dbi
+# except ImportError:
+#     DB2_INSTALLED = False
+#     msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
+#     logger.warning(msg)
 
 
 class Database(object):
@@ -66,6 +66,7 @@ class Database(object):
         self.function_catalog = {}  # metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}
+        self.db_type = None
         if credentials is None:
             credentials = {}
 
@@ -106,6 +107,12 @@ class Database(object):
             self.credentials['iotp'] = credentials['iotp']
         except (KeyError, TypeError):
             self.credentials['iotp'] = None
+
+        try:
+            self.credentials['postgresql'] = credentials['postgresql']
+        except (KeyError, TypeError):
+            self.credentials['postgresql'] = None
+
         try:
             self.credentials['db2'] = credentials['db2']
         except (KeyError, TypeError):
@@ -190,63 +197,113 @@ class Database(object):
 
         self.tenant_id = self.credentials['tenant_id']
 
-        if DB2_INSTALLED:
-            connection_kwargs = {
-                'pool_size': 1
-            }
+        # Retrieve connection string. Look at dict 'credentials' first. Then at environment variable. Fall-back
+        # is sqlite for testing purposes
+        connection_string_from_env = os.environ.get('DB_CONNECTION_STRING')
+        db_type_from_env = os.environ.get('DB_TYPE')
+        connection_kwargs = {}
+        sqlite_warnung_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
 
-            # sqlite is not included included in the AS credentials. It is only intended to be used if db2 is not istalled.
-            # There is a back door to for using it instead of db2 for local development only.
-            # It will be used only when explicitly added to the credentials as credentials['sqlite'] = filename
-            try:
+        if 'sqlite' in self.credentials:
+            filename = credentials['sqlite']
+            if filename is not None and len(filename) > 0:
                 connection_string = 'sqlite:///%s' % (credentials['sqlite'])
-            except (KeyError, TypeError):
-                try:
-                    connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (self.credentials['db2']['username'],
-                                                                          self.credentials['db2']['password'],
-                                                                          self.credentials['db2']['host'],
-                                                                          self.credentials['db2']['port'],
-                                                                          self.credentials['db2']['databaseName'])
-                    if 'security' in self.credentials['db2']:
-                        if self.credentials['db2']['security']:
-                            connection_string += 'SECURITY=ssl;'
-                except KeyError:
-                    # look for environment variable for the ICS DB2
-                    try:
-                        msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
-                        connection_string = os.environ.get('DB_CONNECTION_STRING')
-                    except KeyError:
-                        raise ValueError(msg)
-                    else:
-                        if not connection_string is None:
-                            if connection_string.endswith(';'):
-                                connection_string = connection_string[:-1]
-                            ev = dict(item.split("=") for item in connection_string.split(";"))
-                            connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                            ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
-                            if 'SECURITY' in ev:
-                                connection_string += 'SECURITY=%s;' % ev['SECURITY']
-                            self.credentials['db2'] = {
-                                "username": ev['UID'],
-                                "password": ev['PWD'],
-                                "database": ev['DATABASE'],
-                                "port": ev['PORT'],
-                                "host": ev['HOSTNAME']
-                            }
-                        else:
-                            raise ValueError(msg)
-            else:
-                self.credentials['sqlite'] = connection_string
-                connection_kwargs = {}
-                msg = 'Using sqlite connection for local testing. Note sqlite can only be used for local testing. It is not a supported AS database.'
-                logger.warning(msg)
+                self.db_type = 'sqlite'
                 self.write_chunk_size = 100
+                logger.warning(sqlite_warnung_msg)
+            else:
+                msg = 'The credentials for sqlite is just a filename. The given filename is an empty string.'
+                raise ValueError(msg)
+
+        elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
+            try:
+                connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (self.credentials['db2']['username'],
+                                                                      self.credentials['db2']['password'],
+                                                                      self.credentials['db2']['host'],
+                                                                      self.credentials['db2']['port'],
+                                                                      self.credentials['db2']['databaseName'])
+                if 'security' in self.credentials['db2']:
+                    if self.credentials['db2']['security']:
+                        connection_string += 'SECURITY=ssl;'
+            except KeyError as ex:
+                msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
+                raise ValueError(msg) from ex
+
+            self.db_type = 'db2'
+            connection_kwargs['pool_size']= 1
+
+        elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
+            try:
+                connection_string = 'postgresql://%s:%s@%s:%s/%s;' % (self.credentials['postgresql']['username'],
+                                                                      self.credentials['postgresql']['password'],
+                                                                      self.credentials['postgresql']['host'],
+                                                                      self.credentials['postgresql']['port'],
+                                                                      self.credentials['postgresql']['databaseName'])
+                self.db_type = 'postgresql'
+            except KeyError as ex:
+                msg = 'The credentials for PostgreSql are incomplete. You need username/password/host/port/databaseName.'
+                raise ValueError(msg) from ex
+
+        elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
+            logger.debug('Found connection string in os variables: %s' % connection_string_from_env)
+            if db_type_from_env is not None and len(db_type_from_env) > 0:
+                logger.debug('Found database type in os variables: %s' % db_type_from_env)
+                db_type_from_env = db_type_from_env.upper()
+                if db_type_from_env == 'DB2':
+                    if connection_string_from_env.endswith(';'):
+                        connection_string_from_env = connection_string_from_env[:-1]
+                    try:
+                        ev = dict(item.split("=") for item in connection_string_from_env.split(";"))
+                        connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                            ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+                        if 'SECURITY' in ev:
+                            connection_string += 'SECURITY=%s;' % ev['SECURITY']
+                        self.credentials['db2'] = {
+                            "username": ev['UID'],
+                            "password": ev['PWD'],
+                            "database": ev['DATABASE'],
+                            "port": ev['PORT'],
+                            "host": ev['HOSTNAME']
+                        }
+                    except Exception:
+                        raise ValueError('Connection string \'%s\' is incorrect. Expected format for DB2 is '
+                                         'DATABASE=xxx;HOSTNAME=xxx;PORT=xxx;UID=xxx;PWD=xxx[;SECURITY=xxx]'
+                                         % connection_string_from_env)
+                    self.db_type = 'db2'
+                elif db_type_from_env == 'POSTGRESQL':
+                    connection_string = 'postgresql://' + connection_string_from_env
+                    try:
+                        # Split connection string according to user:password@hostname:port/database
+                        first, last = connection_string_from_env.split("@")
+                        uid, pwd = first.split(":", 1)
+                        hostname_port, database = last.split("/", 1)
+                        hostname, port = hostname_port.split(":", 1)
+                        self.credentials['postgresql'] = {
+                            "username": uid,
+                            "password": pwd,
+                            "database": database,
+                            "port": port,
+                            "host": hostname
+                        }
+                    except Exception:
+                        raise ValueError('Connection string \'%s\' is incorrect. Expected format for POSTGRESQL is '
+                                         'user:password@hostname:port/database' % connection_string_from_env)
+                    self.db_type = 'postgresql'
+                else:
+                    raise ValueError('The database type \'%s\' is unknown. Supported types are DB2 and POSTGRESQL'
+                                     % db_type_from_env)
+            else:
+                raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
+                                 'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
-            self.write_chunk_size = 100
             connection_string = 'sqlite:///sqldb.db'
-            connection_kwargs = {}
-            msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db'
+            self.write_chunk_size = 100
+            self.db_type = 'sqlite'
+            msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db.'
             logger.info(msg)
+            logger.warning(sqlite_warnung_msg)
+
+        logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
 
         self.http = urllib3.PoolManager()
         try:
@@ -559,7 +616,7 @@ class Database(object):
 
         data_type = column_object.type
 
-        if isinstance(data_type, DOUBLE) or isinstance(data_type, Float) or isinstance(data_type, Integer):
+        if isinstance(data_type, FLOAT) or isinstance(data_type, Float) or isinstance(data_type, Integer):
             data_type = 'NUMBER'
         elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
             data_type = 'LITERAL'
@@ -682,7 +739,7 @@ class Database(object):
         for c in all_cols:
             if not c in exclude_cols:
                 data_type = table.c[c].type
-                if isinstance(data_type, DOUBLE) or isinstance(data_type, Float):
+                if isinstance(data_type, FLOAT) or isinstance(data_type, Float):
                     metrics.append(c)
                 elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
                     categoricals.append(c)
@@ -1118,9 +1175,9 @@ class Database(object):
         return result_query
 
     def set_isolation_level(self, conn):
-        if DB2_INSTALLED:
+        if self.db_type == 'db2':
             with conn.connect() as con:
-                con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2
+                con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2; dirty read does not exist for postgres
 
     def get_query_data(self, query):
         '''
