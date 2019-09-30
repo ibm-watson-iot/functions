@@ -246,6 +246,11 @@ class Database(object):
 
         elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
             logger.debug('Found connection string in os variables: %s' % connection_string_from_env)
+            # ##############################
+            # kohlmann: Temporary fix until db_type is enabled in cronjob by API code
+            if db_type_from_env is None:
+                db_type_from_env = 'DB2'
+            # ########## ####################
             if db_type_from_env is not None and len(db_type_from_env) > 0:
                 logger.debug('Found database type in os variables: %s' % db_type_from_env)
                 db_type_from_env = db_type_from_env.upper()
