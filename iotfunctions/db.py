@@ -234,7 +234,7 @@ class Database(object):
 
         elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
             try:
-                connection_string = 'postgresql://%s:%s@%s:%s/%s;' % (self.credentials['postgresql']['username'],
+                connection_string = 'postgresql://%s:%s@%s:%s/%s' % (self.credentials['postgresql']['username'],
                                                                       self.credentials['postgresql']['password'],
                                                                       self.credentials['postgresql']['host'],
                                                                       self.credentials['postgresql']['port'],
@@ -276,7 +276,7 @@ class Database(object):
                                          % connection_string_from_env)
                     self.db_type = 'db2'
                 elif db_type_from_env == 'POSTGRESQL':
-                    connection_string = 'postgresql://' + connection_string_from_env
+                    connection_string = 'postgresql+psycopg2://' + connection_string_from_env
                     try:
                         # Split connection string according to user:password@hostname:port/database
                         first, last = connection_string_from_env.split("@")
