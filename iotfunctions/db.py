@@ -234,14 +234,16 @@ class Database(object):
 
         elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
             try:
-                connection_string = 'postgresql://%s:%s@%s:%s/%s' % (self.credentials['postgresql']['username'],
-                                                                      self.credentials['postgresql']['password'],
-                                                                      self.credentials['postgresql']['host'],
-                                                                      self.credentials['postgresql']['port'],
-                                                                      self.credentials['postgresql']['databaseName'])
+                connection_string = 'postgresql+psycopg2://%s:%s@%s:%s/%s' % \
+                                    (self.credentials['postgresql']['username'],
+                                     self.credentials['postgresql']['password'],
+                                     self.credentials['postgresql']['host'],
+                                     self.credentials['postgresql']['port'],
+                                     self.credentials['postgresql']['databaseName'])
                 self.db_type = 'postgresql'
             except KeyError as ex:
-                msg = 'The credentials for PostgreSql are incomplete. You need username/password/host/port/databaseName.'
+                msg = 'The credentials for PostgreSql are incomplete. ' \
+                      'You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
 
         elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
