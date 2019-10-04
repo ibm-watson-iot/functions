@@ -230,7 +230,7 @@ class Database(object):
                 raise ValueError(msg) from ex
 
             self.db_type = 'db2'
-            connection_kwargs['pool_size']= 1
+            connection_kwargs['pool_size'] = 1
 
         elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
             try:
@@ -704,7 +704,7 @@ class Database(object):
                     'schema': schema
                 }
                 try:
-                    table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
+                    table = Table(table_name.lower(), self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
                     table.indexes = set()
                 except NoSuchTableError:
                     raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
@@ -1149,7 +1149,7 @@ class Database(object):
                 joins.append(left_query.c[col[0]] == right_query.c[col[1]])
 
         for each_filter_name in filters.keys():
-            newtcolumn = Column(each_filter_name)
+            newtcolumn = Column(each_filter_name.lower())
             if left_query.c[each_filter_name] is not None:
                 if isinstance(filters[each_filter_name], str):
                     joins.append(left_query.c[each_filter_name] == filters[each_filter_name])
@@ -2877,8 +2877,8 @@ class BaseTable(object):
             if kwschema is None:
                 msg = 'Schema passed as None, using default schema'
                 logger.debug(msg)
-        self.table = Table(self.name, self.database.metadata, *args, **kw)
-        self.id_col = Column(self._entity_id, String(50))
+        self.table = Table(self.name.lower(), self.database.metadata, *args, **kw)
+        self.id_col = Column(self._entity_id.lower(), String(50))
         self.table.create(checkfirst=True)
 
     def create(self):
@@ -2952,7 +2952,7 @@ class SystemLogTable(BaseTable):
     """
 
     def __init__(self, name, database, *args, **kw):
-        self.timestamp = Column(self._timestamp, DateTime)
+        self.timestamp = Column(self._timestamp.lower(), DateTime)
         super().__init__(name, database, self.timestamp, *args, **kw)
 
 
@@ -2966,7 +2966,7 @@ class ActivityTable(BaseTable):
 
     def __init__(self, name, database, *args, **kw):
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id, String(50))
+        self.id_col = Column(self._entity_id.lower(), String(50))
         self.start_date = Column('start_date', DateTime)
         self.end_date = Column('end_date', DateTime)
         self.activity = Column('activity', String(255))
@@ -2980,7 +2980,7 @@ class Dimension(BaseTable):
 
     def __init__(self, name, database, *args, **kw):
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id, String(50))
+        self.id_col = Column(self._entity_id.lower(), String(50))
         super().__init__(name, database, self.id_col,
                          *args, **kw)
 
@@ -2998,7 +2998,7 @@ class ResourceCalendarTable(BaseTable):
         self.start_date = Column('start_date', DateTime)
         self.end_date = Column('end_date', DateTime)
         self.resource_id = Column('resource_id', String(255))
-        self.id_col = Column(self._entity_id, String(50))
+        self.id_col = Column(self._entity_id.lower(), String(50))
         super().__init__(name, database, self.id_col, self.start_date, self.end_date, self.resource_id, *args, **kw)
 
 
@@ -3009,8 +3009,8 @@ class TimeSeriesTable(BaseTable):
 
     def __init__(self, name, database, *args, **kw):
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id, String(256))
-        self.evt_timestamp = Column(self._timestamp, DateTime)
+        self.id_col = Column(self._entity_id.lower(), String(256))
+        self.evt_timestamp = Column(self._timestamp.lower(), DateTime)
         self.device_type = Column('devicetype', String(64))
         self.logical_interface = Column('logicalinterface_id', String(64))
         self.event_type = Column('eventtype', String(64))
@@ -3034,6 +3034,6 @@ class SlowlyChangingDimension(BaseTable):
         self.set_params(**kw)
         self.start_date = Column('start_date', DateTime)
         self.end_date = Column('end_date', DateTime)
-        self.property_name = Column(property_name, datatype)
-        self.id_col = Column(self._entity_id, String(50))
+        self.property_name = Column(property_name.lower(), datatype)
+        self.id_col = Column(self._entity_id.lower(), String(50))
         super().__init__(name, database, self.id_col, self.start_date, self.end_date, self.property_name, **kw)

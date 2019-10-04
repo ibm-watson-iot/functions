@@ -80,10 +80,10 @@ def make_sample_entity(db, schema=None,
     if drop_existing:
         db.drop_table(table_name=name, schema=schema)
 
-    float_cols = [Column(x, Float()) for x in float_cols]
-    string_cols = [Column(x, String(255)) for x in string_cols]
-    bool_cols = [Column(x, SmallInteger) for x in bool_cols]
-    date_cols = [Column(x, DateTime) for x in date_cols]
+    float_cols = [Column(x.lower(), Float()) for x in float_cols]
+    string_cols = [Column(x.lower(), String(255)) for x in string_cols]
+    bool_cols = [Column(x.lower(), SmallInteger) for x in bool_cols]
+    date_cols = [Column(x.lower(), DateTime) for x in date_cols]
 
     functions = []
     if include_generator:

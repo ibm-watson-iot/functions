@@ -1129,7 +1129,7 @@ class JobLog(object):
              'schema' : self.job.get_payload_param('_db_schema',None)
              }
 
-        self.table = Table(self.table_name, self.db.metadata,
+        self.table = Table(self.table_name.lower(), self.db.metadata,
                 Column('object_type', String(255)),
                 Column('object_name', String(255)),
                 Column('schedule', String(255)),

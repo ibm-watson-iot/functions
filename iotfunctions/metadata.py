@@ -2406,7 +2406,7 @@ class LocalEntityType(EntityType):
                                                 'Assuming datatype of Float. To change the type, '
                                                 'define a column called %s with the appropriate type'),
                                                value, value)
-                                cols_dict[value] = Column(value, Float)
+                                cols_dict[value] = Column(value.lower(), Float)
 
                     if 'EXPRESSION' in i.tags:
                         expression_cols = f.get_input_items()
@@ -2416,7 +2416,7 @@ class LocalEntityType(EntityType):
                                 logger.warning(('Building column for expression input %s with unknown type'
                                                 'Assuming datatype of Float. To change the type, '
                                                 'define a column called %s with the appropriate type'), c, c)
-                                cols_dict[c] = Column(c, Float)
+                                cols_dict[c] = Column(c.lower(), Float)
 
             cols = set(cols_dict.values())
 
