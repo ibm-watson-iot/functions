@@ -28,7 +28,7 @@ from . import db as db_module
 from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator,
                          CategoricalGenerator)
 from .pipeline import (CalcPipeline, DataReader, DropNull,
-                       JobController, DataWriterFile, JobLogNull, Trace, AggregateItems)
+                       JobController, DataWriter, DataWriterFile, JobLogNull, Trace, AggregateItems)
 from .util import (MemoryOptimizer, StageException, build_grouper,
                    categorize_args, reset_df_index)
 
@@ -795,7 +795,7 @@ class EntityType(object):
         '''
 
         stage_metadata = dict()
-        aggregators = dict()
+        active_granularities = set()
 
         # Add a data_reader stage. This will read entity data.
 
@@ -859,6 +859,10 @@ class EntityType(object):
             except KeyError:
                 #  start a new stage_type / granularity
                 stage_metadata[(stage_type, granularity)] = [obj]
+
+            # Remember all active granularities
+            if granularity is not None:
+                active_granularities.add(granularity)
 
             # add metadata derived from function registration and function args
             # input set and output list are critical metadata for the dependency model
@@ -934,6 +938,23 @@ class EntityType(object):
 
                 if is_function_prop:
                     list_obj.append(obj)
+
+        # Add for each granularity without frequency two AggregateItem stages. The result columns of these stages
+        # are used in the DataWriter when the aggregation results are pushed to the database
+        for gran in active_granularities:
+            if gran.freq is None:
+                for func_name, output_name in {('max', DataWriter.ITEM_NAME_TIMESTAMP_MAX),
+                                               ('min', DataWriter.ITEM_NAME_TIMESTAMP_MIN)}:
+                    new_stage = AggregateItems(input_items=[self._timestamp], aggregation_function = func_name,
+                                               output_items= [output_name])
+                    new_stage._entity_type = self
+                    new_stage.name = new_stage.__class__.__name__
+                    new_stage._schedule = None
+                    new_stage.granularity = gran
+                    new_stage._input_set = {self._timestamp}
+                    new_stage._output_list = [output_name]
+                    stage_type = self.get_stage_type(new_stage)
+                    stage_metadata[(stage_type, gran)].append(new_stage)
 
         return stage_metadata
 

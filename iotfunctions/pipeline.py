@@ -25,8 +25,6 @@ import traceback
 import threading
 from collections import OrderedDict
 
-import ibm_db
-from . import dbhelper
 from .enginelog import EngineLogging
 from .util import (log_df_info, freq_to_timedelta, StageException,
                    get_index_names, reset_df_index)
@@ -653,7 +651,13 @@ class DropNull(object):
         return df
 
 
-class DataWriterFile(object):
+class DataWriter(object):
+
+    ITEM_NAME_TIMESTAMP_MIN = 'TIMESTAMP_MIN'
+    ITEM_NAME_TIMESTAMP_MAX = 'TIMESTAMP_MAX'
+
+
+class DataWriterFile(DataWriter):
     '''
     Default data write stage. Writes to the file system.
     '''
@@ -767,7 +771,7 @@ class DataWriterException(Exception):
         super().__init__(msg)
 
 
-class SqlAlchemyDataWriter:
+class DataWriterSqlAlchemy(DataWriter):
     '''
     Stage that writes the calculated data items to database.
     '''
@@ -788,10 +792,6 @@ class SqlAlchemyDataWriter:
     COLUMN_NAME_TIMESTAMP_MAX = 'timestamp_max'
     COLUMN_NAME_ENTITY_ID = 'entity_id'
 
-    #Kohlmann move outside of SqlAlchemyDataWriter
-    ITEM_NAME_TIMESTAMP_MIN = 'TIMESTAMP_MIN'
-    ITEM_NAME_TIMESTAMP_MAX = 'TIMESTAMP_MAX'
-
     def __init__(self, name, data_item_metadata, db_connection, schema_name, grains_metadata, **kwargs):
         self.name = name
         self.data_item_metadata = data_item_metadata
@@ -803,7 +803,7 @@ class SqlAlchemyDataWriter:
 
     def __str__(self):
 
-        return 'System generated SqlAlchemyDataWriter stage: %s' % self.name
+        return 'System generated DataWriterSqlAlchemy stage: %s' % self.name
 
     def execute(self, df=None, start_ts=None, end_ts=None, entities=None):
 
@@ -914,8 +914,8 @@ class SqlAlchemyDataWriter:
                     row[self.COLUMN_NAME_VALUE_TIMESTAMP] = None
 
                 if helper_cols_avail:
-                    row[self.COLUMN_NAME_TIMESTAMP_MIN] = getattr(df_row, self.ITEM_NAME_TIMESTAMP_MIN)
-                    row[self.COLUMN_NAME_TIMESTAMP_MAX] = getattr(df_row, self.ITEM_NAME_TIMESTAMP_MAX)
+                    row[self.COLUMN_NAME_TIMESTAMP_MIN] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MIN)
+                    row[self.COLUMN_NAME_TIMESTAMP_MAX] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MAX)
 
                 # Add new row to the corresponding row list
                 row_list.append(row)
@@ -1093,7 +1093,7 @@ class SqlAlchemyDataWriter:
     def get_table_object(self, table_name):
         # kohlmann full_table_name ?????
         full_table_name = '%s.%s' % (self.schema_name, table_name)
-        table_object = Table(table_name, self.db_metadata, autoload=True, autoload_with=self.db_connection)
+        table_object = Table(table_name.lower(), self.db_metadata, autoload=True, autoload_with=self.db_connection)
 
         return table_object
 
@@ -1310,7 +1310,7 @@ class JobController(object):
     # aggegregating data, writing data and merging the results of 
     # the execution of a stage with data produced from prior stages
     data_aggregator = DataAggregator
-    data_writer = SqlAlchemyDataWriter
+    data_writer = DataWriterSqlAlchemy
     data_merge = DataMerge
     job_log_class = JobLog
 

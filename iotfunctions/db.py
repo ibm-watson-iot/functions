@@ -744,7 +744,7 @@ class Database(object):
         for c in all_cols:
             if not c in exclude_cols:
                 data_type = table.c[c].type
-                if isinstance(data_type, FLOAT) or isinstance(data_type, Float):
+                if isinstance(data_type, FLOAT) or isinstance(data_type, Float):            #kohlmann add double again
                     metrics.append(c)
                 elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
                     categoricals.append(c)
