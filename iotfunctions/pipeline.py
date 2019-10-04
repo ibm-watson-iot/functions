@@ -851,6 +851,11 @@ class DataWriterSqlAlchemy(DataWriter):
                     timestamp_column_min = table_object.c.get(self.COLUMN_NAME_TIMESTAMP_MIN)
                     timestamp_column_max = table_object.c.get(self.COLUMN_NAME_TIMESTAMP_MAX)
 
+                if timestamp_column_min is None:
+                    timestamp_column_min = start_ts
+                if timestamp_column_max is None:
+                    timestamp_column_max = end_ts
+
                 if start_ts is not None:
                     delete_object = delete_object.where(timestamp_column_min >= start_ts)
                 if end_ts is not None:
@@ -918,6 +923,7 @@ class DataWriterSqlAlchemy(DataWriter):
                     row[self.COLUMN_NAME_TIMESTAMP_MAX] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MAX)
 
                 # Add new row to the corresponding row list
+                print ('Persist row: (%s)' % (row))
                 row_list.append(row)
 
                 # Write data to database when we have reached the max number per bulk
@@ -1960,6 +1966,10 @@ class JobController(object):
                         job_spec = self.build_job_spec(
                                 schedule=schedule,
                                 subsumed=meta['mark_complete'])
+                        if self.get_payload_param('_get_job_spec', False):
+                            print (job_spec)
+                            can_proceed = False
+
                     except BaseException as e:
                         self.handle_failed_execution(
                                 meta,
@@ -2362,6 +2372,12 @@ class JobController(object):
                     tw['index'] = original_index_names
 
                 elif can_proceed:
+
+                    # original index names should not be empty ...
+                    if not original_index_names:
+                        print (original_index_names)
+                        original_index_names = get_index_names(result)
+
 
                     # This is not the first stage in this round of processing
                     # Restore the index if it doesn't match the original
