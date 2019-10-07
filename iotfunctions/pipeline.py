@@ -782,12 +782,12 @@ class DataWriterSqlAlchemy(DataWriter):
     MAX_NUMBER_OF_ROWS_FOR_SQL = 5000
 
     # Fixed column names for the output tables
-    COLUMN_NAME_KEY = 'KEY'  # Must be in uppercase because it's a SQL keyword and will be quoted by sqlAlchemy
+    COLUMN_NAME_KEY = 'key'
     COLUMN_NAME_VALUE_NUMERIC = 'value_n'
     COLUMN_NAME_VALUE_STRING = 'value_s'
     COLUMN_NAME_VALUE_BOOLEAN = 'value_b'
     COLUMN_NAME_VALUE_TIMESTAMP = 'value_t'
-    COLUMN_NAME_TIMESTAMP = 'TIMESTAMP'  # Must be in uppercase because it's a SQL keyword and will be quoted by sqlAlchemy
+    COLUMN_NAME_TIMESTAMP = 'timestamp'
     COLUMN_NAME_TIMESTAMP_MIN = 'timestamp_min'
     COLUMN_NAME_TIMESTAMP_MAX = 'timestamp_max'
     COLUMN_NAME_ENTITY_ID = 'entity_id'
@@ -815,12 +815,12 @@ class DataWriterSqlAlchemy(DataWriter):
                         (', '.join([('%s (%s, %s)' % (item_name, table_name, data_type))
                                     for item_name, (data_type, table_name) in col_props.items()])))
 
-            table_props = self._get_table_properties(df, col_props, grain)
+            table_props = self._get_table_properties(df, col_props, grain, helper_cols_avail)
             logger.info('The data items will be written into the following tables: %s' %
                         (', '.join([table_name for table_name, dummy in table_props.items()])))
 
             # Delete old data item values in database
-            self._delete_old_data(start_ts, end_ts, table_props, self._time_series_avail(grain))
+            self._delete_old_data(start_ts, end_ts, table_props, helper_cols_avail)
 
             if len(col_props) > 0:
                 # Insert new data into database
@@ -833,9 +833,9 @@ class DataWriterSqlAlchemy(DataWriter):
 
         return df
 
-    def _delete_old_data(self, start_ts, end_ts, table_props, time_series_avail):
+    def _delete_old_data(self, start_ts, end_ts, table_props, helper_cols_avail):
 
-        for table_name, (table_object, delete_object, insert_object, index_name_pos, row_list) in table_props.items():
+        for table_name, (table_object, delete_object, insert_object, index_name_pos, map, row_list) in table_props.items():
 
             # Delete old data items in database
             try:
@@ -844,23 +844,19 @@ class DataWriterSqlAlchemy(DataWriter):
 
                 start_time = dt.datetime.utcnow()
 
-                if time_series_avail:
-                    timestamp_column_min = table_object.c.get(self.COLUMN_NAME_TIMESTAMP)
-                    timestamp_column_max = timestamp_column_min
+                if helper_cols_avail:
+                    timestamp_column_min = table_object.c.get(map[self.COLUMN_NAME_TIMESTAMP_MIN])
+                    timestamp_column_max = table_object.c.get(map[self.COLUMN_NAME_TIMESTAMP_MAX])
                 else:
-                    timestamp_column_min = table_object.c.get(self.COLUMN_NAME_TIMESTAMP_MIN)
-                    timestamp_column_max = table_object.c.get(self.COLUMN_NAME_TIMESTAMP_MAX)
-
-                if timestamp_column_min is None:
-                    timestamp_column_min = start_ts
-                if timestamp_column_max is None:
-                    timestamp_column_max = end_ts
+                    timestamp_column_min = table_object.c.get(map[self.COLUMN_NAME_TIMESTAMP])
+                    timestamp_column_max = timestamp_column_min
 
                 if start_ts is not None:
                     delete_object = delete_object.where(timestamp_column_min >= start_ts)
                 if end_ts is not None:
                     delete_object = delete_object.where(timestamp_column_max < end_ts)
 
+                logger.debug('Executing delete statement: %s' % delete_object)
                 result_object = self.db_connection.execute(delete_object)
 
                 if result_object.supports_sane_rowcount():
@@ -889,41 +885,40 @@ class DataWriterSqlAlchemy(DataWriter):
                 if pd.isna(derived_value):
                     continue
 
-                table_object, delete_object, insert_object, index_name_pos, row_list = table_props[table_name]
+                table_object, delete_object, insert_object, index_name_pos, map, row_list = table_props[table_name]
 
                 # Collect data for new row in output table
                 row = dict()
-                row[self.COLUMN_NAME_KEY] = item_name
+                row[map[self.COLUMN_NAME_KEY]] = item_name
                 for index_name, position in index_name_pos:
                     row[index_name] = ix[position]
 
                 if item_type == DATA_ITEM_TYPE_BOOLEAN:
-                    row[self.COLUMN_NAME_VALUE_BOOLEAN] = (1 if (bool(derived_value) is True) else 0)
+                    row[map[self.COLUMN_NAME_VALUE_BOOLEAN]] = (1 if (bool(derived_value) is True) else 0)
                 else:
-                    row[self.COLUMN_NAME_VALUE_BOOLEAN] = None
+                    row[map[self.COLUMN_NAME_VALUE_BOOLEAN]] = None
 
                 if item_type == DATA_ITEM_TYPE_NUMBER:
                     my_float = float(derived_value)
-                    row[self.COLUMN_NAME_VALUE_NUMERIC] = (my_float if np.isfinite(my_float) else None)
+                    row[map[self.COLUMN_NAME_VALUE_NUMERIC]] = (my_float if np.isfinite(my_float) else None)
                 else:
-                    row[self.COLUMN_NAME_VALUE_NUMERIC] = None
+                    row[map[self.COLUMN_NAME_VALUE_NUMERIC]] = None
 
                 if item_type == DATA_ITEM_TYPE_LITERAL:
-                    row[self.COLUMN_NAME_VALUE_STRING] = str(derived_value)
+                    row[map[self.COLUMN_NAME_VALUE_STRING]] = str(derived_value)
                 else:
-                    row[self.COLUMN_NAME_VALUE_STRING] = None
+                    row[map[self.COLUMN_NAME_VALUE_STRING]] = None
 
                 if item_type == DATA_ITEM_TYPE_TIMESTAMP:
-                    row[self.COLUMN_NAME_VALUE_TIMESTAMP] = derived_value
+                    row[map[self.COLUMN_NAME_VALUE_TIMESTAMP]] = derived_value
                 else:
-                    row[self.COLUMN_NAME_VALUE_TIMESTAMP] = None
+                    row[map[self.COLUMN_NAME_VALUE_TIMESTAMP]] = None
 
                 if helper_cols_avail:
-                    row[self.COLUMN_NAME_TIMESTAMP_MIN] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MIN)
-                    row[self.COLUMN_NAME_TIMESTAMP_MAX] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MAX)
+                    row[map[self.COLUMN_NAME_TIMESTAMP_MIN]] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MIN)
+                    row[map[self.COLUMN_NAME_TIMESTAMP_MAX]] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MAX)
 
                 # Add new row to the corresponding row list
-                print ('Persist row: (%s)' % (row))
                 row_list.append(row)
 
                 # Write data to database when we have reached the max number per bulk
@@ -934,7 +929,7 @@ class DataWriterSqlAlchemy(DataWriter):
                     row_list.clear()
 
         # Write remaining data (final bulk for each table)) to database
-        for table_name, (table_object, delete_object, insert_object, index_name_pos, row_list) in table_props.items():
+        for table_name, (table_object, delete_object, insert_object, index_name_pos, map, row_list) in table_props.items():
             if len(row_list) > 0:
                 sql_alchemy_timedelta += self._persist_row_list(table_name, insert_object, row_list)
                 counter += len(row_list)
@@ -1026,7 +1021,7 @@ class DataWriterSqlAlchemy(DataWriter):
 
         return col_props, helper_cols_avail, grain
 
-    def _get_table_properties(self, df, col_props, grain):
+    def _get_table_properties(self, df, col_props, grain, helper_cols_avail):
 
         # Set up a map for the relation index name and index position
         map_index_name_pos = {name: pos for pos, name in enumerate(df.index.names)}
@@ -1042,39 +1037,60 @@ class DataWriterSqlAlchemy(DataWriter):
                 table_object = self.get_table_object(table_name)
                 delete_object = self.get_delete_object(table_object)
                 insert_object = self.get_insert_object(table_object)
-                logger.debug(
-                    'For table %s: delete statement: %s, insert statement: %s' %
-                    (table_name, delete_object, insert_object))
+                logger.debug('For table %s: delete statement: %s, insert statement: %s' %
+                             (table_name, delete_object, insert_object))
 
+                # Setup mapping for column names that are quoted in sql statements by SqlAlchemy because they
+                # are keywords in SQL
+                output_col_names = []
+                output_col_names.append(self.COLUMN_NAME_KEY)
+                output_col_names.append(self.COLUMN_NAME_VALUE_NUMERIC)
+                output_col_names.append(self.COLUMN_NAME_VALUE_STRING)
+                output_col_names.append(self.COLUMN_NAME_VALUE_BOOLEAN)
+                output_col_names.append(self.COLUMN_NAME_VALUE_TIMESTAMP)
+                if helper_cols_avail:
+                    output_col_names.append(self.COLUMN_NAME_TIMESTAMP_MIN)
+                    output_col_names.append(self.COLUMN_NAME_TIMESTAMP_MAX)
+                else:
+                    output_col_names.append(self.COLUMN_NAME_TIMESTAMP)
+                if grain is None or grain.entity_id is not None:
+                    output_col_names.append(self.COLUMN_NAME_ENTITY_ID)
+                if grain is not None and grain.dimensions is not None:
+                    output_col_names.extend(grain.dimensions)
+
+                map = self.get_col_name_map_for_sa(required_col_names=output_col_names, table_object=table_object)
+
+                # Determine mapping between index fields (entity_id/timestamp) and column names
                 index_name_pos = list()
                 if not isinstance(df.index, pd.MultiIndex):
                     # only one element in the grain, index is not an array, just append it assuming 'timestamp'
-                    index_name_pos.append((self.COLUMN_NAME_TIMESTAMP, 0))
+                    index_name_pos.append((map[self.COLUMN_NAME_TIMESTAMP], 0))
                 elif grain is None:
                     # no grain, the index must be an array of (id, timestamp)
-                    index_name_pos.append((self.COLUMN_NAME_ENTITY_ID, 0))
-                    index_name_pos.append((self.COLUMN_NAME_TIMESTAMP, 1))
+                    index_name_pos.append((map[self.COLUMN_NAME_ENTITY_ID], 0))
+                    index_name_pos.append((map[self.COLUMN_NAME_TIMESTAMP], 1))
                 else:
                     if grain.entity_id is not None:
                         # entity_first, the first level index must be the entity id
-                        index_name_pos.append((self.COLUMN_NAME_ENTITY_ID, 0))
+                        index_name_pos.append((map[self.COLUMN_NAME_ENTITY_ID], 0))
 
                     if grain.freq is not None:
                         if grain.entity_id is not None:
                             # if both id and time are included in the grain, time must be at pos 1
-                            index_name_pos.append((self.COLUMN_NAME_TIMESTAMP, 1))
+                            index_name_pos.append((map[self.COLUMN_NAME_TIMESTAMP], 1))
                         else:
                             # if only time is included, time must be at pos 0
-                            index_name_pos.append((self.COLUMN_NAME_TIMESTAMP, 0))
+                            index_name_pos.append((map[self.COLUMN_NAME_TIMESTAMP], 0))
 
                     if grain.dimensions is not None:
                         for pos, dimension in enumerate(grain.dimensions, start=len(index_name_pos)):
-                            index_name_pos.append((str.lower(dimension), pos))
+                            index_name_pos.append((map[dimension], pos))
 
                 logger.debug('For table %s: Mapping between column name and dataframe index position: %s' %
-                             (table_name, ', '.join([str(element) for element in index_name_pos])))
+                             (table_object.name,
+                              ', '.join([col_name + ' ==> ' + str(pos) for col_name, pos in index_name_pos])))
 
-                table_props[table_name] = (table_object, delete_object, insert_object, index_name_pos, list())
+                table_props[table_name] = (table_object, delete_object, insert_object, index_name_pos, map, list())
 
         return table_props
 
@@ -1083,6 +1099,37 @@ class DataWriterSqlAlchemy(DataWriter):
         if (grain is not None) and (grain.freq is None):
             time_series_avail = False
         return time_series_avail
+
+    def get_col_name_map_for_sa(self, required_col_names, table_object):
+
+        avail_col_names = set()
+        for col in table_object.c:
+            avail_col_names.add(col.name)
+        logger.debug('Columns of table %s: %s' % (table_object.name, ', '.join(avail_col_names)))
+
+        result_map = {}
+        mapped_col = None
+        for required_col in required_col_names:
+            if required_col in avail_col_names:
+                mapped_col = required_col
+            else:
+                required_col_upper = required_col.upper()
+                if required_col_upper in avail_col_names:
+                    mapped_col = required_col_upper
+                else:
+                    required_col_lower = required_col.lower()
+                    if required_col_lower in avail_col_names:
+                        mapped_col = required_col_lower
+                    else:
+                        raise ValueError(
+                            'Column %s/%s/%s could not be found in table %s ' %
+                            (required_col, required_col_upper, required_col_lower, table_object.name))
+            result_map[required_col] = mapped_col
+
+        logger.debug('Column name mapping for table %s: %s' %
+                     (table_object.name,
+                      ', '.join([col + ' ==> ' + mapped_col for col, mapped_col in result_map.items()])))
+        return result_map
 
     def get_insert_object(self, table_object):
 
