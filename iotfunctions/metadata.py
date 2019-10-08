@@ -21,7 +21,7 @@ from collections import OrderedDict
 import pandas as pd
 from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func, MetaData
-from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR
+from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR, FLOAT, INTEGER
 from ibm_db_sa.base import DOUBLE
 
 from . import db as db_module
@@ -1243,11 +1243,13 @@ class EntityType(object):
 
         for c in columns:
             data_type = c.type
-            if isinstance(data_type, DOUBLE) or isinstance(data_type, Float):
+            if isinstance(data_type, (FLOAT, Float)):       # Kohlmann: What's about INTEGER/Integer?
                 metrics.append(c.name)
-            elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
+            elif db_module.DB2_DOUBLE is not None and isinstance(data_type, db_module.DB2_DOUBLE):
+                metrics.append(c.name)
+            elif isinstance(data_type, (VARCHAR, String)):      # Kohlmann: What's about BOOLEAN/Boolean
                 categoricals.append(c.name)
-            elif isinstance(data_type, TIMESTAMP) or isinstance(data_type, DateTime):
+            elif isinstance(data_type, (TIMESTAMP, DateTime)):
                 dates.append(c.name)
             else:
                 others.append(c.name)
@@ -1992,11 +1994,13 @@ class EntityType(object):
             logger.debug(msg)
             if column_name not in self.get_excluded_cols():
                 data_type = table_obj.c[column_name].type
-                if isinstance(data_type, DOUBLE) or isinstance(data_type, Float) or isinstance(data_type, Integer):
+                if isinstance(data_type, (FLOAT, float, INTEGER, Integer)):
                     data_type = 'NUMBER'
-                elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
+                elif DB2_DOUBLE is not None and isinstance(data_type, DB2_DOUBLE):
+                    data_type = 'NUMBER'
+                elif isinstance(data_type, (VARCHAR, String)):
                     data_type = 'LITERAL'
-                elif isinstance(data_type, TIMESTAMP) or isinstance(data_type, DateTime):
+                elif isinstance(data_type, (TIMESTAMP, DateTime)):
                     data_type = 'TIMESTAMP'
                 else:
                     data_type = str(data_type)

@@ -21,9 +21,9 @@ import datetime
 import pandas as pd
 import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, Boolean, ForeignKey, \
-    create_engine, Float, func, and_, or_
-from sqlalchemy.sql.sqltypes import FLOAT, TIMESTAMP, VARCHAR, BOOLEAN, NullType
+from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, \
+    create_engine, func, and_, or_
+from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN, NullType
 from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
@@ -33,15 +33,14 @@ from . import pipeline as pp
 from .enginelog import EngineLogging
 
 logger = logging.getLogger(__name__)
-# DB2_INSTALLED = True
-# try:
-#     from ibm_db_sa.base import DOUBLE
-#     import ibm_db
-#     import ibm_db_dbi
-# except ImportError:
-#     DB2_INSTALLED = False
-#     msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
-#     logger.warning(msg)
+
+# Table reflection of SqlAlchemy on DB2 returns DB2-specific type DOUBLE instead of SQL standard type FLOAT
+# Load the DB2-specific type DOUBLE
+DB2_DOUBLE = None
+try:
+    from ibm_db_sa.base import DOUBLE as DB2_DOUBLE
+except ImportError:
+    DB2_DOUBLE = None
 
 
 class Database(object):
@@ -623,13 +622,15 @@ class Database(object):
 
         data_type = column_object.type
 
-        if isinstance(data_type, FLOAT) or isinstance(data_type, Float) or isinstance(data_type, Integer):
+        if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
             data_type = 'NUMBER'
-        elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
+        elif DB2_DOUBLE is not None and isinstance(data_type, DB2_DOUBLE):
+            data_type = 'NUMBER'
+        elif isinstance(data_type, (VARCHAR, String)):
             data_type = 'LITERAL'
-        elif isinstance(data_type, TIMESTAMP) or isinstance(data_type, DateTime):
+        elif isinstance(data_type, (TIMESTAMP, DateTime)):
             data_type = 'TIMESTAMP'
-        elif isinstance(data_type, BOOLEAN) or isinstance(data_type, NullType) or isinstance(data_type, Boolean):
+        elif isinstance(data_type, (BOOLEAN, Boolean, NullType)):
             data_type = 'BOOLEAN'
         else:
             data_type = str(data_type)
@@ -746,11 +747,13 @@ class Database(object):
         for c in all_cols:
             if not c in exclude_cols:
                 data_type = table.c[c].type
-                if isinstance(data_type, FLOAT) or isinstance(data_type, Float):            #kohlmann add double again
+                if isinstance(data_type, (FLOAT, Float)):
                     metrics.append(c)
-                elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
+                elif DB2_DOUBLE is not None and isinstance(data_type, DB2_DOUBLE):
+                    metrics.append(c)
+                elif isinstance(data_type, (VARCHAR, String)):              # Kohlmann what about Integer and Boolean????
                     categoricals.append(c)
-                elif isinstance(data_type, TIMESTAMP) or isinstance(data_type, DateTime):
+                elif isinstance(data_type, (TIMESTAMP, DateTime)):
                     dates.append(c)
                 else:
                     others.append(c)
