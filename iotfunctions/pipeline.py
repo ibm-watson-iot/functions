@@ -779,8 +779,6 @@ class DataWriterSqlAlchemy(DataWriter):
     MAX_NUMBER_OF_ROWS_FOR_SQL = 5000
     produces_output_items = False
 
-    MAX_NUMBER_OF_ROWS_FOR_SQL = 5000
-
     # Fixed column names for the output tables
     COLUMN_NAME_KEY = 'key'
     COLUMN_NAME_VALUE_NUMERIC = 'value_n'
@@ -966,7 +964,7 @@ class DataWriterSqlAlchemy(DataWriter):
         first_loop_cycle = True
         for col_name, col_type in df.dtypes.iteritems():
             metadata = self.data_item_metadata.get(col_name)
-            if metadata is not None and metadata.get(METADATA_TYPE_KEY) != 'METRIC':
+            if metadata is not None and metadata.get(METADATA_TYPE_KEY).upper() == 'DERIVED_METRIC':
                 if metadata.get(DATA_ITEM_TRANSIENT_KEY, False) is False:
                     table_name = metadata.get(DATA_ITEM_SOURCETABLE_KEY)
                     data_item_type = metadata.get(DATA_ITEM_COLUMN_TYPE_KEY)

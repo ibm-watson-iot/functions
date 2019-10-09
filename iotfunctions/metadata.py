@@ -22,7 +22,6 @@ import pandas as pd
 from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
 from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func, MetaData
 from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR, FLOAT, INTEGER
-from ibm_db_sa.base import DOUBLE
 
 from . import db as db_module
 from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator,
@@ -1243,11 +1242,11 @@ class EntityType(object):
 
         for c in columns:
             data_type = c.type
-            if isinstance(data_type, (FLOAT, Float)):       # Kohlmann: What's about INTEGER/Integer?
+            if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
                 metrics.append(c.name)
             elif db_module.DB2_DOUBLE is not None and isinstance(data_type, db_module.DB2_DOUBLE):
                 metrics.append(c.name)
-            elif isinstance(data_type, (VARCHAR, String)):      # Kohlmann: What's about BOOLEAN/Boolean
+            elif isinstance(data_type, (VARCHAR, String)):
                 categoricals.append(c.name)
             elif isinstance(data_type, (TIMESTAMP, DateTime)):
                 dates.append(c.name)
@@ -1994,9 +1993,9 @@ class EntityType(object):
             logger.debug(msg)
             if column_name not in self.get_excluded_cols():
                 data_type = table_obj.c[column_name].type
-                if isinstance(data_type, (FLOAT, float, INTEGER, Integer)):
+                if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
                     data_type = 'NUMBER'
-                elif DB2_DOUBLE is not None and isinstance(data_type, DB2_DOUBLE):
+                elif db_module.DB2_DOUBLE is not None and isinstance(data_type, db_module.DB2_DOUBLE):
                     data_type = 'NUMBER'
                 elif isinstance(data_type, (VARCHAR, String)):
                     data_type = 'LITERAL'

@@ -747,11 +747,11 @@ class Database(object):
         for c in all_cols:
             if not c in exclude_cols:
                 data_type = table.c[c].type
-                if isinstance(data_type, (FLOAT, Float)):
+                if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
                     metrics.append(c)
                 elif DB2_DOUBLE is not None and isinstance(data_type, DB2_DOUBLE):
                     metrics.append(c)
-                elif isinstance(data_type, (VARCHAR, String)):              # Kohlmann what about Integer and Boolean????
+                elif isinstance(data_type, (VARCHAR, String)):
                     categoricals.append(c)
                 elif isinstance(data_type, (TIMESTAMP, DateTime)):
                     dates.append(c)
