@@ -2193,11 +2193,15 @@ class ServerEntityType(EntityType):
 
         #replace granularity name with granularity object
         for k in kpis:
-            k['granularity'] =  self._granularities_dict.get(k.get('granularity',None),'unknown')
-            if k['granularity'] == 'unknown':
-                k['granularity'] = None
-                logger.warning('Invalid granularity %s for function %s using None',
-                               k.get('granularity'),k['functionName'])
+            gran_name = k.get('granularity')
+            if gran_name is not None:
+                gran = self._granularities_dict.get(gran_name)
+                if gran is not None:
+                    k['granularity'] = gran
+                else:
+                    k['granularity'] = None
+                    logger.warning('Invalid granularity %s for function %s. No granularity (None) will be used instead',
+                                   gran_name,k['functionName'])
 
         # build a schedules dict keyed by freq
 
