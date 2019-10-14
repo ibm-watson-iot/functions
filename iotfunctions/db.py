@@ -611,6 +611,11 @@ class Database(object):
                 db_schema=schema
             )
 
+        params = {
+            'default_backtrack': 'checkpoint'
+        }
+        kwargs = {**params, **kwargs}
+
         job = pp.JobController(payload=entity_type, **kwargs)
         job.execute()
 
