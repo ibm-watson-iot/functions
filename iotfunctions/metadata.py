@@ -1518,7 +1518,9 @@ class EntityType(object):
                       data_item_domain=None,
                       columns=None,
                       start_entity_id = None,
-                      auto_entity_count = None):
+                      auto_entity_count = None,
+                      datasource = None,
+                      datasourcemetrics = None):
         '''
         Generate random time series data for entities
         
@@ -1542,7 +1544,10 @@ class EntityType(object):
             std values for generated data items. dict is keyed on data item name
         data_item_domain: dict
             domains of values for categorical data items. dict is keyed on data item name            
-        
+        datasource: dataframe
+            dataframe as data source
+        datasourcemetrics : list of strings
+            list of relevant column for datasource
         '''
         if entities is None:
             if start_entity_id is None:
@@ -1586,7 +1591,9 @@ class EntityType(object):
                                  days=days, seconds=seconds,
                                  freq=freq, categoricals=categoricals,
                                  dates=dates, timestamp=self._timestamp,
-                                 domains=data_item_domain)
+                                 domains=data_item_domain,
+                                 datasource = datasource,
+                                 datasourcemetrics = datasourcemetrics)
         ts.data_item_mean = data_item_mean
         ts.data_item_sd = data_item_sd
         ts.data_item_domain = data_item_domain
