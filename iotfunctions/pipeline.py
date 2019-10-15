@@ -818,7 +818,7 @@ class DataWriterSqlAlchemy(DataWriter):
                         (', '.join([table_name for table_name, dummy in table_props.items()])))
 
             # Delete old data item values in database
-            self._delete_old_data(start_ts, end_ts, table_props, helper_cols_avail)
+            self._delete_old_data(start_ts, end_ts, table_props, col_props, helper_cols_avail)
 
             if len(col_props) > 0:
                 # Insert new data into database
@@ -831,17 +831,19 @@ class DataWriterSqlAlchemy(DataWriter):
 
         return df
 
-    def _delete_old_data(self, start_ts, end_ts, table_props, helper_cols_avail):
+    def _delete_old_data(self, start_ts, end_ts, table_props, col_props, helper_cols_avail):
 
         for table_name, (table_object, delete_object, insert_object, index_name_pos, map, row_list) in table_props.items():
 
             # Delete old data items in database
             try:
-                logger.debug('Deleting old data items from table %s for time range [%s, %s]' %
-                             (table_name, start_ts, end_ts))
+                col_list = col_props.keys()
+                logger.debug('Deleting old data items %s from table %s for time range [%s, %s]' %
+                             (col_list, table_name, start_ts, end_ts))
 
                 start_time = dt.datetime.utcnow()
 
+                # Restrict delete on interval [start_date, end_date]
                 if helper_cols_avail:
                     timestamp_column_min = table_object.c.get(map[self.COLUMN_NAME_TIMESTAMP_MIN])
                     timestamp_column_max = table_object.c.get(map[self.COLUMN_NAME_TIMESTAMP_MAX])
@@ -852,7 +854,12 @@ class DataWriterSqlAlchemy(DataWriter):
                 if start_ts is not None:
                     delete_object = delete_object.where(timestamp_column_min >= start_ts)
                 if end_ts is not None:
-                    delete_object = delete_object.where(timestamp_column_max < end_ts)
+                    delete_object = delete_object.where(timestamp_column_max <= end_ts)
+
+                # Restrict delete on KPIs that will be inserted in the next step
+                key_column = table_object.c.get(map[self.COLUMN_NAME_KEY])
+                delete_object = delete_object.where(key_column.in_(col_list))
+
 
                 logger.debug('Executing delete statement: %s' % delete_object)
                 result_object = self.db_connection.execute(delete_object)
