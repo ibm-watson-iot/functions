@@ -1738,11 +1738,11 @@ class JobController(object):
                         self.log_start(meta, status='running')
 
                         (preload_stages, cols) = self.get_stages(stage_type='preload', granularity=None,
-                            available_columns=set(), exclude_stages=[])
+                                                                 available_columns=set(), exclude_stages=[])
                     except BaseException as e:
                         msg = 'Aborted execution. Error getting preload stages'
                         self.handle_failed_execution(meta, message=msg, exception=e, stage_name='get_stages("preload")',
-                            raise_error=False)
+                                                     raise_error=False)
                         # preload stages are considered critical to successful
                         # execution. If a preload stage is optional, handle the
                         # error inside the preload stage
@@ -2430,7 +2430,7 @@ class JobController(object):
             next_execution)
 
         next_execution = self.adjust_to_start_date(execute_date=current_execution_date, start_hours=round_hour,
-            start_min=round_min, interval=schedule)
+                                                   start_min=round_min, interval=schedule)
 
         return (next_execution, last_execution_date)
 
