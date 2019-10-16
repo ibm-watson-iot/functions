@@ -95,9 +95,10 @@ entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure',
                     bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
                     TestMetadataProvider(108, 'custom_metadata_added'),
                     bif.PythonExpression(expression='df["temp"] + self._entity_type.custom_metadata',
-                        output_name='adjusted_temp1'),
+                                         output_name='adjusted_temp1'),
                     bif.PythonExpression(expression='df["temp"] *2 + c["custom_metadata"]*2',
-                        output_name='adjusted_temp2'), **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
+                                         output_name='adjusted_temp2'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 entity.exec_local_pipeline(start_ts=dt.datetime.utcnow() - dt.timedelta(days=30))
 

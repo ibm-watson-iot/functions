@@ -131,8 +131,8 @@ class AggregateItems(object):
     def get_available_methods(cls):
 
         return {'sum': 'sum', 'count': 'count', 'count_distinct': cls.count_distinct, 'min': 'min', 'max': 'max',
-            'mean': 'mean', 'median': 'median', 'std': 'std', 'var': 'var', 'first': 'first', 'last': 'last',
-            'product': 'product'}
+                'mean': 'mean', 'median': 'median', 'std': 'std', 'var': 'var', 'first': 'first', 'last': 'last',
+                'product': 'product'}
 
 
 class DataAggregator(object):
@@ -422,7 +422,7 @@ class DataMerge(object):
                 df = df.rename(col_map)
         if len(df.index) > 0:
             logger.debug('Merging dataframe with columns %s and index %s', list(self.df.columns),
-                self.get_index_names())
+                         self.get_index_names())
 
         # profile incoming df to understand its structure
         # and determine merge strategy
@@ -509,7 +509,7 @@ class DataMerge(object):
                               ' Output dataframe index is %s.'
                               ' Input dataframe index is %s.'
                               ' Input dataframe columns are %s.' % (
-                              obj_index_names, self.get_index_names(), list(self.df.columns))))
+                                  obj_index_names, self.get_index_names(), list(self.df.columns))))
 
     def merge_non_dataframe(self, obj, col_names):
         '''
@@ -747,13 +747,13 @@ class DataWriterSqlAlchemy(DataWriter):
     def _delete_old_data(self, start_ts, end_ts, table_props, col_props, helper_cols_avail):
 
         for table_name, (
-        table_object, delete_object, insert_object, index_name_pos, map, row_list) in table_props.items():
+                table_object, delete_object, insert_object, index_name_pos, map, row_list) in table_props.items():
 
             # Delete old data items in database
             try:
                 col_list = col_props.keys()
                 logger.debug('Deleting old data items %s from table %s for time range [%s, %s]' % (
-                col_list, table_name, start_ts, end_ts))
+                    col_list, table_name, start_ts, end_ts))
 
                 start_time = dt.datetime.utcnow()
 
@@ -782,7 +782,7 @@ class DataWriterSqlAlchemy(DataWriter):
                 else:
                     txt = 'Old'
                 logger.info('%s data items have been deleted from table %s. Elapsed time in sec: %.3f' % (
-                txt, table_name, (dt.datetime.utcnow() - start_time) / dt.timedelta(microseconds=1000) / 1000))
+                    txt, table_name, (dt.datetime.utcnow() - start_time) / dt.timedelta(microseconds=1000) / 1000))
 
             except Exception as exc:
                 raise DataWriterException(
@@ -848,7 +848,7 @@ class DataWriterSqlAlchemy(DataWriter):
 
         # Write remaining data (final bulk for each table)) to database
         for table_name, (
-        table_object, delete_object, insert_object, index_name_pos, map, row_list) in table_props.items():
+                table_object, delete_object, insert_object, index_name_pos, map, row_list) in table_props.items():
             if len(row_list) > 0:
                 sql_alchemy_timedelta += self._persist_row_list(table_name, insert_object, row_list)
                 counter += len(row_list)
@@ -857,8 +857,8 @@ class DataWriterSqlAlchemy(DataWriter):
 
         logger.info('Total number of persisted data item values: %d, Elapsed time in sec: %.3f, '
                     'SqlAlchemy time in sec: %.3f' % (
-                    counter, (dt.datetime.utcnow() - start_time) / dt.timedelta(microseconds=1000) / 1000,
-                    sql_alchemy_timedelta / dt.timedelta(microseconds=1000) / 1000))
+                        counter, (dt.datetime.utcnow() - start_time) / dt.timedelta(microseconds=1000) / 1000,
+                        sql_alchemy_timedelta / dt.timedelta(microseconds=1000) / 1000))
 
     def _persist_row_list(self, table_name, insert_object, row_list):
         try:
@@ -891,21 +891,19 @@ class DataWriterSqlAlchemy(DataWriter):
                     data_item_type = metadata.get(DATA_ITEM_COLUMN_TYPE_KEY)
                     kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
                     if table_name is None:
-                        logger.warning('No table name defined for data item ' + col_name +
-                                       '. The data item will not been written to the database.')
+                        logger.warning(
+                            'No table name defined for data item ' + col_name + '. The data item will not been written to the database.')
                     elif data_item_type is None:
-                        logger.warning('No data type defined for data item ' + col_name +
-                                       '. The data item will not been written to the database.')
+                        logger.warning(
+                            'No data type defined for data item ' + col_name + '. The data item will not been written to the database.')
                     elif kpi_func_dto is None:
                         logger.warning('No function definition defined for data item ' + col_name + '.')
                     else:
-                        if (data_item_type != DATA_ITEM_TYPE_BOOLEAN
-                                and data_item_type != DATA_ITEM_TYPE_NUMBER
-                                and data_item_type != DATA_ITEM_TYPE_LITERAL
-                                and data_item_type != DATA_ITEM_TYPE_TIMESTAMP):
-                            logger.warning(('Data item %s has the unknown type %s. The data item will be written ' +
-                                            'as %s into the database.') %
-                                           (col_name, data_item_type, DATA_ITEM_TYPE_LITERAL))
+                        if (
+                                data_item_type != DATA_ITEM_TYPE_BOOLEAN and data_item_type != DATA_ITEM_TYPE_NUMBER and data_item_type != DATA_ITEM_TYPE_LITERAL and data_item_type != DATA_ITEM_TYPE_TIMESTAMP):
+                            logger.warning((
+                                                   'Data item %s has the unknown type %s. The data item will be written ' + 'as %s into the database.') % (
+                                               col_name, data_item_type, DATA_ITEM_TYPE_LITERAL))
                             data_item_type = DATA_ITEM_TYPE_LITERAL
 
                         col_props[col_name] = (data_item_type, table_name)
@@ -956,7 +954,7 @@ class DataWriterSqlAlchemy(DataWriter):
                 delete_object = self.get_delete_object(table_object)
                 insert_object = self.get_insert_object(table_object)
                 logger.debug('For table %s: delete statement: %s, insert statement: %s' % (
-                table_name, delete_object, insert_object))
+                    table_name, delete_object, insert_object))
 
                 # Setup mapping for column names that are quoted in sql statements by SqlAlchemy because they
                 # are keywords in SQL
@@ -1004,9 +1002,8 @@ class DataWriterSqlAlchemy(DataWriter):
                         for pos, dimension in enumerate(grain.dimensions, start=len(index_name_pos)):
                             index_name_pos.append((map[dimension], pos))
 
-                logger.debug('For table %s: Mapping between column name and dataframe index position: %s' %
-                             (table_object.name, ', '.join([col_name + ' ==> ' + str(pos)
-                                                            for col_name, pos in index_name_pos])))
+                logger.debug('For table %s: Mapping between column name and dataframe index position: %s' % (
+                    table_object.name, ', '.join([col_name + ' ==> ' + str(pos) for col_name, pos in index_name_pos])))
 
                 table_props[table_name] = (table_object, delete_object, insert_object, index_name_pos, map, list())
 
@@ -1040,11 +1037,11 @@ class DataWriterSqlAlchemy(DataWriter):
                         mapped_col = required_col_lower
                     else:
                         raise ValueError('Column %s/%s/%s could not be found in table %s ' % (
-                        required_col, required_col_upper, required_col_lower, table_object.name))
+                            required_col, required_col_upper, required_col_lower, table_object.name))
             result_map[required_col] = mapped_col
 
         logger.debug('Column name mapping for table %s: %s' % (
-        table_object.name, ', '.join([col + ' ==> ' + mapped_col for col, mapped_col in result_map.items()])))
+            table_object.name, ', '.join([col + ' ==> ' + mapped_col for col, mapped_col in result_map.items()])))
         return result_map
 
     def get_insert_object(self, table_object):
@@ -1265,7 +1262,7 @@ class JobController(object):
         self.job_log = self.job_log_class(self)
         # get metadata from payload
         self.stage_metadata = self.exec_payload_method(method_name='classify_stages', raise_error=True,
-            default_output=None)
+                                                       default_output=None)
 
         # Assemble a collection of candidate schedules to execute
         # If the payload does not have a schedule use the default
@@ -1344,8 +1341,8 @@ class JobController(object):
                       ' subsumbed schedules %s'), schedule, subsumed)
 
         build_metadata = {'spec': [], 'schedule': schedule, 'subsumed': subsumed, 'available_columns': set(),
-            'required_inputs': set(), 'data_source_projection_list': {}, 'skipped_stages': set(),
-            'skipped_items': set()}
+                          'required_inputs': set(), 'data_source_projection_list': {}, 'skipped_stages': set(),
+                          'skipped_items': set()}
 
         # Retrieve and process input level data
         # Add stages that will be used to retrieve data
@@ -1377,9 +1374,9 @@ class JobController(object):
 
         # Add a data write to spec
         params = {'db_connection': self.get_payload_param('db', None).connection,
-            'schema_name': self.get_payload_param('_db_schema', None),
-            'grains_metadata': self.get_payload_param('_granularities_dict', None),
-            'data_item_metadata': data_items_dict}
+                  'schema_name': self.get_payload_param('_db_schema', None),
+                  'grains_metadata': self.get_payload_param('_granularities_dict', None),
+                  'data_item_metadata': data_items_dict}
 
         writer_name = '%s_input_level' % self.name
         data_writer = self.data_writer(name=writer_name, **params)
@@ -1390,7 +1387,7 @@ class JobController(object):
         invalid_cols = set()
         for st in self.get_agg_stage_types():
             (stages, cols) = self.get_stages(stage_type=st, available_columns=build_metadata['available_columns'],
-                granularity=None, exclude_stages=[])
+                                             granularity=None, exclude_stages=[])
             build_metadata['skipped_stages'] |= set(stages)
             build_metadata['skipped_items'] |= set(cols)
             for s in stages:
@@ -1420,7 +1417,7 @@ class JobController(object):
                 # The agg_dict is a pandas aggregate_dictionary keyed by column
                 # with a list of aggregation rules
                 result = self.collapse_aggregation_stages(granularity=g,
-                    available_columns=build_metadata['available_colums'])
+                                                          available_columns=build_metadata['available_colums'])
                 (agg_dict, complex_aggregators, collapsed_stages, inputs, outputs) = result
                 build_metadata['required_inputs'] |= set(inputs)
                 build_metadata['available_colums'] |= set(outputs)
@@ -1431,7 +1428,8 @@ class JobController(object):
                 # The job controller uses a generic DataAggregator to perform simple
                 # aggregations using an agg_dict and complex aggregators using apply
                 aggregate_stage = self.data_aggregator(name='auto_aggregate', granularity=g, agg_dict=agg_dict,
-                    complex_aggregators=complex_aggregators, input_items=inputs, output_items=outputs)
+                                                       complex_aggregators=complex_aggregators, input_items=inputs,
+                                                       output_items=outputs)
 
             build_metadata['spec'].append(aggregate_stage)
             build_metadata['available_columns'] |= set(aggregate_stage._output_list)
@@ -1543,8 +1541,9 @@ class JobController(object):
 
         for i in range(self.recursion_limit):
             result = self.gather_available_stages(stage_type=stage_type, schedule=meta['schedule'],
-                subsumed=meta['subsumed'], available_columns=meta['available_columns'], prev_stages=meta['spec'],
-                granularity=granularity)
+                                                  subsumed=meta['subsumed'],
+                                                  available_columns=meta['available_columns'], prev_stages=meta['spec'],
+                                                  granularity=granularity)
             (stages_added, columns_added, required_inputs, data_source_col_list) = result
             # update build status
             for s in stages_added:
@@ -1592,8 +1591,8 @@ class JobController(object):
         trace_name = 'auto_trace_%s_%s' % (object_name, execute_date.strftime('%Y%m%d%H%M%S'))
 
         trace_log_cos_path = ('%s/%s/%s/%s_trace_%s' % (
-        self.payload.tenant_id, object_name, execute_date.strftime('%Y%m%d'), object_name,
-        execute_date.strftime('H%M%S')))
+            self.payload.tenant_id, object_name, execute_date.strftime('%Y%m%d'), object_name,
+            execute_date.strftime('H%M%S')))
 
         return (trace_name, trace_log_cos_path)
 
@@ -1712,8 +1711,8 @@ class JobController(object):
                 meta = {'execution_date': execute_date, 'previous_execution_date': None, 'next_future_execution': None}
                 # can't recover from errors evaluating the schedule
                 self.handle_failed_start(meta, exception=e, stage_name='evaluate_schedules', raise_error=True,
-                    # force an error to be raised
-                    **meta)
+                                         # force an error to be raised
+                                         **meta)
 
             # look for schedules that were flagged 'is_due'.
             # These will be executed.
@@ -1738,11 +1737,11 @@ class JobController(object):
                         self.log_start(meta, status='running')
 
                         (preload_stages, cols) = self.get_stages(stage_type='preload', granularity=None,
-                            available_columns=set(), exclude_stages=[])
+                                                                 available_columns=set(), exclude_stages=[])
                     except BaseException as e:
                         msg = 'Aborted execution. Error getting preload stages'
                         self.handle_failed_execution(meta, message=msg, exception=e, stage_name='get_stages("preload")',
-                            raise_error=False)
+                                                     raise_error=False)
                         # preload stages are considered critical to successful
                         # execution. If a preload stage is optional, handle the
                         # error inside the preload stage
@@ -1800,7 +1799,8 @@ class JobController(object):
                         inputs = self.get_stage_input_set(s, raise_error=True)
                         skip_parms = {'skipped_items': items, 'required_inputs': inputs}
                         self.handle_failed_stage(stage=s, df=None, message=s.build_status,
-                            exception=StageException(s.build_status), raise_error=False, **skip_parms)
+                                                 exception=StageException(s.build_status), raise_error=False,
+                                                 **skip_parms)
                         if not abort_on_error:
                             abort_on_error = self.get_stage_param(s, '_abort_on_fail', None)
 
@@ -1891,8 +1891,7 @@ class JobController(object):
                             try:
                                 (result, can_proceed, has_no_data) = self.execute_stages(stages=stages,
                                                                                          start_ts=chunk_start,
-                                                                                         end_ts=chunk_end,
-                                                                                         df=grain_df,
+                                                                                         end_ts=chunk_end, df=grain_df,
                                                                                          granularity=grain)
                             except BaseException as e:
                                 self.handle_failed_execution(meta, message='Error executing stage', exception=e,
@@ -2075,7 +2074,7 @@ class JobController(object):
                         try:
 
                             result = self.exec_payload_method(method_name='index_df', default_output=result,
-                                raise_error=True, df=result)
+                                                              raise_error=True, df=result)
 
                         except BaseException as e:
 
@@ -2381,9 +2380,9 @@ class JobController(object):
         if len(chunks) == 0:
             chunk_start = start_date
             chunk_start = self.adjust_to_start_date(execute_date=chunk_start, start_hours=round_hour,
-                start_min=round_min, interval=schedule)
+                                                    start_min=round_min, interval=schedule)
             chunk_start = self.exec_payload_method(method_name='get_adjusted_start_date', default_output=chunk_start,
-                raise_error=False, **{'start_date': chunk_start})
+                                                   raise_error=False, **{'start_date': chunk_start})
             chunk_end = chunk_start + freq_to_timedelta(chunk_size)
             chunk_end = min(chunk_end, end_date)
             logger.debug('First chunk will run %s to %s', chunk_start, chunk_end)
@@ -2392,7 +2391,8 @@ class JobController(object):
             while chunk_end < end_date:
                 chunk_start = chunk_end + freq_to_timedelta('1us')
                 chunk_start = self.exec_payload_method(method_name='get_adjusted_start_date',
-                    default_output=chunk_start, raise_error=False, **{'start_date': chunk_start})
+                                                       default_output=chunk_start, raise_error=False,
+                                                       **{'start_date': chunk_start})
                 chunk_end = chunk_start + freq_to_timedelta(chunk_size)
                 chunk_end = min(chunk_end, end_date)
                 logger.debug('Next chunk will run %s to %s', chunk_start, end_date)
@@ -2427,10 +2427,10 @@ class JobController(object):
         else:
             next_execution = last_execution_date + freq_to_timedelta(schedule)
         logger.debug('Last execution of schedule %s was %s. Next execution due %s.', schedule, last_execution_date,
-            next_execution)
+                     next_execution)
 
         next_execution = self.adjust_to_start_date(execute_date=current_execution_date, start_hours=round_hour,
-            start_min=round_min, interval=schedule)
+                                                   start_min=round_min, interval=schedule)
 
         return (next_execution, last_execution_date)
 
@@ -2599,7 +2599,7 @@ class JobController(object):
                 logger_obj = logger.info
 
             tw = {'status': status, 'next_future_execution': metadata['next_future_execution'],
-                'execution_date': metadata['execution_date']}
+                  'execution_date': metadata['execution_date']}
             tw = {**kw, **tw}
             trace.write(created_by=self, text=text, log_method=logger_obj, **tw)
             trace.save()
@@ -2676,7 +2676,7 @@ class JobController(object):
 
         for m in self._schedules:
             self.job_log.update(name=self.get_payload_name(), schedule=m[0], execution_date=metadata['execution_date'],
-                status=status, next_execution_date=metadata['next_future_execution'])
+                                status=status, next_execution_date=metadata['next_future_execution'])
 
         can_proceed = self.raise_error(exception=exception, msg=message, stageName=stage_name, raise_error=raise_error)
 
@@ -2692,11 +2692,11 @@ class JobController(object):
         '''
 
         err_info = {'AttributeError': 'The function makes reference to an object property that does not exist',
-            'SyntaxError': 'The function contains a syntax error. If the function includes a type-in expression, make sure this is correct',
-            'ValueError': 'The function is operating on a data that has an unexpected value for its data type',
-            'TypeError': 'The function is operating on a data that has an unexpected data type',
-            'KeyError': 'The function is refering to a dictionary key or dataframe column name that doesnt exist',
-            'NameError': 'The function is refering to an object that doesnt exist. If refering to data items in a pandas dataframe, ensure that you quote them, e.g. df["temperature"]', }
+                    'SyntaxError': 'The function contains a syntax error. If the function includes a type-in expression, make sure this is correct',
+                    'ValueError': 'The function is operating on a data that has an unexpected value for its data type',
+                    'TypeError': 'The function is operating on a data that has an unexpected data type',
+                    'KeyError': 'The function is refering to a dictionary key or dataframe column name that doesnt exist',
+                    'NameError': 'The function is refering to an object that doesnt exist. If refering to data items in a pandas dataframe, ensure that you quote them, e.g. df["temperature"]', }
 
         if message is None:
             message = 'Execution of stage %s failed. ' % stage.name
@@ -2772,7 +2772,7 @@ class JobController(object):
                           ' another.'), schedule)
         else:
             logger.debug(('Hang tight. Schedule %s is only due for execution on %s.'), schedule,
-                schedule_metadata['adjusted_exec_date'])
+                         schedule_metadata['adjusted_exec_date'])
 
     def log_start(self, metadata, status='running', startup_log=None, execution_log=None):
         '''
@@ -2785,10 +2785,10 @@ class JobController(object):
             execution_log = EngineLogging.get_current_run_log_cos_path()
 
         tm = {'execution_date': metadata['execution_date'], 'schedule': metadata['schedule'],
-            'included_schedules': metadata['mark_complete'],
-            'previous_successful_execution': metadata['previous_execution_date'],
-            'is_checkpoint_driven': metadata['is_checkpoint_driven'], 'schedule_start': metadata['schedule_start'],
-            'backtrack_days': metadata['backtrack'], 'next_future_execution': metadata['next_future_execution']}
+              'included_schedules': metadata['mark_complete'],
+              'previous_successful_execution': metadata['previous_execution_date'],
+              'is_checkpoint_driven': metadata['is_checkpoint_driven'], 'schedule_start': metadata['schedule_start'],
+              'backtrack_days': metadata['backtrack'], 'next_future_execution': metadata['next_future_execution']}
 
         if metadata['backtrack'] is None:
             tm['backtrack_info'] = ('The backtrack setting for this execution'
@@ -2841,7 +2841,7 @@ class JobController(object):
             trace_cos_path = None
         else:
             trace.reset(object_name=None, execution_date=metadata['execution_date'],
-                auto_save=self.get_payload_param('_auto_save_trace', None))
+                        auto_save=self.get_payload_param('_auto_save_trace', None))
             trace_name = trace.name
             trace_cos_path = trace.cos_path
             trace.write(created_by=self, text='Started job', log_method=None, **tm)
@@ -2982,7 +2982,7 @@ class JobController(object):
             df = None
 
         error = {'exception_type': exception.__class__.__name__, 'exception': str(exception),
-            'stack_trace': traceback.format_exc()}
+                 'stack_trace': traceback.format_exc()}
 
         kwargs = {**error, **kwargs}
 
@@ -3244,7 +3244,8 @@ class CalcPipeline:
             # a primary data source. A primary data source will have a merge_method of 'replace'. This
             # implies that it replaces whatever data was fed into the pipeline as default entity data.
             (df, stages) = self._execute_data_sources(df=df, stages=stages, start_ts=start_ts, end_ts=end_ts,
-                entities=entities, to_csv=to_csv, register=register, dropna=dropna)
+                                                      entities=entities, to_csv=to_csv, register=register,
+                                                      dropna=dropna)
 
         else:
             stages = []
@@ -3529,7 +3530,7 @@ class CalcPipeline:
             else:
                 if len(missing) != 0:
                     msg = 'Output dataframe is missing columns %s of type %s. Either the type has changed or column was dropped' % (
-                    missing, dtype)
+                        missing, dtype)
                     logger.warning(msg)
 
         self.check_data_items_type(df=output_df, items=self.entity_type.get_data_items())
@@ -3716,8 +3717,8 @@ class Trace(object):
                 execution_date = dt.datetime.utcnow()
             trace_name = 'auto_trace_%s_%s' % (object_name, execution_date.strftime('%Y%m%d%H%M%S'))
             cos_path = ('%s/%s/%s/%s_trace_%s' % (
-            self.parent.tenant_id, object_name, execution_date.strftime('%Y%m%d'), object_name,
-            execution_date.strftime('%H%M%S')))
+                self.parent.tenant_id, object_name, execution_date.strftime('%Y%m%d'), object_name,
+                execution_date.strftime('%H%M%S')))
 
         return (trace_name, cos_path)
 
@@ -3926,7 +3927,8 @@ class Trace(object):
 
             if result > 0:
                 entry = {"entityTypeName": self.parent.name, "kpiFunctionName": i.get('created_by', 'unknown'),
-                    "startTimestamp": str(start_ts), "endTimestamp": str(end_ts), "numberOfResultsProcessed": result}
+                         "startTimestamp": str(start_ts), "endTimestamp": str(end_ts),
+                         "numberOfResultsProcessed": result}
                 usage.append(entry)
 
         if len(usage) > 0:

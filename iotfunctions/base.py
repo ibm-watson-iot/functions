@@ -492,7 +492,7 @@ class BaseFunction(object):
         except KeyError:
             if is_array:
                 column_metadata['jsonSchema'] = {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
-                    "minItems": min_items}
+                                                 "minItems": min_items}
                 item_type = "string"
                 if is_constant:
                     item_type = self._getJsonDataType(datatype)
@@ -505,7 +505,7 @@ class BaseFunction(object):
                 except KeyError:
                     pass
                 msg = 'Argument %s is has no explicit json schema defined for it, built one for %s items' % (
-                arg, item_type)
+                    arg, item_type)
             else:
                 msg = 'Non array arg %s - no json schema required' % (arg)
             logger.debug(msg)
@@ -649,7 +649,7 @@ class BaseFunction(object):
             except AttributeError:
                 raise AttributeError(
                     'Class %s has an argument %s but no corresponding property. Make sure your arguments and properties have the same name if you want to infer types.' % (
-                    self.__class__.__name__, a))
+                        self.__class__.__name__, a))
             is_array = False
             if isinstance(arg_value, list):
                 is_array = True
@@ -730,7 +730,7 @@ class BaseFunction(object):
                     is_added = True
                     column_metadata['required'] = required
                     msg = 'Non array argument %s exists in the test input dataframe so it is a data item of type %s' % (
-                    a, datatype)
+                        a, datatype)
                     logger.debug(msg)
                 elif arg_value in test_outputs:
                     is_constant = False
@@ -741,7 +741,7 @@ class BaseFunction(object):
                     metadata_outputs[a] = column_metadata
                     is_added = True
                     msg = 'Non array argument %s exists in the test output dataframe so it is a data item of type %s' % (
-                    a, datatype)
+                        a, datatype)
                     logger.debug(msg)
             elif is_array:
                 # look for contents of list in test df and test outputs
@@ -754,7 +754,7 @@ class BaseFunction(object):
                     is_added = True
                     column_metadata['required'] = required
                     msg = 'Array argument %s exists in the test input dataframe so it is a data item of type %s' % (
-                    a, datatype)
+                        a, datatype)
                     logger.debug(msg)
                 elif all(elem in test_outputs for elem in arg_value):
                     is_output = True
@@ -829,14 +829,14 @@ class BaseFunction(object):
             try:
                 array_source = self.itemArraySource[array]
                 msg = 'Cardinality and datatype of array output %s were explicly set to be driven from %s' % (
-                array, array_source)
+                    array, array_source)
                 logger.debug(msg)
             except KeyError:
                 array_source = self._infer_array_source(candidate_inputs=array_inputs, output_length=length)
             if array_source is None:
                 raise ValueError(
                     'No candidate input array found to drive output array %s with length %s . Make sure input array and output array have the same length or explicity define the item_source_array. ' % (
-                    array, length))
+                        array, length))
             else:
                 # if the output array is driven by an array of items infer data types from items
                 if metadata_inputs[array_source]['type'] == 'DATA_ITEM' and self.array_output_datatype_from_input:
@@ -847,7 +847,7 @@ class BaseFunction(object):
 
                 del metadata_outputs[array]['dataType']
                 msg = 'Array argument %s is driven by %s so the cardinality and datatype are set from the source' % (
-                array, array_source)
+                    array, array_source)
                 logger.debug(msg)
         return (metadata_inputs, metadata_outputs)
 
@@ -893,55 +893,55 @@ class BaseFunction(object):
             self._entity_type = EntityType(name='<Null Entity Type>', db=None)
 
         data = {self._entity_type._entity_id: ['D1', 'D1', 'D1', 'D1', 'D1', 'D2', 'D2', 'D2', 'D2', 'D2'],
-            self._entity_type._timestamp_col: [dt.datetime.strptime('Oct 1 2018 1:33AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 11:37PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 2 2018 6:00AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 3 2018 3:00AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 2 2018 1:29PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'), ],
-            'x_1': [8.7, 3.2, 4.5, 6.8, 8.1, 2.4, 2.9, 2.5, 2.6, 3.6],
-            'x_2': [2.1, 3.1, 2.5, 4.2, 5.2, 4.6, 4.1, 4.5, 0.5, 8.7],
-            'x_3': [7.4, 4.3, 5.2, 3.4, 3.3, 8.1, 5.6, 4.9, 4.2, 9.9], 'e_1': [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
-            'e_2': [0, 0, 0, 0, 1, 0, 0, 0, 1, 0], 'e_3': [0, 1, 0, 1, 0, 0, 0, 1, 0, 1],
-            's_1': ['A', 'B', 'A', 'A', 'A', 'A', 'B', 'B', 'A', 'A'],
-            's_2': ['C', 'C', 'C', 'D', 'D', 'D', 'E', 'E', 'C', 'D'],
-            's_3': ['F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'],
-            'x_null': [4.1, 4.2, None, 4.1, 3.9, None, 3.2, 3.1, None, 3.4],
-            'd_1': [dt.datetime.strptime('Sep 29 2018 1:33PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Sep 29 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Sep 30 2018 1:37PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 1:39PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Sep 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Sep 15 2018 1:38PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Aug 17 2018 1:29PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Sep 20 2018 1:39PM', '%b %d %Y %I:%M%p'), ],
-            'd_2': [dt.datetime.strptime('Oct 14 2018 1:33PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 13 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 12 2018 1:37PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 18 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 10 2018 1:39PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 11 2018 1:31PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 12 2018 1:35PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 13 2018 1:38PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 16 2018 1:29PM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 10 2018 1:39PM', '%b %d %Y %I:%M%p'), ],
-            'd_3': [dt.datetime.strptime('Oct 1 2018 10:05AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 10:02AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 10:03AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 10:01AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 10:08AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 10:29AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 10:02AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 9:55AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 10:25AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Oct 1 2018 11:02AM', '%b %d %Y %I:%M%p'), ],
-            'company_code': ['ABC', 'ACME', 'JDI', 'ABC', 'ABC', 'ACME', 'JDI', 'ACME', 'JDI', 'ABC']}
+                self._entity_type._timestamp_col: [dt.datetime.strptime('Oct 1 2018 1:33AM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 1 2018 11:37PM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 2 2018 6:00AM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 3 2018 3:00AM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 1 2018 1:38PM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 2 2018 1:29PM', '%b %d %Y %I:%M%p'),
+                                                   dt.datetime.strptime('Oct 2 2018 1:39PM', '%b %d %Y %I:%M%p'), ],
+                'x_1': [8.7, 3.2, 4.5, 6.8, 8.1, 2.4, 2.9, 2.5, 2.6, 3.6],
+                'x_2': [2.1, 3.1, 2.5, 4.2, 5.2, 4.6, 4.1, 4.5, 0.5, 8.7],
+                'x_3': [7.4, 4.3, 5.2, 3.4, 3.3, 8.1, 5.6, 4.9, 4.2, 9.9], 'e_1': [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+                'e_2': [0, 0, 0, 0, 1, 0, 0, 0, 1, 0], 'e_3': [0, 1, 0, 1, 0, 0, 0, 1, 0, 1],
+                's_1': ['A', 'B', 'A', 'A', 'A', 'A', 'B', 'B', 'A', 'A'],
+                's_2': ['C', 'C', 'C', 'D', 'D', 'D', 'E', 'E', 'C', 'D'],
+                's_3': ['F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'],
+                'x_null': [4.1, 4.2, None, 4.1, 3.9, None, 3.2, 3.1, None, 3.4],
+                'd_1': [dt.datetime.strptime('Sep 29 2018 1:33PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 29 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 30 2018 1:37PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:39PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 1 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 15 2018 1:38PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Aug 17 2018 1:29PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Sep 20 2018 1:39PM', '%b %d %Y %I:%M%p'), ],
+                'd_2': [dt.datetime.strptime('Oct 14 2018 1:33PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 13 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 12 2018 1:37PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 18 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 10 2018 1:39PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 11 2018 1:31PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 12 2018 1:35PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 13 2018 1:38PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 16 2018 1:29PM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 10 2018 1:39PM', '%b %d %Y %I:%M%p'), ],
+                'd_3': [dt.datetime.strptime('Oct 1 2018 10:05AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:02AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:03AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:01AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:08AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:29AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:02AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 9:55AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 10:25AM', '%b %d %Y %I:%M%p'),
+                        dt.datetime.strptime('Oct 1 2018 11:02AM', '%b %d %Y %I:%M%p'), ],
+                'company_code': ['ABC', 'ACME', 'JDI', 'ABC', 'ABC', 'ACME', 'JDI', 'ACME', 'JDI', 'ABC']}
         df = pd.DataFrame(data=data)
         df = self.conform_index(df)
 
@@ -1023,7 +1023,7 @@ class BaseFunction(object):
                 else:
                     raise TypeError(
                         'Cannot infer type of argument value %s for parm %s. Supply a string, number, boolean, datetime, dict or list containing any of these types.' % (
-                        value, parm))
+                            value, parm))
             else:
                 append_msg = 'by looking at items in test dataframe'
                 try:
@@ -1184,8 +1184,8 @@ class BaseFunction(object):
         msg = 'Test import succeeded for function using %s with module url %s' % (exec_str, module_url)
         logger.debug(msg)
         payload = {'name': name, 'description': description, 'category': self.category, 'tags': self.tags,
-            'moduleAndTargetName': module_and_target, 'url': url, 'input': input_list, 'output': output_list,
-            'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None}
+                   'moduleAndTargetName': module_and_target, 'url': url, 'input': input_list, 'output': output_list,
+                   'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None}
 
         if not credentials is None:
             msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, or omit credentials to use credentials associated with the Database object for the function'
@@ -1197,14 +1197,14 @@ class BaseFunction(object):
 
             try:
                 headers = {'Content-Type': "application/json", 'X-api-key': credentials['as_api_key'],
-                    'X-api-token': credentials['as_api_token'], 'Cache-Control': "no-cache", }
+                           'X-api-token': credentials['as_api_token'], 'Cache-Control': "no-cache", }
             except KeyError as ex:
                 msg = 'Old style credentials are a dictionary with tennant_id.as_api_key, as_api_token and as_api_host'
                 raise Exception(msg) from ex
 
             if not metadata_only:
                 url = 'http://%s/api/catalog/v1/%s/function/%s' % (
-                credentials['as_api_host'], credentials['tennant_id'], name)
+                    credentials['as_api_host'], credentials['tennant_id'], name)
                 r = http.request("DELETE", url, body=encoded_payload, headers=headers)
                 msg = 'Function registration deletion status: %s' % (r.data.decode('utf-8'))
                 logger.info(msg)
@@ -1271,7 +1271,7 @@ class BaseFunction(object):
         '''
 
         et = self._build_entity_type(generate_days=generate_days, functions=[self], columns=columns, db=db,
-            db_schema=db_schema, **params)
+                                     db_schema=db_schema, **params)
 
         # set params
         self._entity_type = et
@@ -1678,7 +1678,7 @@ class BaseDatabaseLookup(BaseTransformer):
 
         if len(self.output_items) > len(df_sql.columns):
             raise RuntimeError('length of names (%d) is larger than the length of query result (%d)' % (
-            len(self.output_items), len(df_sql)))
+                len(self.output_items), len(df_sql)))
 
         df = df.join(df_sql, on=self.lookup_keys, how='left')
 
@@ -2291,11 +2291,11 @@ class BaseEstimatorFunction(BaseTransformer):
                 return True, msg
             elif self.greater_is_better and model.eval_metric_test < self.stop_auto_improve_at:
                 msg = 'Training required because eval metric of %s is lower than threshold %s ' % (
-                model.eval_metric_test, self.stop_auto_improve_at)
+                    model.eval_metric_test, self.stop_auto_improve_at)
                 return True, msg
             elif not self.greater_is_better and model.eval_metric_test > self.stop_auto_improve_at:
                 msg = 'Training required because eval metric of %s is higher than threshold %s ' % (
-                model.eval_metric_test, self.stop_auto_improve_at)
+                    model.eval_metric_test, self.stop_auto_improve_at)
                 return True, msg
             else:
                 return False, 'Existing model has not expired and eval metric is good'
@@ -2408,9 +2408,9 @@ class BaseEstimatorFunction(BaseTransformer):
                                                 features=features)
             trace_msg = 'Trained model: %s' % counter
             results = {'name': self.get_model_name(target_name=target), 'target': target, 'features': features,
-                'params': estimator.best_params_, 'eval_metric_name': metric_name,
-                'eval_metric_train': estimator.score(df_train[features], df_train[target]), 'estimator_name': name,
-                'shelf_life_days': self.shelf_life_days, 'col_name': col_name}
+                       'params': estimator.best_params_, 'eval_metric_name': metric_name,
+                       'eval_metric_train': estimator.score(df_train[features], df_train[target]),
+                       'estimator_name': name, 'shelf_life_days': self.shelf_life_days, 'col_name': col_name}
             model = Model(estimator=estimator, **results)
             results['eval_metric_test'] = model.test(df_test)
             trained_models.append(model)

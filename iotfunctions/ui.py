@@ -66,7 +66,7 @@ class UIFunctionOutSingle(BaseUIControl):
 
     def to_metadata(self):
         meta = {'name': self.name, 'dataType': self.convert_datatype(self.datatype), 'description': self.description,
-            'tags': self.tags}
+                'tags': self.tags}
         return meta
 
 
@@ -116,9 +116,9 @@ class UIFunctionOutMulti(BaseUIControl):
             datatype = None
 
         meta = {'name': self.name, 'cardinalityFrom': self.cardinality_from, 'dataTypeForArray': datatype,
-            'description': self.description, 'tags': self.tags,
-            'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
-                "items": {"type": "string"}}}
+                'description': self.description, 'tags': self.tags,
+                'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                               "items": {"type": "string"}}}
 
         if self.is_datatype_derived:
             meta['dataTypeFrom'] = self.cardinality_from
@@ -166,7 +166,7 @@ class UISingleItem(BaseUIControl):
             datatype = self.convert_datatype(self.datatype)
 
         meta = {'name': self.name, 'type': self.type_, 'dataType': datatype, 'required': self.required,
-            'description': self.description, 'tags': self.tags}
+                'description': self.description, 'tags': self.tags}
 
         return meta
 
@@ -228,9 +228,9 @@ class UIMultiItem(BaseUIControl):
             datatype = [self.convert_datatype(self.datatype)]
 
         meta = {'name': self.name, 'type': self.type_, 'dataType': 'ARRAY', 'dataTypeForArray': datatype,
-            'required': self.required, 'description': self.description, 'tags': self.tags,
-            'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
-                "minItems": self.min_items, "maxItems": self.max_items, "items": {"type": "string"}}}
+                'required': self.required, 'description': self.description, 'tags': self.tags,
+                'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                               "minItems": self.min_items, "maxItems": self.max_items, "items": {"type": "string"}}}
         return meta
 
     def to_output_metadata(self):
@@ -242,9 +242,9 @@ class UIMultiItem(BaseUIControl):
                 datatype = None
 
             meta = {'name': self.output_item, 'cardinalityFrom': self.name, 'dataTypeForArray': datatype,
-                'description': self.description, 'tags': self.tags,
-                'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
-                    "items": {"type": "string"}}}
+                    'description': self.description, 'tags': self.tags,
+                    'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                                   "items": {"type": "string"}}}
 
             if self.is_output_datatype_derived:
                 meta['dataTypeFrom'] = self.name
@@ -316,9 +316,10 @@ class UIMulti(BaseUIControl):
             schema_datatype = self.convert_schema_datatype(self.datatype)
 
         meta = {'name': self.name, 'type': self.type_, 'dataType': 'ARRAY', 'dataTypeForArray': datatype,
-            'required': self.required, 'description': self.description, 'tags': self.tags, 'values': self.values,
-            'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
-                "minItems": self.min_items, "maxItems": self.max_items, "items": {"type": schema_datatype}}}
+                'required': self.required, 'description': self.description, 'tags': self.tags, 'values': self.values,
+                'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                               "minItems": self.min_items, "maxItems": self.max_items,
+                               "items": {"type": schema_datatype}}}
         return meta
 
     def to_output_metadata(self):
@@ -332,9 +333,9 @@ class UIMulti(BaseUIControl):
                 schema_type = None
 
             meta = {'name': self.output_item, 'cardinalityFrom': self.name, 'dataTypeForArray': datatype,
-                'description': self.description, 'tags': self.tags,
-                'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
-                    "items": {"type": schema_type}}}
+                    'description': self.description, 'tags': self.tags,
+                    'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                                   "items": {"type": schema_type}}}
 
             if self.is_output_datatype_derived:
                 meta['dataTypeFrom'] = self.name
@@ -382,7 +383,7 @@ class UISingle(BaseUIControl):
 
     def to_metadata(self):
         meta = {'name': self.name, 'type': self.type_, 'dataType': self.convert_datatype(self.datatype),
-            'description': self.description, 'tags': self.tags, 'required': self.required, 'values': self.values}
+                'description': self.description, 'tags': self.tags, 'required': self.required, 'values': self.values}
 
         if self.default is not None:
             if isinstance(self.default, dict):

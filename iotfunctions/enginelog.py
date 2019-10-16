@@ -34,7 +34,7 @@ class EngineLogging:
     def start_setup_log(cls, tenant_id, entity_type_name):
         today = dt.datetime.utcnow()
         cls.setupLogCosPath = ('%s/%s/%s/%s_setup.gz' % (
-        tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
+            tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
         root_logger = logging.getLogger()
         handler = logging.FileHandler(cls.SETUP_LOG_NAME, mode='w')
         handler.setFormatter(cls.FORMATTER)
@@ -48,7 +48,7 @@ class EngineLogging:
     def finish_setup_log(cls):
         if cls.setupLogHandler is not None:
             logger.info('Stopping logging into file %s. File will be pushed to Object Store under %s' % (
-            cls.SETUP_LOG_NAME, cls.setupLogCosPath))
+                cls.SETUP_LOG_NAME, cls.setupLogCosPath))
 
             root_logger = logging.getLogger()
             root_logger.removeHandler(cls.setupLogHandler)
@@ -63,7 +63,7 @@ class EngineLogging:
     def start_run_log(cls, tenant_id, entity_type_name):
         today = dt.datetime.utcnow()
         cls.runLogCosPath = ('%s/%s/%s/%s_run.gz' % (
-        tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
+            tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
         root_logger = logging.getLogger()
         handler = logging.FileHandler(cls.RUN_LOG_NAME, mode='w')
         handler.setFormatter(cls.FORMATTER)
@@ -77,7 +77,7 @@ class EngineLogging:
     def finish_run_log(cls):
         if cls.runLogHandler is not None:
             logger.info('Stopping logging into file %s. File will be pushed to Object Store under %s' % (
-            cls.RUN_LOG_NAME, cls.runLogCosPath))
+                cls.RUN_LOG_NAME, cls.runLogCosPath))
 
             root_logger = logging.getLogger()
             root_logger.removeHandler(cls.runLogHandler)
@@ -108,7 +108,7 @@ class EngineLogging:
                                      'in bucket %s under %s: %s') % (file_name, bucket, cos_path, str(ex))) from ex
                 else:
                     logger.info('File %s was successfully stored in Object Store in bucket %s under %s' % (
-                    file_name, bucket, cos_path))
+                        file_name, bucket, cos_path))
             else:
                 logger.warning(('The log file %s could not be transferred to Object Store '
                                 'because environment variable COS_BUCKET_LOGGING has not been set.') % file_name)

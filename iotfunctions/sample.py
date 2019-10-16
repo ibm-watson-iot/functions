@@ -162,7 +162,7 @@ class HTTPPreload(BasePreload):
             rows = 3
             response_data = {}
             (metrics, dates, categoricals, others) = db.get_column_lists_by_type(table=table, schema=schema,
-                exclude_cols=[])
+                                                                                 exclude_cols=[])
             for m in metrics:
                 response_data[m] = np.random.normal(0, 1, rows)
             for d in dates:
@@ -274,7 +274,7 @@ class MultiplyColumns(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(ui.UIMultiItem(name='input_items', datatype=float, description='Choose columns to multiply',
-            required=True, ))
+                                     required=True, ))
         outputs = [ui.UIFunctionOutSingle(name='output_item', datatype=float)]
         return (inputs, outputs)
 
@@ -361,7 +361,7 @@ class MergeSampleTimeSeries(BaseDataSource):
         inputs = []
         inputs.append(
             ui.UIMulti(name='input_items', datatype=str, description='Choose columns to bring from source table',
-                required=True, output_item='output_items', is_output_datatype_derived=True))
+                       required=True, output_item='output_items', is_output_datatype_derived=True))
         # outputs are included as an empty list as they are derived from inputs
         return (inputs, [])
 
@@ -389,7 +389,7 @@ class MultiplyByFactor(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(ui.UIMultiItem(name='input_items', datatype=float, description="Data items adjust",
-            output_item='output_items', is_output_datatype_derived=True))
+                                     output_item='output_items', is_output_datatype_derived=True))
         inputs.append(ui.UISingle(name='factor', datatype=float))
         outputs = []
         return (inputs, outputs)
@@ -546,10 +546,10 @@ class LookupCompany(BaseDatabaseLookup):
         # make sure that the dictionary that you provide is understood by pandas
         # use lower case column names
         self.data = {'company': ['ABC', 'ACME', 'JDI'], 'currency_code': ['USD', 'CAD', 'USD'],
-            'employee_count': [100, 120, 352],
-            'inception_date': [dt.datetime.strptime('Feb 1 2005 7:00AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Jan 1 1988 5:00AM', '%b %d %Y %I:%M%p'),
-                dt.datetime.strptime('Feb 28 1967 9:00AM', '%b %d %Y %I:%M%p')]}
+                     'employee_count': [100, 120, 352],
+                     'inception_date': [dt.datetime.strptime('Feb 1 2005 7:00AM', '%b %d %Y %I:%M%p'),
+                                        dt.datetime.strptime('Jan 1 1988 5:00AM', '%b %d %Y %I:%M%p'),
+                                        dt.datetime.strptime('Feb 28 1967 9:00AM', '%b %d %Y %I:%M%p')]}
 
         # Must specify:
         # One or more business key for the lookup
@@ -564,7 +564,7 @@ class LookupCompany(BaseDatabaseLookup):
         parse_dates = ['inception_date']
 
         super().__init__(lookup_table_name=lookup_table_name, lookup_keys=lookup_keys, lookup_items=lookup_items,
-            parse_dates=parse_dates, output_items=output_items)
+                         parse_dates=parse_dates, output_items=output_items)
 
         self.itemTags['output_items'] = ['DIMENSION']
 

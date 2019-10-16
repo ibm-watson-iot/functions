@@ -433,9 +433,9 @@ The daily grain, summaries by "id" at the "day" grain.
 '''
 
 daily = Granularity(name='daily', freq='1D',  # pandas frequency string
-    timestamp='evt_timestamp',  # build time aggregations using this datetime col
-    entity_id='id',  # aggregate by id
-    dimensions=None, entity_name=None)
+                    timestamp='evt_timestamp',  # build time aggregations using this datetime col
+                    entity_id='id',  # aggregate by id
+                    dimensions=None, entity_name=None)
 
 '''
 You also need a DataAggregator object that contains the metadata about
@@ -450,7 +450,7 @@ using a lists of "simple_aggregate" and "complex_aggregate" functions.
 '''
 
 day_agg = DataAggregator(name='day_agg', granularity=daily, agg_dict={'x1': ['sum'], 'x2': ['min', 'max']},
-    input_items=['x1', 'x2'], output_items=['x1', 'x2_min', 'x2_max'])
+                         input_items=['x1', 'x2'], output_items=['x1', 'x2_min', 'x2_max'])
 
 stages = {('get_data', None): [sample_data], ('transform', None): [job_task], ('aggregate', daily): day_agg}
 
