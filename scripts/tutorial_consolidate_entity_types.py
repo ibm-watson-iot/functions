@@ -57,8 +57,8 @@ db = Database(credentials=credentials)
 db_schema = None  # set if you are not using the default
 
 sim_parameters = {"data_item_mean": {'temperature': 22}, "data_item_sd": {'temperature': 2},
-    "data_item_domain": {'motion': [0, 1], 'work_area': work_areas, 'zone_id': ['N', 'S', 'E', 'W']},
-    "auto_entity_count": device_count}
+                  "data_item_domain": {'motion': [0, 1], 'work_area': work_areas, 'zone_id': ['N', 'S', 'E', 'W']},
+                  "auto_entity_count": device_count}
 
 # create entity types and execute the calc pipeline to get some test data
 
@@ -153,9 +153,9 @@ each child device.
 '''
 
 entity = EntityType(consolidated, db, bif.GetEntityData(source_entity_type_name=child1[0], key_map_column='work_area',
-    input_items=child1[1], output_items=child1[1]),
+                                                        input_items=child1[1], output_items=child1[1]),
                     bif.GetEntityData(source_entity_type_name=child2[0], key_map_column='work_area',
-                        input_items=child2[1], output_items=child2[1]),
+                                      input_items=child2[1], output_items=child2[1]),
                     bif.PythonExpression(expression='df["%s"]-21.5' % child1[1], output_name='comfort_level'),
                     bif.PythonExpression(expression='df["%s"]' % child2[1], output_name='is_occupied'),
                     **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})

@@ -214,9 +214,9 @@ class Database(object):
         elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
             try:
                 connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                self.credentials['db2']['username'], self.credentials['db2']['password'],
-                self.credentials['db2']['host'], self.credentials['db2']['port'],
-                self.credentials['db2']['databaseName'])
+                    self.credentials['db2']['username'], self.credentials['db2']['password'],
+                    self.credentials['db2']['host'], self.credentials['db2']['port'],
+                    self.credentials['db2']['databaseName'])
                 if 'security' in self.credentials['db2']:
                     if self.credentials['db2']['security']:
                         connection_string += 'SECURITY=ssl;'
@@ -230,9 +230,9 @@ class Database(object):
         elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
             try:
                 connection_string = 'postgresql+psycopg2://%s:%s@%s:%s/%s' % (
-                self.credentials['postgresql']['username'], self.credentials['postgresql']['password'],
-                self.credentials['postgresql']['host'], self.credentials['postgresql']['port'],
-                self.credentials['postgresql']['databaseName'])
+                    self.credentials['postgresql']['username'], self.credentials['postgresql']['password'],
+                    self.credentials['postgresql']['host'], self.credentials['postgresql']['port'],
+                    self.credentials['postgresql']['databaseName'])
                 self.db_type = 'postgresql'
             except KeyError as ex:
                 msg = 'The credentials for PostgreSql are incomplete. ' \
@@ -259,7 +259,8 @@ class Database(object):
                         if 'SECURITY' in ev:
                             connection_string += 'SECURITY=%s;' % ev['SECURITY']
                         self.credentials['db2'] = {"username": ev['UID'], "password": ev['PWD'],
-                            "database": ev['DATABASE'], "port": ev['PORT'], "host": ev['HOSTNAME']}
+                                                   "database": ev['DATABASE'], "port": ev['PORT'],
+                                                   "host": ev['HOSTNAME']}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for DB2 is '
                                          'DATABASE=xxx;HOSTNAME=xxx;PORT=xxx;UID=xxx;PWD=xxx[;SECURITY=xxx]' % connection_string_from_env)
@@ -273,7 +274,7 @@ class Database(object):
                         hostname_port, database = last.split("/", 1)
                         hostname, port = hostname_port.split(":", 1)
                         self.credentials['postgresql'] = {"username": uid, "password": pwd, "database": database,
-                            "port": port, "host": hostname}
+                                                          "port": port, "host": hostname}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for POSTGRESQL is '
                                          'user:password@hostname:port/database' % connection_string_from_env)
@@ -356,7 +357,7 @@ class Database(object):
                 alias_column = column_name
 
         agg_map = {'count': func.count, 'max': func.max, 'mean': func.avg, 'min': func.min, 'std': func.stddev,
-            'sum': func.sum}
+                   'sum': func.sum}
 
         try:
             agg_function = agg_map[aggregate]
@@ -646,7 +647,7 @@ class Database(object):
         else:
             entity = md.EntityType(name=name, db=self,
                                    **{'auto_create_table': False, '_timestamp': timestamp, '_db_schema': schema,
-                                       '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table})
+                                      '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table})
 
         return entity
 
@@ -820,7 +821,7 @@ class Database(object):
 
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
-            'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache", }
+                   'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache", }
         try:
             url = self.url[(object_type, request)]
         except KeyError:
@@ -887,7 +888,8 @@ class Database(object):
         else:
             try:
                 completedProcess = subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url],
-                    stderr=subprocess.STDOUT, stdout=subprocess.PIPE, universal_newlines=True)
+                                                  stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
+                                                  universal_newlines=True)
             except Exception as e:
                 raise ImportError('pip install for url %s failed: \n%s', url, str(e))
 
@@ -970,7 +972,7 @@ class Database(object):
                 (dummy, status) = self.import_target(package=package, module=module, target=class_name, url=url)
             except Exception as e:
                 msg = 'unknown error when importing function %s with path %s' % (
-                function_name, package_module_class_name)
+                    function_name, package_module_class_name)
                 logger.exception(msg)
                 raise e
 
@@ -984,7 +986,7 @@ class Database(object):
                     logger.info(msg)
                 else:
                     msg = 'The class %s for function %s could not be imported from repository %s.' % (
-                    package_module_class_name, function_name, url)
+                        package_module_class_name, function_name, url)
 
                     raise ImportError(msg)
 
@@ -1147,7 +1149,7 @@ class Database(object):
         '''
 
         df = self.read_table(table_name=dimension, schema=schema, entities=entities, columns=columns,
-            parse_dates=parse_dates)
+                             parse_dates=parse_dates)
 
         return df
 
@@ -1232,18 +1234,30 @@ class Database(object):
             groupby = []
 
         (agg_dict, agg_outputs, df_special) = self.process_special_agg(agg_dict=agg_dict, agg_outputs=agg_outputs,
-            table_name=table_name, schema=schema, groupby=groupby, timestamp=timestamp, time_grain=time_grain,
-            dimension=dimension, start_ts=start_ts, end_ts=end_ts, entities=entities, filters=filters,
-            deviceid_col=deviceid_col)
+                                                                       table_name=table_name, schema=schema,
+                                                                       groupby=groupby, timestamp=timestamp,
+                                                                       time_grain=time_grain, dimension=dimension,
+                                                                       start_ts=start_ts, end_ts=end_ts,
+                                                                       entities=entities, filters=filters,
+                                                                       deviceid_col=deviceid_col)
 
         # process remaining aggregates
 
         if agg_dict:
 
             (query, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(agg_dict=agg_dict,
-                agg_outputs=agg_outputs, table_name=table_name, schema=schema, groupby=groupby, timestamp=timestamp,
-                time_grain=time_grain, dimension=dimension, start_ts=start_ts, end_ts=end_ts, entities=entities,
-                filters=filters, deviceid_col=deviceid_col)
+                                                                                           agg_outputs=agg_outputs,
+                                                                                           table_name=table_name,
+                                                                                           schema=schema,
+                                                                                           groupby=groupby,
+                                                                                           timestamp=timestamp,
+                                                                                           time_grain=time_grain,
+                                                                                           dimension=dimension,
+                                                                                           start_ts=start_ts,
+                                                                                           end_ts=end_ts,
+                                                                                           entities=entities,
+                                                                                           filters=filters,
+                                                                                           deviceid_col=deviceid_col)
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
             df = pd.read_sql_query(query.statement, con=self.connection)
             logger.debug(query.statement)
@@ -1393,8 +1407,9 @@ class Database(object):
                 msg = 'Function %s has no build_ui method. It cannot be registered.' % name
                 raise NotImplementedError(msg)
             payload = {'name': name, 'description': f.__doc__, 'category': category,
-                'moduleAndTargetName': module_and_target, 'url': package_url, 'input': input_list,
-                'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None, 'tags': tags}
+                       'moduleAndTargetName': module_and_target, 'url': package_url, 'input': input_list,
+                       'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None,
+                       'tags': tags}
 
             if not is_preinstalled:
 
@@ -1565,10 +1580,12 @@ class Database(object):
 
                     (filter_query, table, dim, pandas_aggregate, revised_agg_dict,
                      requires_dim) = self.special_query_agg(agg_dict=time_agg_dict,
-                        agg_outputs={timestamp: 'timestamp_filter'}, table_name=table_name, schema=schema,
-                        groupby=groupby, time_grain=time_grain, timestamp=timestamp, dimension=dimension,
-                        start_ts=start_ts, end_ts=end_ts, entities=entities, filters=filters, deviceid_col=deviceid_col,
-                        item=item)
+                                                            agg_outputs={timestamp: 'timestamp_filter'},
+                                                            table_name=table_name, schema=schema, groupby=groupby,
+                                                            time_grain=time_grain, timestamp=timestamp,
+                                                            dimension=dimension, start_ts=start_ts, end_ts=end_ts,
+                                                            entities=entities, filters=filters,
+                                                            deviceid_col=deviceid_col, item=item)
 
                     # only read rows where the metric is not Null
 
@@ -1609,8 +1626,8 @@ class Database(object):
                         query_dim = None
 
                     query, table = self.query(table_name=table_name, schema=schema, column_names=cols,
-                        column_aliases=col_aliases, timestamp_col=timestamp, dimension=query_dim, entities=entities,
-                        filters=filters, deviceid_col=deviceid_col)
+                                              column_aliases=col_aliases, timestamp_col=timestamp, dimension=query_dim,
+                                              entities=entities, filters=filters, deviceid_col=deviceid_col)
                     query = query.filter(metric_filter)
                     if filters is not None:
                         table = self.get_table(table_name, schema)
@@ -1913,7 +1930,8 @@ class Database(object):
             if isinstance(aggs, str):
                 col_name = agg_outputs.get(col, col)
                 (alias, col_obj, function) = self._aggregate_item(table=table, column_name=col, aggregate=aggs,
-                    alias_column=col_name, dimension_table=dim, timestamp_col=timestamp)
+                                                                  alias_column=col_name, dimension_table=dim,
+                                                                  timestamp_col=timestamp)
                 agg_functions[alias] = (col_obj, function)
             elif isinstance(aggs, list):
                 for i, agg in enumerate(aggs):
@@ -1926,7 +1944,8 @@ class Database(object):
                     else:
                         pass
                     (alias, col_obj, function) = self._aggregate_item(table=table, column_name=col, aggregate=agg,
-                        alias_column=output, dimension_table=dim, timestamp_col=timestamp)
+                                                                      alias_column=output, dimension_table=dim,
+                                                                      timestamp_col=timestamp)
                     agg_functions[alias] = (col_obj, function)
             else:
                 msg = ('Aggregate dictionary is not in the correct form.'
@@ -1956,11 +1975,11 @@ class Database(object):
             elif time_grain.endswith('min'):
                 minutes = int(time_grain[:-3])
                 group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(table_name, schema, timestamp, minutes,
-                    timestamp)
+                                                                           timestamp)
             elif time_grain.endswith('H'):
                 hours = int(time_grain[:-1])
                 group_by_cols[timestamp] = self._ts_col_rounded_to_hours(table_name, schema, timestamp, hours,
-                    timestamp)
+                                                                         timestamp)
             elif time_grain == 'day':
                 group_by_cols[timestamp] = func.date(table.c[timestamp]).label(timestamp)
             elif time_grain == 'week':
@@ -2049,8 +2068,8 @@ class Database(object):
             # that aggregation has not been performed using the pandas_aggregate in the return tuple
 
             (query, table) = self.query(table_name=table_name, schema=schema, timestamp_col=timestamp,
-                start_ts=start_ts, end_ts=end_ts, entities=entities, dimension=dim, filters=filters,
-                deviceid_col=deviceid_col)
+                                        start_ts=start_ts, end_ts=end_ts, entities=entities, dimension=dim,
+                                        filters=filters, deviceid_col=deviceid_col)
             # filter out rows where all of the metrics are null
             # reduces volumes when dealing with sparse datasets
             # also essential when doing a query to get the first or last values as null values must be ignored
@@ -2163,7 +2182,8 @@ class Database(object):
             if isinstance(aggs, str):
                 col_name = agg_outputs.get(col, col)
                 (alias, col_obj, function) = self._aggregate_item(table=table, column_name=col, aggregate=aggs,
-                    alias_column=col_name, dimension_table=dim, timestamp_col=timestamp)
+                                                                  alias_column=col_name, dimension_table=dim,
+                                                                  timestamp_col=timestamp)
                 agg_functions[alias] = (col_obj, function)
             elif isinstance(aggs, list):
                 for i, agg in enumerate(aggs):
@@ -2176,7 +2196,8 @@ class Database(object):
                     else:
                         pass
                     (alias, col_obj, function) = self._aggregate_item(table=table, column_name=col, aggregate=agg,
-                        alias_column=output, dimension_table=dim, timestamp_col=timestamp)
+                                                                      alias_column=output, dimension_table=dim,
+                                                                      timestamp_col=timestamp)
                     agg_functions[alias] = (col_obj, function)
             else:
                 msg = ('Aggregate dictionary is not in the correct form.'
@@ -2206,11 +2227,11 @@ class Database(object):
             elif time_grain.endswith('min'):
                 minutes = int(time_grain[:-3])
                 group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(table_name, schema, timestamp, minutes,
-                    timestamp)
+                                                                           timestamp)
             elif time_grain.endswith('H'):
                 hours = int(time_grain[:-1])
                 group_by_cols[timestamp] = self._ts_col_rounded_to_hours(table_name, schema, timestamp, hours,
-                    timestamp)
+                                                                         timestamp)
             elif time_grain == 'day':
                 group_by_cols[timestamp] = func.date(table.c[timestamp]).label(timestamp)
             elif time_grain == 'week':
@@ -2303,8 +2324,8 @@ class Database(object):
             # that aggregation has not been performed using the pandas_aggregate in the return tuple
 
             (query, table) = self.query(table_name=table_name, schema=schema, timestamp_col=timestamp,
-                start_ts=start_ts, end_ts=end_ts, entities=entities, dimension=dim, filters=filters,
-                deviceid_col=deviceid_col)
+                                        start_ts=start_ts, end_ts=end_ts, entities=entities, dimension=dim,
+                                        filters=filters, deviceid_col=deviceid_col)
             # filter out rows where all of the metrics are null
             # reduces volumes when dealing with sparse datasets
             # also essential when doing a query to get the first or last values as null values must be ignored
@@ -2340,8 +2361,11 @@ class Database(object):
         agg_dict = {column: aggregate}
 
         (query, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(agg_dict=agg_dict,
-            table_name=table_name, schema=schema, groupby=None, time_grain=None, dimension=None, start_ts=start_ts,
-            end_ts=end_ts, entities=entities)
+                                                                                       table_name=table_name,
+                                                                                       schema=schema, groupby=None,
+                                                                                       time_grain=None, dimension=None,
+                                                                                       start_ts=start_ts, end_ts=end_ts,
+                                                                                       entities=entities)
 
         return (query, table)
 
@@ -2358,8 +2382,14 @@ class Database(object):
 
         # build query a aggregated on the regular dimension
         (query_a, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(agg_dict=agg_dict,
-            table_name=table_name, schema=schema, groupby=groupby, time_grain=timestamp, timestamp=timestamp,
-            dimension=dimension, start_ts=start_ts, end_ts=end_ts, entities=entities)
+                                                                                         table_name=table_name,
+                                                                                         schema=schema, groupby=groupby,
+                                                                                         time_grain=timestamp,
+                                                                                         timestamp=timestamp,
+                                                                                         dimension=dimension,
+                                                                                         start_ts=start_ts,
+                                                                                         end_ts=end_ts,
+                                                                                         entities=entities)
 
         if pandas_aggregate:
             raise ValueError(
@@ -2375,8 +2405,14 @@ class Database(object):
 
         # build query b aggregated
         (query_b, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(agg_dict=time_agg_dict,
-            table_name=table_name, schema=schema, groupby=groupby, time_grain=time_grain, timestamp=timestamp,
-            dimension=None, start_ts=start_ts, end_ts=end_ts, entities=entities)
+                                                                                         table_name=table_name,
+                                                                                         schema=schema, groupby=groupby,
+                                                                                         time_grain=time_grain,
+                                                                                         timestamp=timestamp,
+                                                                                         dimension=None,
+                                                                                         start_ts=start_ts,
+                                                                                         end_ts=end_ts,
+                                                                                         entities=entities)
 
         right_timestamp = '%s_%s' % (time_agg, timestamp)
         keys = [(timestamp, right_timestamp)]

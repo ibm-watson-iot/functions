@@ -49,8 +49,8 @@ Build an entity type with some test metrics including a slowly changing dimensio
 '''
 
 sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5},
-    "data_item_domain": {'category_code': ['A', 'B', 'C']},
-    "scds": {'owner': ['Fred K', 'Mary J', 'Jane S', 'John H', 'Harry L', 'Steve S']}}
+                  "data_item_domain": {'category_code': ['A', 'B', 'C']},
+                  "scds": {'owner': ['Fred K', 'Mary J', 'Jane S', 'John H', 'Harry L', 'Steve S']}}
 
 scd_name = '%s_scd_owner' % entity_name
 
@@ -61,7 +61,7 @@ entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure',
                     Column('company_code', String(50)), Column('category_code', String(5)),
                     bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
                     bif.ShiftCalendar(shift_definition=shift_dict, period_start_date='shift_start_date',
-                        period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
+                                      period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
                     bif.SCDLookup(table_name=scd_name, output_item='owner'),
                     **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 

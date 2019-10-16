@@ -403,9 +403,9 @@ class ConditionalItems(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIExpression(name='conditional_expression',
-            description="expression that returns a True/False value, eg. if df['sensor_is_valid']==True"))
+                                   description="expression that returns a True/False value, eg. if df['sensor_is_valid']==True"))
         inputs.append(UIMultiItem(name='conditional_items', datatype=None,
-            description='Data items that have conditional values, e.g. temp and pressure'))
+                                  description='Data items that have conditional values, e.g. temp and pressure'))
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(
@@ -528,7 +528,7 @@ class DatabaseLookup(BaseDatabaseLookup):
 
     def __init__(self, lookup_table_name, lookup_keys, lookup_items, parse_dates=None, output_items=None):
         super().__init__(lookup_table_name=lookup_table_name, lookup_keys=lookup_keys, lookup_items=lookup_items,
-            parse_dates=parse_dates, output_items=output_items)
+                         parse_dates=parse_dates, output_items=output_items)
 
     @classmethod
     def build_ui(cls):
@@ -586,7 +586,7 @@ class DeleteInputData(BasePreload):
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool,
-            description='Returns a status flag of True when executed'))
+                                           description='Returns a status flag of True when executed'))
 
         return (inputs, outputs)
 
@@ -704,8 +704,9 @@ class EntityDataGenerator(BasePreload):
             seconds = pd.to_timedelta(self.freq).total_seconds()
 
         df = self._entity_type.generate_data(entities=entities, days=0, seconds=seconds, freq=self.freq,
-            scd_freq=self.scd_frequency, write=True, data_item_mean=self.data_item_mean, data_item_sd=self.data_item_sd,
-            data_item_domain=self.data_item_domain, drop_existing=self.drop_existing)
+                                             scd_freq=self.scd_frequency, write=True,
+                                             data_item_mean=self.data_item_mean, data_item_sd=self.data_item_sd,
+                                             data_item_domain=self.data_item_domain, drop_existing=self.drop_existing)
 
         kw = {'rows_generated': len(df.index), 'start_ts': start_ts, 'seconds': seconds}
 
@@ -1611,8 +1612,8 @@ class IoTCalcSettings(BaseMetadataProvider):
         self._apply_pre_agg_metadata('count', items=count_items, outputs=count_outputs)
         # pass metadata to the entity type
         kwargs = {'_checkpoint_by_entity': checkpoint_by_entity, '_pre_aggregate_time_grain': pre_aggregate_time_grain,
-            '_auto_read_from_ts_table': auto_read_from_ts_table, '_pre_agg_rules': self._pre_agg_rules,
-            '_pre_agg_outputs': self._pre_agg_outputs}
+                  '_auto_read_from_ts_table': auto_read_from_ts_table, '_pre_agg_rules': self._pre_agg_rules,
+                  '_pre_agg_outputs': self._pre_agg_outputs}
         super().__init__(dummy_items=[], output_item=output_item, **kwargs)
 
     def _apply_pre_agg_metadata(self, aggregate, items, outputs):
@@ -1640,27 +1641,28 @@ class IoTCalcSettings(BaseMetadataProvider):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingle(name='auto_read_from_ts_table', datatype=bool, required=False,
-            description='By default, data retrieved is from the designated input table. Use this setting to disable.', ))
+                               description='By default, data retrieved is from the designated input table. Use this setting to disable.', ))
         inputs.append(
             UISingle(name='checkpoint_by_entity', datatype=bool, required=False, description='By default a single '))
         inputs.append(UISingle(name='pre_aggregate_time_grain', datatype=str, required=False,
-            description='By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
-            values=['1min', '5min', '15min', '30min', '1H', '2H', '4H', '8H', '12H', 'day', 'week', 'month', 'year']))
+                               description='By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
+                               values=['1min', '5min', '15min', '30min', '1H', '2H', '4H', '8H', '12H', 'day', 'week',
+                                       'month', 'year']))
         inputs.append(UIMultiItem(name='sum_items', datatype=float, required=False,
-            description='Choose items that should be added when aggregating', output_item='sum_outputs',
-            is_output_datatype_derived=True))
+                                  description='Choose items that should be added when aggregating',
+                                  output_item='sum_outputs', is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='mean_items', datatype=float, required=False,
-            description='Choose items that should be averaged when aggregating', output_item='mean_outputs',
-            is_output_datatype_derived=True))
+                                  description='Choose items that should be averaged when aggregating',
+                                  output_item='mean_outputs', is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='min_items', datatype=float, required=False,
-            description='Choose items that the system should choose the smallest value when aggregating',
-            output_item='mean_outputs', is_output_datatype_derived=True))
+                                  description='Choose items that the system should choose the smallest value when aggregating',
+                                  output_item='mean_outputs', is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='max_items', datatype=float, required=False,
-            description='Choose items that the system should choose the smallest value when aggregating',
-            output_item='mean_outputs', is_output_datatype_derived=True))
+                                  description='Choose items that the system should choose the smallest value when aggregating',
+                                  output_item='mean_outputs', is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='count_items', datatype=float, required=False,
-            description='Choose items that the system should choose the smallest value when aggregating',
-            output_item='mean_outputs', is_output_datatype_derived=True))
+                                  description='Choose items that the system should choose the smallest value when aggregating',
+                                  output_item='mean_outputs', is_output_datatype_derived=True))
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))

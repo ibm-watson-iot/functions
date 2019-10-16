@@ -62,9 +62,9 @@ db_schema = None  # set if you are not using the default
 shift_dict = {"1": (5.5, 14), "2": (14, 21), "3": (21, 29.5)}
 
 sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5},
-    "scds": {'crew': ['A', 'B', 'C']}, "start_entity_id": 100, "auto_entity_count": 2
+                  "scds": {'crew': ['A', 'B', 'C']}, "start_entity_id": 100, "auto_entity_count": 2
 
-}
+                  }
 
 scd_name = '%s_scd_crew' % entity_name
 activity_name = '%s_activity' % entity_name
@@ -77,9 +77,9 @@ entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure',
                     Column('company_code', String(50)), Column('category_code', String(5)),
                     bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
                     bif.ShiftCalendar(shift_definition=shift_dict, period_start_date='shift_start_date',
-                        period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
+                                      period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
                     bif.ActivityDuration(table_name=activity_name, activity_codes=['maintenance'],
-                        activity_duration=['maintenance_duration']),
+                                         activity_duration=['maintenance_duration']),
                     **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 start_date = dt.datetime.utcnow() - dt.timedelta(days=2)
@@ -97,7 +97,7 @@ deviceid    start_date                  end_date                    activity
 '''
 
 activity_data = {'deviceid': '100', 'start_date': dt.datetime.utcnow() - dt.timedelta(days=1),
-    'end_date': dt.datetime.utcnow(), 'activity': 'maintenance'}
+                 'end_date': dt.datetime.utcnow(), 'activity': 'maintenance'}
 
 activity_df = pd.DataFrame(data=activity_data, index=[0])
 # write activity data to a table
@@ -128,10 +128,10 @@ entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure',
                     Column('company_code', String(50)), Column('category_code', String(5)),
                     bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
                     bif.ShiftCalendar(shift_definition=shift_dict, period_start_date='shift_start_date',
-                        period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
+                                      period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
                     bif.SCDLookup(table_name=scd_name, output_item='crew'),
                     bif.ActivityDuration(table_name=activity_name, activity_codes=['maintenance'],
-                        activity_duration=['maintenance_duration']),
+                                         activity_duration=['maintenance_duration']),
                     **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 entity.exec_local_pipeline(start_ts=start_date)
@@ -159,15 +159,15 @@ case where "maintenance" activity is interrupted by a "break" activity.
 # two rows of activity data
 # maintenance is interupted by an hour break
 
-activity_data = {'deviceid': ['100', '100'],
-    'start_date': [dt.datetime.utcnow() - dt.timedelta(days=1), dt.datetime.utcnow() - dt.timedelta(hours=12)],
-    'end_date': [dt.datetime.utcnow(), dt.datetime.utcnow() - dt.timedelta(hours=11)],
-    'activity': ['maintenance', 'break']}
+activity_data = {'deviceid': ['100', '100'], 'start_date': [dt.datetime.utcnow() - dt.timedelta(days=1),
+                                                            dt.datetime.utcnow() - dt.timedelta(hours=12)],
+                 'end_date': [dt.datetime.utcnow(), dt.datetime.utcnow() - dt.timedelta(hours=11)],
+                 'activity': ['maintenance', 'break']}
 
 # ActivityDuration is configured to process both types of activity
 
 fn_activity = bif.ActivityDuration(table_name=activity_name, activity_codes=['maintenance', 'break'],
-    activity_duration=['maintenance_duration', 'break_duration'])
+                                   activity_duration=['maintenance_duration', 'break_duration'])
 
 # ActivityDuration is configured to eliminate overlaps across both types of
 # activity. Only one type of activity of any type can take place at any
@@ -180,7 +180,7 @@ entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure',
                     Column('company_code', String(50)), Column('category_code', String(5)),
                     bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
                     bif.ShiftCalendar(shift_definition=shift_dict, period_start_date='shift_start_date',
-                        period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
+                                      period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
                     bif.SCDLookup(table_name=scd_name, output_item='crew'), fn_activity,
                     **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 

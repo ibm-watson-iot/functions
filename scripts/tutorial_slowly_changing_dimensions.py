@@ -48,8 +48,8 @@ db = Database(credentials=credentials)
 db_schema = None  # set if you are not using the default
 
 sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5},
-    "data_item_domain": {'category_code': ['A', 'B', 'C']},
-    "scds": {'owner': ['Fred K', 'Mary J', 'Jane S', 'John H', 'Harry L', 'Steve S']}}
+                  "data_item_domain": {'category_code': ['A', 'B', 'C']},
+                  "scds": {'owner': ['Fred K', 'Mary J', 'Jane S', 'John H', 'Harry L', 'Steve S']}}
 
 # when using the generation capabilities, the table name will be created
 # automatically using the following naming convention

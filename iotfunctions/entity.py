@@ -90,7 +90,7 @@ def make_sample_entity(db, schema=None, name='as_sample_entity', register=False,
     cols.extend(date_cols)
 
     entity = metadata.BaseCustomEntityType(name=name, db=db, columns=cols, functions=functions, generate_days=data_days,
-        drop_existing=drop_existing, db_schema=schema)
+                                           drop_existing=drop_existing, db_schema=schema)
 
     if register:
         entity.register(publish_kpis=True, raise_error=True)
@@ -173,14 +173,14 @@ class Boiler(metadata.BaseCustomEntityType):
         functions.append(bif.RandomUniform(min_value=0.1, max_value=0.2, output_item='discharge_perc'))
         # discharge_rate
         functions.append(bif.PythonExpression(expression='df["input_flow_rate"] * df["discharge_perc"]',
-            output_name='discharge_flow_rate'))
+                                              output_name='discharge_flow_rate'))
         # output_flow_rate
         functions.append(bif.PythonExpression(expression='df["input_flow_rate"] * df["discharge_flow_rate"]',
-            output_name='output_flow_rate'))
+                                              output_name='output_flow_rate'))
 
         # roughing out design of entity with fake recommendations
         functions.append(bif.RandomDiscreteNumeric(discrete_values=[0.001, 0.001, 0.001, 0.5, 0.7],
-            probabilities=[0.9, 0.05, 0.02, 0.02, 0.01], output_item='p_leak'))
+                                                   probabilities=[0.9, 0.05, 0.02, 0.02, 0.01], output_item='p_leak'))
 
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50))]
@@ -223,9 +223,9 @@ class BuildingWorkstation(metadata.BaseCustomEntityType):
         functions = []
         # simulation settings
         sim = {'freq': '5min', 'auto_entity_count': 100,
-            'data_item_mean': {'temperature': 22, 'motion': 1, 'humidity': 50, 'co2': 1},
-            'data_item_domain': {'building': ['Riverside', 'Collonade', 'Mariners Way'], 'floor': [1, 2, 3, 4, 5],
-                'zone': ['NE', 'NW', 'SE', 'SW']}, 'drop_existing': False}
+               'data_item_mean': {'temperature': 22, 'motion': 1, 'humidity': 50, 'co2': 1},
+               'data_item_domain': {'building': ['Riverside', 'Collonade', 'Mariners Way'], 'floor': [1, 2, 3, 4, 5],
+                                    'zone': ['NE', 'NW', 'SE', 'SW']}, 'drop_existing': False}
         generator = bif.EntityDataGenerator(ids=None, parameters=sim)
         functions.append(generator)
 
@@ -271,37 +271,41 @@ class Robot(metadata.BaseCustomEntityType):
         functions = []
         # simulation settings
         sim = {'freq': '5min', 'scd_frequency': '90min', 'activity_frequency': '4H',
-            'data_item_mean': {'torque': 12, 'load': 375, 'load_rating': 400, 'speed': 3, 'travel_time': 1},
-            'data_item_domain': {'axes': [1, 2, 3], 'tool_type': [907, 803, 691, 909]},
-            'scds': {'operator': ['Fred K', 'Mary J', 'Jane S', 'Jeff H', 'Harry L', 'Steve S']},
-            'activities': {'maintenance': ['scheduled_maint', 'unscheduled_maint', 'firmware_upgrade', 'testing'],
-                'setup': ['normal_setup', 'reconfiguration'], }, 'drop_existing': False}
+               'data_item_mean': {'torque': 12, 'load': 375, 'load_rating': 400, 'speed': 3, 'travel_time': 1},
+               'data_item_domain': {'axes': [1, 2, 3], 'tool_type': [907, 803, 691, 909]},
+               'scds': {'operator': ['Fred K', 'Mary J', 'Jane S', 'Jeff H', 'Harry L', 'Steve S']},
+               'activities': {'maintenance': ['scheduled_maint', 'unscheduled_maint', 'firmware_upgrade', 'testing'],
+                              'setup': ['normal_setup', 'reconfiguration'], }, 'drop_existing': False}
         generator = bif.EntityDataGenerator(ids=None, parameters=sim)
         functions.append(generator)
 
         functions.append(bif.PythonExpression(expression='df["torque"]*df["load"]', output_name='work_performed'))
 
         functions.append(bif.ShiftCalendar(shift_definition={"1": [5.5, 14], "2": [14, 21], "3": [21, 29.5]},
-            period_start_date='shift_start_date', period_end_date='shift_end_date', shift_day='shift_day',
-            shift_id='shift_id'))
+                                           period_start_date='shift_start_date', period_end_date='shift_end_date',
+                                           shift_day='shift_day', shift_id='shift_id'))
 
         functions.append(bif.SCDLookup(table_name='%s_scd_operator' % physical_name, output_item='operator', ))
 
         functions.append(bif.ActivityDuration(table_name='%s_maintenance' % physical_name,
-            activity_codes=['scheduled_maint', 'unscheduled_maint', 'firmware_upgrade', 'testing'],
-            activity_duration=['scheduled_maint', 'unscheduled_maint', 'firmware_upgrade', 'testing'],
-            additional_items=['start_date'], additional_output_names=['maintenance_start_date']))
+                                              activity_codes=['scheduled_maint', 'unscheduled_maint',
+                                                              'firmware_upgrade', 'testing'],
+                                              activity_duration=['scheduled_maint', 'unscheduled_maint',
+                                                                 'firmware_upgrade', 'testing'],
+                                              additional_items=['start_date'],
+                                              additional_output_names=['maintenance_start_date']))
 
         functions.append(bif.RandomDiscreteNumeric(discrete_values=[0, 1, 2, 3, 4, 5, 6, 7, 8],
-            probabilities=[0.2, 0.05, 0.05, .2, .3, 0.05, 0.05, 0.05, 0.05], output_item='completed_movement_count'))
+                                                   probabilities=[0.2, 0.05, 0.05, .2, .3, 0.05, 0.05, 0.05, 0.05],
+                                                   output_item='completed_movement_count'))
 
         functions.append(
             bif.RandomDiscreteNumeric(discrete_values=[0, 1, 2, 4, 5], probabilities=[.8, 0.05, 0.05, 0.05, 0.05],
-                output_item='abnormal_stop_count'))
+                                      output_item='abnormal_stop_count'))
 
         functions.append(
             bif.RandomDiscreteNumeric(discrete_values=[0, 3, 5, 9, 12], probabilities=[.9, 0.25, 0.25, 0.25, 0.25],
-                output_item='safety_stop_count'))
+                                      output_item='safety_stop_count'))
 
         functions.append(
             bif.RandomUniform(min_value=0.8, max_value=0.95, output_item='percent_meeting_target_duration'))
@@ -313,7 +317,7 @@ class Robot(metadata.BaseCustomEntityType):
 
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-            Column('load_rating', Float()), Column('axes', Float()), Column('stats_acc', Float())]
+                             Column('load_rating', Float()), Column('axes', Float()), Column('stats_acc', Float())]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns,
@@ -340,7 +344,7 @@ class PackagingHopper(metadata.BaseCustomEntityType):
         # simulation settings
 
         sim = {'data_item_mean': {'ambient_temp': 20, 'ambient_humidity': 60},
-            'data_item_sd': {'ambient_temp': 5, 'ambient_humidity': 5}, 'drop_existing': False}
+               'data_item_sd': {'ambient_temp': 5, 'ambient_humidity': 5}, 'drop_existing': False}
 
         generator = bif.EntityDataGenerator(ids=None, parameters=sim)
         functions.append(generator)
@@ -352,14 +356,14 @@ class PackagingHopper(metadata.BaseCustomEntityType):
         # difference between prediction and actual
         functions.append(bif.PythonExpression(expression=('(df["dispensed_mass_predicted"]-'
                                                           ' df["dispensed_mass_actual"]).abs()'),
-            output_name='prediction_abs_error'))
+                                              output_name='prediction_abs_error'))
         # alert
         functions.append(bif.AlertHighValue(input_item='prediction_abs_error', upper_threshold=3,
-            alert_name='anomaly_in_fill_detected'))
+                                            alert_name='anomaly_in_fill_detected'))
         # dimension columns
 
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-            Column('plant', String(50)), Column('line', String(50))]
+                             Column('plant', String(50)), Column('line', String(50))]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
@@ -385,18 +389,18 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
         functions = []
         # simulation settings
         sim = {'data_item_mean': {'ambient_temp': 20, 'ambient_humidity': 60},
-            'data_item_sd': {'ambient_temp': 5, 'ambient_humidity': 5}, 'drop_existing': False}
+               'data_item_sd': {'ambient_temp': 5, 'ambient_humidity': 5}, 'drop_existing': False}
 
         generator = bif.EntityDataGenerator(ids=None, parameters=sim)
         functions.append(generator)
 
         functions.append(bif.PythonExpression(expression='df["ambient_temp"]*df["ambient_humidity"]/50',
-            output_name='adjusted_temp'))
+                                              output_name='adjusted_temp'))
 
         functions.append(bif.RandomNormal(mean=6, standard_deviation=1, output_item='predicted_hours_till_bake'))
 
         functions.append(bif.RandomNoise(input_items=['predicted_hours_till_bake'], standard_deviation=0.5,
-            output_items=['target_hours_till_bake']))
+                                         output_items=['target_hours_till_bake']))
 
         functions.append(bif.RandomChoiceString(
             domain_of_values=['bake now', 'wait for futher instructions', 'refrigerate now', 'place in warmer location',
@@ -404,7 +408,7 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
 
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-            Column('plant', String(50)), Column('line', String(50))]
+                             Column('plant', String(50)), Column('line', String(50))]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
@@ -427,7 +431,7 @@ class TestBed(metadata.BaseCustomEntityType):
         columns.append(Column('date_2', DateTime))
 
         day = metadata.Granularity(name='day', dimensions=[], timestamp='evt_timestamp', freq='1D', entity_name=name,
-            entity_id='deviceid')
+                                   entity_id='deviceid')
         granularities = [day]
 
         constants = []
@@ -440,7 +444,8 @@ class TestBed(metadata.BaseCustomEntityType):
         functions.append(generator)
 
         functions.append(bif.ShiftCalendar(shift_definition=None, period_start_date='shift_start_date',
-            period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'))
+                                           period_end_date='shift_end_date', shift_day='shift_day',
+                                           shift_id='shift_id'))
         functions.append(bif.EntityDataGenerator(ids=['A01', 'A02', 'A03', 'A04', 'A05', 'B01']))
         functions.append(bif.DeleteInputData(dummy_items=['x_1'], older_than_days=5, output_item='delete_done'))
         functions.append(
@@ -449,33 +454,34 @@ class TestBed(metadata.BaseCustomEntityType):
         functions.append(
             bif.AlertExpression(input_items=['x_1', 'x_2'], expression="df['x_1']>3*df['x_2']", alert_name='alert_1'))
         functions.append(bif.AlertOutOfRange(input_item='x_1', lower_threshold=.25, upper_threshold=3,
-            output_alert_upper='alert_2_upper', output_alert_lower='alert_2_lower'))
+                                             output_alert_upper='alert_2_upper', output_alert_lower='alert_2_lower'))
         functions.append(bif.AlertHighValue(input_item='x_1', upper_threshold=3, alert_name='alert_3'))
         functions.append(bif.AlertLowValue(input_item='x_1', lower_threshold=0.25, alert_name='alert_4'))
         functions.append(bif.RandomNull(input_items=['x_1', 'x_2', 'str_1', 'str_2', 'date_1', 'date_2'],
-            output_items=['x_1_null', 'x_2_null', 'str_1_null', 'str_2_null', 'date_1_null', 'date_2_null'], ))
+                                        output_items=['x_1_null', 'x_2_null', 'str_1_null', 'str_2_null', 'date_1_null',
+                                                      'date_2_null'], ))
         functions.append(bif.Coalesce(data_items=['x_1_null', 'x_2_null'], output_item='x_1_2'))
         functions.append(
             bif.ConditionalItems(conditional_expression="df['alert_1']==True", conditional_items=['x_1', 'x_2'],
-                output_items=['x_1_alert_1', 'x_2_alert_1']))
+                                 output_items=['x_1_alert_1', 'x_2_alert_1']))
         functions.append(bif.TimestampCol(dummy_items=None, output_item='timestamp_col'))
         functions.append(bif.DateDifference(date_1='date_1', date_2='date_2', num_days='date_diff_2_1'))
         functions.append(bif.DateDifferenceReference(date_1='timestamp_col', ref_date=dt.datetime.utcnow(),
-            num_days='date_diff_ts_now'))
+                                                     num_days='date_diff_ts_now'))
         functions.append(bif.PythonExpression(expression='df["x_1"]*c["alpha"]', output_name='x1_alpha'))
         functions.append(bif.PythonExpression(expression='df["x1"]+df["x1"]+df["x3"]', output_name='x_4_invalid'))
         functions.append(bif.PythonExpression(expression='df["x_1"]*c["not_existing_constant"]',
-            output_name='x1_non_existing_constant'))
+                                              output_name='x1_non_existing_constant'))
         functions.append(bif.PythonExpression(expression='df["x_1"]+df["x_1"]+df["x_3"]', output_name='x_4'))
         functions.append(bif.IfThenElse(conditional_expression='df["x_1"]>df["x_2"]', true_expression='df["x_1"]',
-            false_expression='df["x_2"]', output_item='x_1_or_2'))
+                                        false_expression='df["x_2"]', output_item='x_1_or_2'))
         functions.append(bif.PythonFunction(function_code=SAMPLE_FN_1, input_items=['x_1'], parameters={'param_1': 3},
-            output_item='fn_out', ))
+                                            output_item='fn_out', ))
 
         # aggregates
         day_functions = []
         day_functions.append(bif.AggregateItems(input_items=['x_1', 'x_2'], aggregation_function='sum',
-            output_items=['x_1_sum_day', 'x_2_sum_day']))
+                                                output_items=['x_1_sum_day', 'x_2_sum_day']))
 
         for f in day_functions:
             f.granularity = day.name
@@ -484,7 +490,7 @@ class TestBed(metadata.BaseCustomEntityType):
 
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-            Column('plant', String(50)), Column('line', String(50))]
+                             Column('plant', String(50)), Column('line', String(50))]
 
         output_items_extended_metadata = {'output_items': {"dataType": "BOOLEAN"}}
 

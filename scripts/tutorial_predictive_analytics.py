@@ -49,7 +49,7 @@ fn_gen = bif.EntityDataGenerator(output_item='generator_ok')
 fn_dep1 = bif.PythonExpression(  # linear relatoionship
     '5*df["x1"]-df["x2"]', 'y1')
 fn_dep2 = bif.PythonExpression('df["x1"]*df["x1"]-df["x2"]',  # non-linear relationship
-    'y3')
+                               'y3')
 fn_noise = bif.RandomNoise(  # add noise to y1 and y3 to produce y2 and y4
     input_items=['y1', 'y3'], standard_deviation=.5, output_items=['y2', 'y4'])
 
@@ -58,7 +58,8 @@ job_settings = {'delete_existing_models': True, }
 entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
                     Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise,
                     estimator.SimpleRegressor(features=['x1', 'x2', 'x3'], targets=['y1'],
-                        predictions=['y1_predicted']), **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
+                                              predictions=['y1_predicted']),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 entity.register(raise_error=True)
 start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
 entity.exec_local_pipeline(start_ts=start_date, **job_settings)
@@ -110,7 +111,8 @@ job_settings = {'delete_existing_models': False, }
 entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
                     Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise,
                     estimator.SimpleRegressor(features=['x1', 'x2', 'x3'], targets=['y1'],
-                        predictions=['y1_predicted']), **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
+                                              predictions=['y1_predicted']),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 entity.register(raise_error=True)
 entity.exec_local_pipeline(**job_settings)
 
@@ -223,7 +225,7 @@ of better than 0, but that it should continue trying to improve until it gets at
 '''
 
 job_settings = {'delete_existing_models': False, 'acceptable_score_for_model_acceptance': 0,
-    'stop_auto_improve_at': 0.5}
+                'stop_auto_improve_at': 0.5}
 
 entity.register(raise_error=True)
 entity.exec_local_pipeline(**job_settings)
@@ -296,10 +298,10 @@ In this case we will pick a threshold of 0.1.
 '''
 
 job_settings = {'delete_existing_models': False, 'acceptable_score_for_model_acceptance': 0,
-    'stop_auto_improve_at': 0.5}
+                'stop_auto_improve_at': 0.5}
 
 fn_anomaly = estimator.SimpleAnomaly(features=['x1', 'x2', 'x3'], targets=['y0'], threshold=0.1,
-    predictions=['y0_predicted'], alerts=['is_y0_anomalous'])
+                                     predictions=['y0_predicted'], alerts=['is_y0_anomalous'])
 
 entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
                     Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise, fn_anomaly,
@@ -357,7 +359,7 @@ Let's try with y1 and the same threshold.
 '''
 
 fn_anomaly = estimator.SimpleAnomaly(features=['x1', 'x2', 'x3'], targets=['y1'], threshold=0.1,
-    predictions=['y1_predicted'], alerts=['is_y1_anomalous'])
+                                     predictions=['y1_predicted'], alerts=['is_y1_anomalous'])
 
 entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
                     Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise, fn_anomaly,

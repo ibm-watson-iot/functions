@@ -269,10 +269,10 @@ class EntityType(object):
 
         if len(self._disabled_stages) > 0 or len(self._invalid_stages) > 0:
             self.trace_append(created_by=self, msg='Skipping disabled and invalid stages', log_method=logger.info,
-                **{'skipped_disabled_stages': [s['functionName'] for s in self._disabled_stages],
-                    'skipped_disabled_data_items': [s['output'] for s in self._disabled_stages],
-                    'skipped_invalid_stages': [s['functionName'] for s in self._invalid_stages],
-                    'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]})
+                              **{'skipped_disabled_stages': [s['functionName'] for s in self._disabled_stages],
+                                 'skipped_disabled_data_items': [s['output'] for s in self._disabled_stages],
+                                 'skipped_invalid_stages': [s['functionName'] for s in self._invalid_stages],
+                                 'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]})
 
             # attach to time series table
         if self._db_schema is None:
@@ -630,8 +630,9 @@ class EntityType(object):
                 dimensions.append(d)
 
             granularity = Granularity(name=g['name'], grouper=grouper, dimensions=dimensions,
-                entity_name=self.logical_name, timestamp=self._timestamp, entity_id=entity_id,
-                custom_calendar_keys=custom_calendar_keys, freq=freq, custom_calendar=custom_calendar)
+                                      entity_name=self.logical_name, timestamp=self._timestamp, entity_id=entity_id,
+                                      custom_calendar_keys=custom_calendar_keys, freq=freq,
+                                      custom_calendar=custom_calendar)
 
             out[g['name']] = granularity
 
@@ -951,7 +952,7 @@ class EntityType(object):
                         raise KeyError(('Error attempting to index time series'
                                         ' dataframe. Unable to locate index'
                                         ' columns: %s or %s, %s') % (
-                                       self._df_index_entity_id, self._entity_id, self._timestamp))
+                                           self._df_index_entity_id, self._entity_id, self._timestamp))
             logger.debug(('Indexed dataframe on %s, %s'), self._df_index_entity_id, self._timestamp)
 
         else:
@@ -1052,9 +1053,9 @@ class EntityType(object):
         '''
 
         params = {'data_writer': DataWriterFile, 'keep_alive_duration': None, 'save_trace_to_file': True,
-            'default_backtrack': 'checkpoint', 'trace_df_changes': True, '_abort_on_fail': True,
-            'job_log_class': JobLogNull, '_auto_save_trace': None, '_start_ts_override': start_ts,
-            '_end_ts_override': end_ts, '_entity_filter_list': entities}
+                  'default_backtrack': 'checkpoint', 'trace_df_changes': True, '_abort_on_fail': True,
+                  'job_log_class': JobLogNull, '_auto_save_trace': None, '_start_ts_override': start_ts,
+                  '_end_ts_override': end_ts, '_entity_filter_list': entities}
 
         kw = {**params, **kw}
 
@@ -1097,8 +1098,8 @@ class EntityType(object):
         '''
 
         replacement = {'Sum': 'sum', 'Minimum': 'min', 'Maximum': 'max', 'Mean': 'mean', 'Median': 'median',
-            'Count': 'count', 'DistinctCount': 'count_distinct', 'StandardDeviation': 'std', 'Variance': 'var',
-            'Product': 'product', 'First': 'first', 'Last': 'last'}
+                       'Count': 'count', 'DistinctCount': 'count_distinct', 'StandardDeviation': 'std',
+                       'Variance': 'var', 'Product': 'product', 'First': 'first', 'Last': 'last'}
 
         name = meta.get('functionName', None)
         replacement_name = replacement.get(name, None)
@@ -1182,8 +1183,8 @@ class EntityType(object):
 
         if self._pre_aggregate_time_grain is None:
             df = self.db.read_table(table_name=self.name, schema=self._db_schema, timestamp_col=self._timestamp,
-                parse_dates=None, columns=columns, start_ts=start_ts, end_ts=end_ts, entities=entities,
-                dimension=self._dimension_table_name)
+                                    parse_dates=None, columns=columns, start_ts=start_ts, end_ts=end_ts,
+                                    entities=entities, dimension=self._dimension_table_name)
             tw['pre-aggregeted'] = None
 
         else:
@@ -1217,9 +1218,9 @@ class EntityType(object):
                     pass
 
             df = self.db.read_agg(table_name=self.name, schema=self._db_schema, groupby=[self._entity_id],
-                timestamp=self._timestamp, time_grain=self._pre_aggregate_time_grain, agg_dict=self._pre_agg_rules,
-                agg_outputs=self._pre_agg_outputs, start_ts=start_ts, end_ts=end_ts, entities=entities,
-                dimension=self._dimension_table_name)
+                                  timestamp=self._timestamp, time_grain=self._pre_aggregate_time_grain,
+                                  agg_dict=self._pre_agg_rules, agg_outputs=self._pre_agg_outputs, start_ts=start_ts,
+                                  end_ts=end_ts, entities=entities, dimension=self._dimension_table_name)
 
             tw['pre-aggregeted'] = self._pre_aggregate_time_grain
 
@@ -1435,10 +1436,11 @@ class EntityType(object):
             msg = 'This is a local entity or entity with no database connection, test data will not be written'
             logger.debug(msg)
             (metrics, dates, categoricals, others) = self.get_local_column_lists_by_type(columns,
-                known_categoricals_set=known_categoricals)
+                                                                                         known_categoricals_set=known_categoricals)
         else:
             (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(self.table, self._db_schema,
-                exclude_cols=exclude_cols, known_categoricals_set=known_categoricals)
+                                                                                      exclude_cols=exclude_cols,
+                                                                                      known_categoricals_set=known_categoricals)
         msg = 'Generating data for %s with metrics %s and dimensions %s and dates %s' % (
             self.name, metrics, categoricals, dates)
         logger.debug(msg)
@@ -1488,7 +1490,9 @@ class EntityType(object):
 
         try:
             (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(table_name, self._db_schema,
-                exclude_cols=[self._entity_id, 'start_date', 'end_date'])
+                                                                                      exclude_cols=[self._entity_id,
+                                                                                                    'start_date',
+                                                                                                    'end_date'])
         except KeyError:
             metrics = []
             dates = []
@@ -1540,7 +1544,9 @@ class EntityType(object):
             known_categoricals = set(data_item_domain.keys())
 
             (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(self._dimension_table_name,
-                self._db_schema, exclude_cols=[self._entity_id], known_categoricals_set=known_categoricals)
+                                                                                      self._db_schema,
+                                                                                      exclude_cols=[self._entity_id],
+                                                                                      known_categoricals_set=known_categoricals)
 
             rows = len(entities)
             data = {}
@@ -1587,7 +1593,7 @@ class EntityType(object):
             return None
 
         (query, table) = self.db.query_column_aggregate(table_name=self.checkpoint_table, schema=self._db_schema,
-            column='TIMESTAMP', aggregate='max')
+                                                        column='TIMESTAMP', aggregate='max')
 
         query.filter(table.c.entity_type_id == self._entity_type_id)
         return query.scalar()
@@ -1749,7 +1755,7 @@ class EntityType(object):
                ' Error message: %s '
                ' Stack trace : %s '
                ' Execution trace : %s' % (
-               stageName, exception.__class__.__name__, msg, traceback.format_exc(), str(self._trace)))
+                   stageName, exception.__class__.__name__, msg, traceback.format_exc(), str(self._trace)))
 
         if abort_on_fail:
             raise StageException(msg, stageName)
@@ -1809,7 +1815,7 @@ class EntityType(object):
                     logger.warning('Unknown datatype %s for column %s' % (data_type, column_name))
                 columns.append(
                     {'name': column_name, 'type': col_type, 'columnName': column_name, 'columnType': data_type,
-                        'tags': None, 'transient': False})
+                     'tags': None, 'transient': False})
         table['dataItemDto'] = columns
         if self._db_schema is not None:
             table['schemaName'] = self._db_schema
@@ -1970,7 +1976,7 @@ class ServerEntityType(EntityType):
 
         # build a dictionary of granularity objects keyed by granularity name
         self._granularities_dict = self.build_granularities(grain_meta=server_meta['granularities'],
-            freq_lookup=server_meta.get('frequencies'))
+                                                            freq_lookup=server_meta.get('frequencies'))
 
         # replace granularity name with granularity object
         for k in kpis:
@@ -2067,8 +2073,8 @@ class ServerEntityType(EntityType):
                 if replacement_metadata is not None:
 
                     obj = AggregateItems(input_items=[replacement_metadata.get('input').get('source')],
-                        aggregation_function=replacement_metadata.get('functionName'),
-                        output_items=[replacement_metadata.get('output').get('name')])
+                                         aggregation_function=replacement_metadata.get('functionName'),
+                                         output_items=[replacement_metadata.get('output').get('name')])
                     obj.granularity = replacement_metadata.get('granularity', None)
                     obj.schedule = replacement_metadata.get('schedule', None)
                     functions.append(obj)
@@ -2240,7 +2246,7 @@ class BaseCustomEntityType(EntityType):
         super().__init__(name, db, *args, **kwargs)
 
         self.make_dimension(None,  # auto build name
-            *self._dimension_columns)
+                            *self._dimension_columns)
 
         if generate_days > 0:
             # classify stages is adds entity metdata to the stages
@@ -2370,7 +2376,7 @@ class Granularity(object):
 
         if grouper is None:
             grouper = build_grouper(freq=self.freq, timestamp=self.timestamp, entity_id=self.entity_id,
-                dimensions=self.dimensions, custom_calendar_keys=self.custom_calendar_keys)
+                                    dimensions=self.dimensions, custom_calendar_keys=self.custom_calendar_keys)
 
         self.grouper = grouper
 

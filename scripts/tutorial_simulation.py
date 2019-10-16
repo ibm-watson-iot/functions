@@ -85,8 +85,8 @@ Want to change the frequency of generation? Set the value of freq. Use a valid p
 '''
 
 sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5},
-    "data_item_domain": {'category_code': ['A', 'B', 'C']}, "freq": '30S'  # 30 sec
-}
+                  "data_item_domain": {'category_code': ['A', 'B', 'C']}, "freq": '30S'  # 30 sec
+                  }
 
 entity.generate_data(days=0.5, drop_existing=True, **sim_parameters)
 
@@ -109,9 +109,9 @@ While we are at it, let's change the number of entity types we are simulating
 '''
 
 sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5},
-    "data_item_domain": {'category_code': ['A', 'B', 'C']}, "start_entity_id": 1000, "auto_entity_count": 10,
-    "freq": '30S'  # 30 sec
-}
+                  "data_item_domain": {'category_code': ['A', 'B', 'C']}, "start_entity_id": 1000,
+                  "auto_entity_count": 10, "freq": '30S'  # 30 sec
+                  }
 
 entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
                     Column('company_code', String(50)), Column('category_code', String(5)),
@@ -181,13 +181,13 @@ a new dimension.
 db.drop_table('sim_test_dimension', schema=db_schema)
 
 entity.make_dimension('sim_test_dimension', Column('manufacturer', String(50)), Column('load_rating', Float()),
-    Column('maintenance_org', String(50)))
+                      Column('maintenance_org', String(50)))
 
 sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320, 'load_rating': 500},
-    "data_item_sd": {'temp': 2, 'pressure': 5},
-    "data_item_domain": {'category_code': ['A', 'B', 'C'], 'maintenance_org': ['Lunar Parts', 'Relco']},
-    "start_entity_id": 1000, "auto_entity_count": 10, "freq": '30S'  # 30 sec
-}
+                  "data_item_sd": {'temp': 2, 'pressure': 5},
+                  "data_item_domain": {'category_code': ['A', 'B', 'C'], 'maintenance_org': ['Lunar Parts', 'Relco']},
+                  "start_entity_id": 1000, "auto_entity_count": 10, "freq": '30S'  # 30 sec
+                  }
 
 entity.register(raise_error=True)
 entity.generate_data(days=0.5, drop_existing=True, **sim_parameters)
@@ -225,13 +225,13 @@ simulation to retain some of the random variation typically seen in the real wor
 '''
 
 temp_function = bif.PythonExpression(expression='df["temp"]+df["pressure"]/300*5',
-    output_name='operating_temperature_work')
+                                     output_name='operating_temperature_work')
 
 entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
                     Column('company_code', String(50)), Column('category_code', String(5)),
                     bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'), temp_function,
                     bif.RandomNoise(input_items=['operating_temperature_work'], standard_deviation=1,
-                        output_items=['operating_temperature']),
+                                    output_items=['operating_temperature']),
                     **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 entity.exec_local_pipeline()

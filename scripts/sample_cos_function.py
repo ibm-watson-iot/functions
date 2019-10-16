@@ -45,6 +45,6 @@ Test the function by adding it to an entity type
 '''
 
 test_function = bif.PythonFunction(function_code='random_1', input_items=['speed'], output_item='random_1_out',
-    parameters={})
+                                   parameters={})
 
 test_function.execute_local_test(db=db, db_schema=db_schema)
