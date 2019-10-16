@@ -25,9 +25,10 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR, FLOAT, INTEGER
 
 from . import db as db_module
 from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator)
-from .pipeline import (CalcPipeline, DataReader, DropNull, JobController, DataWriter, DataWriterFile, JobLogNull, Trace,
+from .pipeline import (CalcPipeline,  DropNull, JobController, JobLogNull, Trace,
                        AggregateItems)
 from .util import (MemoryOptimizer, StageException, build_grouper, categorize_args, reset_df_index)
+from .stages import (DataReader,  DataWriter, DataWriterFile)
 
 import iotfunctions as iotf
 
