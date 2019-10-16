@@ -200,7 +200,7 @@ class TimeSeriesGenerator(object):
                       timestamp=None,
                       domains=None,
                       datasource=None,
-                      datasourcemetrics=[]
+                      datasourcemetrics=None
                       ):
         
         if timestamp is not None:
@@ -277,9 +277,8 @@ class TimeSeriesGenerator(object):
             try:
                 df[m] = df[m] * self.data_item_sd[m]
             except KeyError:
-                pass            
-            print (m, self.datasourcemetrics)
-            if m in self.datasourcemetrics:
+                pass
+            if self.datasourcemetrics is not None and (m in self.datasourcemetrics):
                 try:
                     df[m] = self.datasource[m]
                     print('assigned column ' + m)
