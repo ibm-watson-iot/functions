@@ -176,6 +176,10 @@ class TimeSeriesGenerator(object):
         scaling parameter for the seasonal component
     day_of_week_harmonic = number
         scaling parameter for the seasonal component        
+    datasource = df
+        Pandas dataframe as source
+    datasourcemetrics : list of strings
+        Names of numeric items to take from source
     '''
 
     ref_date = dt.datetime(2018, 1, 1, 0, 0, 0, 0)
@@ -195,6 +199,8 @@ class TimeSeriesGenerator(object):
                       day_of_week_harmonic = 0.2,
                       timestamp = None,
                       domains = None,
+                      datasource = None,
+                      datasourcemetrics = None
                       ):
         
         if timestamp is not None:
@@ -238,13 +244,20 @@ class TimeSeriesGenerator(object):
             domains = {}
         self.domain = domains
 
+        self.datasource = datasource
+        self.datasourcemetrics = datasourcemetrics
+
     def get_data(self,start_ts=None,end_ts=None,entities=None):
         
         end = dt.datetime.utcnow()
         start = end - dt.timedelta(days=self.days)
         start = start - dt.timedelta(seconds=self.seconds)
-        
-        ts = pd.date_range(end=end,start=start,freq=self.freq)
+
+        if self.datasource is not None:
+            ts = pd.date_range(end=end,freq=self.freq,periods=self.datasource.index.size)
+        else:
+            ts = pd.date_range(end=end,start=start,freq=self.freq)
+
         y_cols = []
         y_cols.extend(self.metrics)
         y_cols.extend(self.dates)
@@ -265,13 +278,22 @@ class TimeSeriesGenerator(object):
                 df[m] = df[m] * self.data_item_sd[m]
             except KeyError:
                 pass            
-            df[m] = df[m] + days_from_ref * self.increase_per_day
-            df[m] = df[m] + np.sin(day*4*math.pi/364.25) * self.day_harmonic
-            df[m] = df[m] + np.sin(day_of_week*2*math.pi/6) * self.day_of_week_harmonic
-            try:
-                df[m] = df[m] + self.data_item_mean[m]
-            except KeyError:
-                pass
+            print (m, self.datasourcemetrics)
+            if m in self.datasourcemetrics:
+                try:
+                    df[m] = self.datasource[m]
+                    print('assigned column ' + m)
+                except KeyError:
+                    df[m] = 0
+                    pass
+            else:
+                df[m] = df[m] + days_from_ref * self.increase_per_day
+                df[m] = df[m] + np.sin(day*4*math.pi/364.25) * self.day_harmonic
+                df[m] = df[m] + np.sin(day_of_week*2*math.pi/6) * self.day_of_week_harmonic
+                try:
+                    df[m] = df[m] + self.data_item_mean[m]
+                except KeyError:
+                    pass
             
         for d in self.categoricals:
             try:
@@ -290,7 +312,7 @@ class TimeSeriesGenerator(object):
         
         return df
     
-    def execute(self,df=None):
+    def execute(self):
         df = self.get_data()
         return df
 
