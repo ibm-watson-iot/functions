@@ -21,6 +21,8 @@ import re
 from lxml import etree
 import logging
 import pandas as pd
+import random
+import string
 
 logger = logging.getLogger(__name__)
 try:
@@ -250,7 +252,7 @@ class CosClient:
         # signed_headers = 'host;x-amz-content-sha256;x-amz-date'
 
         standardized_request = (
-                    http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' + standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
+                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' + standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
 
         # logging.debug('standardized_request=\n%s' % standardized_request)
 
@@ -270,7 +272,7 @@ class CosClient:
 
         # assemble all elements into the 'authorization' header
         v4auth_header = (
-                    hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
+                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
 
         # logging.debug('v4auth_header=\n%s' % v4auth_header)
 
@@ -301,7 +303,7 @@ class CosClient:
         if resp.status_code != requests.codes.ok and not (
                 resp.status_code == requests.codes.no_content and http_method == 'DELETE'):
             logger.warning('error cos_api_request: request_url=%s, http_method=%s, status_code=%s, response_text=%s' % (
-            request_url, http_method, str(resp.status_code), str(resp.text)))
+                request_url, http_method, str(resp.status_code), str(resp.text)))
             return None
 
         return resp.content if binary else resp.text
@@ -687,6 +689,17 @@ def freq_to_timedelta(freq):
     except AttributeError:
         pass
     return (pd.to_timedelta(freq))
+
+
+def asList(x):
+    if not isinstance(x, list):
+        x = [x]
+    return x
+
+
+def randomword(length):
+    letters = string.ascii_lowercase + string.digits
+    return ''.join(random.choice(letters) for i in range(length))
 
 
 class StageException(Exception):
