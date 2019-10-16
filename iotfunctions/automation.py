@@ -191,16 +191,16 @@ class TimeSeriesGenerator(object):
                       days=0,
                       seconds=300,
                       freq='1min',
-                      categoricals = None,
+                      categoricals=None,
                       dates=None,
-                      increase_per_day = 0.0001,
-                      noise = 0.1 ,
-                      day_harmonic = 0.2,
-                      day_of_week_harmonic = 0.2,
-                      timestamp = None,
-                      domains = None,
-                      datasource = None,
-                      datasourcemetrics = None
+                      increase_per_day=0.0001,
+                      noise=0.1 ,
+                      day_harmonic=0.2,
+                      day_of_week_harmonic=0.2,
+                      timestamp=None,
+                      domains=None,
+                      datasource=None,
+                      datasourcemetrics=[]
                       ):
         
         if timestamp is not None:
