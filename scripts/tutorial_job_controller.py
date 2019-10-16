@@ -36,36 +36,33 @@ tutorial. This job will execute a single data transformation task.
 
 '''
 
+
 class CustomTask(BaseTransformer):
+    _allow_empty_df = True  # allow this task to run even if it receives no incoming data
+    produces_output_items = False  # this task does not contribute new data items
+    requires_input_items = False  # this task does not require dependent data items
 
-    _allow_empty_df = True          # allow this task to run even if it receives no incoming data
-    produces_output_items = False   # this task does not contribute new data items
-    requires_input_items = False    # this task does not require dependent data items
-
-    def __init__(self,name):
-
+    def __init__(self, name):
         self.name = name
 
-    def execute(self,df):
-
-        result = '**** Executed task %s ****' %self.name
-        print (result)
+    def execute(self, df):
+        result = '**** Executed task %s ****' % self.name
+        print(result)
 
         return result
 
+
 class CustomJob(object):
+    _abort_on_fail = True  # abort at the end of a failed execution
 
-    _abort_on_fail = True           # abort at the end of a failed execution
-
-    def __init__(self,name,db,stages):
-
+    def __init__(self, name, db, stages):
         self.name = name
         self.db = db
         self._stages = stages
 
     def classify_stages(self):
-
         return self._stages
+
 
 '''
 Before creating an instance of the this job, we will need a Database object.
@@ -105,13 +102,11 @@ Our dictionary will have a list of stages - containing a single task.
 
 '''
 
-stages = {
-    ('transform',None) :  [job_task]
-}
+stages = {('transform', None): [job_task]}
 
-my_job = CustomJob('basic_tutorial_job',db=db,stages=stages)
+my_job = CustomJob('basic_tutorial_job', db=db, stages=stages)
 
-j = JobController(payload=my_job, save_trace_to_file = True )
+j = JobController(payload=my_job, save_trace_to_file=True)
 j.execute()
 
 '''
@@ -131,35 +126,30 @@ raises an exception.
 
 '''
 
+
 class BrokenTask(BaseTransformer):
+    _allow_empty_df = True  # allow this task to run even if it receives no incoming data
+    produces_output_items = False  # this task does not contribute new data items
+    requires_input_items = False  # this task does not require dependent data items
 
-    _allow_empty_df = True          # allow this task to run even if it receives no incoming data
-    produces_output_items = False   # this task does not contribute new data items
-    requires_input_items = False    # this task does not require dependent data items
-
-    def __init__(self,name):
-
+    def __init__(self, name):
         self.name = name
 
-    def execute(self,df):
-
-        result = 'Self inflicted error executing %s' %self.name
+    def execute(self, df):
+        result = 'Self inflicted error executing %s' % self.name
         raise RuntimeError(result)
 
         return result
 
 
 broken_task = BrokenTask('broken_task')
-stages = {
-    ('transform',None) :  [job_task,broken_task]
-}
-my_job = CustomJob('basic_tutorial_job',db=db,stages=stages)
-j = JobController(payload=my_job, save_trace_to_file = True )
+stages = {('transform', None): [job_task, broken_task]}
+my_job = CustomJob('basic_tutorial_job', db=db, stages=stages)
+j = JobController(payload=my_job, save_trace_to_file=True)
 try:
     j.execute()
 except BaseException as e:
-    print('Job failed as expected. %s' %e)
-
+    print('Job failed as expected. %s' % e)
 
 '''
 This job fails as expected, but it fails in a managed way.
@@ -180,7 +170,7 @@ keyword argument _abort_on_fail
 
 '''
 
-j = JobController(payload=my_job, save_trace_to_file = True, _abort_on_fail=False)
+j = JobController(payload=my_job, save_trace_to_file=True, _abort_on_fail=False)
 j.execute()
 
 '''
@@ -190,31 +180,27 @@ to complete. It is more common to configure the tasks than the job.
 
 '''
 
+
 class BrokenTask(BaseTransformer):
+    _abort_on_fail = False  # allow the job to complete even though this task fails
+    _allow_empty_df = True  # allow this task to run even if it receives no incoming data
+    produces_output_items = False  # this task does not contribute new data items
+    requires_input_items = False  # this task does not require dependent data items
 
-    _abort_on_fail = False          # allow the job to complete even though this task fails
-    _allow_empty_df = True          # allow this task to run even if it receives no incoming data
-    produces_output_items = False   # this task does not contribute new data items
-    requires_input_items = False    # this task does not require dependent data items
-
-    def __init__(self,name):
-
+    def __init__(self, name):
         self.name = name
 
-    def execute(self,df):
-
-        result = 'Self inflicted error executing %s ****' %self.name
+    def execute(self, df):
+        result = 'Self inflicted error executing %s ****' % self.name
         raise RuntimeError(result)
 
         return result
 
 
 broken_task = BrokenTask('broken_task')
-stages = {
-    ('transform',None) :  [job_task,broken_task]
-}
-my_job = CustomJob('basic_tutorial_job',db=db,stages=stages)
-j = JobController(payload=my_job, save_trace_to_file = True )
+stages = {('transform', None): [job_task, broken_task]}
+my_job = CustomJob('basic_tutorial_job', db=db, stages=stages)
+j = JobController(payload=my_job, save_trace_to_file=True)
 j.execute()
 
 '''
@@ -253,15 +239,14 @@ Let's build a task that will be used as data source in a multistage job.
 
 '''
 
+
 class MyDataSource(BaseTransformer):
+    _abort_on_fail = True  # allow the job to complete even though this task fails
+    _allow_empty_df = True  # allow this task to run even if it receives no incoming data
+    produces_output_items = True  # this task does not contribute new data items
+    requires_input_items = False  # this task does not require dependent data items
 
-    _abort_on_fail = True          # allow the job to complete even though this task fails
-    _allow_empty_df = True          # allow this task to run even if it receives no incoming data
-    produces_output_items = True   # this task does not contribute new data items
-    requires_input_items = False    # this task does not require dependent data items
-
-    def __init__(self,name,output_column_names):
-
+    def __init__(self, name, output_column_names):
         self.name = name
         self.output_column_names = output_column_names
 
@@ -274,20 +259,19 @@ class MyDataSource(BaseTransformer):
         # using the argument 'output_column_names'
         self._output_list = self.output_column_names
 
-    def execute(self,df):
-
+    def execute(self, df):
         # implement a get_data() method that returns a dataframe
         # the names of the columns are derived from the
-        #output_column_names argument
+        # output_column_names argument
 
-        data = {self.output_column_names[0]: [1,2],
-                self.output_column_names[1]: [3,4]}
+        data = {self.output_column_names[0]: [1, 2], self.output_column_names[1]: [3, 4]}
         df = pd.DataFrame(data=data)
         df['evt_timestamp'] = dt.datetime.utcnow()
         df['id'] = 'A01'
-        df = df.set_index(['evt_timestamp','id'])
+        df = df.set_index(['evt_timestamp', 'id'])
 
         return df
+
 
 '''
 
@@ -295,37 +279,33 @@ Since our job will now have some data, let's change our basic task so that it co
 
 '''
 
+
 class CustomTask(BaseTransformer):
+    _allow_empty_df = True  # allow this task to run even if it receives no incoming data
+    produces_output_items = True  # contributes new data items
+    requires_input_items = False  # this task does not require dependent data items
 
-    _allow_empty_df = True          # allow this task to run even if it receives no incoming data
-    produces_output_items = True    # contributes new data items
-    requires_input_items = False    # this task does not require dependent data items
-
-    def __init__(self,name):
-
+    def __init__(self, name):
         self.name = name
         # This class needs an _output_list instance variable too
         # In this case, the task outputs a single data item
         # The name of this data item is derived from the name of the task
 
-        self._output_list = ['%s_output' %self.name]
+        self._output_list = ['%s_output' % self.name]
 
-    def execute(self,df):
-
-        result = '**** Executed task %s ****' %self.name
+    def execute(self, df):
+        result = '**** Executed task %s ****' % self.name
 
         return result
+
 
 job_task = CustomTask('my_task')
 # need to decide what we want to call the data items produced by our data source
 # we will call them x1 and x2
-sample_data = MyDataSource(name='sample_data',output_column_names=['x1','x2'])
+sample_data = MyDataSource(name='sample_data', output_column_names=['x1', 'x2'])
 
-stages = {
-    ('get_data',None) : [sample_data],
-    ('transform',None) :  [job_task]
-}
-my_job = CustomJob('basic_tutorial_job',db=db,stages=stages)
+stages = {('get_data', None): [sample_data], ('transform', None): [job_task]}
+my_job = CustomJob('basic_tutorial_job', db=db, stages=stages)
 
 '''
 By default the JobController writes output data to a Key Value Pair table in DB2.
@@ -333,7 +313,7 @@ This write operation requires more metadata than we have defined in this simple
 job. Instead we will reroute the output data to a file using the data_writer keyword arg.
 '''
 
-j = JobController(payload=my_job, save_trace_to_file = True, data_writer = DataWriterFile )
+j = JobController(payload=my_job, save_trace_to_file=True, data_writer=DataWriterFile)
 j.execute()
 
 '''
@@ -354,33 +334,28 @@ First we will have to modify BrokenTask to produce outputs
 
 '''
 
+
 class BrokenTask(BaseTransformer):
+    _abort_on_fail = False  # allow the job to complete even though this task fails
+    _allow_empty_df = True  # allow this task to run even if it receives no incoming data
+    produces_output_items = True  # this task contributes new data items
+    requires_input_items = False  # this task does not require dependent data items
 
-    _abort_on_fail = False          # allow the job to complete even though this task fails
-    _allow_empty_df = True          # allow this task to run even if it receives no incoming data
-    produces_output_items = True   # this task contributes new data items
-    requires_input_items = False    # this task does not require dependent data items
-
-    def __init__(self,name):
-
+    def __init__(self, name):
         self.name = name
         self._output_list = ['%s_output' % self.name]
 
-    def execute(self,df):
-
-        result = 'Self inflicted error executing %s ****' %self.name
+    def execute(self, df):
+        result = 'Self inflicted error executing %s ****' % self.name
         raise RuntimeError(result)
 
         return result
 
 
 broken_task = BrokenTask('broken_task')
-stages = {
-    ('get_data',None) : [sample_data],
-    ('transform',None) :  [job_task, broken_task]
-}
-my_job = CustomJob('basic_tutorial_job',db=db,stages=stages)
-j = JobController(payload=my_job, save_trace_to_file = True, data_writer = DataWriterFile )
+stages = {('get_data', None): [sample_data], ('transform', None): [job_task, broken_task]}
+my_job = CustomJob('basic_tutorial_job', db=db, stages=stages)
+j = JobController(payload=my_job, save_trace_to_file=True, data_writer=DataWriterFile)
 j.execute()
 
 '''
@@ -401,15 +376,14 @@ The JobController can handle complex jobs with dependencies between tasks
 Let's create a new task that processes the result of my_task and broken_task_output
 '''
 
+
 class DependentTask(BaseTransformer):
+    _abort_on_fail = False  # allow the job to complete even though this task fails
+    _allow_empty_df = False  # do not allow this task to run even if it receives no incoming data
+    produces_output_items = True  # this task contributes new data items
+    requires_input_items = True  # this task requires dependent data items
 
-    _abort_on_fail = False          # allow the job to complete even though this task fails
-    _allow_empty_df = False          # do not allow this task to run even if it receives no incoming data
-    produces_output_items = True   # this task contributes new data items
-    requires_input_items = True    # this task requires dependent data items
-
-    def __init__(self,name,input_colums):
-
+    def __init__(self, name, input_colums):
         self.name = name
         self.input_columns = input_colums
 
@@ -420,8 +394,7 @@ class DependentTask(BaseTransformer):
         self._input_set = set(self.input_columns)
         self._output_list = [self.name]
 
-    def execute(self,df):
-
+    def execute(self, df):
         # replace null values with a string
         # concatenate the input columns
 
@@ -432,13 +405,10 @@ class DependentTask(BaseTransformer):
         return df
 
 
-dependent_task = DependentTask('dependent_output',['my_task_output','broken_task_output'])
-stages = {
-    ('get_data',None) : [sample_data],
-    ('transform',None) :  [job_task, broken_task, dependent_task]
-}
-my_job = CustomJob('basic_tutorial_job',db=db,stages=stages)
-j = JobController(payload=my_job, save_trace_to_file = True, data_writer = DataWriterFile )
+dependent_task = DependentTask('dependent_output', ['my_task_output', 'broken_task_output'])
+stages = {('get_data', None): [sample_data], ('transform', None): [job_task, broken_task, dependent_task]}
+my_job = CustomJob('basic_tutorial_job', db=db, stages=stages)
+j = JobController(payload=my_job, save_trace_to_file=True, data_writer=DataWriterFile)
 j.execute()
 
 '''
@@ -462,14 +432,10 @@ The daily grain, summaries by "id" at the "day" grain.
 
 '''
 
-daily = Granularity(
-    name = 'daily',
-    freq = '1D',                 # pandas frequency string
-    timestamp= 'evt_timestamp', # build time aggregations using this datetime col
-    entity_id = 'id',            # aggregate by id
-    dimensions = None,
-    entity_name = None
-)
+daily = Granularity(name='daily', freq='1D',  # pandas frequency string
+    timestamp='evt_timestamp',  # build time aggregations using this datetime col
+    entity_id='id',  # aggregate by id
+    dimensions=None, entity_name=None)
 
 '''
 You also need a DataAggregator object that contains the metadata about
@@ -483,25 +449,13 @@ using a lists of "simple_aggregate" and "complex_aggregate" functions.
 
 '''
 
-day_agg = DataAggregator(
-    name= 'day_agg',
-    granularity = daily,
-    agg_dict = {
-        'x1' : ['sum'],
-        'x2' : ['min','max']
-    },
-    input_items = ['x1','x2'],
-    output_items = ['x1','x2_min','x2_max']
-    )
+day_agg = DataAggregator(name='day_agg', granularity=daily, agg_dict={'x1': ['sum'], 'x2': ['min', 'max']},
+    input_items=['x1', 'x2'], output_items=['x1', 'x2_min', 'x2_max'])
 
-stages = {
-    ('get_data',None) : [sample_data],
-    ('transform',None) :  [job_task],
-    ('aggregate',daily) : day_agg
-}
+stages = {('get_data', None): [sample_data], ('transform', None): [job_task], ('aggregate', daily): day_agg}
 
-my_job = CustomJob('basic_tutorial_job',db=db,stages=stages)
-j = JobController(payload=my_job, save_trace_to_file = True, data_writer = DataWriterFile )
+my_job = CustomJob('basic_tutorial_job', db=db, stages=stages)
+j = JobController(payload=my_job, save_trace_to_file=True, data_writer=DataWriterFile)
 j.execute()
 
 '''
@@ -514,5 +468,3 @@ id	evt_timestamp	x1	x2_min	x2_max
 A01	8/8/2019 0:00	3	4 	    3
 
 '''
-
-

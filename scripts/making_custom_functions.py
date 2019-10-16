@@ -102,7 +102,6 @@ provide a schema.
 '''
 db_schema = None
 
-
 '''
 Use the credentials to build an AS Database connection.
 '''
@@ -162,17 +161,17 @@ UIFunctionOutSingle class.
 
 '''
 
+
 class MultiplyTwoItems(BaseTransformer):
     '''
     Multiply two input items together to produce output column
     '''
-    
-    def __init__(self, input_item_1, input_item_2, output_item ):
+
+    def __init__(self, input_item_1, input_item_2, output_item):
         self.input_item_1 = input_item_1
         self.input_item_2 = input_item_2
         self.output_item = output_item
         super().__init__()
-
 
     def execute(self, df):
         df = df.copy()
@@ -181,27 +180,16 @@ class MultiplyTwoItems(BaseTransformer):
 
     @classmethod
     def build_ui(cls):
-        #define arguments that behave as function inputs
+        # define arguments that behave as function inputs
         inputs = []
-        inputs.append(ui.UISingleItem(
-                name = 'input_item_1',
-                datatype=float,
-                description = 'Input item 1'
-                                              ))
-        inputs.append(ui.UISingleItem(
-                name = 'input_item_2',
-                datatype=float,
-                description = "Input item 2"
-                                              ))
-        #define arguments that behave as function outputs
+        inputs.append(ui.UISingleItem(name='input_item_1', datatype=float, description='Input item 1'))
+        inputs.append(ui.UISingleItem(name='input_item_2', datatype=float, description="Input item 2"))
+        # define arguments that behave as function outputs
         outputs = []
-        outputs.append(ui.UIFunctionOutSingle(
-                name = 'output_item',
-                datatype=float,
-                description='output data'
-                ))
-        return (inputs,outputs)
-    
+        outputs.append(ui.UIFunctionOutSingle(name='output_item', datatype=float, description='output data'))
+        return (inputs, outputs)
+
+
 '''
 
 This python file is a script as it is executable. Each time AS runs the
@@ -232,12 +220,9 @@ will the result data item be called.
 
 '''
 
-fn = MultiplyTwoItems(
-        input_item_1='x1',
-        input_item_2='x2',
-        output_item='y')
+fn = MultiplyTwoItems(input_item_1='x1', input_item_2='x2', output_item='y')
 
-df = fn.execute_local_test(generate_days=1,to_csv=True)
+df = fn.execute_local_test(generate_days=1, to_csv=True)
 print(df)
 
 '''
@@ -260,12 +245,9 @@ specify datatypes by passing a list of SQL Alchemy column objects.
 
 '''
 
-cols = [
-    Column('string_1', String(255))
-        ]
+cols = [Column('string_1', String(255))]
 
-df = fn.execute_local_test(generate_days = 1,to_csv=True,
-                           columns = cols)
+df = fn.execute_local_test(generate_days=1, to_csv=True, columns=cols)
 
 '''
 Custom functions must be registered in the AS function catalog before
@@ -286,8 +268,8 @@ at a time. You can also register a whole module file with all of its functions.
 '''
 
 from iotfunctions import bif
-db.register_module(bif)
 
+db.register_module(bif)
 
 '''
 
@@ -300,18 +282,3 @@ basic. To get an idea some of the more interesting things you can do in
 custom functions, we encourage you to browse through the sample module.
 
 '''
-
-
-
-
-
-
-
-
-
-    
-    
-
-
-
-

@@ -11,16 +11,13 @@ Executing this script will start a server. view http://localhost:8080/ to test t
 import web
 import json
 
-urls = (
-  '/', 'index'
-)
+urls = ('/', 'index')
+
+
 class index:
 
     def GET(self):
-
-        response = {"deviceid" : ["A101","B102"],
-                    "temp" : [37,39],
-                    "pressure" : [92,89]}
+        response = {"deviceid": ["A101", "B102"], "temp": [37, 39], "pressure": [92, 89]}
 
         web.header('Content-Type', 'application/json')
         return json.dumps(response)

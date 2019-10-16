@@ -30,12 +30,7 @@ midnight at which each shift started and ended.
 
 '''
 
-shift_dict = {
-        "1": (5.5, 14),
-        "2": (14, 21),
-        "3": (21, 29.5)
-    }
-
+shift_dict = {"1": (5.5, 14), "2": (14, 21), "3": (21, 29.5)}
 
 '''
 This shift_dict describes 3 shifts numbered 1 to 3. The first shift starts at 5:30 (5.5 hours
@@ -45,60 +40,32 @@ used to mark the start of the first shift)
 
 '''
 
-
-entity_name = 'shift_calendar_test'         # you can give your entity type a better name
-db = Database(credentials = credentials)
-db_schema = None                            # set if you are not using the default
+entity_name = 'shift_calendar_test'  # you can give your entity type a better name
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 
 '''
 Build an entity type with some test metrics including a slowly changing dimension for owner.
 '''
 
-sim_parameters = {
-    "data_item_mean" : {'temp': 22,
-                        'pressure' : 320},
-    "data_item_sd": {'temp': 2,
-                     'pressure': 5},
-    "data_item_domain" : {'category_code' : ['A','B','C']},
-    "scds": {'owner': [
-                'Fred K',
-                'Mary J',
-                'Jane S',
-                'John H',
-                'Harry L',
-                'Steve S']
-    }
-}
+sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5},
+    "data_item_domain": {'category_code': ['A', 'B', 'C']},
+    "scds": {'owner': ['Fred K', 'Mary J', 'Jane S', 'John H', 'Harry L', 'Steve S']}}
 
-scd_name = '%s_scd_owner' %entity_name
+scd_name = '%s_scd_owner' % entity_name
 
 # entity has an EntityDataGenerator function to generate data
 # also has a SCDLookup function to retrieve data
 
-entity = EntityType(entity_name,db,
-                    Column('temp',Float()),
-                    Column('pressure', Float()),
-                    Column('company_code',String(50)),
-                    Column('category_code',String(5)),
-                    bif.EntityDataGenerator(
-                        parameters= sim_parameters,
-                        data_item = 'is_generated'
-                            ),
-                    bif.ShiftCalendar(
-                        shift_definition= shift_dict,
-                        period_start_date= 'shift_start_date',
-                        period_end_date= 'shift_end_date',
-                        shift_day = 'shift_day',
-                        shift_id = 'shift_id'
-                    ),
-                    bif.SCDLookup(table_name=scd_name,
-                                  output_item='owner'),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
+                    Column('company_code', String(50)), Column('category_code', String(5)),
+                    bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
+                    bif.ShiftCalendar(shift_definition=shift_dict, period_start_date='shift_start_date',
+                        period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
+                    bif.SCDLookup(table_name=scd_name, output_item='owner'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
-entity.exec_local_pipeline(start_ts = dt.datetime.utcnow() - dt.timedelta(days=30))
+entity.exec_local_pipeline(start_ts=dt.datetime.utcnow() - dt.timedelta(days=30))
 
 '''
 Execution results
@@ -140,7 +107,7 @@ per entity type.
 
 '''
 
-print (entity.get_custom_calendar())
+print(entity.get_custom_calendar())
 
 '''
 The function object is returned when executing EntityType.get_custom_calendar(). You can
@@ -148,8 +115,3 @@ use this function object to get access to the shift definition or call its execu
 on new data.
   
 '''
-
-
-
-
-

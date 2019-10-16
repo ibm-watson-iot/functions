@@ -23,12 +23,12 @@ pipeline to real entity data so that you can what the actual results that the
 function will deliver.
 
 '''
-    
+
 '''
 A database object is our connection to the mother ship
 '''
-db = Database(credentials = credentials)
-db_schema = None #  set if you are not using the default
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 
 '''
 To do anything with IoT Platform Analytics, you will need one or more entity type. 
@@ -46,21 +46,13 @@ The keyword args dict specifies extra properties. The database schema is only
 needed if you are not using the default schema. You can also rename the timestamp.
 
 '''
-entity_name = 'widgets' 
+entity_name = 'widgets'
 db_schema = None  # replace if you are not using the default schema
-db.drop_table(entity_name, schema = db_schema)
-entity = EntityType(entity_name,db,
-                    Column('company_code',String(50)),
-                    Column('temp',Float()),
+db.drop_table(entity_name, schema=db_schema)
+entity = EntityType(entity_name, db, Column('company_code', String(50)), Column('temp', Float()),
                     Column('pressure', Float()),
-                    bif.EntityDataGenerator(
-                        ids = ['A01','A02','B01'],
-                        data_item = 'is_generated'
-                            ),                    
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+                    bif.EntityDataGenerator(ids=['A01', 'A02', 'B01'], data_item='is_generated'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 '''
 When creating an EntityType object you will need to specify the name of the entity, the database
 object that will contain entity data
@@ -112,12 +104,11 @@ You can select custom start and end dates for execution.
 
 start = dt.datetime.utcnow() - dt.timedelta(days=7)
 end = dt.datetime.utcnow() - dt.timedelta(days=1)
-entity.exec_local_pipeline(start_ts=start,end_ts=end)
+entity.exec_local_pipeline(start_ts=start, end_ts=end)
 
 '''
 You can also execute on a specific list of entities
 
 '''
 
-entity.exec_local_pipeline(entities=['73000','73001'])
-
+entity.exec_local_pipeline(entities=['73000', '73001'])

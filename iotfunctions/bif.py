@@ -22,12 +22,10 @@ import logging
 import warnings
 import json
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from .base import (BaseTransformer, BaseEvent, BaseSCDLookup,
-                   BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
+from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
                    BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
 
-from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle,
-                 UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
+from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIStatusFlag, UIParameters)
 
 from .util import adjust_probabilities, reset_df_index
@@ -46,14 +44,10 @@ class ActivityDuration(BaseDBActivityMerge):
 
     _is_instance_level_logged = False
 
-    def __init__(self, table_name, activity_codes,
-                 activity_duration=None,
-                 additional_items=None,
+    def __init__(self, table_name, activity_codes, activity_duration=None, additional_items=None,
                  additional_output_names=None):
-        super().__init__(input_activities=activity_codes,
-                         activity_duration=activity_duration,
-                         additional_items=additional_items,
-                         additional_output_names=additional_output_names)
+        super().__init__(input_activities=activity_codes, activity_duration=activity_duration,
+                         additional_items=additional_items, additional_output_names=additional_output_names)
 
         self.table_name = table_name
         self.activity_codes = activity_codes
@@ -64,24 +58,13 @@ class ActivityDuration(BaseDBActivityMerge):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(name='table_name',
-                               datatype=str,
-                               description='Source table name',
-                               ))
-        inputs.append(UIMulti(name='activity_codes',
-                              datatype=str,
-                              description='Comma separated list of activity codes',
-                              output_item='activity_duration',
-                              is_output_datatype_derived=False,
-                              output_datatype=float))
-        inputs.append(UIMulti(name='additional_items',
-                              datatype=str,
-                              required=False,
+        inputs.append(UISingle(name='table_name', datatype=str, description='Source table name', ))
+        inputs.append(UIMulti(name='activity_codes', datatype=str, description='Comma separated list of activity codes',
+                              output_item='activity_duration', is_output_datatype_derived=False, output_datatype=float))
+        inputs.append(UIMulti(name='additional_items', datatype=str, required=False,
                               description='Comma separated list of additional column names to retrieve',
-                              output_item='additional_output_names',
-                              is_output_datatype_derived=True,
-                              output_datatype=None
-                              ))
+                              output_item='additional_output_names', is_output_datatype_derived=True,
+                              output_datatype=None))
         outputs = []
 
         return (inputs, outputs)
@@ -110,17 +93,12 @@ class AggregateWithExpression(BaseSimpleAggregator):
     @classmethod
     def build_ui(cls):
         inputs = []
-        inputs.append(UIMultiItem(name='input_items',
-                                  datatype=None,
-                                  description=('Choose the data items'
-                                               ' that you would like to'
-                                               ' aggregate'),
-                                  output_item='output_items',
-                                  is_output_datatype_derived=True
-                                  ))
+        inputs.append(UIMultiItem(name='input_items', datatype=None, description=('Choose the data items'
+                                                                                  ' that you would like to'
+                                                                                  ' aggregate'),
+                                  output_item='output_items', is_output_datatype_derived=True))
 
-        inputs.append(UIExpression(name='expression',
-                                   description='Paste in or type an AS expression'))
+        inputs.append(UIExpression(name='expression', description='Paste in or type an AS expression'))
 
         return (inputs, [])
 
@@ -166,14 +144,10 @@ class AlertExpression(BaseEvent):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIExpression(name='expression',
-                                   description="Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
-                                   ))
+                                   description="Define alert expression using pandas systax. Example: df['inlet_temperature']>50"))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='alert_name',
-                                           datatype=bool,
-                                           description='Output of alert function'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
         return (inputs, outputs)
 
 
@@ -182,10 +156,7 @@ class AlertOutOfRange(BaseEvent):
     Fire alert when metric exceeds an upper threshold or drops below a lower_theshold. Specify at least one threshold.
     """
 
-    def __init__(self, input_item,
-                 lower_threshold=None,
-                 upper_threshold=None,
-                 output_alert_upper='output_alert_upper',
+    def __init__(self, input_item, lower_threshold=None, upper_threshold=None, output_alert_upper='output_alert_upper',
                  output_alert_lower='output_alert_lower'):
 
         self.input_item = input_item
@@ -221,30 +192,17 @@ class AlertOutOfRange(BaseEvent):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(name='input_item',
-                                   datatype=None,
-                                   description='Item to alert on'
-                                   ))
-        inputs.append(UISingle(name='lower_threshold',
-                               datatype=float,
-                               description='Alert when item value is lower than this value',
-                               required=False,
-                               ))
-        inputs.append(UISingle(name='upper_threshold',
-                               datatype=float,
-                               description='Alert when item value is higher than this value',
-                               required=False,
-                               ))
+        inputs.append(UISingleItem(name='input_item', datatype=None, description='Item to alert on'))
+        inputs.append(UISingle(name='lower_threshold', datatype=float,
+                               description='Alert when item value is lower than this value', required=False, ))
+        inputs.append(UISingle(name='upper_threshold', datatype=float,
+                               description='Alert when item value is higher than this value', required=False, ))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_alert_lower',
-                                           datatype=bool,
-                                           description='Output of alert function'
-                                           ))
-        outputs.append(UIFunctionOutSingle(name='output_alert_upper',
-                                           datatype=bool,
-                                           description='Output of alert function'
-                                           ))
+        outputs.append(
+            UIFunctionOutSingle(name='output_alert_lower', datatype=bool, description='Output of alert function'))
+        outputs.append(
+            UIFunctionOutSingle(name='output_alert_upper', datatype=bool, description='Output of alert function'))
 
         return (inputs, outputs)
 
@@ -254,8 +212,7 @@ class AlertHighValue(BaseEvent):
     Fire alert when metric exceeds an upper threshold'.
     """
 
-    def __init__(self, input_item, upper_threshold=None,
-                 alert_name='alert_name', ):
+    def __init__(self, input_item, upper_threshold=None, alert_name='alert_name', ):
         self.input_item = input_item
         self.upper_threshold = float(upper_threshold)
         self.alert_name = alert_name
@@ -276,20 +233,12 @@ class AlertHighValue(BaseEvent):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(name='input_item',
-                                   datatype=None,
-                                   description='Item to alert on'
-                                   ))
-        inputs.append(UISingle(name='upper_threshold',
-                               datatype=float,
-                               description='Alert when item value is higher than this value'
-                               ))
+        inputs.append(UISingleItem(name='input_item', datatype=None, description='Item to alert on'))
+        inputs.append(UISingle(name='upper_threshold', datatype=float,
+                               description='Alert when item value is higher than this value'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='alert_name',
-                                           datatype=bool,
-                                           description='Output of alert function'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
         return (inputs, outputs)
 
     def _getMetadata(self, df=None, new_df=None, inputs=None, outputs=None, constants=None):
@@ -301,8 +250,7 @@ class AlertLowValue(BaseEvent):
     Fire alert when metric goes below a threshold'.
     """
 
-    def __init__(self, input_item, lower_threshold=None,
-                 alert_name='alert_name', ):
+    def __init__(self, input_item, lower_threshold=None, alert_name='alert_name', ):
         self.input_item = input_item
         self.lower_threshold = float(lower_threshold)
         self.alert_name = alert_name
@@ -325,20 +273,12 @@ class AlertLowValue(BaseEvent):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(name='input_item',
-                                   datatype=None,
-                                   description='Item to alert on'
-                                   ))
-        inputs.append(UISingle(name='lower_threshold',
-                               datatype=float,
-                               description='Alert when item value is lower than this value'
-                               ))
+        inputs.append(UISingleItem(name='input_item', datatype=None, description='Item to alert on'))
+        inputs.append(UISingle(name='lower_threshold', datatype=float,
+                               description='Alert when item value is lower than this value'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='alert_name',
-                                           datatype=bool,
-                                           description='Output of alert function'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
         return (inputs, outputs)
 
 
@@ -362,26 +302,20 @@ class AutoTest(BaseTransformer):
         db = self.get_db()
         bucket = self.get_bucket_name()
 
-        file = db.cos_load(filename=self.test_datset_name,
-                           bucket=bucket,
-                           binary=False)
+        file = db.cos_load(filename=self.test_datset_name, bucket=bucket, binary=False)
 
     @classmethod
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = OrderedDict()
-        inputs['test_datset_name'] = UISingle(name='test_datset_name',
-                                              datatype=str,
+        inputs['test_datset_name'] = UISingle(name='test_datset_name', datatype=str,
                                               description=('Name of cos object containing'
                                                            ' test data. Object is a pickled '
                                                            ' dataframe. Object must be placed '
-                                                           ' in the bos_runtime_bucket')
-                                              )
-        inputs['columns_to_test'] = UIMultiItem(name='input_items',
-                                                datatype=None,
+                                                           ' in the bos_runtime_bucket'))
+        inputs['columns_to_test'] = UIMultiItem(name='input_items', datatype=None,
                                                 description=('Choose the data items that'
-                                                             ' you would like to compare')
-                                                )
+                                                             ' you would like to compare'))
         outputs = OrderedDict()
 
         return (inputs, outputs)
@@ -409,8 +343,7 @@ class Coalesce(BaseTransformer):
         inputs.append(UIMultiItem('data_items'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle('output_item',
-                                           datatype=float))
+        outputs.append(UIFunctionOutSingle('output_item', datatype=float))
 
         return (inputs, outputs)
 
@@ -437,9 +370,7 @@ class CoalesceDimension(BaseTransformer):
         inputs.append(UIMultiItem('data_items'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle('output_item',
-                                           datatype=str,
-                                           tags=['DIMENSION']))
+        outputs.append(UIFunctionOutSingle('output_item', datatype=str, tags=['DIMENSION']))
 
         return (inputs, outputs)
 
@@ -471,22 +402,15 @@ class ConditionalItems(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIExpression(
-            name='conditional_expression',
-            description="expression that returns a True/False value, eg. if df['sensor_is_valid']==True"
-        ))
-        inputs.append(UIMultiItem(
-            name='conditional_items',
-            datatype=None,
-            description='Data items that have conditional values, e.g. temp and pressure'
-        ))
+        inputs.append(UIExpression(name='conditional_expression',
+            description="expression that returns a True/False value, eg. if df['sensor_is_valid']==True"))
+        inputs.append(UIMultiItem(name='conditional_items', datatype=None,
+            description='Data items that have conditional values, e.g. temp and pressure'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutMulti(name='output_items',
-                                          cardinality_from='conditional_items',
-                                          is_datatype_derived=False,
-                                          description='Function output items'
-                                          ))
+        outputs.append(
+            UIFunctionOutMulti(name='output_items', cardinality_from='conditional_items', is_datatype_derived=False,
+                               description='Function output items'))
 
         return (inputs, outputs)
 
@@ -521,8 +445,7 @@ class DateDifference(BaseTransformer):
         else:
             ds_2 = df[self.date_2]
 
-        df[self.num_days] = (ds_2 - ds_1). \
-                                dt.total_seconds() / (60 * 60 * 24)
+        df[self.num_days] = (ds_2 - ds_1).dt.total_seconds() / (60 * 60 * 24)
 
         return df
 
@@ -533,26 +456,15 @@ class DateDifference(BaseTransformer):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(name='date_1',
-                                   datatype=dt.datetime,
-                                   required=False,
+        inputs.append(UISingleItem(name='date_1', datatype=dt.datetime, required=False,
                                    description=('Date data item. Use timestamp'
-                                                ' if no date specified')
-                                   ))
-        inputs.append(UISingleItem(name='date_2',
-                                   datatype=dt.datetime,
-                                   required=False,
+                                                ' if no date specified')))
+        inputs.append(UISingleItem(name='date_2', datatype=dt.datetime, required=False,
                                    description=('Date data item. Use timestamp'
-                                                ' if no date specified')
-                                   ))
+                                                ' if no date specified')))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(
-            UIFunctionOutSingle(
-                name='num_days',
-                datatype=float,
-                description='Number of days')
-        )
+        outputs.append(UIFunctionOutSingle(name='num_days', datatype=float, description='Number of days'))
 
         return (inputs, outputs)
 
@@ -582,8 +494,7 @@ class DateDifferenceConstant(BaseTransformer):
         constant_value = c[self.date_constant]
         ds_2 = pd.Series(data=constant_value, index=df.index)
         ds_2 = pd.to_datetime(ds_2)
-        df[self.num_days] = (ds_2 - ds_1). \
-                                dt.total_seconds() / (60 * 60 * 24)
+        df[self.num_days] = (ds_2 - ds_1).dt.total_seconds() / (60 * 60 * 24)
 
         return df
 
@@ -594,24 +505,13 @@ class DateDifferenceConstant(BaseTransformer):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(name='date_1',
-                                   datatype=dt.datetime,
-                                   required=False,
+        inputs.append(UISingleItem(name='date_1', datatype=dt.datetime, required=False,
                                    description=('Date data item. Use timestamp'
-                                                ' if no date specified')
-                                   ))
-        inputs.append(UISingle(name='date_constant',
-                               datatype=str,
-                               description='Name of datetime constant'
-                               ))
+                                                ' if no date specified')))
+        inputs.append(UISingle(name='date_constant', datatype=str, description='Name of datetime constant'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(
-            UIFunctionOutSingle(
-                name='num_days',
-                datatype=float,
-                description='Number of days')
-        )
+        outputs.append(UIFunctionOutSingle(name='num_days', datatype=float, description='Number of days'))
 
         return (inputs, outputs)
 
@@ -627,13 +527,8 @@ class DatabaseLookup(BaseDatabaseLookup):
     _auto_create_lookup_table = False
 
     def __init__(self, lookup_table_name, lookup_keys, lookup_items, parse_dates=None, output_items=None):
-        super().__init__(
-            lookup_table_name=lookup_table_name,
-            lookup_keys=lookup_keys,
-            lookup_items=lookup_items,
-            parse_dates=parse_dates,
-            output_items=output_items
-        )
+        super().__init__(lookup_table_name=lookup_table_name, lookup_keys=lookup_keys, lookup_items=lookup_items,
+            parse_dates=parse_dates, output_items=output_items)
 
     @classmethod
     def build_ui(cls):
@@ -642,31 +537,17 @@ class DatabaseLookup(BaseDatabaseLookup):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(name='lookup_table_name',
-                               datatype=str,
-                               description='Table name to perform lookup against'
-                               )),
-        inputs.append(UIMulti(name='lookup_keys',
-                              datatype=str,
-                              description='Data items to use as a key to the lookup'
-                              ))
-        inputs.append(UIMulti(name='lookup_items',
-                              datatype=str,
-                              description='columns to return from the lookup'
-                              )),
-        inputs.append(UIMulti(name='parse_dates',
-                              datatype=str,
-                              description='columns that should be converted to dates',
-                              required=False
-                              ))
+        inputs.append(
+            UISingle(name='lookup_table_name', datatype=str, description='Table name to perform lookup against')),
+        inputs.append(UIMulti(name='lookup_keys', datatype=str, description='Data items to use as a key to the lookup'))
+        inputs.append(UIMulti(name='lookup_items', datatype=str, description='columns to return from the lookup')),
+        inputs.append(UIMulti(name='parse_dates', datatype=str, description='columns that should be converted to dates',
+                              required=False))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutMulti(name='output_items',
-                                          cardinality_from='lookup_items',
-                                          is_datatype_derived=False,
-                                          description='Function output items',
-                                          tags=['DIMENSION']
-                                          ))
+        outputs.append(
+            UIFunctionOutMulti(name='output_items', cardinality_from='lookup_items', is_datatype_derived=False,
+                               description='Function output items', tags=['DIMENSION']))
         return (inputs, outputs)
 
     def get_item_values(self, arg, db):
@@ -686,10 +567,8 @@ class DeleteInputData(BasePreload):
 
     def execute(self, df=None, start_ts=None, end_ts=None, entities=None):
         entity_type = self.get_entity_type()
-        self.get_db().delete_data(table_name=entity_type.name,
-                                  schema=entity_type._db_schema,
-                                  timestamp=entity_type._timestamp,
-                                  older_than_days=self.older_than_days)
+        self.get_db().delete_data(table_name=entity_type.name, schema=entity_type._db_schema,
+                                  timestamp=entity_type._timestamp, older_than_days=self.older_than_days)
         msg = 'Deleted data for %s' % (self._entity_type.name)
         logger.debug(msg)
         return True
@@ -701,19 +580,13 @@ class DeleteInputData(BasePreload):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='dummy_items',
-                                  datatype=None,
-                                  description='Dummy data items'
-                                  ))
-        inputs.append(UISingle(name='older_than_days',
-                               datatype=float,
-                               description='Delete data older than this many days'
-                               ))
+        inputs.append(UIMultiItem(name='dummy_items', datatype=None, description='Dummy data items'))
+        inputs.append(
+            UISingle(name='older_than_days', datatype=float, description='Delete data older than this many days'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-            name='output_item', datatype=bool, description='Returns a status flag of True when executed')
-        )
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool,
+            description='Returns a status flag of True when executed'))
 
         return (inputs, outputs)
 
@@ -724,8 +597,7 @@ class DropNull(BaseMetadataProvider):
     '''
 
     def __init__(self, exclude_items, drop_all_null_rows=True, output_item='drop_nulls'):
-        kw = {'_custom_exclude_col_from_auto_drop_nulls': exclude_items,
-              '_drop_all_null_rows': drop_all_null_rows}
+        kw = {'_custom_exclude_col_from_auto_drop_nulls': exclude_items, '_drop_all_null_rows': drop_all_null_rows}
         super().__init__(dummy_items=exclude_items, output_item=output_item, **kw)
         self.exclude_items = exclude_items
         self.drop_all_null_rows = drop_all_null_rows
@@ -737,18 +609,13 @@ class DropNull(BaseMetadataProvider):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='exclude_items',
-                                  datatype=None,
-                                  description='Ignore non-null values in these columns when dropping rows'
-                                  ))
-        inputs.append(UISingle(name='drop_all_null_rows',
-                               datatype=bool,
-                               description='Enable or disable drop of all null rows'
-                               ))
+        inputs.append(UIMultiItem(name='exclude_items', datatype=None,
+                                  description='Ignore non-null values in these columns when dropping rows'))
+        inputs.append(
+            UISingle(name='drop_all_null_rows', datatype=bool, description='Enable or disable drop of all null rows'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool,
                                            description='Returns a status flag of True when executed'))
 
         return (inputs, outputs)
@@ -778,8 +645,8 @@ class EntityDataGenerator(BasePreload):
     freq = '5min'
     scd_frequency = '1D'
     activity_frequency = '3D'
-    start_entity_id = 73000 #used to build entity ids
-    auto_entity_count = 5 #default number of entities to generate data for
+    start_entity_id = 73000  # used to build entity ids
+    auto_entity_count = 5  # default number of entities to generate data for
     data_item_mean = None
     data_item_sd = None
     data_item_domain = None
@@ -789,10 +656,7 @@ class EntityDataGenerator(BasePreload):
 
     # ids of entities to generate. Change the value of the range() function to change the number of entities
 
-    def __init__(self, ids=None,
-                 output_item='entity_data_generator',
-                 parameters=None,
-                 **kw):
+    def __init__(self, ids=None, output_item='entity_data_generator', parameters=None, **kw):
 
         if parameters is None:
             parameters = {}
@@ -815,11 +679,7 @@ class EntityDataGenerator(BasePreload):
         if self.scds is None:
             self.scds = {}
 
-    def execute(self,
-                df,
-                start_ts=None,
-                end_ts=None,
-                entities=None):
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
 
         # Define simulation related metadata on the entity type
 
@@ -828,8 +688,7 @@ class EntityDataGenerator(BasePreload):
 
         # Add scds
         for key, values in list(self.scds.items()):
-            self._entity_type.add_slowly_changing_dimension(
-                    key,String(255))
+            self._entity_type.add_slowly_changing_dimension(key, String(255))
             self.data_item_domain[key] = values
 
         # Add activities metadata to entity type        
@@ -844,21 +703,11 @@ class EntityDataGenerator(BasePreload):
         else:
             seconds = pd.to_timedelta(self.freq).total_seconds()
 
-        df = self._entity_type.generate_data(
-            entities=entities,
-            days=0,
-            seconds=seconds,
-            freq=self.freq,
-            scd_freq=self.scd_frequency,
-            write=True,
-            data_item_mean=self.data_item_mean,
-            data_item_sd=self.data_item_sd,
-            data_item_domain=self.data_item_domain,
-            drop_existing=self.drop_existing)
+        df = self._entity_type.generate_data(entities=entities, days=0, seconds=seconds, freq=self.freq,
+            scd_freq=self.scd_frequency, write=True, data_item_mean=self.data_item_mean, data_item_sd=self.data_item_sd,
+            data_item_domain=self.data_item_domain, drop_existing=self.drop_existing)
 
-        kw = {'rows_generated': len(df.index),
-              'start_ts': start_ts,
-              'seconds': seconds}
+        kw = {'rows_generated': len(df.index), 'start_ts': start_ts, 'seconds': seconds}
 
         trace = self.get_trace()
         trace.update_last_entry(df=df, **kw)
@@ -881,16 +730,12 @@ class EntityDataGenerator(BasePreload):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMulti(name='ids',
-                              datatype=str,
-                              description='Comma separate list of entity ids, e.g: X902-A01,X902-A03'
-                              )
-                      )
+        inputs.append(
+            UIMulti(name='ids', datatype=str, description='Comma separate list of entity ids, e.g: X902-A01,X902-A03'))
         inputs.append(UIParameters())
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool,
                                            description='Returns a status flag of True when executed'))
 
         return (inputs, outputs)
@@ -904,8 +749,7 @@ class EntityFilter(BaseMetadataProvider):
 
     def __init__(self, entity_list, output_item='is_filter_set'):
         dummy_items = ['deviceid']
-        kwargs = {'_entity_filter_list': entity_list
-                  }
+        kwargs = {'_entity_filter_list': entity_list}
         super().__init__(dummy_items, output_item=output_item, **kwargs)
         self.entity_list = entity_list
 
@@ -916,14 +760,10 @@ class EntityFilter(BaseMetadataProvider):
         '''
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMulti(name='entity_list',
-                              datatype=str,
-                              description='comma separated list of entity ids'
-                              ))
+        inputs.append(UIMulti(name='entity_list', datatype=str, description='comma separated list of entity ids'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool,
                                            description='Returns a status flag of True when executed'))
 
         return (inputs, outputs)
@@ -963,15 +803,10 @@ class PythonExpression(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIExpression(name='expression',
-                                   description="Define alert expression using pandas systax. Example: df['inlet_temperature']>50"
-                                   )
-                      )
+                                   description="Define alert expression using pandas systax. Example: df['inlet_temperature']>50"))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_name',
-                                           datatype=float,
-                                           description='Output of expression'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_name', datatype=float, description='Output of expression'))
 
         return (inputs, outputs)
 
@@ -989,8 +824,7 @@ class GetEntityData(BaseDataSource):
     merge_method = 'outer'
     allow_projection_list_trim = False
 
-    def __init__(self, source_entity_type_name, key_map_column, input_items,
-                 output_items=None):
+    def __init__(self, source_entity_type_name, key_map_column, input_items, output_items=None):
         self.source_entity_type_name = source_entity_type_name
         self.key_map_column = key_map_column
         super().__init__(input_items=input_items, output_items=output_items)
@@ -1017,20 +851,13 @@ class GetEntityData(BaseDataSource):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(name='source_entity_type_name',
-                               datatype=str,
-                               description="Enter the name of the entity type that you would like to retrieve data from")
-                      )
-        inputs.append(UISingle(name='key_map_column',
-                               datatype=str,
-                               description="Enter the name of the column on the source entity type that represents the map to the device id of this entity type")
-                      )
-        inputs.append(UIMulti(name='input_items',
-                              datatype=str,
+        inputs.append(UISingle(name='source_entity_type_name', datatype=str,
+                               description="Enter the name of the entity type that you would like to retrieve data from"))
+        inputs.append(UISingle(name='key_map_column', datatype=str,
+                               description="Enter the name of the column on the source entity type that represents the map to the device id of this entity type"))
+        inputs.append(UIMulti(name='input_items', datatype=str,
                               description="Comma separated list of data item names to retrieve from the source entity type",
-                              output_item='output_items',
-                              is_output_datatype_derived=True)
-                      )
+                              output_item='output_items', is_output_datatype_derived=True))
         outputs = []
 
         return (inputs, outputs)
@@ -1055,25 +882,18 @@ class EntityId(BaseTransformer):
             df[self.output_item] = df[self.get_entity_type()._entity_id]
         else:
             df[self.output_item] = np.where(df[self.data_items].notna().max(axis=1),
-                                            df[self.get_entity_type()._entity_id],
-                                            None)
+                                            df[self.get_entity_type()._entity_id], None)
         return df
 
     @classmethod
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='data_items',
-                                  datatype=None,
-                                  required=False,
-                                  description='Choose one or more data items. If data items are defined, entity id will only be shown if these data items are not null'
-                                  ))
+        inputs.append(UIMultiItem(name='data_items', datatype=None, required=False,
+                                  description='Choose one or more data items. If data items are defined, entity id will only be shown if these data items are not null'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
-                                           description='Dummy function output'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))
 
         return (inputs, outputs)
 
@@ -1099,8 +919,7 @@ class IfThenElse(BaseTransformer):
     def execute(self, df):
         c = self._entity_type.get_attributes_dict()
         df = df.copy()
-        df[self.output_item] = np.where(eval(self.conditional_expression),
-                                        eval(self.true_expression),
+        df[self.output_item] = np.where(eval(self.conditional_expression), eval(self.true_expression),
                                         eval(self.false_expression))
         return df
 
@@ -1109,20 +928,12 @@ class IfThenElse(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIExpression(name='conditional_expression',
-                                   description="expression that returns a True/False value, eg. if df['temp']>50 then df['temp'] else None"
-                                   ))
-        inputs.append(UIExpression(name='true_expression',
-                                   description="expression when true, eg. df['temp']"
-                                   ))
-        inputs.append(UIExpression(name='false_expression',
-                                   description='expression when false, eg. None'
-                                   ))
+                                   description="expression that returns a True/False value, eg. if df['temp']>50 then df['temp'] else None"))
+        inputs.append(UIExpression(name='true_expression', description="expression when true, eg. df['temp']"))
+        inputs.append(UIExpression(name='false_expression', description='expression when false, eg. None'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
-                                           description='Dummy function output'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))
 
         return (inputs, outputs)
 
@@ -1182,13 +993,9 @@ class PackageInfo(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMulti(name='package_names',
-                              datatype=str,
-                              description='Comma separate list of python package names',
-                              output_item='version_output',
-                              is_output_datatype_derived=False,
-                              output_datatype=str
-                              ))
+        inputs.append(
+            UIMulti(name='package_names', datatype=str, description='Comma separate list of python package names',
+                    output_item='version_output', is_output_datatype_derived=False, output_datatype=str))
         inputs.append(UISingle(name='install_missing', datatype=bool))
         inputs.append(UISingle(name='add_to_trace', datatype=bool))
         # define arguments that behave as function outputs
@@ -1219,10 +1026,7 @@ class PythonFunction(BaseTransformer):
 
     function_name = 'f'
 
-    def __init__(self, function_code,
-                 input_items,
-                 output_item,
-                 parameters=None):
+    def __init__(self, function_code, input_items, output_item, parameters=None):
 
         self.function_code = function_code
         self.input_items = input_items
@@ -1245,11 +1049,7 @@ class PythonFunction(BaseTransformer):
 
         if not self.function_code.startswith('def '):
             bucket = self.get_bucket_name()
-            fn = self._entity_type.db.cos_load(
-                filename=self.function_code,
-                bucket=bucket,
-                binary=True
-            )
+            fn = self._entity_type.db.cos_load(filename=self.function_code, bucket=bucket, binary=True)
             kw['source'] = 'cos'
             kw['filename'] = self.function_code
             if fn is None:
@@ -1260,10 +1060,7 @@ class PythonFunction(BaseTransformer):
                 raise RuntimeError(msg)
 
         else:
-            fn = self._entity_type.db.make_function(
-                function_name=self.function_name,
-                function_code=self.function_code
-            )
+            fn = self._entity_type.db.make_function(function_name=self.function_name, function_code=self.function_code)
             kw['source'] = 'paste-in code'
             kw['filename'] = None
 
@@ -1273,16 +1070,9 @@ class PythonFunction(BaseTransformer):
         kw['db'] = self._entity_type.db
         kw['c'] = self._entity_type.get_attributes_dict()
         kw['logger'] = logger
-        self.trace_append(
-            msg=self.function_code,
-            log_method=logger.debug,
-            **kw
-        )
+        self.trace_append(msg=self.function_code, log_method=logger.debug, **kw)
 
-        result = fn(
-            df=df,
-            parameters={**kw, **self.parameters}
-        )
+        result = fn(df=df, parameters={**kw, **self.parameters})
 
         df[self.output_item] = result
 
@@ -1293,20 +1083,12 @@ class PythonFunction(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMultiItem('input_items'))
-        inputs.append(UIText(name='function_code',
-                             description='Paste in your function definition'
-                             )
-                      )
-        inputs.append(UISingle(name='parameters',
-                               datatype=dict,
-                               required=False,
-                               description='optional parameters specified in json format'
-                               )
-                      )
+        inputs.append(UIText(name='function_code', description='Paste in your function definition'))
+        inputs.append(UISingle(name='parameters', datatype=dict, required=False,
+                               description='optional parameters specified in json format'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle('output_item',
-                                           datatype=float))
+        outputs.append(UIFunctionOutSingle('output_item', datatype=float))
 
         return (inputs, outputs)
 
@@ -1319,9 +1101,7 @@ class RaiseError(BaseTransformer):
     message displayed in the UI.
     """
 
-    def __init__(self, halt_after,
-                 abort_execution=True,
-                 output_item='pipeline_exception'):
+    def __init__(self, halt_after, abort_execution=True, output_item='pipeline_exception'):
         super().__init__()
         self.halt_after = halt_after
         self.abort_execution = abort_execution
@@ -1341,16 +1121,10 @@ class RaiseError(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='halt_after',
-                                  datatype=None,
-                                  description='Raise error after calculating items'
-                                  ))
+        inputs.append(UIMultiItem(name='halt_after', datatype=None, description='Raise error after calculating items'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
-                                           description='Dummy function output'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))
 
         return (inputs, outputs)
 
@@ -1377,15 +1151,10 @@ class RandomNoise(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(name='standard_deviation',
-                               datatype=float,
-                               description="Standard deviation of noise")
-                      )
-        inputs.append(UIMultiItem(name='input_items',
-                                  description="Chose data items to add noise to",
-                                  output_item='output_items',
-                                  is_output_datatype_derived=True)
-                      )
+        inputs.append(UISingle(name='standard_deviation', datatype=float, description="Standard deviation of noise"))
+        inputs.append(
+            UIMultiItem(name='input_items', description="Chose data items to add noise to", output_item='output_items',
+                        is_output_datatype_derived=True))
         outputs = []
 
         return (inputs, outputs)
@@ -1414,10 +1183,7 @@ class RandomUniform(BaseTransformer):
         inputs.append(UISingle(name='max_value', datatype=float))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=float,
-                                           description='Random output'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='Random output'))
 
         return (inputs, outputs)
 
@@ -1445,10 +1211,7 @@ class RandomNormal(BaseTransformer):
         inputs.append(UISingle(name='standard_deviation', datatype=float))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=float,
-                                           description='Random output'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='Random output'))
 
         return (inputs, outputs)
 
@@ -1474,13 +1237,9 @@ class RandomNull(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='input_items',
-                                  datatype=None,
-                                  description='Select items to apply null replacement to',
-                                  output_item='output_items',
-                                  is_output_datatype_derived=True,
-                                  output_datatype=None
-                                  ))
+        inputs.append(
+            UIMultiItem(name='input_items', datatype=None, description='Select items to apply null replacement to',
+                        output_item='output_items', is_output_datatype_derived=True, output_datatype=None))
         outputs = []
         return (inputs, outputs)
 
@@ -1497,10 +1256,7 @@ class RandomChoiceString(BaseTransformer):
         self.output_item = output_item
 
     def execute(self, df):
-        df[self.output_item] = np.random.choice(
-            a=self.domain_of_values,
-            p=self.probabilities,
-            size=len(df.index))
+        df[self.output_item] = np.random.choice(a=self.domain_of_values, p=self.probabilities, size=len(df.index))
         return df
 
     @classmethod
@@ -1508,20 +1264,12 @@ class RandomChoiceString(BaseTransformer):
         #  define arguments that behave as function inputs
 
         inputs = []
-        inputs.append(UIMulti(name='domain_of_values',
-                              datatype=str,
-                              required=True))
-        inputs.append(UIMulti(name='probabilities',
-                              datatype=float,
-                              required=False))
+        inputs.append(UIMulti(name='domain_of_values', datatype=str, required=True))
+        inputs.append(UIMulti(name='probabilities', datatype=float, required=False))
         #  define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-            name='output_item',
-            datatype=str,
-            description='Random output',
-            tags=['DIMENSION']
-        ))
+        outputs.append(
+            UIFunctionOutSingle(name='output_item', datatype=str, description='Random output', tags=['DIMENSION']))
 
         return (inputs, outputs)
 
@@ -1538,10 +1286,7 @@ class RandomDiscreteNumeric(BaseTransformer):
         self.output_item = output_item
 
     def execute(self, df):
-        df[self.output_item] = np.random.choice(
-            a=self.discrete_values,
-            p=self.probabilities,
-            size=len(df.index))
+        df[self.output_item] = np.random.choice(a=self.discrete_values, p=self.probabilities, size=len(df.index))
 
         return df
 
@@ -1550,15 +1295,10 @@ class RandomDiscreteNumeric(BaseTransformer):
         #  define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMulti(name='discrete_values', datatype=float))
-        inputs.append(UIMulti(name='probabilities', datatype=float,
-                              required=False))
+        inputs.append(UIMulti(name='probabilities', datatype=float, required=False))
         #  define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-            name='output_item',
-            datatype=float,
-            description='Random output'
-        ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='Random output'))
 
         return (inputs, outputs)
 
@@ -1568,10 +1308,7 @@ class SaveCosDataFrame(BaseTransformer):
     Serialize dataframe to COS
     """
 
-    def __init__(self,
-                 filename='job_output_df',
-                 columns=None,
-                 output_item='save_df_result'):
+    def __init__(self, filename='job_output_df', columns=None, output_item='save_df_result'):
 
         super().__init__()
         self.filename = filename
@@ -1586,10 +1323,7 @@ class SaveCosDataFrame(BaseTransformer):
             sf = df
         db = self.get_db()
         bucket = self.get_bucket_name()
-        db.cos_save(persisted_object=sf,
-                    filename=self.filename,
-                    bucket=bucket,
-                    binary=True)
+        db.cos_save(persisted_object=sf, filename=self.filename, bucket=bucket, binary=True)
         df[self.output_item] = True
         return df
 
@@ -1601,10 +1335,7 @@ class SaveCosDataFrame(BaseTransformer):
         inputs.append(UIMultiItem(name='columns'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=str,
-                                           description='Result of save operation'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=str, description='Result of save operation'))
 
         return (inputs, outputs)
 
@@ -1635,17 +1366,10 @@ class ShiftCalendar(BaseTransformer):
     is_custom_calendar = True
     auto_conform_index = True
 
-    def __init__(self, shift_definition=None,
-                 period_start_date='shift_start_date',
-                 period_end_date='shift_end_date',
-                 shift_day='shift_day',
-                 shift_id='shift_id'):
+    def __init__(self, shift_definition=None, period_start_date='shift_start_date', period_end_date='shift_end_date',
+                 shift_day='shift_day', shift_id='shift_id'):
         if shift_definition is None:
-            shift_definition = {
-                "1": [5.5, 14],
-                "2": [14, 21],
-                "3": [21, 29.5]
-            }
+            shift_definition = {"1": [5.5, 14], "2": [14, 21], "3": [21, 29.5]}
         self.shift_definition = shift_definition
         self.period_start_date = period_start_date
         self.period_end_date = period_end_date
@@ -1690,10 +1414,7 @@ class ShiftCalendar(BaseTransformer):
 
         if len(df.index) > 0:
             calendar_df = self.get_data(start_date=start_date, end_date=end_date)
-            df = pd.merge_asof(left=df,
-                               right=calendar_df,
-                               left_on=ts_col,
-                               right_on=self.period_start_date,
+            df = pd.merge_asof(left=df, right=calendar_df, left_on=ts_col, right_on=self.period_start_date,
                                direction='backward')
 
             df = self._entity_type.index_df(df)
@@ -1711,10 +1432,7 @@ class ShiftCalendar(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(name='shift_definition',
-                               datatype=dict,
-                               description=''
-                               ))
+        inputs.append(UISingle(name='shift_definition', datatype=dict, description=''))
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name='period_start_date', datatype=dt.datetime, tags=['DIMENSION']))
@@ -1730,9 +1448,7 @@ class Sleep(BaseTransformer):
     Wait for the designated number of seconds
     """
 
-    def __init__(self, sleep_after,
-                 sleep_duration_seconds=30,
-                 output_item='sleep_status'):
+    def __init__(self, sleep_after, sleep_duration_seconds=30, output_item='sleep_status'):
         super().__init__()
         self.sleep_after = sleep_after
         self.sleep_duration_seconds = sleep_duration_seconds
@@ -1749,18 +1465,12 @@ class Sleep(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='sleep_after',
-                                  datatype=None,
-                                  required=False,
-                                  description='Sleep after calculating items'
-                                  ))
+        inputs.append(
+            UIMultiItem(name='sleep_after', datatype=None, required=False, description='Sleep after calculating items'))
         inputs.append(UISingle(name='sleep_duration_seconds', datatype=float))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
-                                           description='Dummy function output'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))
 
         return (inputs, outputs)
 
@@ -1788,17 +1498,10 @@ class TraceConstants(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='dummy_items',
-                                  datatype=None,
-                                  required=False,
-                                  description='Not required'
-                                  ))
+        inputs.append(UIMultiItem(name='dummy_items', datatype=None, required=False, description='Not required'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
-                                           description='Dummy function output'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))
 
         return (inputs, outputs)
 
@@ -1824,17 +1527,11 @@ class TimestampCol(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='dummy_items',
-                                  datatype=None,
-                                  required=False,
-                                  description='Not required'
-                                  ))
+        inputs.append(UIMultiItem(name='dummy_items', datatype=None, required=False, description='Not required'))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=dt.datetime,
-                                           description='Timestamp column name'
-                                           ))
+        outputs.append(
+            UIFunctionOutSingle(name='output_item', datatype=dt.datetime, description='Timestamp column name'))
 
         return (inputs, outputs)
 
@@ -1877,16 +1574,12 @@ class IoTEntityDataGenerator(BasePreload):
 
     is_deprecated = True
 
-    def __init__(self, ids=None,
-                 output_item='entity_data_generator'):
+    def __init__(self, ids=None, output_item='entity_data_generator'):
         self.ids = ids
         self.output_item = output_item
 
     def get_replacement(self):
-        new = EntityDataGenerator(
-            ids=self.ids,
-            output_item=self.output_item
-        )
+        new = EntityDataGenerator(ids=self.ids, output_item=self.output_item)
 
         return new
 
@@ -1897,26 +1590,13 @@ class IoTCalcSettings(BaseMetadataProvider):
     """
 
     warnings.warn(('IoTCalcSettings is deprecated. Use entity type constants'
-                   ' instead of a metadata provider to set entity type properties'
-                   ))
+                   ' instead of a metadata provider to set entity type properties'))
 
     is_deprecated = True
 
-    def __init__(self,
-                 checkpoint_by_entity=False,
-                 pre_aggregate_time_grain=None,
-                 auto_read_from_ts_table=True,
-                 sum_items=None,
-                 mean_items=None,
-                 min_items=None,
-                 max_items=None,
-                 count_items=None,
-                 sum_outputs=None,
-                 mean_outputs=None,
-                 min_outputs=None,
-                 max_outputs=None,
-                 count_outputs=None,
-                 output_item='output_item'):
+    def __init__(self, checkpoint_by_entity=False, pre_aggregate_time_grain=None, auto_read_from_ts_table=True,
+                 sum_items=None, mean_items=None, min_items=None, max_items=None, count_items=None, sum_outputs=None,
+                 mean_outputs=None, min_outputs=None, max_outputs=None, count_outputs=None, output_item='output_item'):
 
         # metadata for pre-aggregation:
         # pandas aggregate dict containing a list of aggregates for each item
@@ -1930,13 +1610,9 @@ class IoTCalcSettings(BaseMetadataProvider):
         self._apply_pre_agg_metadata('max', items=max_items, outputs=max_outputs)
         self._apply_pre_agg_metadata('count', items=count_items, outputs=count_outputs)
         # pass metadata to the entity type
-        kwargs = {
-            '_checkpoint_by_entity': checkpoint_by_entity,
-            '_pre_aggregate_time_grain': pre_aggregate_time_grain,
-            '_auto_read_from_ts_table': auto_read_from_ts_table,
-            '_pre_agg_rules': self._pre_agg_rules,
-            '_pre_agg_outputs': self._pre_agg_outputs
-        }
+        kwargs = {'_checkpoint_by_entity': checkpoint_by_entity, '_pre_aggregate_time_grain': pre_aggregate_time_grain,
+            '_auto_read_from_ts_table': auto_read_from_ts_table, '_pre_agg_rules': self._pre_agg_rules,
+            '_pre_agg_outputs': self._pre_agg_outputs}
         super().__init__(dummy_items=[], output_item=output_item, **kwargs)
 
     def _apply_pre_agg_metadata(self, aggregate, items, outputs):
@@ -1963,71 +1639,31 @@ class IoTCalcSettings(BaseMetadataProvider):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingle(
-            name='auto_read_from_ts_table',
-            datatype=bool,
-            required=False,
-            description='By default, data retrieved is from the designated input table. Use this setting to disable.',
-        ))
-        inputs.append(UISingle(
-            name='checkpoint_by_entity',
-            datatype=bool,
-            required=False,
-            description='By default a single '
-        ))
-        inputs.append(UISingle(
-            name='pre_aggregate_time_grain',
-            datatype=str,
-            required=False,
+        inputs.append(UISingle(name='auto_read_from_ts_table', datatype=bool, required=False,
+            description='By default, data retrieved is from the designated input table. Use this setting to disable.', ))
+        inputs.append(
+            UISingle(name='checkpoint_by_entity', datatype=bool, required=False, description='By default a single '))
+        inputs.append(UISingle(name='pre_aggregate_time_grain', datatype=str, required=False,
             description='By default, data is retrieved at the input grain. Use this setting to preaggregate data and reduce the volumne of data retrieved',
-            values=['1min', '5min', '15min', '30min', '1H', '2H', '4H', '8H', '12H', 'day', 'week', 'month', 'year']
-        ))
-        inputs.append(UIMultiItem(
-            name='sum_items',
-            datatype=float,
-            required=False,
-            description='Choose items that should be added when aggregating',
-            output_item='sum_outputs',
-            is_output_datatype_derived=True
-        ))
-        inputs.append(UIMultiItem(
-            name='mean_items',
-            datatype=float,
-            required=False,
-            description='Choose items that should be averaged when aggregating',
-            output_item='mean_outputs',
-            is_output_datatype_derived=True
-        ))
-        inputs.append(UIMultiItem(
-            name='min_items',
-            datatype=float,
-            required=False,
+            values=['1min', '5min', '15min', '30min', '1H', '2H', '4H', '8H', '12H', 'day', 'week', 'month', 'year']))
+        inputs.append(UIMultiItem(name='sum_items', datatype=float, required=False,
+            description='Choose items that should be added when aggregating', output_item='sum_outputs',
+            is_output_datatype_derived=True))
+        inputs.append(UIMultiItem(name='mean_items', datatype=float, required=False,
+            description='Choose items that should be averaged when aggregating', output_item='mean_outputs',
+            is_output_datatype_derived=True))
+        inputs.append(UIMultiItem(name='min_items', datatype=float, required=False,
             description='Choose items that the system should choose the smallest value when aggregating',
-            output_item='mean_outputs',
-            is_output_datatype_derived=True
-        ))
-        inputs.append(UIMultiItem(
-            name='max_items',
-            datatype=float,
-            required=False,
+            output_item='mean_outputs', is_output_datatype_derived=True))
+        inputs.append(UIMultiItem(name='max_items', datatype=float, required=False,
             description='Choose items that the system should choose the smallest value when aggregating',
-            output_item='mean_outputs',
-            is_output_datatype_derived=True
-        ))
-        inputs.append(UIMultiItem(
-            name='count_items',
-            datatype=float,
-            required=False,
+            output_item='mean_outputs', is_output_datatype_derived=True))
+        inputs.append(UIMultiItem(name='count_items', datatype=float, required=False,
             description='Choose items that the system should choose the smallest value when aggregating',
-            output_item='mean_outputs',
-            is_output_datatype_derived=True
-        ))
+            output_item='mean_outputs', is_output_datatype_derived=True))
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item',
-                                           datatype=bool,
-                                           description='Dummy function output'
-                                           ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))
 
         return (inputs, outputs)
 
@@ -2061,8 +1697,7 @@ class IoTCosFunction(BaseTransformer):
         parameters = {**parameters, **self.__dict__}
         self.parameters = parameters
 
-        warnings.warn('IoTCosFunction is deprecated. Use PythonFunction.',
-                      DeprecationWarning)
+        warnings.warn('IoTCosFunction is deprecated. Use PythonFunction.', DeprecationWarning)
 
     def execute(self, df):
         db = self.get_db()
@@ -2070,14 +1705,11 @@ class IoTCosFunction(BaseTransformer):
         # first test execution could include a fnction object
         # serialize it
         if callable(self.function_name):
-            db.cos_save(persisted_object=self.function_name,
-                        filename=self.function_name.__name__,
-                        bucket=bucket, binary=True)
+            db.cos_save(persisted_object=self.function_name, filename=self.function_name.__name__, bucket=bucket,
+                        binary=True)
             self.function_name = self.function_name.__name__
         # retrieve
-        function = db.cos_load(filename=self.function_name,
-                               bucket=bucket,
-                               binary=True)
+        function = db.cos_load(filename=self.function_name, bucket=bucket, binary=True)
         # execute
         df = df.copy()
         rf = function(df, self.parameters)
@@ -2089,17 +1721,10 @@ class IoTCosFunction(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMultiItem('input_items'))
-        inputs.append(UISingle(name='function_name',
-                               datatype=float,
-                               description='Name of function object. Function object must be serialized to COS before you can use it'
-                               )
-                      )
-        inputs.append(UISingle(name='parameters',
-                               datatype=dict,
-                               required=False,
-                               description='Parameters required by the function are provides as json.'
-                               )
-                      )
+        inputs.append(UISingle(name='function_name', datatype=float,
+                               description='Name of function object. Function object must be serialized to COS before you can use it'))
+        inputs.append(UISingle(name='parameters', datatype=dict, required=False,
+                               description='Parameters required by the function are provides as json.'))
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle('output_item'))

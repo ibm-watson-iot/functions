@@ -17,7 +17,6 @@ This is a script used to genenerate the SQL used to import
 built in functions into AS
 '''
 
-
 with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 db_schema = None
@@ -25,6 +24,4 @@ db = Database(credentials=credentials)
 
 from iotfunctions import bif
 
-db.register_module(module = bif,
-                   raise_error=True,
-                   force_preinstall=True)
+db.register_module(module=bif, raise_error=True, force_preinstall=True)

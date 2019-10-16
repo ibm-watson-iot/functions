@@ -21,6 +21,7 @@ import re
 from lxml import etree
 import logging
 import pandas as pd
+
 logger = logging.getLogger(__name__)
 try:
     import ibm_boto3
@@ -32,14 +33,13 @@ except BaseException:
     logger.info(msg)
 else:
     IBMBOTO_INSTALLED = True
-    
-    
+
+
 def adjust_probabilities(p_list):
-    
     '''
     Adjust a list of probabilties to ensure that they sum to 1
     '''
-    
+
     if p_list is None or len(p_list) == 0:
         out = None
     else:
@@ -49,16 +49,12 @@ def adjust_probabilities(p_list):
         elif total == 0:
             raise ValueError('Probabilities may not sum to zero')
         else:
-            out = [x/total for x in p_list]
-            
+            out = [x / total for x in p_list]
+
     return out
-    
-def build_grouper(freq,
-                  timestamp,
-                  entity_id=None,
-                  dimensions=None,
-                  custom_calendar_keys=None,
-                  ):
+
+
+def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calendar_keys=None, ):
     '''
     Build a pandas grouper from columns and frequecy metadata.
     
@@ -84,24 +80,23 @@ def build_grouper(freq,
     e.g. ['shift']
     
     '''
-    
+
     grouper = []
-    
+
     if dimensions is None:
         dimensions = []
-    
+
     if entity_id is not None:
         grouper.append(pd.Grouper(key=entity_id))
-        
-    grouper.append(pd.Grouper(key = timestamp,
-                              freq = freq))
+
+    grouper.append(pd.Grouper(key=timestamp, freq=freq))
     for d in dimensions:
         grouper.append(pd.Grouper(key=d))
-        
-    return grouper    
+
+    return grouper
 
 
-def categorize_args(categories,catch_all,*args):
+def categorize_args(categories, catch_all, *args):
     '''
     Separate objects passed as arguments into a dictionary of categories
     
@@ -115,83 +110,84 @@ def categorize_args(categories,catch_all,*args):
                   ('function','is_function',None),
                   ('column',None,Column)]
     '''
-    
+
     meta = {}
     if catch_all is not None:
         meta[catch_all] = set()
     logger.debug('categorizing arguments')
     uncat = set(args)
-    for (group,attr,cls) in categories:
+    for (group, attr, cls) in categories:
         meta[group] = set()
-        
+
         for a in args:
             if attr is not None:
                 try:
-                    is_group = getattr(a,attr)
+                    is_group = getattr(a, attr)
                 except AttributeError:
                     is_group = False
             else:
                 is_group = False
-                        
+
             if is_group:
                 meta[group].add(a)
                 uncat.remove(a)
-            elif cls is not None and isinstance(a,cls):
+            elif cls is not None and isinstance(a, cls):
                 meta[group].add(a)
                 uncat.remove(a)
-            
-    for a in uncat:           
+
+    for a in uncat:
         meta[catch_all].add(a)
-            
+
     return meta
-    
-def compare_dataframes(dfl,dfr,cols=None):
+
+
+def compare_dataframes(dfl, dfr, cols=None):
     '''
     Explain the differences between 2 dataframes
     '''
-    
+
     if cols is None:
         cols = list(dfl.columns)
-   
+
     differences = 0
     trace = ''
     if len(dfl.index) != len(dfr.index):
-        msg = 'Row count: %s vs %s' %(dfl.index,dfr.index)
+        msg = 'Row count: %s vs %s' % (dfl.index, dfr.index)
         trace = trace + msg
         differences += abs(len(dfl.index) - len(dfr.index))
-    missing_l =  set(cols) - set(dfl.columns)
+    missing_l = set(cols) - set(dfl.columns)
     if len(missing_l) != 0:
-        msg = 'dfl is missing columns:' %(missing_l)
+        msg = 'dfl is missing columns:' % (missing_l)
         trace = trace + msg
         cols = [x for x in cols if x not in missing_l]
         differences += len(missing_l) * len(dfl.index)
-    missing_r =  set(cols) - set(dfr.columns)
+    missing_r = set(cols) - set(dfr.columns)
     if len(missing_r) != 0:
-        msg = 'dfr is missing columns: %s' %(missing_r)
+        msg = 'dfr is missing columns: %s' % (missing_r)
         trace = trace + msg
         cols = [x for x in cols if x not in missing_r]
         differences += len(missing_r) * len(dfr.index)
-        
+
     dfl = dfl[cols].reindex()
     dfr = dfr[cols].reindex()
-    
-    dfs = {'dfl':dfl,
-           'dfr':dfr}
+
+    dfs = {'dfl': dfl, 'dfr': dfr}
     df = pd.concat(dfs)
     total_rows = len(df.index)
     df = df.drop_duplicates(keep=False)
     if total_rows - len(df.index) > 0:
-        msg = 'Rows with different contents:%s' %(total_rows - len(df.index))
+        msg = 'Rows with different contents:%s' % (total_rows - len(df.index))
         trace = trace + msg
         differences = differences + total_rows - len(df.index)
-    
-    return (differences,trace,df)
-    
+
+    return (differences, trace, df)
+
 
 class CosClient:
     '''
     Cloud Object Storage client
     '''
+
     def __init__(self, credentials):
         self._cod_hmac_access_key_id = credentials['objectStorage']['username']
         self._cod_hmac_secret_access_key = credentials['objectStorage']['password']
@@ -214,11 +210,13 @@ class CosClient:
         keySigning = self._hash(keyService, 'aws4_request')
         return keySigning
 
-    def _cos_api_request(self, http_method, bucket, key, request_parameters=None, payload='', extra_headers=None, binary=False):
+    def _cos_api_request(self, http_method, bucket, key, request_parameters=None, payload='', extra_headers=None,
+                         binary=False):
         if extra_headers is None:
             extra_headers = {}
         # it seems region is not used by IBM COS and can be any string (but cannot be None below still)
-        if any([(var is None or len(var.strip()) == 0) for var in [self._cod_hmac_access_key_id, self._cod_hmac_secret_access_key, self._cos_endpoint, bucket]]):
+        if any([(var is None or len(var.strip()) == 0) for var in
+                [self._cod_hmac_access_key_id, self._cod_hmac_secret_access_key, self._cos_endpoint, bucket]]):
             logger.warning('write COS is disabled because not all COS config environment variables are set')
             return None
         # assemble the standardized request
@@ -239,7 +237,8 @@ class CosClient:
         if request_parameters is None:
             standardized_querystring = ''
         else:
-            standardized_querystring = '&'.join(['%s=%s' % (quote(k, safe=''), quote(v, safe='')) for k,v in request_parameters.items()])
+            standardized_querystring = '&'.join(
+                ['%s=%s' % (quote(k, safe=''), quote(v, safe='')) for k, v in request_parameters.items()])
 
         all_headers = {'host': host, 'x-amz-content-sha256': payload_hash, 'x-amz-date': timestamp}
         all_headers.update({k.lower(): v for k, v in extra_headers.items()})
@@ -250,40 +249,30 @@ class CosClient:
         # standardized_headers = 'host:' + host + '\n' + 'x-amz-content-sha256:' + payload_hash + '\n' + 'x-amz-date:' + timestamp + '\n'
         # signed_headers = 'host;x-amz-content-sha256;x-amz-date'
 
-        standardized_request = (http_method + '\n' +
-                                standardized_resource + '\n' +
-                                standardized_querystring + '\n' +
-                                standardized_headers + '\n' +
-                                signed_headers + '\n' +
-                                payload_hash)
+        standardized_request = (
+                    http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' + standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
 
-        #logging.debug('standardized_request=\n%s' % standardized_request)
+        # logging.debug('standardized_request=\n%s' % standardized_request)
 
         # assemble string-to-sign
         hashing_algorithm = 'AWS4-HMAC-SHA256'
         credential_scope = datestamp + '/' + self._cos_region + '/' + 's3' + '/' + 'aws4_request'
-        sts = (hashing_algorithm + '\n' +
-               timestamp + '\n' +
-               credential_scope + '\n' +
-               hashlib.sha256(str.encode(standardized_request)).hexdigest())
+        sts = (hashing_algorithm + '\n' + timestamp + '\n' + credential_scope + '\n' + hashlib.sha256(
+            str.encode(standardized_request)).hexdigest())
 
-        #logging.debug('string-to-sign=\n%s' % sts)
+        # logging.debug('string-to-sign=\n%s' % sts)
 
         # generate the signature
         signature_key = self._create_signature_key(self._cod_hmac_secret_access_key, datestamp, self._cos_region, 's3')
-        signature = hmac.new(signature_key,
-                             (sts).encode('utf-8'),
-                             hashlib.sha256).hexdigest()
+        signature = hmac.new(signature_key, (sts).encode('utf-8'), hashlib.sha256).hexdigest()
 
-        #logging.debug('signature=\n%s' % signature)
+        # logging.debug('signature=\n%s' % signature)
 
         # assemble all elements into the 'authorization' header
-        v4auth_header = (hashing_algorithm + ' ' +
-                         'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' +
-                         'SignedHeaders=' + signed_headers + ', ' +
-                         'Signature=' + signature)
+        v4auth_header = (
+                    hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
 
-        #logging.debug('v4auth_header=\n%s' % v4auth_header)
+        # logging.debug('v4auth_header=\n%s' % v4auth_header)
 
         # the 'requests' package autmatically adds the required 'host' header
         headers = all_headers.copy()
@@ -296,7 +285,7 @@ class CosClient:
         else:
             request_url = self._cos_endpoint + standardized_resource + '?' + standardized_querystring
 
-        #logging.debug('request_url=%s' % request_url)
+        # logging.debug('request_url=%s' % request_url)
 
         if http_method == 'GET':
             resp = requests.get(request_url, headers=headers, timeout=30, verify=False)
@@ -309,22 +298,25 @@ class CosClient:
         else:
             raise RuntimeError('unsupported_http_method=%s' % http_method)
 
-        if resp.status_code != requests.codes.ok and not (resp.status_code == requests.codes.no_content and http_method == 'DELETE'):
-            logger.warning('error cos_api_request: request_url=%s, http_method=%s, status_code=%s, response_text=%s' % (request_url, http_method, str(resp.status_code), str(resp.text)))
+        if resp.status_code != requests.codes.ok and not (
+                resp.status_code == requests.codes.no_content and http_method == 'DELETE'):
+            logger.warning('error cos_api_request: request_url=%s, http_method=%s, status_code=%s, response_text=%s' % (
+            request_url, http_method, str(resp.status_code), str(resp.text)))
             return None
 
         return resp.content if binary else resp.text
 
     def cos_get(self, key, bucket, request_parameters=None, binary=False):
 
-        response = self._cos_api_request('GET', bucket=bucket, key=key, request_parameters=request_parameters, binary=binary)
+        response = self._cos_api_request('GET', bucket=bucket, key=key, request_parameters=request_parameters,
+                                         binary=binary)
         if response is not None:
             response = pickle.loads(response)
 
         return response
 
     def cos_find(self, prefix, bucket):
-        result = self.cos_get(key=None, bucket=bucket, request_parameters={'list-type':'2','prefix':prefix})
+        result = self.cos_get(key=None, bucket=bucket, request_parameters={'list-type': '2', 'prefix': prefix})
         if result is None:
             return []
 
@@ -340,10 +332,8 @@ class CosClient:
 
         return self._cos_api_request('PUT', bucket=bucket, key=key, payload=payload, binary=binary)
 
-
     def cos_delete(self, key, bucket):
         return self._cos_api_request('DELETE', bucket=bucket, key=key)
-
 
     def cos_delete_multiple(self, keys, bucket):
         if keys is None or len(keys) == 0:
@@ -358,22 +348,20 @@ class CosClient:
         base64 = b64encode(md5).decode()
         logger.debug('content-md5: %s' % base64)
 
-        extra_headers = {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Content-MD5': base64
-        }
+        extra_headers = {'Content-Type': 'text/plain; charset=utf-8', 'Content-MD5': base64}
 
         request_parameters = {'delete': ''}
-        return self._cos_api_request('POST', bucket=bucket, key=None, payload=payload, request_parameters=request_parameters, extra_headers=extra_headers)
-    
+        return self._cos_api_request('POST', bucket=bucket, key=None, payload=payload,
+                                     request_parameters=request_parameters, extra_headers=extra_headers)
 
-def cosSave(obj,bucket,filename,credentials):
+
+def cosSave(obj, bucket, filename, credentials):
     '''
     Use IAM credentials to write an object to Cloud Object Storage
     '''
     try:
         fhandle, fname = tempfile.mkstemp("cosfile")
-        os.close(fhandle) 
+        os.close(fhandle)
         with open(fname, 'wb') as file_obj:
             pickle.dump(obj, file_obj)
         transfer = getCosTransferAgent(credentials)
@@ -385,8 +373,7 @@ def cosSave(obj,bucket,filename,credentials):
     return filename
 
 
-
-def cosLoad(bucket,filename,credentials):
+def cosLoad(bucket, filename, credentials):
     '''
     Use IAM credentials to read an object from Cloud Object Storage
     '''
@@ -405,7 +392,6 @@ def cosLoad(bucket,filename,credentials):
         logging.exception(ex)
 
 
-
 def getCosTransferAgent(credentials):
     '''
     Use IAM credentials to obtain a Cloud Object Storage transfer agent object
@@ -418,33 +404,30 @@ def getCosTransferAgent(credentials):
         service_instance_id = credentials.get('resource_instance_id')
         auth_endpoint = "https://" + iam_host + "/oidc/token"
         service_endpoint = "https://" + cos_host
-        cos = ibm_boto3.client('s3',
-                               ibm_api_key_id=api_key,
-                               ibm_service_instance_id=service_instance_id,
-                               ibm_auth_endpoint=auth_endpoint,
-                               config=Config(signature_version='oauth'),
+        cos = ibm_boto3.client('s3', ibm_api_key_id=api_key, ibm_service_instance_id=service_instance_id,
+                               ibm_auth_endpoint=auth_endpoint, config=Config(signature_version='oauth'),
                                endpoint_url=service_endpoint)
         return S3Transfer(cos)
     else:
-        raise ValueError('Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
+        raise ValueError(
+            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
 
 
 def get_index_names(df):
-    
     '''
     Get names from either single or multi-part index
     '''
-        
+
     if df.index.name is not None:
         df_index_names = [df.index.name]
     else:
         df_index_names = list(df.index.names)
-        
+
     df_index_names = [x for x in df_index_names if x is not None]
-        
+
     return df_index_names
 
-        
+
 def infer_data_items(expressions):
     '''
     Examine a pandas expression or list of expressions. Identify data items
@@ -452,67 +435,69 @@ def infer_data_items(expressions):
     
     Returns as set of strings.
     '''
-    if not isinstance(expressions,list):
+    if not isinstance(expressions, list):
         expressions = [expressions]
     regex1 = "df\[\'(.+?)\'\]"
     regex2 = 'df\[\"(.+?)\"\]'
     data_items = set()
     for e in expressions:
-        data_items |= set(re.findall(regex1,e))
-        data_items |= set(re.findall(regex2,e))
-    return(data_items)
+        data_items |= set(re.findall(regex1, e))
+        data_items |= set(re.findall(regex2, e))
+    return (data_items)
 
 
-def get_fn_expression_args(function_metadata,kpi_metadata):
+def get_fn_expression_args(function_metadata, kpi_metadata):
     '''
     Examine a functions metadata dictionary. Identify data items used
     in any expressions that the function has.
 
     '''
-    
+
     expressions = []
-    args = kpi_metadata.get('input',{})
-        
-    for (arg,value) in list(args.items()):
+    args = kpi_metadata.get('input', {})
+
+    for (arg, value) in list(args.items()):
         if arg == 'expression':
             expressions.append(value)
-            logger.debug('Found expression %s',value)
-        
-    return infer_data_items(expressions)     
+            logger.debug('Found expression %s', value)
 
-def log_df_info(df,msg,include_data=False):
+    return infer_data_items(expressions)
+
+
+def log_df_info(df, msg, include_data=False):
     '''
     Log a debugging entry showing first row and index structure
     '''
     try:
-        msg = msg + ' df count: %s ' %(len(df.index))
+        msg = msg + ' df count: %s ' % (len(df.index))
         if df.index.names != [None]:
-            msg = msg + ' ; index: %s ' %(','.join(df.index.names))
+            msg = msg + ' ; index: %s ' % (','.join(df.index.names))
         else:
             msg = msg + ' ; index is unnamed'
         if include_data:
             msg = msg + ' ; 1st row: '
             try:
-                cols = df.head(1).squeeze().to_dict()    
-                for key,value in list(cols.items()):
-                    msg = msg + '%s : %s, ' %(key, value)
+                cols = df.head(1).squeeze().to_dict()
+                for key, value in list(cols.items()):
+                    msg = msg + '%s : %s, ' % (key, value)
             except AttributeError:
                 msg = msg + str(df.head(1))
         else:
-            msg = msg + ' ; columns: %s' %(','.join(list(df.columns)))
+            msg = msg + ' ; columns: %s' % (','.join(list(df.columns)))
         logger.debug(msg)
         return msg
     except Exception:
         logger.warning('dataframe contents not logged due to an unknown logging error')
         return ''
 
-def reset_df_index(df,auto_index_name='_auto_index_'):
+
+def reset_df_index(df, auto_index_name='_auto_index_'):
     '''
     Reset the data dataframe index. Ignore duplicate columns.
     '''
 
     # if the dataframe has an auto index, do not place it in the dataframe
-    if len([x for x in df.index.names if x is not None]) >0:
+    if len([x for x in df.index.names if x is not None]) > 0:
         drop = False
     elif df.index.name is None or df.index.name == auto_index_name:
         drop = True
@@ -528,18 +513,19 @@ def reset_df_index(df,auto_index_name='_auto_index_'):
         for i in dup_names:
             df = df.drop(columns=[i])
             logger.debug('Dropped duplicate column name %s while resetting index', i)
-            
+
         try:
-            df = df.reset_index(inplace=False, drop = drop)  # do not propregate
+            df = df.reset_index(inplace=False, drop=drop)  # do not propregate
         except ValueError:
             msg = ('There is a problem with the dataframe index. '
                    ' Cant reset as reset caused overlap in col names'
-                   ' index: %s, cols: %s' %(df.index.names,df.columns))
+                   ' index: %s, cols: %s' % (df.index.names, df.columns))
             raise RuntimeError(msg)
 
     return df
-    
-def resample(df,time_frequency,timestamp,dimensions=None,agg=None, default_aggregate = 'last'):
+
+
+def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_aggregate='last'):
     '''
     Resample a dataframe to a new time grain / dimensional grain
     
@@ -565,26 +551,27 @@ def resample(df,time_frequency,timestamp,dimensions=None,agg=None, default_aggre
         dimensions = []
     if agg is None:
         agg = {}
-        
+
     df = df.reset_index()
 
     index_cols = [timestamp]
-    index_cols.extend(dimensions)        
+    index_cols.extend(dimensions)
     for r in [x for x in df.columns if x not in index_cols]:
         try:
             agg[r]
         except KeyError:
             agg[r] = default_aggregate
 
-    group_base = [pd.Grouper(key = timestamp, freq = time_frequency)]
+    group_base = [pd.Grouper(key=timestamp, freq=time_frequency)]
     for d in dimensions:
-        group_base.append(pd.Grouper(key = d))
-    
+        group_base.append(pd.Grouper(key=d))
+
     df = df.groupby(group_base).agg(agg)
     df.reset_index(inplace=True)
-    
+
     return df
-    
+
+
 class MemoryOptimizer:
     '''
     Util class used to optimize the pipeline memory consumption using native Pandas downcasting
@@ -618,7 +605,6 @@ class MemoryOptimizer:
 
         return df_new
 
-
     def downcastFloat(self, df, precison='float'):
         df_new = df.copy()
 
@@ -636,7 +622,6 @@ class MemoryOptimizer:
             return df_new
 
         return df_new
-
 
     def getColumnsForCategorization(self, df, threshold=0.5):
         '''
@@ -657,7 +642,6 @@ class MemoryOptimizer:
 
         return lst_columns
 
-
     def downcastString(self, df, lst_columns):
         '''
         It converts a data frame column type object into a categorical type
@@ -676,7 +660,6 @@ class MemoryOptimizer:
 
         return df_new
 
-
     def downcastNumeric(self, df):
 
         logger.info('Optimizing memory. Before applying downcast.')
@@ -691,28 +674,27 @@ class MemoryOptimizer:
         self.printCurrentMemoryConsumption(df_new)
 
         return df_new
-    
+
+
 def freq_to_timedelta(freq):
-    
     '''
     The pandas to_timedelta does not handle the full set of
     set of pandas frequency abreviations. Convert to supported 
     abreviation and the use to_timedelta.
     '''
     try:
-        freq = freq.replace('T','min')
+        freq = freq.replace('T', 'min')
     except AttributeError:
         pass
     return (pd.to_timedelta(freq))
+
 
 class StageException(Exception):
     EXTENSION_DICT = 'extensionDict'
     STAGENAME = 'stageName'
     STAGEINFO = 'stageInfo'
+
     def __init__(self, msg, stageName=None, stageInfo=None):
         super().__init__(msg)
-        setattr(self,
-                StageException.EXTENSION_DICT,
-                {StageException.STAGENAME: stageName,
-                 StageException.STAGEINFO: stageInfo})
-           
+        setattr(self, StageException.EXTENSION_DICT,
+                {StageException.STAGENAME: stageName, StageException.STAGEINFO: stageInfo})

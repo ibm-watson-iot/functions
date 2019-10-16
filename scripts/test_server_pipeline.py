@@ -23,17 +23,16 @@ useful to run these locally to debug. This script shows how to do this.
 
 '''
 
-db = Database(credentials = credentials)
-db_schema = None #  set if you are not using the default
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 
 entity_name = 'JOB_Test_1'  # choose a valid entity type name
-test_entity = ServerEntityType(entity_name,db=db,db_schema=db_schema)
+test_entity = ServerEntityType(entity_name, db=db, db_schema=db_schema)
 
 '''
 Examine the entity type metadata
 '''
-print (test_entity)
-
+print(test_entity)
 
 '''
 To test the execution of kpi calculations defined for the entity type locally

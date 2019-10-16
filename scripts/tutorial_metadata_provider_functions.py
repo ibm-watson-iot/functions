@@ -39,26 +39,27 @@ In this tutorial we will create a metadata provider and use it in multiple funct
 
 '''
 
-entity_name = 'metadata_provider_test'         # you can give your entity type a better name
-db = Database(credentials = credentials)
-db_schema = None                            # set if you are not using the default
+entity_name = 'metadata_provider_test'  # you can give your entity type a better name
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 
 '''
 First we will build our custom metadata provider function.
 This one captures a single property called custom_metadata.
 '''
 
+
 class TestMetadataProvider(base.BaseMetadataProvider):
 
-    def __init__(self,custom_metadata,output_item='custom_metadata_added'):
-
+    def __init__(self, custom_metadata, output_item='custom_metadata_added'):
         self.custom_metadata = custom_metadata
         self._input_set = set()
         self._output_list = [output_item]
 
         # all keyword arguments will be treated as custom metadata
         kwargs = {'custom_metadata': custom_metadata}
-        super().__init__(dummy_items=[],output_item=output_item,**kwargs)
+        super().__init__(dummy_items=[], output_item=output_item, **kwargs)
+
 
 '''
 This class has no execute method and since it is only used for local testing
@@ -87,36 +88,18 @@ c = self._entity_type.get_attributes_dict()
   
 '''
 
-sim_parameters = {
-    "data_item_mean" : {'temp': 22,
-                        'pressure' : 320},
-    "data_item_sd": {'temp': 2,
-                     'pressure': 5}
-    }
+sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5}}
 
-entity = EntityType(entity_name,db,
-                    Column('temp',Float()),
-                    Column('pressure', Float()),
-                    Column('company_code',String(50)),
-                    bif.EntityDataGenerator(
-                        parameters= sim_parameters,
-                        data_item = 'is_generated'
-                            ),
-                    TestMetadataProvider(108,'custom_metadata_added'),
-                    bif.PythonExpression(
-                        expression = 'df["temp"] + self._entity_type.custom_metadata',
-                        output_name= 'adjusted_temp1'
-                    ),
-                    bif.PythonExpression(
-                        expression='df["temp"] *2 + c["custom_metadata"]*2',
-                        output_name='adjusted_temp2'
-                    ),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
+                    Column('company_code', String(50)),
+                    bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
+                    TestMetadataProvider(108, 'custom_metadata_added'),
+                    bif.PythonExpression(expression='df["temp"] + self._entity_type.custom_metadata',
+                        output_name='adjusted_temp1'),
+                    bif.PythonExpression(expression='df["temp"] *2 + c["custom_metadata"]*2',
+                        output_name='adjusted_temp2'), **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
-entity.exec_local_pipeline(start_ts = dt.datetime.utcnow() - dt.timedelta(days=30))
+entity.exec_local_pipeline(start_ts=dt.datetime.utcnow() - dt.timedelta(days=30))
 
 '''
 Execution results
@@ -132,8 +115,3 @@ id	    evt_timestamp	temp	    deviceid	_timestamp	    entitydatagenerator	custom
 Notice how the value of 108 was used in both expressions.
 
 '''
-
-
-
-
-

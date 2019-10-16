@@ -27,8 +27,8 @@ Use PythonExpression to calculate distance traveled
 '''
 
 from iotfunctions.bif import PythonExpression
-dist = PythonExpression(expression='df["speed"] * df["travel_time"] ',
-                        output_name = 'distance')
+
+dist = PythonExpression(expression='df["speed"] * df["travel_time"] ', output_name='distance')
 dist.execute_local_test()
 
 '''
@@ -44,13 +44,9 @@ fnstr = '''def f(df,parameters = None):
 '''
 
 from iotfunctions.bif import PythonFunction
-dist = PythonFunction(
-            function_code = fnstr,
-            input_items = ['distance'],
-            output_item = 'is_distance_high',
-            parameters = None )
-dist.execute_local_test(db=db,db_schema=db_schema)
 
+dist = PythonFunction(function_code=fnstr, input_items=['distance'], output_item='is_distance_high', parameters=None)
+dist.execute_local_test(db=db, db_schema=db_schema)
 
 '''
 The speed and travel times must be adjusted to account for a delay
@@ -93,12 +89,9 @@ class MultiplyByFactor(BaseTransformer):
 '''
 
 from iotfunctions.sample import MultiplyByFactor
-adj = MultiplyByFactor(
-    input_items = ['speed','travel_time'],
-    factor = 0.9,
-    output_items = ['adjusted_speed','adjusted_travel_time']
-)
+
+adj = MultiplyByFactor(input_items=['speed', 'travel_time'], factor=0.9,
+    output_items=['adjusted_speed', 'adjusted_travel_time'])
 adj.execute_local_test()
 
 db.register_functions(adj)
-
