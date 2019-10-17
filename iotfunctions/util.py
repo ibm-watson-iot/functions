@@ -702,12 +702,4 @@ def randomword(length):
     return ''.join(random.choice(letters) for i in range(length))
 
 
-class StageException(Exception):
-    EXTENSION_DICT = 'extensionDict'
-    STAGENAME = 'stageName'
-    STAGEINFO = 'stageInfo'
 
-    def __init__(self, msg, stageName=None, stageInfo=None):
-        super().__init__(msg)
-        setattr(self, StageException.EXTENSION_DICT,
-                {StageException.STAGENAME: stageName, StageException.STAGEINFO: stageInfo})

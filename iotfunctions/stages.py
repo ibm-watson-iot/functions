@@ -16,7 +16,7 @@ import json
 import datetime as dt
 import numpy as np
 
-from .util import StageException
+from .exceptions import StageException, DataWriterException
 
 import pandas as pd
 from sqlalchemy import (MetaData, Table)
@@ -203,13 +203,6 @@ class DataReader(object):
                                   ' data items'), self)
 
         return outputs
-
-
-class DataWriterException(Exception):
-
-    def __init__(self, msg):
-        logger.error(msg)
-        super().__init__(msg)
 
 
 class DataWriterSqlAlchemy(DataWriter):

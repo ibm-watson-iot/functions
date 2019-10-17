@@ -25,11 +25,10 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR, FLOAT, INTEGER
 
 from . import db as db_module
 from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator)
-from .pipeline import (CalcPipeline,  DropNull, JobController, JobLogNull, Trace,
-                       AggregateItems)
-from .util import (MemoryOptimizer, StageException, build_grouper, categorize_args, reset_df_index)
-from .stages import (DataReader,  DataWriter, DataWriterFile)
-
+from .pipeline import (CalcPipeline, DropNull, JobController, JobLogNull, Trace, AggregateItems)
+from .util import (MemoryOptimizer, build_grouper, categorize_args, reset_df_index)
+from .stages import (DataReader, DataWriter, DataWriterFile)
+from .exceptions import StageException
 import iotfunctions as iotf
 
 logger = logging.getLogger(__name__)

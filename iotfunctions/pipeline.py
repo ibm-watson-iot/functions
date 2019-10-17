@@ -26,9 +26,10 @@ import threading
 from collections import OrderedDict
 
 from .enginelog import EngineLogging
-from .util import (log_df_info, freq_to_timedelta, StageException, get_index_names, reset_df_index)
+from .util import (log_df_info, freq_to_timedelta, get_index_names, reset_df_index)
 from .ui import UIMultiItem, UISingle
 from .stages import DataWriterSqlAlchemy
+from .exceptions import MergeException, StageException
 
 import pandas as pd
 import warnings
@@ -330,8 +331,8 @@ class DataMerge(object):
     
         '''
         if obj is None:
-            raise MergeError(('DataMerge is attempting to merge a null object with a dataframe. Object to be '
-                              ' merged must be a dataframe, series, constant or numpy array. Unable to merge None'))
+            raise MergeException(('DataMerge is attempting to merge a null object with a dataframe. Object to be '
+                                  ' merged must be a dataframe, series, constant or numpy array. Unable to merge None'))
 
         if self.df is None:
             self.df = pd.DataFrame()
@@ -348,9 +349,9 @@ class DataMerge(object):
             logger.debug(('The job has constant output items %s'), [x for x in job_constants])
 
         if isinstance(obj, (dict, OrderedDict)):
-            raise MergeError(('Function error. A failure occured when attempting to merge a dictionary with a '
-                              'dataframe. Convert the dictionary to a dataframe or series and provide appropriate'
-                              ' index names.'))
+            raise MergeException(('Function error. A failure occured when attempting to merge a dictionary with a '
+                                  'dataframe. Convert the dictionary to a dataframe or series and provide appropriate'
+                                  ' index names.'))
 
         # if the object is a 2d array, convert to dataframe    
         if len(col_names) > 1 and obj is not None and not isinstance(obj, (pd.DataFrame, pd.Series)):
@@ -370,9 +371,10 @@ class DataMerge(object):
         df_cols = self.get_cols()
         if not self.df.empty and not set(col_names).issubset(df_cols):
             missing_cols = set(col_names) - df_cols
-            raise MergeError(('Error in auto merge. Missing columns %s Post merge dataframe does not'
-                              ' contain the expected output columns %s that should have'
-                              ' been delivered through merge. It has columns %s' % (missing_cols, col_names, df_cols)))
+            raise MergeException(('Error in auto merge. Missing columns %s Post merge dataframe does not'
+                                  ' contain the expected output columns %s that should have'
+                                  ' been delivered through merge. It has columns %s' % (
+                                  missing_cols, col_names, df_cols)))
         if len(self.df.index) > 0:
             id_index = self.df.index.get_level_values(0)
             ts_index = self.df.index.get_level_values(1)
@@ -2539,12 +2541,6 @@ class JobLogNull(object):
         logger.debug('No last execution date to return from null job log')
 
         return None
-
-
-class MergeError(Exception):
-
-    def __init__(self, msg):
-        super().__init__(msg)
 
 
 class CalcPipeline:
