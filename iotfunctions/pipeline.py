@@ -26,12 +26,14 @@ import warnings
 from .enginelog import EngineLogging
 from .util import log_df_info, freq_to_timedelta, Trace
 from .system_function import *
-from .stages import DataWriterSqlAlchemy
+from .stages import DataWriterSqlAlchemy, ProduceAlerts
 from .exceptions import StageException
 from pandas.api.types import is_bool_dtype, is_numeric_dtype, is_string_dtype, is_datetime64_any_dtype, is_object_dtype
 from sqlalchemy import (MetaData, Table, Column, Integer, SmallInteger, String, DateTime, Float, and_, func, select)
 
 logger = logging.getLogger(__name__)
+
+DATA_ITEM_TAG_ALERT = 'ALERT'
 
 
 class JobLog(object):
@@ -336,21 +338,28 @@ class JobController(object):
         job_spec['skipped_stages'] |= build_metadata['skipped_stages']
 
         data_items_dict = {}
+        alerts = []
         data_items = self.get_payload_param('_data_items', None)
         if data_items is None:
             data_items = []
         for d in data_items:
             data_items_dict[d['name']] = d
+            if DATA_ITEM_TAG_ALERT in d['tags']:
+                alerts.append(d['name'])
 
         # Add a data write to spec
         params = {'db_connection': self.get_payload_param('db', None).connection,
                   'schema_name': self.get_payload_param('_db_schema', None),
                   'grains_metadata': self.get_payload_param('_granularities_dict', None),
-                  'data_item_metadata': data_items_dict}
+                  'data_item_metadata': data_items_dict, 'alerts': alerts}
 
         writer_name = '%s_input_level' % self.name
         data_writer = self.data_writer(name=writer_name, **params)
         build_metadata['spec'].append(data_writer)
+
+        # Add a produce alert stage to spec
+        produce_alert_stage = ProduceAlerts(self.payload, **params)
+        build_metadata['spec'].append(produce_alert_stage)
 
         # Look for aggregation stages incorrectly defined at the input level
         invalid_stages = []
