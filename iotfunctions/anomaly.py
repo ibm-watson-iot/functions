@@ -55,10 +55,13 @@ class SpectralAnomalyScore(BaseTransformer):
         self.input_item = input_item
 
         # use 24 by default - must be larger than 12
-        self.windowsize = windowsize
+        self.windowsize = np.maximum(windowsize,1)
 
         # overlap 
-        self.windowoverlap = self.windowsize - self.windowsize // 12
+        if self.windowsize == 1:
+            self.windowoverlap = 0
+        else:
+            self.windowoverlap = self.windowsize - np.maximum(self.windowsize // 12, 1)
 
         # assume 1 per sec for now
         self.frame_rate = 1
@@ -93,8 +96,8 @@ class SpectralAnomalyScore(BaseTransformer):
             # one dimensional time series - named temperature for catchyness
             temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
 
-            logger.debug(str(entity) + str(self.input_item) + str(self.windowsize) +
-                         str(self.output_item) + str(self.windowoverlap) + str(temperature.size))
+            logger.debug('Spectral: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
+                         str(self.output_item) + ', ' + str(self.windowoverlap) + ', ' + str(temperature.size))
 
             if temperature.size > self.windowsize:
                 logger.debug(str(temperature.size) + str(self.windowsize))
@@ -172,10 +175,10 @@ class KMeansAnomalyScore(BaseTransformer):
         self.input_item = input_item
 
         # use 24 by default - must be larger than 12
-        self.windowsize = windowsize
+        self.windowsize = np.maximum(windowsize,1)
 
-        # overlap 
-        self.windowoverlap = self.windowsize - self.windowsize // 12
+        # step 
+        self.step = 1
 
         # assume 1 per sec for now
         self.frame_rate = 1
@@ -198,6 +201,11 @@ class KMeansAnomalyScore(BaseTransformer):
             dfe = dfe.reset_index(level=[0])
             dfe_orig = dfe_orig.reset_index(level=[0])
 
+            # minimal time delta for merging
+            mindelta = dfe_orig.index.to_series().diff().min()
+            if mindelta == 0 or pd.isnull(mindelta):
+                mindelta = pd.Timedelta.min
+
             # interpolate gaps - data imputation
             Size = dfe[[self.input_item]].fillna(0).to_numpy().size
             dfe = dfe.interpolate(method='time')
@@ -206,14 +214,15 @@ class KMeansAnomalyScore(BaseTransformer):
             # one dimensional time series - named temperature for catchyness
             temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
 
-            logger.debug(str(entity) + str(self.input_item) + str(self.windowsize) +
-                         str(self.output_item) + str(self.windowoverlap) + str(temperature.size))
+            logger.debug('KMeans: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
+                         str(self.output_item) + ', ' + str(self.step) + ', ' + str(temperature.size))
 
             if temperature.size > self.windowsize:
-                logger.debug(str(temperature.size) + str(self.windowsize))
+                logger.debug(str(temperature.size) + ',' + str(self.windowsize))
 
                 # Chop into overlapping windows
-                slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.windowoverlap)
+                slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+                print (slices.shape)
 
                 if self.windowsize > 1:
                    n_clus = 40
@@ -228,11 +237,14 @@ class KMeansAnomalyScore(BaseTransformer):
                 # length of timesTS, ETS and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length 
                 timesTS = np.linspace(self.windowsize//2, temperature.size - self.windowsize//2 + 1, temperature.size - self.windowsize + 1)
+
+                print (timesTS.shape, pred_score.shape)
+
                 #timesI = np.linspace(0, Size - 1, Size)
-                Linear = sp.interpolate.interp1d(timesTS, pred_score, kind='linear', fill_value='extrapolate')
+                LinearK = sp.interpolate.interp1d(timesTS, pred_score, kind='linear', fill_value='extrapolate')
 
                 #kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
-                kmeans_scoreI = Linear(np.arange(0, temperature.size, 1))
+                kmeans_scoreI = LinearK(np.arange(0, temperature.size, 1))
 
                 dfe[self.output_item] = kmeans_scoreI
 
