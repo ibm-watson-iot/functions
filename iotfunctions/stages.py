@@ -9,7 +9,7 @@
 # *****************************************************************************
 
 
-from . import messagehub, util
+from .util import MessageHub, asList
 import logging
 
 import json
@@ -50,9 +50,9 @@ class ProduceAlerts:
             raise RuntimeError("argument alerts must be provided")
         self.dms = dms
         self.alerts = []
-        self.messagehub = messagehub.MessageHub()
+        self.messagehub = MessageHub()
 
-        for alert in util.asList(alerts):
+        for alert in asList(alerts):
             # self.alerts.append(alert)
             metadata = self.dms.data_items.get(alert)
             if metadata is not None:

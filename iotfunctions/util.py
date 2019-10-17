@@ -13,18 +13,34 @@ import tempfile
 import dill as pickle
 import requests
 import datetime
-from urllib.parse import quote, urlparse
-from base64 import b64encode
 import hashlib
 import hmac
 import re
-from lxml import etree
-import logging
 import pandas as pd
 import random
 import string
+import logging
+import errno
+import sys
+import json
+import threading
+import datetime as dt
+import time
+
+from urllib.parse import quote, urlparse
+from base64 import b64encode
+from lxml import etree
 
 logger = logging.getLogger(__name__)
+
+try:
+    from confluent_kafka import Producer
+except ImportError:
+    logger.warning('Warning: confluent_kafka is not installed. Publish to MessageHub not supported.')
+    KAFKA_INSTALLED = False
+else:
+    KAFKA_INSTALLED = True
+
 try:
     import ibm_boto3
     from ibm_boto3.s3.transfer import S3Transfer
@@ -35,6 +51,14 @@ except BaseException:
     logger.info(msg)
 else:
     IBMBOTO_INSTALLED = True
+
+FLUSH_PRODUCER_EVERY = 100
+
+MH_USER = os.environ.get('MH_USER')
+MH_PASSWORD = os.environ.get('MH_PASSWORD')
+MH_BROKERS_SASL = os.environ.get('MH_BROKERS_SASL')
+MH_DEFAULT_ALERT_TOPIC = os.environ.get('MH_DEFAULT_ALERT_TOPIC')
+MH_CLIENT_ID = 'as-pypeline-alerts-producer'
 
 
 def adjust_probabilities(p_list):
@@ -183,6 +207,247 @@ def compare_dataframes(dfl, dfr, cols=None):
         differences = differences + total_rows - len(df.index)
 
     return (differences, trace, df)
+
+
+def reset_df_index(df, auto_index_name='_auto_index_'):
+    '''
+    Reset the data dataframe index. Ignore duplicate columns.
+    '''
+
+    # if the dataframe has an auto index, do not place it in the dataframe
+    if len([x for x in df.index.names if x is not None]) > 0:
+        drop = False
+    elif df.index.name is None or df.index.name == auto_index_name:
+        drop = True
+    else:
+        drop = False
+
+    # drop any duplicate columns that exist in index and df
+    try:
+        df = df.reset_index(inplace=False, drop=drop)  # do not propregate
+    except ValueError:
+        index_names = get_index_names(df)
+        dup_names = set(index_names).intersection(set(df.columns))
+        for i in dup_names:
+            df = df.drop(columns=[i])
+            logger.debug('Dropped duplicate column name %s while resetting index', i)
+
+        try:
+            df = df.reset_index(inplace=False, drop=drop)  # do not propregate
+        except ValueError:
+            msg = ('There is a problem with the dataframe index. '
+                   ' Cant reset as reset caused overlap in col names'
+                   ' index: %s, cols: %s' % (df.index.names, df.columns))
+            raise RuntimeError(msg)
+
+    return df
+
+
+def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_aggregate='last'):
+    '''
+    Resample a dataframe to a new time grain / dimensional grain
+    
+    Parameters:
+    -----------
+    df: Pandas dataframe
+        Dataframe to resample
+    time_frequency: str
+        Pandas frequency string
+    dimensions: list of strs
+        List of columns to group by
+    agg : dict
+        Pandas aggregate dictionary
+    default_aggregate: str
+        Default aggregation function to apply for anything not specified in agg
+    
+    Returns
+    -------
+    Pandas dataframe
+    
+    '''
+    if dimensions is None:
+        dimensions = []
+    if agg is None:
+        agg = {}
+
+    df = df.reset_index()
+
+    index_cols = [timestamp]
+    index_cols.extend(dimensions)
+    for r in [x for x in df.columns if x not in index_cols]:
+        try:
+            agg[r]
+        except KeyError:
+            agg[r] = default_aggregate
+
+    group_base = [pd.Grouper(key=timestamp, freq=time_frequency)]
+    for d in dimensions:
+        group_base.append(pd.Grouper(key=d))
+
+    df = df.groupby(group_base).agg(agg)
+    df.reset_index(inplace=True)
+
+    return df
+
+
+def freq_to_timedelta(freq):
+    '''
+    The pandas to_timedelta does not handle the full set of
+    set of pandas frequency abreviations. Convert to supported
+    abreviation and the use to_timedelta.
+    '''
+    try:
+        freq = freq.replace('T', 'min')
+    except AttributeError:
+        pass
+    return (pd.to_timedelta(freq))
+
+
+def asList(x):
+    if not isinstance(x, list):
+        x = [x]
+    return x
+
+
+def randomword(length):
+    letters = string.ascii_lowercase + string.digits
+    return ''.join(random.choice(letters) for i in range(length))
+
+
+def cosSave(obj, bucket, filename, credentials):
+    '''
+    Use IAM credentials to write an object to Cloud Object Storage
+    '''
+    try:
+        fhandle, fname = tempfile.mkstemp("cosfile")
+        os.close(fhandle)
+        with open(fname, 'wb') as file_obj:
+            pickle.dump(obj, file_obj)
+        transfer = getCosTransferAgent(credentials)
+        transfer.upload_file(fname, bucket, filename)
+        os.unlink(fname)
+
+    except Exception as ex:
+        logging.exception(ex)
+    return filename
+
+
+def cosLoad(bucket, filename, credentials):
+    '''
+    Use IAM credentials to read an object from Cloud Object Storage
+    '''
+    try:
+        fhandle, fname = tempfile.mkstemp("cosfile")
+        os.close(fhandle)
+        transfer = getCosTransferAgent(credentials)
+        transfer.download_file(bucket, filename, fname)
+        answer = None
+        with open(fname, 'rb') as file_obj:
+            answer = pickle.load(file_obj)
+        os.unlink(fname)
+        return answer
+
+    except Exception as ex:
+        logging.exception(ex)
+
+
+def getCosTransferAgent(credentials):
+    '''
+    Use IAM credentials to obtain a Cloud Object Storage transfer agent object
+    '''
+    if IBMBOTO_INSTALLED:
+        endpoints = requests.get(credentials.get('endpoints')).json()
+        iam_host = (endpoints['identity-endpoints']['iam-token'])
+        cos_host = (endpoints['service-endpoints']['cross-region']['us']['public']['us-geo'])
+        api_key = credentials.get('apikey')
+        service_instance_id = credentials.get('resource_instance_id')
+        auth_endpoint = "https://" + iam_host + "/oidc/token"
+        service_endpoint = "https://" + cos_host
+        cos = ibm_boto3.client('s3', ibm_api_key_id=api_key, ibm_service_instance_id=service_instance_id,
+                               ibm_auth_endpoint=auth_endpoint, config=Config(signature_version='oauth'),
+                               endpoint_url=service_endpoint)
+        return S3Transfer(cos)
+    else:
+        raise ValueError(
+            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
+
+
+def get_index_names(df):
+    '''
+    Get names from either single or multi-part index
+    '''
+
+    if df.index.name is not None:
+        df_index_names = [df.index.name]
+    else:
+        df_index_names = list(df.index.names)
+
+    df_index_names = [x for x in df_index_names if x is not None]
+
+    return df_index_names
+
+
+def infer_data_items(expressions):
+    '''
+    Examine a pandas expression or list of expressions. Identify data items
+    in the expressions by looking for df['<data_item>'].
+
+    Returns as set of strings.
+    '''
+    if not isinstance(expressions, list):
+        expressions = [expressions]
+    regex1 = "df\[\'(.+?)\'\]"
+    regex2 = 'df\[\"(.+?)\"\]'
+    data_items = set()
+    for e in expressions:
+        data_items |= set(re.findall(regex1, e))
+        data_items |= set(re.findall(regex2, e))
+    return (data_items)
+
+
+def get_fn_expression_args(function_metadata, kpi_metadata):
+    '''
+    Examine a functions metadata dictionary. Identify data items used
+    in any expressions that the function has.
+
+    '''
+
+    expressions = []
+    args = kpi_metadata.get('input', {})
+
+    for (arg, value) in list(args.items()):
+        if arg == 'expression':
+            expressions.append(value)
+            logger.debug('Found expression %s', value)
+
+    return infer_data_items(expressions)
+
+
+def log_df_info(df, msg, include_data=False):
+    '''
+    Log a debugging entry showing first row and index structure
+    '''
+    try:
+        msg = msg + ' df count: %s ' % (len(df.index))
+        if df.index.names != [None]:
+            msg = msg + ' ; index: %s ' % (','.join(df.index.names))
+        else:
+            msg = msg + ' ; index is unnamed'
+        if include_data:
+            msg = msg + ' ; 1st row: '
+            try:
+                cols = df.head(1).squeeze().to_dict()
+                for key, value in list(cols.items()):
+                    msg = msg + '%s : %s, ' % (key, value)
+            except AttributeError:
+                msg = msg + str(df.head(1))
+        else:
+            msg = msg + ' ; columns: %s' % (','.join(list(df.columns)))
+        logger.debug(msg)
+        return msg
+    except Exception:
+        logger.warning('dataframe contents not logged due to an unknown logging error')
+        return ''
 
 
 class CosClient:
@@ -357,223 +622,6 @@ class CosClient:
                                      request_parameters=request_parameters, extra_headers=extra_headers)
 
 
-def cosSave(obj, bucket, filename, credentials):
-    '''
-    Use IAM credentials to write an object to Cloud Object Storage
-    '''
-    try:
-        fhandle, fname = tempfile.mkstemp("cosfile")
-        os.close(fhandle)
-        with open(fname, 'wb') as file_obj:
-            pickle.dump(obj, file_obj)
-        transfer = getCosTransferAgent(credentials)
-        transfer.upload_file(fname, bucket, filename)
-        os.unlink(fname)
-
-    except Exception as ex:
-        logging.exception(ex)
-    return filename
-
-
-def cosLoad(bucket, filename, credentials):
-    '''
-    Use IAM credentials to read an object from Cloud Object Storage
-    '''
-    try:
-        fhandle, fname = tempfile.mkstemp("cosfile")
-        os.close(fhandle)
-        transfer = getCosTransferAgent(credentials)
-        transfer.download_file(bucket, filename, fname)
-        answer = None
-        with open(fname, 'rb') as file_obj:
-            answer = pickle.load(file_obj)
-        os.unlink(fname)
-        return answer
-
-    except Exception as ex:
-        logging.exception(ex)
-
-
-def getCosTransferAgent(credentials):
-    '''
-    Use IAM credentials to obtain a Cloud Object Storage transfer agent object
-    '''
-    if IBMBOTO_INSTALLED:
-        endpoints = requests.get(credentials.get('endpoints')).json()
-        iam_host = (endpoints['identity-endpoints']['iam-token'])
-        cos_host = (endpoints['service-endpoints']['cross-region']['us']['public']['us-geo'])
-        api_key = credentials.get('apikey')
-        service_instance_id = credentials.get('resource_instance_id')
-        auth_endpoint = "https://" + iam_host + "/oidc/token"
-        service_endpoint = "https://" + cos_host
-        cos = ibm_boto3.client('s3', ibm_api_key_id=api_key, ibm_service_instance_id=service_instance_id,
-                               ibm_auth_endpoint=auth_endpoint, config=Config(signature_version='oauth'),
-                               endpoint_url=service_endpoint)
-        return S3Transfer(cos)
-    else:
-        raise ValueError(
-            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
-
-
-def get_index_names(df):
-    '''
-    Get names from either single or multi-part index
-    '''
-
-    if df.index.name is not None:
-        df_index_names = [df.index.name]
-    else:
-        df_index_names = list(df.index.names)
-
-    df_index_names = [x for x in df_index_names if x is not None]
-
-    return df_index_names
-
-
-def infer_data_items(expressions):
-    '''
-    Examine a pandas expression or list of expressions. Identify data items
-    in the expressions by looking for df['<data_item>'].
-    
-    Returns as set of strings.
-    '''
-    if not isinstance(expressions, list):
-        expressions = [expressions]
-    regex1 = "df\[\'(.+?)\'\]"
-    regex2 = 'df\[\"(.+?)\"\]'
-    data_items = set()
-    for e in expressions:
-        data_items |= set(re.findall(regex1, e))
-        data_items |= set(re.findall(regex2, e))
-    return (data_items)
-
-
-def get_fn_expression_args(function_metadata, kpi_metadata):
-    '''
-    Examine a functions metadata dictionary. Identify data items used
-    in any expressions that the function has.
-
-    '''
-
-    expressions = []
-    args = kpi_metadata.get('input', {})
-
-    for (arg, value) in list(args.items()):
-        if arg == 'expression':
-            expressions.append(value)
-            logger.debug('Found expression %s', value)
-
-    return infer_data_items(expressions)
-
-
-def log_df_info(df, msg, include_data=False):
-    '''
-    Log a debugging entry showing first row and index structure
-    '''
-    try:
-        msg = msg + ' df count: %s ' % (len(df.index))
-        if df.index.names != [None]:
-            msg = msg + ' ; index: %s ' % (','.join(df.index.names))
-        else:
-            msg = msg + ' ; index is unnamed'
-        if include_data:
-            msg = msg + ' ; 1st row: '
-            try:
-                cols = df.head(1).squeeze().to_dict()
-                for key, value in list(cols.items()):
-                    msg = msg + '%s : %s, ' % (key, value)
-            except AttributeError:
-                msg = msg + str(df.head(1))
-        else:
-            msg = msg + ' ; columns: %s' % (','.join(list(df.columns)))
-        logger.debug(msg)
-        return msg
-    except Exception:
-        logger.warning('dataframe contents not logged due to an unknown logging error')
-        return ''
-
-
-def reset_df_index(df, auto_index_name='_auto_index_'):
-    '''
-    Reset the data dataframe index. Ignore duplicate columns.
-    '''
-
-    # if the dataframe has an auto index, do not place it in the dataframe
-    if len([x for x in df.index.names if x is not None]) > 0:
-        drop = False
-    elif df.index.name is None or df.index.name == auto_index_name:
-        drop = True
-    else:
-        drop = False
-
-    # drop any duplicate columns that exist in index and df
-    try:
-        df = df.reset_index(inplace=False, drop=drop)  # do not propregate
-    except ValueError:
-        index_names = get_index_names(df)
-        dup_names = set(index_names).intersection(set(df.columns))
-        for i in dup_names:
-            df = df.drop(columns=[i])
-            logger.debug('Dropped duplicate column name %s while resetting index', i)
-
-        try:
-            df = df.reset_index(inplace=False, drop=drop)  # do not propregate
-        except ValueError:
-            msg = ('There is a problem with the dataframe index. '
-                   ' Cant reset as reset caused overlap in col names'
-                   ' index: %s, cols: %s' % (df.index.names, df.columns))
-            raise RuntimeError(msg)
-
-    return df
-
-
-def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_aggregate='last'):
-    '''
-    Resample a dataframe to a new time grain / dimensional grain
-    
-    Parameters:
-    -----------
-    df: Pandas dataframe
-        Dataframe to resample
-    time_frequency: str
-        Pandas frequency string
-    dimensions: list of strs
-        List of columns to group by
-    agg : dict
-        Pandas aggregate dictionary
-    default_aggregate: str
-        Default aggregation function to apply for anything not specified in agg
-    
-    Returns
-    -------
-    Pandas dataframe
-    
-    '''
-    if dimensions is None:
-        dimensions = []
-    if agg is None:
-        agg = {}
-
-    df = df.reset_index()
-
-    index_cols = [timestamp]
-    index_cols.extend(dimensions)
-    for r in [x for x in df.columns if x not in index_cols]:
-        try:
-            agg[r]
-        except KeyError:
-            agg[r] = default_aggregate
-
-    group_base = [pd.Grouper(key=timestamp, freq=time_frequency)]
-    for d in dimensions:
-        group_base.append(pd.Grouper(key=d))
-
-    df = df.groupby(group_base).agg(agg)
-    df.reset_index(inplace=True)
-
-    return df
-
-
 class MemoryOptimizer:
     '''
     Util class used to optimize the pipeline memory consumption using native Pandas downcasting
@@ -678,28 +726,427 @@ class MemoryOptimizer:
         return df_new
 
 
-def freq_to_timedelta(freq):
+class MessageHub:
+    MH_CA_CERT_PATH = '/etc/ssl/certs/eventstreams.pem'
+    MH_CA_CERT = os.environ.get('MH_CA_CERT')
+
+    def _delivery_report(err, msg):
+        """ Called once for each message produced to indicate delivery result.
+            Triggered by poll() or flush(). """
+        if err is not None:
+            logger.warning('Message delivery failed: {}'.format(err))
+
+    # else:
+    #     logger.info('Message delivered to {} [{}]'.format(msg.topic(), msg.partition()))
+
+    def produce_batch(self, msg_and_keys):
+        self.produce_batch(MH_DEFAULT_ALERT_TOPIC, msg_and_keys)
+
+    def produce_batch(self, topic, msg_and_keys):
+        if topic is None or len(topic) == 0 or msg_and_keys is None:
+            return
+
+        cnt = 0
+        producer = None
+        for msg, key in msg_and_keys:
+            producer = self.produce(topic, msg=msg, key=key, producer=producer)
+            cnt += 1
+            if cnt % FLUSH_PRODUCER_EVERY == 0:
+                # Wait for any outstanding messages to be delivered and delivery report
+                # callbacks to be triggered.
+                producer.flush()
+        if producer is not None:
+            producer.flush()
+
+    def produce(self, topic, msg, key=None, producer=None, callback=_delivery_report):
+        if topic is None or len(topic) == 0 or msg is None:
+            return
+
+        options = {'sasl.username': MH_USER, 'sasl.password': MH_PASSWORD, 'bootstrap.servers': MH_BROKERS_SASL,
+                   'security.protocol': 'SASL_SSL',  # 'ssl.ca.location': '/etc/ssl/certs/', # ubuntu
+                   'ssl.ca.location': self.MH_CA_CERT_PATH, 'sasl.mechanisms': 'PLAIN', 'api.version.request': True,
+                   'broker.version.fallback': '0.10.2.1', 'log.connection.close': False,
+                   'client.id': MH_CLIENT_ID + '-' + randomword(4)}
+
+        if KAFKA_INSTALLED:
+            if producer is None:
+                producer = Producer(options)
+
+            # Asynchronously produce a message, the delivery report callback
+            # will be triggered from poll() above, or flush() below, when the message has
+            # been successfully delivered or failed permanently.
+            producer.produce(topic, value=msg, key=key, callback=callback)
+
+            # Trigger any available delivery report callbacks from previous produce() calls
+            producer.poll(0)
+
+        # Wait for any outstanding messages to be delivered and delivery report
+        # callbacks to be triggered.
+        # producer.flush()
+
+        else:
+
+            logger.info('Topic %s : %s' % (topic, msg))
+
+        return producer
+
+    def mkdir_p(self, path):
+        try:
+            os.makedirs(path)
+        except OSError as exc:  # Python >2.5
+            if exc.errno == errno.EEXIST and os.path.isdir(path):
+                pass
+            else:
+                raise
+
+    def safe_open_w(self):
+        '''
+        Open "MH_CA_CERT_PATH" for writing, creating the parent directories as needed.
+        '''
+        self.mkdir_p(os.path.dirname(self.MH_CA_CERT_PATH))
+        return open(self.MH_CA_CERT_PATH, 'w')
+
+    def __init__(self):
+        try:
+            exists = os.path.isfile(self.MH_CA_CERT_PATH)
+            if exists:
+                logger.info('EventStreams certificate exists')
+            else:
+                if self.MH_CA_CERT is not None and len(self.MH_CA_CERT) > 0 and self.MH_CA_CERT.lower() != 'null':
+                    logger.info('EventStreams create ca certificate file in pem format.')
+                    with self.safe_open_w() as f:
+                        f.write(self.MH_CA_CERT)
+                else:
+                    logger.info('EventStreams ca certificate is empty.')
+                    if sys.platform == "darwin":  # MAC OS
+                        self.MH_CA_CERT_PATH = '/etc/ssl/cert.pem'
+                    else:
+                        self.MH_CA_CERT_PATH = '/etc/ssl/certs'
+        except Exception as ex:
+            logger.error('Initialization of EventStreams failed.')
+            raise
+
+
+class Trace(object):
     '''
-    The pandas to_timedelta does not handle the full set of
-    set of pandas frequency abreviations. Convert to supported 
-    abreviation and the use to_timedelta.
+    Gather status and diagnostic information to report back in the UI
     '''
-    try:
-        freq = freq.replace('T', 'min')
-    except AttributeError:
-        pass
-    return (pd.to_timedelta(freq))
 
+    save_trace_to_file = False
 
-def asList(x):
-    if not isinstance(x, list):
-        x = [x]
-    return x
+    def __init__(self, object_name=None, parent=None, db=None):
+        if parent is None:
+            parent = self
+        self.parent = parent
+        self.db = db
+        self.auto_save = None
+        self.auto_save_thread = None
+        self.stop_event = None
+        (self.name, self.cos_path) = self.build_trace_name(object_name=object_name, execution_date=None)
+        self.data = []
+        self.df_cols = set()
+        self.df_index = set()
+        self.df_count = 0
+        self.usage = 0
+        self.prev_ts = dt.datetime.utcnow()
+        logger.debug('Starting trace')
+        logger.debug('Trace name: %s', self.name)
+        logger.debug('auto_save %s', self.auto_save)
+        self.write(created_by=self.parent, text='Trace started. ')
 
+    def as_json(self):
 
-def randomword(length):
-    letters = string.ascii_lowercase + string.digits
-    return ''.join(random.choice(letters) for i in range(length))
+        return json.dumps(self.data, indent=4)
 
+    def build_trace_name(self, object_name, execution_date):
 
+        try:
+            (trace_name, cos_path) = self.parent.build_trace_name(object_name=object_name,
+                                                                  execution_date=execution_date)
+        except AttributeError:
+            if object_name is None:
 
+                try:
+                    object_name = self.parent.logical_name
+                except AttributeError:
+                    object_name = self.parent.name
+
+            if execution_date is None:
+                execution_date = dt.datetime.utcnow()
+            trace_name = 'auto_trace_%s_%s' % (object_name, execution_date.strftime('%Y%m%d%H%M%S'))
+            cos_path = ('%s/%s/%s/%s_trace_%s' % (
+                self.parent.tenant_id, object_name, execution_date.strftime('%Y%m%d'), object_name,
+                execution_date.strftime('%H%M%S')))
+
+        return (trace_name, cos_path)
+
+    def get_stack_trace(self):
+        '''
+        Extract stack trace entries. Return string.
+        '''
+
+        stack_trace = ''
+
+        for t in self.data:
+            entry = t.get('exception', None)
+            if entry is not None:
+                stack_trace = stack_trace + entry + '\n'
+            entry = t.get('stack_trace', None)
+            if entry is not None:
+                stack_trace = stack_trace + entry + '\n'
+
+        return stack_trace
+
+    def reset(self, object_name=None, execution_date=None, auto_save=None):
+        '''
+        Clear trace information and rename trace
+        '''
+        self.df_cols = set()
+        self.df_index = set()
+        self.df_count = 0
+        self.usage = 0
+        self.prev_ts = dt.datetime.utcnow()
+        self.auto_save = auto_save
+        if self.auto_save_thread is not None:
+            logger.debug('Reseting trace %s', self.name)
+            self.stop()
+        self.data = []
+        (self.name, self.cos_path) = self.build_trace_name(object_name=object_name, execution_date=execution_date)
+
+        logger.debug('Started a new trace %s ', self.name)
+        if self.auto_save is not None and self.auto_save > 0:
+            logger.debug('Initiating auto save for trace')
+            self.stop_event = threading.Event()
+            self.auto_save_thread = threading.Thread(target=self.run_auto_save, args=[self.stop_event])
+            self.auto_save_thread.start()
+
+    def run_auto_save(self, stop_event):
+        '''
+        Run auto save. Auto save is intended to be run in a separate thread.
+        '''
+        last_trace = None
+        next_autosave = dt.datetime.utcnow()
+        while not stop_event.is_set():
+            if next_autosave >= dt.datetime.utcnow():
+                if self.data != last_trace:
+                    logger.debug('Auto save trace %s' % self.name)
+                    self.save()
+                    last_trace = self.data
+                next_autosave = dt.datetime.utcnow() + dt.timedelta(seconds=self.auto_save)
+            time.sleep(0.1)
+        logger.debug('%s autosave thread has stopped', self.name)
+
+    def save(self):
+        '''
+        Write trace to COS
+        '''
+
+        if len(self.data) == 0:
+            trace = None
+            logger.debug('Trace is empty. Nothing to save.')
+        else:
+            if self.db is None:
+                logger.warning('Cannot save trace. No db object supplied')
+                trace = None
+            else:
+                trace = str(self.as_json())
+                self.db.cos_save(persisted_object=trace, filename=self.cos_path, binary=False, serialize=False)
+                logger.debug('Saved trace to cos %s', self.cos_path)
+        try:
+            save_to_file = self.parent.save_trace_to_file
+        except AttributeError:
+            save_to_file = self.save_trace_to_file
+        if trace is not None and save_to_file:
+            with open('%s.json' % self.name, 'w') as fp:
+                fp.write(trace)
+            logger.debug('wrote trace to file %s.json' % self.name)
+
+        return trace
+
+    def stop(self):
+        '''
+        Stop autosave thead
+        '''
+        self.auto_save = None
+        if not self.stop_event is None:
+            self.stop_event.set()
+        if self.auto_save_thread is not None:
+            self.auto_save_thread.join()
+            self.auto_save_thread = None
+            logger.debug('Stopping autosave on trace %s', self.name)
+
+    def update_last_entry(self, msg=None, log_method=None, df=None, **kw):
+        '''
+        Update the last trace entry. Include the contents of **kw.
+        '''
+        kw['updated'] = dt.datetime.utcnow()
+
+        self.usage = self.usage + kw.get('usage', 0)
+        kw['cumulative_usage'] = self.usage
+
+        try:
+            last = self.data.pop()
+        except IndexError:
+            last = {}
+            logger.debug(('Tried to update the last entry of an empty trace.'
+                          ' Nothing to update. New entry will be inserted.'))
+
+        for key, value in list(kw.items()):
+            if isinstance(value, pd.DataFrame):
+                last[key] = 'Ignored dataframe object that was included in trace'
+            elif not isinstance(value, str):
+                last[key] = str(value)
+
+        if df is not None:
+            df_info = self._df_as_dict(df=df)
+            last = {**last, **df_info}
+
+        if msg is not None:
+            last['text'] = last['text'] + msg
+        self.data.append(last)
+
+        # write trace update to the log
+        if log_method is not None:
+            if msg is not None:
+                log_method('Trace message: %s', msg)
+            if len(kw) > 0:
+                log_method('Trace payload: %s', kw)
+
+        return last
+
+    def write(self, created_by, text, log_method=None, df=None, **kwargs):
+        ts = dt.datetime.utcnow()
+        text = str(text)
+        elapsed = (ts - self.prev_ts).total_seconds()
+        self.prev_ts = ts
+        kwargs['elapsed_time'] = elapsed
+
+        self.usage = self.usage + kwargs.get('usage', 0)
+        kwargs['cumulative_usage'] = self.usage
+
+        try:
+            created_by_name = created_by.name
+        except AttributeError:
+            created_by_name = str(created_by)
+        entry = {'timestamp': str(ts), 'created_by': created_by_name, 'text': text, 'elapsed_time': elapsed}
+        for key, value in list(kwargs.items()):
+            if not isinstance(value, str):
+                kwargs[key] = str(value)
+        entry = {**entry, **kwargs}
+
+        # The trace can track changes in a dataframe between writes
+
+        if df is not None:
+            df_info = self._df_as_dict(df=df)
+            entry = {**entry, **df_info}
+
+        self.data.append(entry)
+
+        exception_type = entry.get('exception_type', None)
+        exception = entry.get('exception', None)
+        stack_trace = entry.get('stack_trace', None)
+
+        try:
+            if log_method is not None:
+                log_method(text)
+                if exception_type is not None:
+                    log_method(exception_type)
+                if exception is not None:
+                    log_method(exception)
+                if stack_trace is not None:
+                    log_method(stack_trace)
+        except TypeError:
+            msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' % text
+            logger.warning(text)
+            if exception_type is not None:
+                logger.warning(exception_type)
+            if exception is not None:
+                logger.warning(exception)
+            if stack_trace is not None:
+                logger.warning(stack_trace)
+
+    def write_usage(self, db, start_ts=None, end_ts=None):
+        '''
+        Write usage stats to the usage log
+        '''
+
+        usage_logged = False
+        msg = 'No db object provided. Did not write usage'
+
+        usage = []
+        for i in self.data:
+            result = int(i.get('usage', 0))
+            if end_ts is None:
+                end_ts = dt.datetime.utcnow()
+
+            if start_ts is None:
+                elapsed = float(i.get('elapsed_time', '0'))
+                start_ts = end_ts - dt.timedelta(seconds=elapsed)
+
+            if result > 0:
+                entry = {"entityTypeName": self.parent.name, "kpiFunctionName": i.get('created_by', 'unknown'),
+                         "startTimestamp": str(start_ts), "endTimestamp": str(end_ts),
+                         "numberOfResultsProcessed": result}
+                usage.append(entry)
+
+        if len(usage) > 0:
+
+            if db is not None:
+                try:
+                    db.http_request(object_type='usage', object_name='', request='POST', payload=usage)
+                except BaseException as e:
+                    msg = 'Unable to write usage. %s' % str(e)
+                else:
+                    usage_logged = True
+
+        else:
+            msg = 'No usage recorded for this execution'
+
+        if not usage_logged:
+            logger.info(msg)
+            if len(usage) > 0:
+                logger.info(usage)
+
+    def _df_as_dict(self, df):
+
+        '''
+        Gather stats about changes to the dataframe between trace entries
+        '''
+
+        data = {}
+        if df is None:
+            data['df'] = 'Ignored null dataframe'
+        elif not isinstance(df, pd.DataFrame):
+            data['df'] = 'Ignored non dataframe of type %s' % df.__class__.__name__
+        else:
+            if len(df.index) > 0:
+                prev_count = self.df_count
+                prev_cols = self.df_cols
+                self.df_count = len(df.index)
+                if df.index.names is None:
+                    self.df_index = {}
+                else:
+                    self.df_index = set(df.index.names)
+                self.df_cols = set(df.columns)
+                # stats
+                data['df_count'] = self.df_count
+                data['df_index'] = list(self.df_index)
+                # look at changes
+                if self.df_count != prev_count:
+                    data['df_rowcount_change'] = self.df_count - prev_count
+                if len(self.df_cols - prev_cols) > 0:
+                    data['df_added_columns'] = list(self.df_cols - prev_cols)
+                if len(prev_cols - self.df_cols) > 0:
+                    data['df_added_columns'] = list(prev_cols - self.df_cols)
+            else:
+                data['df'] = 'Empty dataframe'
+
+        return data
+
+    def __str__(self):
+
+        out = ''
+        for entry in self.data:
+            out = out + entry['text']
+
+        return out
