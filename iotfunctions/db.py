@@ -308,7 +308,17 @@ class Database(object):
 
         EngineLogging.set_cos_client(self.cos_client)
 
+        # Define any dialect specific configuration
+        if self.db_type == 'postgresql':
+            dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
+                              'executemany_values_page_size': 1000}
+            dialect_kwargs = {'use_batch_mode': True}       # kohlmann remove
+        else:
+            dialect_kwargs = {}
+
+        connection_kwargs = {**dialect_kwargs, **connection_kwargs}
         self.connection = create_engine(connection_string, echo=echo, **connection_kwargs)
+
         self.Session = sessionmaker(bind=self.connection)
 
         # this method should be invoked before the get Metadata()
