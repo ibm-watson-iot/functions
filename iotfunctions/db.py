@@ -27,6 +27,7 @@ from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN,
 from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy import __version__ as sqlalchemy_version_string
 from .util import CosClient, resample, reset_df_index
 from . import metadata as md
 from . import pipeline as pp
@@ -310,9 +311,31 @@ class Database(object):
 
         # Define any dialect specific configuration
         if self.db_type == 'postgresql':
-            dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
-                              'executemany_values_page_size': 1000}
-            dialect_kwargs = {'use_batch_mode': True}       # kohlmann remove
+
+            # Find out if we can use 'executemany_mode' keyword that is supported starting from SqlAlchemy 1.3.7
+            meets_requirement = True
+            version_split = sqlalchemy_version_string.split('.')
+
+            version_list = [0, 0, 0]
+            for i in range(min(3, len(version_split))):
+                try:
+                    number = int(version_split[i])
+                except:
+                    number = 0
+                version_list[i] = number
+
+            version_list_required = [1, 3, 7]
+            for i in range(3):
+                if version_list[i] < version_list_required[i]:
+                    meets_requirement = False
+                    break
+
+            if meets_requirement:
+                dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
+                                  'executemany_values_page_size': 1000}
+            else:
+                # 'use_batch_mode=True' is about 20 % slower than 'execute_many_mode=values'
+                dialect_kwargs = {'use_batch_mode': True}
         else:
             dialect_kwargs = {}
 

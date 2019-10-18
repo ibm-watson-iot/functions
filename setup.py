@@ -9,7 +9,7 @@ setup(
     install_requires=[
         'dill==0.3.0',
         'urllib3==1.22',
-        'sqlalchemy==1.3.5',
+        'sqlalchemy>=1.3.5',
         'numpy==1.14.5',
         'pandas==0.24.0',
         'requests==2.18.4',
