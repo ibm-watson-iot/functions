@@ -1385,7 +1385,7 @@ class ShiftCalendar(BaseTransformer):
             raise ValueError('End date is required when building data for a shift calendar')
         start_date = start_date.date()
         end_date = end_date.date()
-        dates = pd.DatetimeIndex(start=start_date, end=end_date, freq='1D').tolist()
+        dates= pd.date_range(start=start_date, end=end_date, freq='1D').tolist()
         dfs = []
         for shift_id, start_end in list(self.shift_definition.items()):
             data = {}
