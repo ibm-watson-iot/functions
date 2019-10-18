@@ -46,6 +46,33 @@ class AggregateItems(object):
         self._output_list = []
         self._output_list.extend(self.output_items)
 
+    def __str__(self):
+        msg = 'AggregateItems: %s with granularity: %s. ' % (self.aggregation_function, self.granularity.name)
+
+
+        out = self.__class__.__name__
+        try:
+            out = out + ' at granularity ' + str(self.granularity)
+        except AttributeError:
+            out = out + ' unknown granularity'
+
+        if self.input_items is not None:
+            out = out + ' requires inputs %s' % self.input_items
+        else:
+            out = out + ' required inputs not evaluated yet'
+
+        if self._output_list is not None:
+            out = out + ' produces outputs %s' % self._output_list
+        else:
+            out = out + ' outputs produced not evaluated yet'
+
+        try:
+            out = out + ' on schedule ' + str(self.schedule)
+        except AttributeError:
+            out = out + ' unknown schedule'
+
+        return out
+
     def get_aggregation_method(self):
 
         # Aggregation methods may either be strings like 'sum' or 'count' or class methods

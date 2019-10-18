@@ -47,12 +47,11 @@ try:
     from ibm_botocore.client import Config
 except BaseException:
     IBMBOTO_INSTALLED = False
-    msg = 'ibm_boto3 is not installed. Use HMAC credentials to communicate with COS.'
-    logger.info(msg)
+    logger.info('ibm_boto3 is not installed. Use HMAC credentials to communicate with COS.')
 else:
     IBMBOTO_INSTALLED = True
 
-FLUSH_PRODUCER_EVERY = 100
+FLUSH_PRODUCER_EVERY = 500
 
 MH_USER = os.environ.get('MH_USER')
 MH_PASSWORD = os.environ.get('MH_PASSWORD')
@@ -734,22 +733,25 @@ class MessageHub:
     #     logger.info('Message delivered to {} [{}]'.format(msg.topic(), msg.partition()))
 
     def produce_batch_alert_to_default_topic(self, msg_and_keys):
-
+        start_time = dt.datetime.now()
         self.produce_batch(topic=MH_DEFAULT_ALERT_TOPIC, msg_and_keys=msg_and_keys)
+        end_time = dt.datetime.now()
+        logger.info("Total time taken to produce the alert = %s seconds." % (end_time - start_time).total_seconds())
 
     def produce_batch(self, topic, msg_and_keys):
         if topic is None or len(topic) == 0 or msg_and_keys is None:
             return
 
-        cnt = 0
+        counter = 0
         producer = None
         for key, msg in msg_and_keys:
             producer = self.produce(topic, msg=msg, key=key, producer=producer)
-            cnt += 1
-            if cnt % FLUSH_PRODUCER_EVERY == 0:
+            counter += 1
+            if counter % FLUSH_PRODUCER_EVERY == 0:
                 # Wait for any outstanding messages to be delivered and delivery report
                 # callbacks to be triggered.
                 producer.flush()
+                logger.info('Number of alert produced so far: %d (%s)' % (counter, topic))
         if producer is not None:
             producer.flush()
 
@@ -780,7 +782,6 @@ class MessageHub:
         # producer.flush()
 
         else:
-
             logger.info('Topic %s : %s' % (topic, msg))
 
         return producer
