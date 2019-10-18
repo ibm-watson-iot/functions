@@ -344,8 +344,9 @@ class JobController(object):
             data_items = []
         for d in data_items:
             data_items_dict[d['name']] = d
-            if DATA_ITEM_TAG_ALERT in d['tags']:
-                alerts.append(d['name'])
+            if 'tags' in d:
+                if DATA_ITEM_TAG_ALERT in d['tags']:
+                    alerts.append(d['name'])
 
         # Add a data write to spec
         params = {'db_connection': self.get_payload_param('db', None).connection,
