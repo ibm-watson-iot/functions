@@ -9,17 +9,14 @@
 # *****************************************************************************
 
 
-from .util import MessageHub, asList
 import logging
-
+import pandas as pd
 import json
 import datetime as dt
 import numpy as np
-
-from .exceptions import StageException, DataWriterException
-
-import pandas as pd
 from sqlalchemy import (MetaData, Table)
+from .util import MessageHub
+from .exceptions import StageException, DataWriterException
 
 # Kohlmann verify location of the following constants
 DATA_ITEM_TYPE_BOOLEAN = 'BOOLEAN'
@@ -40,58 +37,60 @@ DATA_ITEM_TAGS_KEY = 'tags'
 logger = logging.getLogger(__name__)
 
 
-class ProduceAlerts:
+class ProduceAlerts(object):
+    is_system_function = True
+    produces_output_items = False
 
-    def __init__(self, dms, alerts=None):
-
+    def __init__(self, dms, alerts, **kwargs):
+        self.name = dms.logical_name
         if dms is None:
             raise RuntimeError("argument dms must be provided")
         if alerts is None:
             raise RuntimeError("argument alerts must be provided")
         self.dms = dms
-        self.alerts = []
+        self.alerts = alerts
         self.messagehub = MessageHub()
 
-        for alert in asList(alerts):
-            # self.alerts.append(alert)
-            metadata = self.dms.data_items.get(alert)
-            if metadata is not None:
-                if DATA_ITEM_TAG_ALERT in metadata.get(DATA_ITEM_TAGS_KEY, []):
-                    self.alerts.append(alert)
+    def __str__(self):
+
+        return 'System generated ProduceAlerts stage for entity type %s' % self.name
 
     def execute(self, df):
-        if self.dms.production_mode:
-            logger.debug('alerts_to_produce=%s, df_columns=%s' % (str(self.alerts), str(df.dtypes.to_dict())))
 
-            # TODO it may be worth pre-filtering the data frame to be just those rows with True alert column values,
-            # because iterating through the whole data frame is a slow process
+        logger.debug('alerts_to_produce = %s ' % str(self.alerts))
 
-            t1 = dt.datetime.now()
+        # TODO it may be worth pre-filtering the data frame to be just those rows with True alert column values,
+        # because iterating through the whole data frame is a slow process
 
-            msg_and_keys = []
-            if len(self.alerts) > 0:  # no alert, do iterate which is slow
-                for ix, row in df.iterrows():
-                    payload = row.to_dict()
+        t1 = dt.datetime.now()
 
-                    # TODO there is an issue for the json.dumps below which cannot deal all types
+        msg_and_keys = []
+        if len(self.alerts) > 0:  # no alert, do iterate which is slow
+            for ix, row in df.iterrows():
+                payload = row.to_dict()
 
-                    for alert, value in payload.items():
-                        # Skip missing values and non-True values
-                        if alert in self.alerts and pd.notna(value) and value:
-                            # publish alert format
-                            # key: <tenant-id>|<entity-type>|<entity-id>|<alert-name>|<timestamp>
-                            # value: json document containing all metrics at the same time / same device / same grain
-                            msg_and_keys.append((json.dumps(payload, default=self._serialize_converter),
-                                                 '%s|%s|%s|%s|%s' % (
-                                                     self.dms.tenant_id, self.dms.entity_type, ix[0], alert, ix[1])))
+                # TODO there is an issue for the json.dumps below which cannot deal all types
 
-            logger.debug("total_alerts_produced=%d" % len(msg_and_keys))
+                for alert, value in payload.items():
+                    # Skip missing values and non-True values
+                    if alert in self.alerts and pd.notna(value) and value:
+                        # publish alert format
+                        # key: <tenant-id>|<entity-type-name>|<entity-id>|<alert-name>|<timestamp>
+                        # value: json document containing all metrics at the same time / same device / same grain
+                        key = '%s|%s|%s|%s|%s' % (self.dms.tenant_id, self.name, ix[0], alert, ix[1])
+                        value = json.dumps(payload, default=self._serialize_converter)
+                        msg_and_keys.append((key, value))
+        else:
+            logger.debug("No alerts to produce for %s." % self.name)
+            return df
 
-            if len(msg_and_keys) > 0:
-                self.messagehub.produce_batch(msg_and_keys=msg_and_keys)
+        if len(msg_and_keys) > 0:
+            self.messagehub.produce_batch_alert_to_default_topic(msg_and_keys=msg_and_keys)
 
             t2 = dt.datetime.now()
-            logger.info("produce_alert_time_seconds=%s" % (t2 - t1).total_seconds())
+            logger.info("Total time taken to produce the alert (time in seconds) = %s " % (t2 - t1).total_seconds())
+
+        logger.info("Total alerts produced = %d " % len(msg_and_keys))
 
         return df
 

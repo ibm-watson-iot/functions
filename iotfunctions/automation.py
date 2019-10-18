@@ -237,7 +237,13 @@ class TimeSeriesGenerator(object):
         start = start - dt.timedelta(seconds=self.seconds)
 
         if self.datasource is not None:
-            ts = pd.date_range(end=end, freq=self.freq, periods=self.datasource.index.size)
+            if isinstance(self.datasource.index.dtype, pd.DatetimeIndex):
+                ts = self.datasource.index.copy()
+            elif self._timestamp in self.datasource.columns:
+                self.datasource = self.datasource.set_index(self._timestamp).sort_index()
+                ts = self.datasource.index
+            else:
+                ts = pd.date_range(end=end, freq=self.freq, periods=self.datasource.index.size)
         else:
             ts = pd.date_range(end=end, start=start, freq=self.freq)
 
@@ -249,6 +255,7 @@ class TimeSeriesGenerator(object):
         noise = np.random.normal(0, 1, (rows, y_count))
 
         df = pd.DataFrame(data=noise, columns=y_cols)
+
         df[self._entity_id] = np.random.choice(self.ids, rows)
         df[self._timestamp] = ts
 
@@ -263,7 +270,7 @@ class TimeSeriesGenerator(object):
                 pass
             if self.datasourcemetrics is not None and (m in self.datasourcemetrics):
                 try:
-                    df[m] = self.datasource[m]
+                    df[m] = self.datasource[m].to_numpy()
                     print('assigned column ' + m)
                 except KeyError:
                     df[m] = 0

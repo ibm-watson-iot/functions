@@ -303,12 +303,6 @@ def freq_to_timedelta(freq):
     return (pd.to_timedelta(freq))
 
 
-def asList(x):
-    if not isinstance(x, list):
-        x = [x]
-    return x
-
-
 def randomword(length):
     letters = string.ascii_lowercase + string.digits
     return ''.join(random.choice(letters) for i in range(length))
@@ -739,8 +733,9 @@ class MessageHub:
     # else:
     #     logger.info('Message delivered to {} [{}]'.format(msg.topic(), msg.partition()))
 
-    def produce_batch(self, msg_and_keys):
-        self.produce_batch(MH_DEFAULT_ALERT_TOPIC, msg_and_keys)
+    def produce_batch_alert_to_default_topic(self, msg_and_keys):
+
+        self.produce_batch(topic=MH_DEFAULT_ALERT_TOPIC, msg_and_keys=msg_and_keys)
 
     def produce_batch(self, topic, msg_and_keys):
         if topic is None or len(topic) == 0 or msg_and_keys is None:
@@ -748,7 +743,7 @@ class MessageHub:
 
         cnt = 0
         producer = None
-        for msg, key in msg_and_keys:
+        for key, msg in msg_and_keys:
             producer = self.produce(topic, msg=msg, key=key, producer=producer)
             cnt += 1
             if cnt % FLUSH_PRODUCER_EVERY == 0:
