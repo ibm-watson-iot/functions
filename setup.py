@@ -19,8 +19,9 @@ setup(
         'ibm-cos-sdk==2.1.3',
         'scipy==1.1.0',
         'scikit-learn==0.19.2',
-        'scikit-learn==0.16.1',
-        'pyod==0.7.5'
+        'nose>=1.3.7',
+        'scikit-image>=0.16.1',
+        'pyod>=0.7.5'
     ],
     extras_require = {
         'kafka':  ['confluent-kafka==0.11.5']
