@@ -576,7 +576,7 @@ class Database(object):
             logger.debug(msg)
         else:
             until_date = dt.datetime.utcnow() - dt.timedelta(days=older_than_days)
-            result = self.connection.execute(table.delete().where(table.c[timestamp] < until_date))
+            result = self.connection.execute(table.delete().where(self.get_column_object( table, timestamp) < until_date))
             msg = 'deleted data from table %s older than %s' % (table_name, until_date)
             logger.debug(msg)
         self.commit()
@@ -1804,12 +1804,12 @@ class Database(object):
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                 raise ValueError(msg)
-            query = query.filter(table.c[timestamp_col] >= start_ts)
+            query = query.filter(self.get_column_object( table, timestamp) >= start_ts)
         if not end_ts is None:
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                 raise ValueError(msg)
-            query = query.filter(table.c[timestamp_col] < end_ts)
+            query = query.filter(self.get_column_object( table, timestamp_col)< end_ts)
         if not entities is None:
             query = query.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
@@ -2003,8 +2003,9 @@ class Database(object):
             if timestamp is None:
                 msg = 'You must supply a timestamp column when doing a time-based aggregate'
                 raise ValueError(msg)
+            col_object = self.get_column_object( table, timestamp)
             if time_grain == timestamp:
-                group_by_cols[timestamp] = table.c[timestamp]
+                group_by_cols[timestamp] = col_object
             elif time_grain.endswith('min'):
                 minutes = int(time_grain[:-3])
                 group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(table_name, schema, timestamp, minutes,
@@ -2014,13 +2015,13 @@ class Database(object):
                 group_by_cols[timestamp] = self._ts_col_rounded_to_hours(table_name, schema, timestamp, hours,
                                                                          timestamp)
             elif time_grain == 'day':
-                group_by_cols[timestamp] = func.date(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date(col_object).label(timestamp)
             elif time_grain == 'week':
-                group_by_cols[timestamp] = func.this_week(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.this_week(col_object).label(timestamp)
             elif time_grain == 'month':
-                group_by_cols[timestamp] = func.this_month(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.this_month(col_object).label(timestamp)
             elif time_grain == 'year':
-                group_by_cols[timestamp] = func.this_year(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.this_year(col_object).label(timestamp)
             else:
                 pandas_aggregate = time_grain
 
@@ -2058,12 +2059,12 @@ class Database(object):
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(table.c[timestamp] >= start_ts)
+                subquery = subquery.filter(self.get_column_object( table, timestamp) >= start_ts)
             if not end_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(table.c[timestamp] < end_ts)
+                subquery = subquery.filter(self.get_column_object( table, timestamp) < end_ts)
             if not entities is None:
                 subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
@@ -2256,7 +2257,7 @@ class Database(object):
                 msg = 'You must supply a timestamp column when doing a time-based aggregate'
                 raise ValueError(msg)
             if time_grain == timestamp:
-                group_by_cols[timestamp] = table.c[timestamp]
+                group_by_cols[timestamp] = self.get_column_object( table, timestamp)
             elif time_grain.endswith('min'):
                 minutes = int(time_grain[:-3])
                 group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(table_name, schema, timestamp, minutes,
@@ -2266,13 +2267,13 @@ class Database(object):
                 group_by_cols[timestamp] = self._ts_col_rounded_to_hours(table_name, schema, timestamp, hours,
                                                                          timestamp)
             elif time_grain == 'day':
-                group_by_cols[timestamp] = func.date(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date(self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'week':
-                group_by_cols[timestamp] = func.this_week(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.this_week(self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'month':
-                group_by_cols[timestamp] = func.this_month(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.this_month(self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'year':
-                group_by_cols[timestamp] = func.this_year(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.this_year(self.get_column_object( table, timestamp)).label(timestamp)
             else:
                 pandas_aggregate = time_grain
 
@@ -2310,12 +2311,12 @@ class Database(object):
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(table.c[timestamp] >= start_ts)
+                subquery = subquery.filter(self.get_column_object( table, timestamp) >= start_ts)
             if not end_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(table.c[timestamp] < end_ts)
+                subquery = subquery.filter(self.get_column_object( table, timestamp) < end_ts)
             if not entities is None:
                 subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
