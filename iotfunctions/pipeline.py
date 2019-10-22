@@ -354,13 +354,16 @@ class JobController(object):
                   'grains_metadata': self.get_payload_param('_granularities_dict', None),
                   'data_item_metadata': data_items_dict, 'alerts': alerts}
 
-        writer_name = '%s_input_level' % self.name
-        data_writer = self.data_writer(name=writer_name, **params)
-        build_metadata['spec'].append(data_writer)
+        # If production_mode flag is set to True then only insert data into DB, Publish alerts to message hub and record the usage.
+        if self._production_mode:
+            # Add a data writer for non grain or input_level data.
+            writer_name = '%s_input_level' % self.name
+            data_writer = self.data_writer(name=writer_name, **params)
+            build_metadata['spec'].append(data_writer)
 
-        # Add a produce alert stage to spec
-        produce_alert_stage = self.produce_alerts(self.payload, **params)
-        build_metadata['spec'].append(produce_alert_stage)
+            # Add a produce alert stage to spec
+            produce_alert_stage = self.produce_alerts(self.payload, **params)
+            build_metadata['spec'].append(produce_alert_stage)
 
         # Look for aggregation stages incorrectly defined at the input level
         invalid_stages = []
@@ -420,14 +423,15 @@ class JobController(object):
 
             job_spec['skipped_stages'] |= build_metadata['skipped_stages']
 
-            # Add a data writer for grain
-            writer_name = '%s_%s' % (self.name, g.name)
-            data_writer = self.data_writer(name=writer_name, **params)
-            build_metadata['spec'].append(data_writer)
+            if self._production_mode:
+                # Add a data writer for grain
+                writer_name = '%s_%s' % (self.name, g.name)
+                data_writer = self.data_writer(name=writer_name, **params)
+                build_metadata['spec'].append(data_writer)
 
-            # Add a produce alert stage to spec
-            produce_alert_stage = self.produce_alerts(self.payload, **params)
-            build_metadata['spec'].append(produce_alert_stage)
+                # Add a produce alert stage to spec
+                produce_alert_stage = self.produce_alerts(self.payload, **params)
+                build_metadata['spec'].append(produce_alert_stage)
 
             logger.debug('Completed job spec build for grain: %s', g.name)
             job_spec[g.name] = build_metadata['spec']
@@ -1939,8 +1943,7 @@ class JobController(object):
         if trace is not None:
             trace.write(created_by=self.payload, text=msg, log_method=log_method, df=df, **kwargs)
         else:
-            logger.debug(('Payload has no _trace object.'
-                          ' Trace will be written to log instead'))
+            logger.debug('Payload has no _trace object. Trace will be written to log instead')
             logger.debug('Trace:%s', msg)
             logger.debug('Payload:%s', kwargs)
 

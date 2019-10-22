@@ -26,7 +26,8 @@ def run(args):
         logger.info('tenant id = %s, entity type = %s' % (args['tenant_id'], args['entity_type']))
 
         database = db.Database(start_session=True, echo=True, tenant_id=args['tenant_id'])
-        database.execute_job(entity_type=args['entity_type'])
+        # If _production_mode flag is set to True then only insert data into DB, Publish alerts to message hub and record the usage.
+        database.execute_job(entity_type=args['entity_type'], _production_mode=True)
 
     except Exception as ex:
         logger.error('The engine stopped execution with the following exception: %s' % str(ex), exc_info=True)
