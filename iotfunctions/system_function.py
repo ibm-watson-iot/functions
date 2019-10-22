@@ -47,8 +47,6 @@ class AggregateItems(object):
         self._output_list.extend(self.output_items)
 
     def __str__(self):
-        msg = 'AggregateItems: %s with granularity: %s. ' % (self.aggregation_function, self.granularity.name)
-
 
         out = self.__class__.__name__
         try:

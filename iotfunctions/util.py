@@ -51,7 +51,7 @@ except BaseException:
 else:
     IBMBOTO_INSTALLED = True
 
-FLUSH_PRODUCER_EVERY = 500
+FLUSH_PRODUCER_EVERY = 1000
 
 MH_USER = os.environ.get('MH_USER')
 MH_PASSWORD = os.environ.get('MH_PASSWORD')
@@ -751,7 +751,7 @@ class MessageHub:
                 # Wait for any outstanding messages to be delivered and delivery report
                 # callbacks to be triggered.
                 producer.flush()
-                logger.info('Number of alert produced so far: %d (%s)' % (counter, topic))
+                logger.info('Number of alert produced so far : %d (%s)' % (counter, topic))
         if producer is not None:
             producer.flush()
 

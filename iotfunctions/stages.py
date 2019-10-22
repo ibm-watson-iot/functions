@@ -75,17 +75,18 @@ class ProduceAlerts(object):
                     filtered_alerts.append(alert)
 
             filtered_df = df.query(alert_filter_expression)
+            index_names = filtered_df.index.names
 
             # for df_row in filtered_df.itertuples():
-            for ix, row in filtered_df.iterrows():
+            for index_value, row in filtered_df.iterrows():
                 for alert in filtered_alerts:
                     # derived_value = getattr(payload, alert)
                     if row[alert]:
                         # publish alert format
-                        # key: <tenant-id>|<entity-type-name>|<entity-id>|<alert-name>|<timestamp>
+                        # key: <tenant-id>|<entity-type-name>|<alert-name>
                         # value: json document containing all metrics at the same time / same device / same grain
-                        key = '%s|%s|%s|%s|%s' % (self.dms.tenant_id, self.name, ix[0], alert, ix[1])
-                        value = row.to_json()
+                        key = '%s|%s|%s' % (self.dms.tenant_id, self.name, alert)
+                        value = self.get_json_values(index_names, index_value, row)
                         msg_and_keys.append((key, value))
         else:
             logger.debug("No alerts to produce for %s." % self.name)
@@ -103,9 +104,24 @@ class ProduceAlerts(object):
     It is necessary to convert the object to string
     '''
 
-    def _serialize_converter(self, o):
-        if isinstance(o, dt.datetime):
-            return o.__str__()
+    def _serialize_converter(self, object):
+        if isinstance(object, dt.datetime):
+            return object.__str__()
+
+    '''
+    This function creates a json string which consist of dataframe row records and index key, value .
+    '''
+
+    def get_json_values(self, index_names, index_values, row):
+
+        index_json = {}
+        for index_name, index_value in zip(index_names, index_values):
+            index_json[index_name] = index_value
+
+        value = row.to_json()
+        updated_value = json.loads(value)
+        updated_value["index"] = index_json
+        return json.dumps(updated_value, default=self._serialize_converter)
 
 
 class DataWriter(object):

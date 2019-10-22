@@ -201,6 +201,7 @@ class JobController(object):
     data_writer = DataWriterSqlAlchemy
     data_merge = DataMerge
     job_log_class = JobLog
+    produce_alerts = ProduceAlerts
 
     def __init__(self, payload, **kwargs):
 
@@ -344,9 +345,8 @@ class JobController(object):
             data_items = []
         for d in data_items:
             data_items_dict[d['name']] = d
-            if 'tags' in d:
-                if DATA_ITEM_TAG_ALERT in d['tags']:
-                    alerts.append(d['name'])
+            if DATA_ITEM_TAG_ALERT in d['tags']:
+                alerts.append(d['name'])
 
         # Add a data write to spec
         params = {'db_connection': self.get_payload_param('db', None).connection,
@@ -359,7 +359,7 @@ class JobController(object):
         build_metadata['spec'].append(data_writer)
 
         # Add a produce alert stage to spec
-        produce_alert_stage = ProduceAlerts(self.payload, **params)
+        produce_alert_stage = self.produce_alerts(self.payload, **params)
         build_metadata['spec'].append(produce_alert_stage)
 
         # Look for aggregation stages incorrectly defined at the input level
@@ -425,6 +425,10 @@ class JobController(object):
             data_writer = self.data_writer(name=writer_name, **params)
             build_metadata['spec'].append(data_writer)
 
+            # Add a produce alert stage to spec
+            produce_alert_stage = self.produce_alerts(self.payload, **params)
+            build_metadata['spec'].append(produce_alert_stage)
+
             logger.debug('Completed job spec build for grain: %s', g.name)
             job_spec[g.name] = build_metadata['spec']
 
@@ -468,7 +472,7 @@ class JobController(object):
                 logger.info('  %s', str(s))
         logger.debug('-------------------------------')
 
-        print('TBD ***** - Add stages for usage stats and write to MessageHub')
+        print('TBD ***** - Add stages for usage stats')
 
         return job_spec
 
