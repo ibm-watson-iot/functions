@@ -1804,7 +1804,7 @@ class Database(object):
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                 raise ValueError(msg)
-            query = query.filter(self.get_column_object( table, timestamp) >= start_ts)
+            query = query.filter(self.get_column_object( table, timestamp_col) >= start_ts)
         if not end_ts is None:
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
