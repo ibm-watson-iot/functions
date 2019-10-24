@@ -211,7 +211,7 @@ class EntityType(object):
     drop_null_class = DropNull
     enable_downcast = False
     allow_projection_list_trim = True
-    _write_usage = False
+    _write_usage = True
 
     # deprecated class variables (to be removed)
     _checkpoint_by_entity = True  # manage a separate checkpoint for each entity instance
@@ -2077,6 +2077,7 @@ class ServerEntityType(EntityType):
                                          output_items=[replacement_metadata.get('output').get('name')])
                     obj.granularity = replacement_metadata.get('granularity', None)
                     obj.schedule = replacement_metadata.get('schedule', None)
+                    obj.kpi_function_name = replacement_metadata.get("name", None)
                     functions.append(obj)
 
                 else:
@@ -2087,7 +2088,6 @@ class ServerEntityType(EntityType):
         self.db.load_catalog(install_missing=True, function_list=valid_kpi_names)
 
         for f in valid_kpis:
-
             # build function object using metadata
 
             (package, module, class_name) = self.db.get_catalog_module(f['functionName'])
@@ -2106,6 +2106,7 @@ class ServerEntityType(EntityType):
             else:
                 obj.granularity = f.get('granularity', None)
                 obj.schedule = f.get('schedule', None)
+                obj.kpi_function_name = f.get("name", None)
                 functions.append(obj)
 
         return (functions, invalid, disabled)

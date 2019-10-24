@@ -1122,6 +1122,7 @@ class JobController(object):
         # entities to retrieve data from
         entities = self.exec_payload_method(method_name='get_entity_filter', default_output=None, raise_error=False)
         usage = 0
+        kpi_function_name = "unknown"
 
         # There are two possible signatures for the execute method
         try:
@@ -1129,12 +1130,14 @@ class JobController(object):
 
             usage = self.get_stage_param(stage, 'usage_', usage)
 
+            kpi_function_name = self.get_stage_param(stage, "kpi_function_name", kpi_function_name);
+
         except TypeError:
             is_executed = False
         else:
             is_executed = True
             if entities is not None or usage > 0:
-                self.trace_update(log_method=logger.debug, **{'entity_filter_list': entities, 'usage': usage})
+                self.trace_update(log_method=logger.debug, **{'entity_filter_list': entities, 'usage': usage, "kpi_function_name":kpi_function_name})
 
         # This seems a bit long winded, but it done this way to avoid
         # the type error showing up in the stack trace when there is an
@@ -1142,11 +1145,13 @@ class JobController(object):
         if not is_executed:
             result = stage.execute(df=df)
             usage = self.get_stage_param(stage, 'usage_', usage)
+            kpi_function_name = self.get_stage_param(stage, "kpi_function_name", kpi_function_name)
             if entities is not None or usage > 0:
                 self.trace_update(log_method=logger.debug, **{'entity_filter_list': ('entity filter exists, but execute'
                                                                                      ' method for stage does not support '
                                                                                      ' entities parameter'),
-                                                              'usage': usage})
+                                                              'usage': usage,
+                                                              "kpi_function_name":kpi_function_name})
 
         if isinstance(result, bool) and result:
             result = pd.DataFrame()

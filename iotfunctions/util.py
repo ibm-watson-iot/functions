@@ -990,7 +990,7 @@ class Trace(object):
         for key, value in list(kw.items()):
             if isinstance(value, pd.DataFrame):
                 last[key] = 'Ignored dataframe object that was included in trace'
-            elif not isinstance(value, str):
+            else:
                 last[key] = str(value)
 
         if df is not None:
@@ -1080,7 +1080,7 @@ class Trace(object):
                 start_ts = end_ts - dt.timedelta(seconds=elapsed)
 
             if result > 0:
-                entry = {"entityTypeName": self.parent.name, "kpiFunctionName": i.get('created_by', 'unknown'),
+                entry = {"entityTypeName": self.parent.name, "kpiFunctionName": i.get('kpi_function_name', 'unknown'),
                          "startTimestamp": str(start_ts), "endTimestamp": str(end_ts),
                          "numberOfResultsProcessed": result}
                 usage.append(entry)
