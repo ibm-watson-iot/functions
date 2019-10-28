@@ -21,7 +21,8 @@ setup(
         'scikit-learn>=0.19.2',
         'nose>=1.3.7',
         'scikit-image>=0.16.2',
-        'pyod>=0.7.5'
+        'pyod>=0.7.5',
+        'psycopg2-binary>=2.8.4'
     ],
     extras_require = {
         'kafka':  ['confluent-kafka==0.11.5']
