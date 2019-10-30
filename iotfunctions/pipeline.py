@@ -1121,37 +1121,33 @@ class JobController(object):
         # The payload may optionally supply a specific list of 
         # entities to retrieve data from
         entities = self.exec_payload_method(method_name='get_entity_filter', default_output=None, raise_error=False)
-        usage = 0
-        kpi_function_name = "unknown"
+
+        trace_update_dictionary = {}
 
         # There are two possible signatures for the execute method
         try:
             result = stage.execute(df=df, start_ts=start_ts, end_ts=end_ts, entities=entities)
-
-            usage = self.get_stage_param(stage, 'usage_', usage)
-
-            kpi_function_name = self.get_stage_param(stage, "kpi_function_name", kpi_function_name);
-
         except TypeError:
             is_executed = False
+            entity_filter_list_message = 'entity filter exists, but execute method for stage does not support entities parameter'
         else:
             is_executed = True
-            if entities is not None or usage > 0:
-                self.trace_update(log_method=logger.debug, **{'entity_filter_list': entities, 'usage': usage, "kpi_function_name":kpi_function_name})
+            entity_filter_list_message = entities
 
-        # This seems a bit long winded, but it done this way to avoid
+        # This seems a bit long winded, but it is done this way to avoid
         # the type error showing up in the stack trace when there is an
         # error executing
         if not is_executed:
             result = stage.execute(df=df)
-            usage = self.get_stage_param(stage, 'usage_', usage)
-            kpi_function_name = self.get_stage_param(stage, "kpi_function_name", kpi_function_name)
-            if entities is not None or usage > 0:
-                self.trace_update(log_method=logger.debug, **{'entity_filter_list': ('entity filter exists, but execute'
-                                                                                     ' method for stage does not support '
-                                                                                     ' entities parameter'),
-                                                              'usage': usage,
-                                                              "kpi_function_name":kpi_function_name})
+
+        usage = self.get_stage_param(stage, 'usage_')
+
+        kpi_function_name = self.get_stage_param(stage, "kpi_function_name")
+
+        trace_update_dictionary = {"entity_filter_list": entity_filter_list_message, "usage": usage, "kpi_function_name": kpi_function_name}
+        trace_update_dictionary = {key: value for key, value in trace_update_dictionary.items() if value is not None}
+        if entities is not None or usage > 0:
+            self.trace_update(log_method=logger.debug, **trace_update_dictionary)
 
         if isinstance(result, bool) and result:
             result = pd.DataFrame()
