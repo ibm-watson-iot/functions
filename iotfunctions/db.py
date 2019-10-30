@@ -2281,11 +2281,11 @@ class Database(object):
             elif time_grain == 'day':
                 group_by_cols[timestamp] = func.date(self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'week':
-                group_by_cols[timestamp] = func.this_week(self.get_column_object( table, timestamp)).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('week', self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'month':
-                group_by_cols[timestamp] = func.this_month(self.get_column_object( table, timestamp)).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('month', self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'year':
-                group_by_cols[timestamp] = func.this_year(self.get_column_object( table, timestamp)).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('year', self.get_column_object( table, timestamp)).label(timestamp)
             else:
                 pandas_aggregate = time_grain
 
