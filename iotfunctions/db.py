@@ -1707,10 +1707,14 @@ class Database(object):
         '''
 
         a = self.get_table(table_name, schema)
-        col = a.c[column_name]
+        #col = a.c[column_name]
+        col = self.get_column_object(a, column_name)
+        exp = func.date_trunc('minute', col)
+        '''
         hour = func.add_hours(func.timestamp(func.date(col)), func.hour(col))
         min_col = (func.minute(col) / minutes) * minutes
         exp = (func.add_minutes(hour, min_col)).label(label)
+        '''
         return exp
 
     def _ts_col_rounded_to_hours(self, table_name, schema, column_name, hours, label):
@@ -1718,10 +1722,14 @@ class Database(object):
         Returns a column expression that rounds the timestamp to the specified number of minutes
         '''
         a = self.get_table(table_name, schema)
-        col = a.c[column_name]
+        #col = a.c[column_name]
+        col = self.get_column_object(a, column_name)
+        exp = func.date_trunc('hour',col)
+        '''
         date_col = func.timestamp(func.date(col))
         hour_col = (func.hour(col) / hours) * hours
         exp = (func.add_hours(date_col, hour_col)).label(label)
+        '''
         return exp
 
     def query(self, table_name, schema, column_names=None, column_aliases=None, timestamp_col=None, start_ts=None,
@@ -2017,11 +2025,11 @@ class Database(object):
             elif time_grain == 'day':
                 group_by_cols[timestamp] = func.date(col_object).label(timestamp)
             elif time_grain == 'week':
-                group_by_cols[timestamp] = func.this_week(col_object).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('week', col_object).label(timestamp)
             elif time_grain == 'month':
-                group_by_cols[timestamp] = func.this_month(col_object).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('month',col_object).label(timestamp)
             elif time_grain == 'year':
-                group_by_cols[timestamp] = func.this_year(col_object).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('year',col_object).label(timestamp)
             else:
                 pandas_aggregate = time_grain
 
