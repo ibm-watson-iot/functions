@@ -1142,9 +1142,9 @@ class JobController(object):
 
         usage = self.get_stage_param(stage, 'usage_')
 
-        kpi_function_name = self.get_stage_param(stage, "kpi_function_name")
+        kpi_function_id = self.get_stage_param(stage, "kpi_function_id")
 
-        trace_update_dictionary = {"entity_filter_list": entity_filter_list_message, "usage": usage, "kpi_function_name": kpi_function_name}
+        trace_update_dictionary = {"entity_filter_list": entity_filter_list_message, "usage": usage, "kpi_function_id": kpi_function_id}
         trace_update_dictionary = {key: value for key, value in trace_update_dictionary.items() if value is not None}
         if entities is not None or usage > 0:
             self.trace_update(log_method=logger.debug, **trace_update_dictionary)

@@ -269,7 +269,7 @@ class EntityType(object):
 
         if len(self._disabled_stages) > 0 or len(self._invalid_stages) > 0:
             self.trace_append(created_by=self, msg='Skipping disabled and invalid stages', log_method=logger.info,
-                              **{'skipped_disabled_stages': [s['functionName'] for s in self._disabled_stages],
+                              **{'skipped_disabled_stages': [s['function'] for s in self._disabled_stages],
                                  'skipped_disabled_data_items': [s['output'] for s in self._disabled_stages],
                                  'skipped_invalid_stages': [s['functionName'] for s in self._invalid_stages],
                                  'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]})
@@ -2078,6 +2078,7 @@ class ServerEntityType(EntityType):
                     obj.granularity = replacement_metadata.get('granularity', None)
                     obj.schedule = replacement_metadata.get('schedule', None)
                     obj.kpi_function_name = replacement_metadata.get("name", None)
+                    obj.kpi_function_id = replacement_metadata.get("kpiFunctionId", None)
                     functions.append(obj)
 
                 else:
@@ -2107,6 +2108,7 @@ class ServerEntityType(EntityType):
                 obj.granularity = f.get('granularity', None)
                 obj.schedule = f.get('schedule', None)
                 obj.kpi_function_name = f.get("name", None)
+                obj.kpi_function_id = f.get("kpiFunctionId", None)
                 functions.append(obj)
 
         return (functions, invalid, disabled)

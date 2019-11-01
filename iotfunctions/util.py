@@ -1080,7 +1080,7 @@ class Trace(object):
                 start_ts = end_ts - dt.timedelta(seconds=elapsed)
 
             if result > 0:
-                entry = {"entityTypeName": self.parent.name, "kpiFunctionName": i.get('kpi_function_name', 'unknown'),
+                entry = {"entityTypeName": self.parent.name, "kpiFunctionId": i.get('kpi_function_id', None),
                          "startTimestamp": str(start_ts), "endTimestamp": str(end_ts),
                          "numberOfResultsProcessed": result}
                 usage.append(entry)
