@@ -1862,8 +1862,8 @@ class Database(object):
 
     def query_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
                   dimension=None, start_ts=None, end_ts=None, entities=None, auto_null_filter=False, filters=None,
-                  deviceid_col='deviceid', kvp_device_id_col='entity_id', kvp_key_col='KEY',
-                  kvp_timestamp_col='TIMESTAMP'):
+                  deviceid_col='deviceid', kvp_device_id_col='entity_id', kvp_key_col='key',
+                  kvp_timestamp_col='timestamp'):
         '''
         Pandas style aggregate function against db table
 
@@ -2120,7 +2120,7 @@ class Database(object):
     def special_query_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None,
                           time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None,
                           auto_null_filter=False, filters=None, deviceid_col='deviceid', kvp_device_id_col='entity_id',
-                          kvp_key_col='KEY', kvp_timestamp_col='TIMESTAMP', item=None):
+                          kvp_key_col='key', kvp_timestamp_col='timestamp', item=None):
         '''
         Pandas style aggregate function against db table
 
