@@ -1822,10 +1822,10 @@ class Database(object):
             query = query.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
                 try:
-                    col_obj = table.c[d]
+                    col_obj = self.get_column_object(table, d)
                 except KeyError:
                     try:
-                        col_obj = dim.c[d]
+                        col_obj = self.get_column_object( dim, d)
                     except KeyError:
                         raise ValueError('Filter column %s not found in table or dimension' % d)
                 if isinstance(members, str):
