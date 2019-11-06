@@ -1464,7 +1464,7 @@ class EntityType(object):
             df['logicalinterface_id'] = ''
             df['devicetype'] = self.logical_name
             df['format'] = ''
-            df['updated_utc'] = None
+            df['updated_utc'] = dt.datetime.utcnow()
             self.db.write_frame(table_name=self.name, df=df, schema=self._db_schema, timestamp_col=self._timestamp)
 
         for (at_name, at_table) in list(self.activity_tables.items()):
