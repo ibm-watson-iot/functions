@@ -16,7 +16,7 @@ setup(
         'lxml==4.3.4',
         'ibm_db==3.0.1',
         'ibm_db_sa==0.3.3',
-        'ibm-cos-sdk==2.1.3',
+        'ibm-cos-sdk==2.5.5',
         'scipy>=1.1.0',
         'scikit-learn>=0.19.2',
         'nose>=1.3.7',
