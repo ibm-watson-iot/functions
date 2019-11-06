@@ -1464,7 +1464,7 @@ class EntityType(object):
             df['logicalinterface_id'] = ''
             df['devicetype'] = self.logical_name
             df['format'] = ''
-            df['updated_utc'] = None
+            df['updated_utc'] = dt.datetime.utcnow()
             self.db.write_frame(table_name=self.name, df=df, schema=self._db_schema, timestamp_col=self._timestamp)
 
         for (at_name, at_table) in list(self.activity_tables.items()):
@@ -1823,7 +1823,11 @@ class EntityType(object):
             try:
                 table['schemaName'] = self.db.credentials['db2']['username']
             except KeyError:
-                raise KeyError('No db2 credentials found. Unable to register table.')
+                try:
+                    username = self.db.credentials["postgresql"]['username']
+                    table["schemaName"] = "public"
+                except KeyError:
+                    raise KeyError('No database credentials found. Unable to register table.')
         payload = [table]
         response = self.db.http_request(request='POST', object_type='entityType', object_name=self.name,
                                         payload=payload, raise_error=raise_error)
