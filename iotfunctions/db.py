@@ -21,27 +21,27 @@ import datetime
 import pandas as pd
 import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, MetaData, Boolean, ForeignKey, \
-    create_engine, Float, func, and_, or_
-from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR, BOOLEAN, NullType
+from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
+    func, and_, or_
+from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN, NullType
 from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy import __version__ as sqlalchemy_version_string
 from .util import CosClient, resample, reset_df_index
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
 
 logger = logging.getLogger(__name__)
-DB2_INSTALLED = True
+
+# Table reflection of SqlAlchemy on DB2 returns DB2-specific type DOUBLE instead of SQL standard type FLOAT
+# Load the DB2-specific type DOUBLE
+DB2_DOUBLE = None
 try:
-    from ibm_db_sa.base import DOUBLE
-    import ibm_db
-    import ibm_db_dbi
+    from ibm_db_sa.base import DOUBLE as DB2_DOUBLE
 except ImportError:
-    DB2_INSTALLED = False
-    msg = 'IBM_DB is not installed. Reverting to sqlite for local development with limited functionality'
-    logger.warning(msg)
+    DB2_DOUBLE = None
 
 
 class Database(object):
@@ -61,11 +61,13 @@ class Database(object):
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
     bif_sql = "V1000-18.sql"
 
-    def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None,entity_metadata=None,entity_type=None):
+    def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
+                 entity_type=None):
 
         self.function_catalog = {}  # metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}
+        self.db_type = None
         if credentials is None:
             credentials = {}
 
@@ -91,10 +93,10 @@ class Database(object):
         # tenant_id
 
         if tenant_id is None:
-            tenant_id = credentials.get('tenantId',
-                                        credentials.get('tenant_id',
-                                                        credentials.get('tennantId',
-                                                                        credentials.get('tennant_id', None))))
+            tenant_id = credentials.get('tenantId', credentials.get('tenant_id', credentials.get('tennantId',
+                                                                                                 credentials.get(
+                                                                                                     'tennant_id',
+                                                                                                     None))))
 
         self.credentials['tenant_id'] = tenant_id
         if self.credentials['tenant_id'] is None:
@@ -106,6 +108,12 @@ class Database(object):
             self.credentials['iotp'] = credentials['iotp']
         except (KeyError, TypeError):
             self.credentials['iotp'] = None
+
+        try:
+            self.credentials['postgresql'] = credentials['postgresql']
+        except (KeyError, TypeError):
+            self.credentials['postgresql'] = None
+
         try:
             self.credentials['db2'] = credentials['db2']
         except (KeyError, TypeError):
@@ -182,71 +190,111 @@ class Database(object):
         if as_api_host is not None and as_api_host.startswith('https://'):
             as_api_host = as_api_host[8:]
 
-        self.credentials['as'] = {
-            'host': as_api_host,
-            'api_key': as_api_key,
-            'api_token': as_api_token
-        }
+        self.credentials['as'] = {'host': as_api_host, 'api_key': as_api_key, 'api_token': as_api_token}
 
         self.tenant_id = self.credentials['tenant_id']
 
-        if DB2_INSTALLED:
-            connection_kwargs = {
-                'pool_size': 1
-            }
+        # Retrieve connection string. Look at dict 'credentials' first. Then at environment variable. Fall-back
+        # is sqlite for testing purposes
+        connection_string_from_env = os.environ.get('DB_CONNECTION_STRING')
+        db_type_from_env = os.environ.get('DB_TYPE')
+        connection_kwargs = {}
+        sqlite_warnung_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
 
-            # sqlite is not included included in the AS credentials. It is only intended to be used if db2 is not istalled.
-            # There is a back door to for using it instead of db2 for local development only.
-            # It will be used only when explicitly added to the credentials as credentials['sqlite'] = filename
-            try:
+        if 'sqlite' in self.credentials:
+            filename = credentials['sqlite']
+            if filename is not None and len(filename) > 0:
                 connection_string = 'sqlite:///%s' % (credentials['sqlite'])
-            except (KeyError, TypeError):
-                try:
-                    connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (self.credentials['db2']['username'],
-                                                                          self.credentials['db2']['password'],
-                                                                          self.credentials['db2']['host'],
-                                                                          self.credentials['db2']['port'],
-                                                                          self.credentials['db2']['databaseName'])
-                    if 'security' in self.credentials['db2']:
-                        if self.credentials['db2']['security']:
-                            connection_string += 'SECURITY=ssl;'
-                except KeyError:
-                    # look for environment variable for the ICS DB2
-                    try:
-                        msg = 'Function requires a database connection but one could not be established. Pass appropriate db_credentials or ensure that the DB_CONNECTION_STRING is set'
-                        connection_string = os.environ.get('DB_CONNECTION_STRING')
-                    except KeyError:
-                        raise ValueError(msg)
-                    else:
-                        if not connection_string is None:
-                            if connection_string.endswith(';'):
-                                connection_string = connection_string[:-1]
-                            ev = dict(item.split("=") for item in connection_string.split(";"))
-                            connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                            ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
-                            if 'SECURITY' in ev:
-                                connection_string += 'SECURITY=%s;' % ev['SECURITY']
-                            self.credentials['db2'] = {
-                                "username": ev['UID'],
-                                "password": ev['PWD'],
-                                "database": ev['DATABASE'],
-                                "port": ev['PORT'],
-                                "host": ev['HOSTNAME']
-                            }
-                        else:
-                            raise ValueError(msg)
-            else:
-                self.credentials['sqlite'] = connection_string
-                connection_kwargs = {}
-                msg = 'Using sqlite connection for local testing. Note sqlite can only be used for local testing. It is not a supported AS database.'
-                logger.warning(msg)
+                self.db_type = 'sqlite'
                 self.write_chunk_size = 100
+                logger.warning(sqlite_warnung_msg)
+            else:
+                msg = 'The credentials for sqlite is just a filename. The given filename is an empty string.'
+                raise ValueError(msg)
+
+        elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
+            try:
+                connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                    self.credentials['db2']['username'], self.credentials['db2']['password'],
+                    self.credentials['db2']['host'], self.credentials['db2']['port'],
+                    self.credentials['db2']['databaseName'])
+                if 'security' in self.credentials['db2']:
+                    if self.credentials['db2']['security']:
+                        connection_string += 'SECURITY=ssl;'
+            except KeyError as ex:
+                msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
+                raise ValueError(msg) from ex
+
+            self.db_type = 'db2'
+            connection_kwargs['pool_size'] = 1
+
+        elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
+            try:
+                connection_string = 'postgresql+psycopg2://%s:%s@%s:%s/%s' % (
+                    self.credentials['postgresql']['username'], self.credentials['postgresql']['password'],
+                    self.credentials['postgresql']['host'], self.credentials['postgresql']['port'],
+                    self.credentials['postgresql']['databaseName'])
+                self.db_type = 'postgresql'
+            except KeyError as ex:
+                msg = 'The credentials for PostgreSql are incomplete. ' \
+                      'You need username/password/host/port/databaseName.'
+                raise ValueError(msg) from ex
+
+        elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
+            logger.debug('Found connection string in os variables: %s' % connection_string_from_env)
+            # ##############################
+            # kohlmann: Temporary fix until db_type is enabled in cronjob by API code
+            if db_type_from_env is None:
+                db_type_from_env = 'DB2'
+            # ########## ####################
+            if db_type_from_env is not None and len(db_type_from_env) > 0:
+                logger.debug('Found database type in os variables: %s' % db_type_from_env)
+                db_type_from_env = db_type_from_env.upper()
+                if db_type_from_env == 'DB2':
+                    if connection_string_from_env.endswith(';'):
+                        connection_string_from_env = connection_string_from_env[:-1]
+                    try:
+                        ev = dict(item.split("=") for item in connection_string_from_env.split(";"))
+                        connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                            ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+                        if 'SECURITY' in ev:
+                            connection_string += 'SECURITY=%s;' % ev['SECURITY']
+                        self.credentials['db2'] = {"username": ev['UID'], "password": ev['PWD'],
+                                                   "database": ev['DATABASE'], "port": ev['PORT'],
+                                                   "host": ev['HOSTNAME']}
+                    except Exception:
+                        raise ValueError('Connection string \'%s\' is incorrect. Expected format for DB2 is '
+                                         'DATABASE=xxx;HOSTNAME=xxx;PORT=xxx;UID=xxx;PWD=xxx[;SECURITY=xxx]' % connection_string_from_env)
+                    self.db_type = 'db2'
+                elif db_type_from_env == 'POSTGRESQL':
+                    connection_string = 'postgresql+psycopg2://' + connection_string_from_env
+                    try:
+                        # Split connection string according to user:password@hostname:port/database
+                        first, last = connection_string_from_env.split("@")
+                        uid, pwd = first.split(":", 1)
+                        hostname_port, database = last.split("/", 1)
+                        hostname, port = hostname_port.split(":", 1)
+                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "database": database,
+                                                          "port": port, "host": hostname}
+                    except Exception:
+                        raise ValueError('Connection string \'%s\' is incorrect. Expected format for POSTGRESQL is '
+                                         'user:password@hostname:port/database' % connection_string_from_env)
+                    self.db_type = 'postgresql'
+                else:
+                    raise ValueError(
+                        'The database type \'%s\' is unknown. Supported types are DB2 and POSTGRESQL' % db_type_from_env)
+            else:
+                raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
+                                 'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
-            self.write_chunk_size = 100
             connection_string = 'sqlite:///sqldb.db'
-            connection_kwargs = {}
-            msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db'
+            self.write_chunk_size = 100
+            self.db_type = 'sqlite'
+            msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db.'
             logger.info(msg)
+            logger.warning(sqlite_warnung_msg)
+
+        logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
 
         self.http = urllib3.PoolManager()
         try:
@@ -261,7 +309,39 @@ class Database(object):
 
         EngineLogging.set_cos_client(self.cos_client)
 
+        # Define any dialect specific configuration
+        if self.db_type == 'postgresql':
+
+            # Find out if we can use 'executemany_mode' keyword that is supported starting from SqlAlchemy 1.3.7
+            meets_requirement = True
+            version_split = sqlalchemy_version_string.split('.')
+
+            version_list = [0, 0, 0]
+            for i in range(min(3, len(version_split))):
+                try:
+                    number = int(version_split[i])
+                except:
+                    number = 0
+                version_list[i] = number
+
+            version_list_required = [1, 3, 7]
+            for i in range(3):
+                if version_list[i] < version_list_required[i]:
+                    meets_requirement = False
+                    break
+
+            if meets_requirement:
+                dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
+                                  'executemany_values_page_size': 1000}
+            else:
+                # 'use_batch_mode=True' is about 20 % slower than 'execute_many_mode=values'
+                dialect_kwargs = {'use_batch_mode': True}
+        else:
+            dialect_kwargs = {}
+
+        connection_kwargs = {**dialect_kwargs, **connection_kwargs}
         self.connection = create_engine(connection_string, echo=echo, **connection_kwargs)
+
         self.Session = sessionmaker(bind=self.connection)
 
         # this method should be invoked before the get Metadata()
@@ -279,11 +359,8 @@ class Database(object):
         metadata = None
 
         if entity_metadata is None:
-            metadata = self.http_request(object_type='allEntityTypes',
-                                     object_name='',
-                                     request='GET',
-                                     payload={},
-                                     object_name_2='')
+            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
+                                         object_name_2='')
             if metadata is not None:
                 try:
                     metadata = json.loads(metadata)
@@ -298,13 +375,7 @@ class Database(object):
             metadata = entity_metadata
             self.entity_type_metadata[entity_type] = metadata
 
-
-    def _aggregate_item(self,
-                        table,
-                        column_name,
-                        aggregate,
-                        alias_column=None,
-                        dimension_table=None,
+    def _aggregate_item(self, table, column_name, aggregate, alias_column=None, dimension_table=None,
                         timestamp_col=None):
 
         if alias_column is None:
@@ -318,14 +389,8 @@ class Database(object):
             else:
                 alias_column = column_name
 
-        agg_map = {
-            'count': func.count,
-            'max': func.max,
-            'mean': func.avg,
-            'min': func.min,
-            'std': func.stddev,
-            'sum': func.sum
-        }
+        agg_map = {'count': func.count, 'max': func.max, 'mean': func.avg, 'min': func.min, 'std': func.stddev,
+                   'sum': func.sum}
 
         try:
             agg_function = agg_map[aggregate]
@@ -356,12 +421,11 @@ class Database(object):
         '''
 
         try:
-            return (self.get_column_object(table,column)).isnot(None)
-            #return table.c[column].isnot(None)
+            return (self.get_column_object(table, column)).isnot(None)  # return table.c[column].isnot(None)
         except KeyError:
             try:
-                return (self.get_column_object(dimension_table,column)).isnot(None)
-               #return dimension_table.c[column].isnot(None)
+                return (self.get_column_object(dimension_table, column)).isnot(None)
+            # return dimension_table.c[column].isnot(None)
             except (KeyError, AttributeError):
                 msg = 'Column %s not found on time series or dimension table.' % column
                 raise ValueError(msg)
@@ -418,9 +482,7 @@ class Database(object):
                 ref_is_start = None
 
             if ref_is_start is not None:
-                kwarg = {
-                    period_type: period_count
-                }
+                kwarg = {period_type: period_count}
                 td = dt.timedelta(**kwarg)
 
                 if ref_is_start:
@@ -514,12 +576,12 @@ class Database(object):
             logger.debug(msg)
         else:
             until_date = dt.datetime.utcnow() - dt.timedelta(days=older_than_days)
-            result = self.connection.execute(table.delete().where(table.c[timestamp] < until_date))
+            result = self.connection.execute(table.delete().where(self.get_column_object( table, timestamp) < until_date))
             msg = 'deleted data from table %s older than %s' % (table_name, until_date)
             logger.debug(msg)
         self.commit()
 
-    def drop_table(self, table_name, schema=None, recreate = False):
+    def drop_table(self, table_name, schema=None, recreate=False):
 
         try:
             table = self.get_table(table_name, schema)
@@ -537,16 +599,15 @@ class Database(object):
         if recreate:
             self.create(tables=[table])
             msg = 'Recreated table %s'
-            logger.debug(msg,table_name)
+            logger.debug(msg, table_name)
 
     def execute_job(self, entity_type, schema=None, **kwargs):
 
         if isinstance(entity_type, str):
-            entity_type = md.ServerEntityType(
-                logical_name=entity_type,
-                db=self,
-                db_schema=schema
-            )
+            entity_type = md.ServerEntityType(logical_name=entity_type, db=self, db_schema=schema)
+
+        params = {'default_backtrack': 'checkpoint'}
+        kwargs = {**params, **kwargs}
 
         job = pp.JobController(payload=entity_type, **kwargs)
         job.execute()
@@ -559,13 +620,15 @@ class Database(object):
 
         data_type = column_object.type
 
-        if isinstance(data_type, DOUBLE) or isinstance(data_type, Float) or isinstance(data_type, Integer):
+        if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
             data_type = 'NUMBER'
-        elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
+        elif DB2_DOUBLE is not None and isinstance(data_type, DB2_DOUBLE):
+            data_type = 'NUMBER'
+        elif isinstance(data_type, (VARCHAR, String)):
             data_type = 'LITERAL'
-        elif isinstance(data_type, TIMESTAMP) or isinstance(data_type, DateTime):
+        elif isinstance(data_type, (TIMESTAMP, DateTime)):
             data_type = 'TIMESTAMP'
-        elif isinstance(data_type, BOOLEAN) or isinstance(data_type, NullType) or isinstance(data_type, Boolean):
+        elif isinstance(data_type, (BOOLEAN, Boolean, NullType)):
             data_type = 'BOOLEAN'
         else:
             data_type = str(data_type)
@@ -612,19 +675,12 @@ class Database(object):
             if is_entity_type:
                 entity = metadata
             else:
-                msg = 'Entity %s not found in the database metadata' %name
+                msg = 'Entity %s not found in the database metadata' % name
                 raise KeyError(msg)
         else:
-            entity = md.EntityType(name=name,
-                               db=self,
-                               **{
-                                   'auto_create_table': False,
-                                   '_timestamp': timestamp,
-                                   '_db_schema': schema,
-                                   '_entity_type_id': entity_type_id,
-                                   '_dimension_table_name': dim_table
-                               }
-                               )
+            entity = md.EntityType(name=name, db=self,
+                                   **{'auto_create_table': False, '_timestamp': timestamp, '_db_schema': schema,
+                                      '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table})
 
         return entity
 
@@ -636,11 +692,10 @@ class Database(object):
         if not table_name is None:
 
             if isinstance(table_name, str):
-                kwargs = {
-                    'schema': schema
-                }
+                kwargs = {'schema': schema}
                 try:
-                    table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
+                    table = Table(table_name.lower(), self.metadata, autoload=True, autoload_with=self.connection,
+                                  **kwargs)
                     table.indexes = set()
                 except NoSuchTableError:
                     raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
@@ -682,11 +737,13 @@ class Database(object):
         for c in all_cols:
             if not c in exclude_cols:
                 data_type = table.c[c].type
-                if isinstance(data_type, DOUBLE) or isinstance(data_type, Float):
+                if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
                     metrics.append(c)
-                elif isinstance(data_type, VARCHAR) or isinstance(data_type, String):
+                elif DB2_DOUBLE is not None and isinstance(data_type, DB2_DOUBLE):
+                    metrics.append(c)
+                elif isinstance(data_type, (VARCHAR, String)):
                     categoricals.append(c)
-                elif isinstance(data_type, TIMESTAMP) or isinstance(data_type, DateTime):
+                elif isinstance(data_type, (TIMESTAMP, DateTime)):
                     dates.append(c)
                 else:
                     others.append(c)
@@ -713,14 +770,7 @@ class Database(object):
 
         return [column.key for column in table.columns]
 
-    def http_request(self,
-                     object_type,
-                     object_name,
-                     request,
-                     payload=None,
-                     object_name_2='',
-                     raise_error=False,
-                     ):
+    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False, ):
         '''
         Make an api call to AS.
 
@@ -803,12 +853,8 @@ class Database(object):
         self.url['usage', 'POST'] = '/'.join([base_url, 'kpiusage', 'v1', self.tenant_id, 'function', 'usage'])
 
         encoded_payload = json.dumps(payload).encode('utf-8')
-        headers = {
-            'Content-Type': "application/json",
-            'X-api-key': self.credentials['as']['api_key'],
-            'X-api-token': self.credentials['as']['api_token'],
-            'Cache-Control': "no-cache",
-        }
+        headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
+                   'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache", }
         try:
             url = self.url[(object_type, request)]
         except KeyError:
@@ -821,19 +867,11 @@ class Database(object):
 
         if 200 <= r.status <= 299:
             logger.debug('http request successful. status %s', r.status)
-        elif (request == 'POST' and
-              object_type in ['kpiFunction', 'defaultConstants', 'constants'] and
-              (500 <= r.status <= 599)
-        ):
-            logger.debug(('htpp POST failed. attempting PUT. status:%s'),
-                         r.status)
-            response = self.http_request(object_type=object_type,
-                                         object_name=object_name,
-                                         request='PUT',
-                                         payload=payload,
-                                         object_name_2=object_name_2,
-                                         raise_error=raise_error
-                                         )
+        elif (request == 'POST' and object_type in ['kpiFunction', 'defaultConstants', 'constants'] and (
+                500 <= r.status <= 599)):
+            logger.debug(('htpp POST failed. attempting PUT. status:%s'), r.status)
+            response = self.http_request(object_type=object_type, object_name=object_name, request='PUT',
+                                         payload=payload, object_name_2=object_name_2, raise_error=raise_error)
         elif (400 <= r.status <= 499):
             logger.debug('Http request client error. status: %s', r.status)
             logger.debug('url: %s', url)
@@ -879,31 +917,23 @@ class Database(object):
 
         if self.system_package_url in url:
             logger.warning(('Request to install package %s was ignored. This package'
-                            ' is pre-installed.'),
-                           url)
+                            ' is pre-installed.'), url)
         else:
             try:
-                completedProcess = subprocess.run(
-                    ['pip', 'install',
-                     '--process-dependency-links',
-                     '--upgrade', url],
-                    stderr=subprocess.STDOUT,
-                    stdout=subprocess.PIPE,
-                    universal_newlines=True)
+                completedProcess = subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url],
+                                                  stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
+                                                  universal_newlines=True)
             except Exception as e:
-                raise ImportError('pip install for url %s failed: \n%s',
-                                  url, str(e))
+                raise ImportError('pip install for url %s failed: \n%s', url, str(e))
 
             if completedProcess.returncode == 0:
 
                 importlib.invalidate_caches()
-                logger.debug('pip install for url %s was successful: \n %s',
-                             url, completedProcess.stdout)
+                logger.debug('pip install for url %s was successful: \n %s', url, completedProcess.stdout)
 
             else:
 
-                raise ImportError('pip install for url %s failed: \n %s.',
-                                  url, completedProcess.stdout)
+                raise ImportError('pip install for url %s failed: \n %s.', url, completedProcess.stdout)
 
     def import_target(self, package, module, target, url=None):
         '''
@@ -933,9 +963,7 @@ class Database(object):
         else:
             return (target, 'ok')
 
-    def load_catalog(self, install_missing=True,
-                     unregister_invalid_target=False,
-                     function_list=None):
+    def load_catalog(self, install_missing=True, unregister_invalid_target=False, function_list=None):
         '''
         Import all functions from the AS function catalog.
 
@@ -946,10 +974,7 @@ class Database(object):
 
         result = {}
 
-        fns = json.loads(self.http_request('allFunctions',
-                                           object_name=None,
-                                           request='GET',
-                                           payload=None))
+        fns = json.loads(self.http_request('allFunctions', object_name=None, request='GET', payload=None))
         for fn in fns:
             function_name = fn["name"]
             if (function_list is not None) and (function_name not in function_list):
@@ -977,31 +1002,24 @@ class Database(object):
                 url = None
 
             try:
-                (dummy, status) = self.import_target(package=package,
-                                                     module=module,
-                                                     target=class_name,
-                                                     url=url)
+                (dummy, status) = self.import_target(package=package, module=module, target=class_name, url=url)
             except Exception as e:
-                msg = 'unknown error when importing function %s with path %s' % \
-                      (function_name, package_module_class_name)
+                msg = 'unknown error when importing function %s with path %s' % (
+                    function_name, package_module_class_name)
                 logger.exception(msg)
                 raise e
 
             if status == 'ok':
-                result[function_name] = {'package': package,
-                                         'module': module,
-                                         'class_name': class_name,
-                                         'status': status,
-                                         'meta': fn
-                                         }
+                result[function_name] = {'package': package, 'module': module, 'class_name': class_name,
+                                         'status': status, 'meta': fn}
             else:
                 if status == 'target_error' and unregister_invalid_target:
                     self.unregister_functions([function_name])
                     msg = 'Unregistered invalid function %s' % function_name
                     logger.info(msg)
                 else:
-                    msg = 'The class %s for function %s could not be imported from repository %s.' % \
-                          (package_module_class_name, function_name, url)
+                    msg = 'The class %s for function %s could not be imported from repository %s.' % (
+                        package_module_class_name, function_name, url)
 
                     raise ImportError(msg)
 
@@ -1010,18 +1028,13 @@ class Database(object):
 
         return result
 
-    def make_function(self, function_name, function_code,
-                      filename=None, bucket=None):
+    def make_function(self, function_name, function_code, filename=None, bucket=None):
 
         exec(function_code)
 
         fn = locals()[function_name]
         if filename is not None and bucket is not None:
-            self.cos_save(fn,
-                          filename=filename,
-                          bucket=bucket,
-                          binary=True,
-                          serialize=True)
+            self.cos_save(fn, filename=filename, bucket=bucket, binary=True, serialize=True)
 
         return fn
 
@@ -1085,12 +1098,12 @@ class Database(object):
                 joins.append(left_query.c[col[0]] == right_query.c[col[1]])
 
         for each_filter_name in filters.keys():
-            newtcolumn = Column(each_filter_name)
+            newtcolumn = Column(each_filter_name.lower())
             if left_query.c[each_filter_name] is not None:
                 if isinstance(filters[each_filter_name], str):
                     joins.append(left_query.c[each_filter_name] == filters[each_filter_name])
                 else:
-                    joins.append(left_query.c[each_filter_name]  == filters[each_filter_name][0])
+                    joins.append(left_query.c[each_filter_name] == filters[each_filter_name][0])
             else:
                 if isinstance(filters[each_filter_name], str):
                     joins.append(newtcolumn == filters[each_filter_name])
@@ -1118,9 +1131,9 @@ class Database(object):
         return result_query
 
     def set_isolation_level(self, conn):
-        if DB2_INSTALLED:
+        if self.db_type == 'db2':
             with conn.connect() as con:
-                con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2
+                con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2; dirty read does not exist for postgres
 
     def get_query_data(self, query):
         '''
@@ -1168,26 +1181,13 @@ class Database(object):
 
         '''
 
-        df = self.read_table(
-            table_name=dimension,
-            schema=schema,
-            entities=entities,
-            columns=columns,
-            parse_dates=parse_dates
-        )
+        df = self.read_table(table_name=dimension, schema=schema, entities=entities, columns=columns,
+                             parse_dates=parse_dates)
 
         return df
 
-    def read_table(self, table_name,
-                   schema,
-                   parse_dates=None,
-                   columns=None,
-                   timestamp_col=None,
-                   start_ts=None,
-                   end_ts=None,
-                   entities=None,
-                   dimension=None
-                   ):
+    def read_table(self, table_name, schema, parse_dates=None, columns=None, timestamp_col=None, start_ts=None,
+                   end_ts=None, entities=None, dimension=None):
         '''
         Read whole table and return as dataframe
 
@@ -1214,32 +1214,15 @@ class Database(object):
 
 
         '''
-        q, table = self.query(table_name,
-                              schema=schema,
-                              column_names=columns,
-                              column_aliases=columns,
-                              timestamp_col=timestamp_col,
-                              start_ts=start_ts,
-                              end_ts=end_ts,
-                              entities=entities,
+        q, table = self.query(table_name, schema=schema, column_names=columns, column_aliases=columns,
+                              timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
         df = pd.read_sql_query(sql=q.statement, con=self.connection, parse_dates=parse_dates)
         return (df)
 
-    def read_agg(self, table_name, schema, agg_dict,
-                 agg_outputs=None,
-                 groupby=None,
-                 timestamp=None,
-                 time_grain=None,
-                 dimension=None,
-                 start_ts=None,
-                 end_ts=None,
-                 period_type='days',
-                 period_count=1,
-                 entities=None,
-                 to_csv=False,
-                 filters=None,
-                 deviceid_col='deviceid'):
+    def read_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
+                 dimension=None, start_ts=None, end_ts=None, period_type='days', period_count=1, entities=None,
+                 to_csv=False, filters=None, deviceid_col='deviceid'):
         '''
         Pandas style aggregate function against db table
 
@@ -1273,9 +1256,7 @@ class Database(object):
 
         agg_dict = agg_dict.copy()
 
-        (start_ts, end_ts) = self.calc_time_interval(start_ts=start_ts,
-                                                     end_ts=end_ts,
-                                                     period_type=period_type,
+        (start_ts, end_ts) = self.calc_time_interval(start_ts=start_ts, end_ts=end_ts, period_type=period_type,
                                                      period_count=period_count)
 
         if agg_outputs is None:
@@ -1285,41 +1266,31 @@ class Database(object):
         if groupby is None:
             groupby = []
 
-        (agg_dict, agg_outputs, df_special) = self.process_special_agg(
-            agg_dict=agg_dict,
-            agg_outputs=agg_outputs,
-            table_name=table_name,
-            schema=schema,
-            groupby=groupby,
-            timestamp=timestamp,
-            time_grain=time_grain,
-            dimension=dimension,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            entities=entities,
-            filters=filters,
-            deviceid_col=deviceid_col
-        )
+        (agg_dict, agg_outputs, df_special) = self.process_special_agg(agg_dict=agg_dict, agg_outputs=agg_outputs,
+                                                                       table_name=table_name, schema=schema,
+                                                                       groupby=groupby, timestamp=timestamp,
+                                                                       time_grain=time_grain, dimension=dimension,
+                                                                       start_ts=start_ts, end_ts=end_ts,
+                                                                       entities=entities, filters=filters,
+                                                                       deviceid_col=deviceid_col)
 
         # process remaining aggregates
 
         if agg_dict:
 
-            (query, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(
-                agg_dict=agg_dict,
-                agg_outputs=agg_outputs,
-                table_name=table_name,
-                schema=schema,
-                groupby=groupby,
-                timestamp=timestamp,
-                time_grain=time_grain,
-                dimension=dimension,
-                start_ts=start_ts,
-                end_ts=end_ts,
-                entities=entities,
-                filters=filters,
-                deviceid_col=deviceid_col
-            )
+            (query, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(agg_dict=agg_dict,
+                                                                                           agg_outputs=agg_outputs,
+                                                                                           table_name=table_name,
+                                                                                           schema=schema,
+                                                                                           groupby=groupby,
+                                                                                           timestamp=timestamp,
+                                                                                           time_grain=time_grain,
+                                                                                           dimension=dimension,
+                                                                                           start_ts=start_ts,
+                                                                                           end_ts=end_ts,
+                                                                                           entities=entities,
+                                                                                           filters=filters,
+                                                                                           deviceid_col=deviceid_col)
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
             df = pd.read_sql_query(query.statement, con=self.connection)
             logger.debug(query.statement)
@@ -1373,21 +1344,11 @@ class Database(object):
                 del meta['value']
             except KeyError:
                 pass
-            payload.append({'name': name,
-                            'entityType': None,
-                            'enabled': True,
-                            'value': default,
-                            'metadata': meta})
-        self.http_request(object_type='defaultConstants',
-                          object_name=None,
-                          request="POST",
-                          payload=payload,
+            payload.append({'name': name, 'entityType': None, 'enabled': True, 'value': default, 'metadata': meta})
+        self.http_request(object_type='defaultConstants', object_name=None, request="POST", payload=payload,
                           raise_error=True)
 
-    def register_functions(self, functions,
-                           url=None,
-                           raise_error=True,
-                           force_preinstall=False):
+    def register_functions(self, functions, url=None, raise_error=True, force_preinstall=False):
         '''
         Register one or more class for use with AS
         '''
@@ -1460,10 +1421,9 @@ class Database(object):
             try:
                 exec(exec_str)
             except ImportError:
-                raise ValueError(
-                    ('Unable to register function as local import failed.'
-                     ' Make sure it is installed locally and '
-                     ' importable. %s ' % exec_str))
+                raise ValueError(('Unable to register function as local import failed.'
+                                  ' Make sure it is installed locally and '
+                                  ' importable. %s ' % exec_str))
 
             try:
                 category = f.category
@@ -1475,35 +1435,20 @@ class Database(object):
                 tags = None
             try:
                 (metadata_input, metadata_output) = f.build_ui()
-                (input_list, output_list) = f._transform_metadata(metadata_input,
-                                                                  metadata_output,
-                                                                  db=self)
+                (input_list, output_list) = f._transform_metadata(metadata_input, metadata_output, db=self)
             except (AttributeError, NotImplementedError):
                 msg = 'Function %s has no build_ui method. It cannot be registered.' % name
                 raise NotImplementedError(msg)
-            payload = {
-                'name': name,
-                'description': f.__doc__,
-                'category': category,
-                'moduleAndTargetName': module_and_target,
-                'url': package_url,
-                'input': input_list,
-                'output': output_list,
-                'incremental_update': True if category == 'AGGREGATOR' else None,
-                'tags': tags
-            }
+            payload = {'name': name, 'description': f.__doc__, 'category': category,
+                       'moduleAndTargetName': module_and_target, 'url': package_url, 'input': input_list,
+                       'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None,
+                       'tags': tags}
 
             if not is_preinstalled:
 
-                self.http_request(object_type='function',
-                                  object_name=name,
-                                  request="DELETE",
-                                  payload=payload,
+                self.http_request(object_type='function', object_name=name, request="DELETE", payload=payload,
                                   raise_error=False)
-                self.http_request(object_type='function',
-                                  object_name=name,
-                                  request="PUT",
-                                  payload=payload,
+                self.http_request(object_type='function', object_name=name, request="PUT", payload=payload,
                                   raise_error=raise_error)
 
             else:
@@ -1546,9 +1491,7 @@ class Database(object):
                     is_deprecated = False
                 if not is_deprecated and cls.__module__ == module.__name__:
                     try:
-                        sql = sql + self.register_functions(cls,
-                                                            raise_error=True,
-                                                            url=url,
+                        sql = sql + self.register_functions(cls, raise_error=True, url=url,
                                                             force_preinstall=force_preinstall)
                     except (AttributeError, NotImplementedError):
                         msg = 'Did not register %s as it is not a registerable function' % name
@@ -1581,18 +1524,8 @@ class Database(object):
 
         return query
 
-    def process_special_agg(self, table_name,
-                            schema,
-                            agg_dict,
-                            timestamp,
-                            agg_outputs=None,
-                            groupby=None,
-                            time_grain=None,
-                            dimension=None,
-                            start_ts=None,
-                            end_ts=None,
-                            entities=None,
-                            filters=None,
+    def process_special_agg(self, table_name, schema, agg_dict, timestamp, agg_outputs=None, groupby=None,
+                            time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None, filters=None,
                             deviceid_col='deviceid'):
         '''
         Strip out the special aggregates (first and last) from the an agg
@@ -1639,8 +1572,7 @@ class Database(object):
         if groupby is None:
             groupby = []
 
-        specials = ['first',
-                    'last']
+        specials = ['first', 'last']
 
         dfs = []
 
@@ -1679,27 +1611,19 @@ class Database(object):
                     elif special_name == 'last':
                         time_agg_dict = {timestamp: "max"}
 
-                    (filter_query, table, dim, pandas_aggregate, revised_agg_dict, requires_dim) = self.special_query_agg(
-                        agg_dict=time_agg_dict,
-                        agg_outputs={timestamp: 'timestamp_filter'},
-                        table_name=table_name,
-                        schema=schema,
-                        groupby=groupby,
-                        time_grain=time_grain,
-                        timestamp=timestamp,
-                        dimension=dimension,
-                        start_ts=start_ts,
-                        end_ts=end_ts,
-                        entities=entities,
-                        filters=filters,
-                        deviceid_col=deviceid_col,
-                        item=item
-                    )
+                    (filter_query, table, dim, pandas_aggregate, revised_agg_dict,
+                     requires_dim) = self.special_query_agg(agg_dict=time_agg_dict,
+                                                            agg_outputs={timestamp: 'timestamp_filter'},
+                                                            table_name=table_name, schema=schema, groupby=groupby,
+                                                            time_grain=time_grain, timestamp=timestamp,
+                                                            dimension=dimension, start_ts=start_ts, end_ts=end_ts,
+                                                            entities=entities, filters=filters,
+                                                            deviceid_col=deviceid_col, item=item)
 
                     # only read rows where the metric is not Null
 
                     metric_filter = self._is_not_null(table=table, dimension_table=dim, column=item)
-                    #filter_query = filter_query.filter(metric_filter)
+                    # filter_query = filter_query.filter(metric_filter)
 
                     if time_grain is not None:
                         timestamp_col_obj = self.get_column_object(table, timestamp)
@@ -1726,7 +1650,6 @@ class Database(object):
                     # remove any duplicates from cols
                     cols = list(dict.fromkeys(cols))
 
-
                     col_aliases = [output_name if x == item else x for x in cols]
                     col_aliases[1] = 'timestamp_filter'
 
@@ -1735,16 +1658,9 @@ class Database(object):
                     else:
                         query_dim = None
 
-                    query, table = self.query(
-                        table_name=table_name,
-                        schema=schema,
-                        column_names=cols,
-                        column_aliases=col_aliases,
-                        timestamp_col=timestamp,
-                        dimension=query_dim,
-                        entities=entities,
-                        filters=filters,
-                        deviceid_col=deviceid_col)
+                    query, table = self.query(table_name=table_name, schema=schema, column_names=cols,
+                                              column_aliases=col_aliases, timestamp_col=timestamp, dimension=query_dim,
+                                              entities=entities, filters=filters, deviceid_col=deviceid_col)
                     query = query.filter(metric_filter)
                     if filters is not None:
                         table = self.get_table(table_name, schema)
@@ -1757,11 +1673,8 @@ class Database(object):
                     df_result = pd.read_sql_query(query, con=self.connection)
 
                     if pandas_aggregate is not None:
-                        df_result = resample(df=df_result,
-                                             time_frequency=pandas_aggregate,
-                                             timestamp=timestamp,
-                                             dimensions=groupby,
-                                             agg=agg_dict)
+                        df_result = resample(df=df_result, time_frequency=pandas_aggregate, timestamp=timestamp,
+                                             dimensions=groupby, agg=agg_dict)
 
                     dfs.append(df_result)
 
@@ -1794,10 +1707,14 @@ class Database(object):
         '''
 
         a = self.get_table(table_name, schema)
-        col = a.c[column_name]
+        #col = a.c[column_name]
+        col = self.get_column_object(a, column_name)
+        exp = func.date_trunc('minute', col)
+        '''
         hour = func.add_hours(func.timestamp(func.date(col)), func.hour(col))
         min_col = (func.minute(col) / minutes) * minutes
         exp = (func.add_minutes(hour, min_col)).label(label)
+        '''
         return exp
 
     def _ts_col_rounded_to_hours(self, table_name, schema, column_name, hours, label):
@@ -1805,23 +1722,18 @@ class Database(object):
         Returns a column expression that rounds the timestamp to the specified number of minutes
         '''
         a = self.get_table(table_name, schema)
-        col = a.c[column_name]
+        #col = a.c[column_name]
+        col = self.get_column_object(a, column_name)
+        exp = func.date_trunc('hour',col)
+        '''
         date_col = func.timestamp(func.date(col))
         hour_col = (func.hour(col) / hours) * hours
         exp = (func.add_hours(date_col, hour_col)).label(label)
+        '''
         return exp
 
-    def query(self, table_name, schema,
-              column_names=None,
-              column_aliases=None,
-              timestamp_col=None,
-              start_ts=None,
-              end_ts=None,
-              entities=None,
-              dimension=None,
-              filters=None,
-              deviceid_col='deviceid'
-              ):
+    def query(self, table_name, schema, column_names=None, column_aliases=None, timestamp_col=None, start_ts=None,
+              end_ts=None, entities=None, dimension=None, filters=None, deviceid_col='deviceid'):
         '''
         Build a sqlalchemy query object for a table. You can further manipulate the query object using standard
         sqlalchemcy operations to do things like filter and join.
@@ -1900,27 +1812,27 @@ class Database(object):
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                 raise ValueError(msg)
-            query = query.filter(table.c[timestamp_col] >= start_ts)
+            query = query.filter(self.get_column_object( table, timestamp_col) >= start_ts)
         if not end_ts is None:
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                 raise ValueError(msg)
-            query = query.filter(table.c[timestamp_col] < end_ts)
+            query = query.filter(self.get_column_object( table, timestamp_col)< end_ts)
         if not entities is None:
             query = query.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
                 try:
-                    col_obj = table.c[d]
+                    col_obj = self.get_column_object(table, d)
                 except KeyError:
                     try:
-                        col_obj = dim.c[d]
+                        col_obj = self.get_column_object( dim, d)
                     except KeyError:
                         raise ValueError('Filter column %s not found in table or dimension' % d)
                 if isinstance(members, str):
                     members = [members]
                 if not isinstance(members, list):
-                    raise ValueError('Invalid filter on %s. Provide a list of members to filter on not %s' % (
-                        d, members))
+                    raise ValueError(
+                        'Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
                 elif len(members) == 1:
                     query = query.filter(col_obj == members[0])
                 elif len(members) == 0:
@@ -1956,22 +1868,10 @@ class Database(object):
                         missing_columns.remove(required_col)
         return missing_columns
 
-    def query_agg(self, table_name, schema, agg_dict,
-                  agg_outputs=None,
-                  groupby=None,
-                  timestamp=None,
-                  time_grain=None,
-                  dimension=None,
-                  start_ts=None,
-                  end_ts=None,
-                  entities=None,
-                  auto_null_filter=False,
-                  filters=None,
-                  deviceid_col='deviceid',
-                  kvp_device_id_col='entity_id',
-                  kvp_key_col='KEY',
-                  kvp_timestamp_col='TIMESTAMP'
-                  ):
+    def query_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
+                  dimension=None, start_ts=None, end_ts=None, entities=None, auto_null_filter=False, filters=None,
+                  deviceid_col='deviceid', kvp_device_id_col='entity_id', kvp_key_col='key',
+                  kvp_timestamp_col='timestamp'):
         '''
         Pandas style aggregate function against db table
 
@@ -2035,7 +1935,7 @@ class Database(object):
             is_kvp = True
             kvp_keys = set(agg_dict.keys())
             timestamp_col = kvp_timestamp_col
-            if ( 'deviceid' in groupby):
+            if ('deviceid' in groupby):
                 required_cols.remove('deviceid')
                 required_cols.add("entity_id")
                 groupby.remove("deviceid")
@@ -2070,14 +1970,9 @@ class Database(object):
         for col, aggs in agg_dict.items():
             if isinstance(aggs, str):
                 col_name = agg_outputs.get(col, col)
-                (alias, col_obj, function) = self._aggregate_item(
-                    table=table,
-                    column_name=col,
-                    aggregate=aggs,
-                    alias_column=col_name,
-                    dimension_table=dim,
-                    timestamp_col=timestamp
-                )
+                (alias, col_obj, function) = self._aggregate_item(table=table, column_name=col, aggregate=aggs,
+                                                                  alias_column=col_name, dimension_table=dim,
+                                                                  timestamp_col=timestamp)
                 agg_functions[alias] = (col_obj, function)
             elif isinstance(aggs, list):
                 for i, agg in enumerate(aggs):
@@ -2089,13 +1984,9 @@ class Database(object):
                         logger.warning(msg)
                     else:
                         pass
-                    (alias, col_obj, function) = self._aggregate_item(
-                        table=table,
-                        column_name=col,
-                        aggregate=agg,
-                        alias_column=output,
-                        dimension_table=dim,
-                        timestamp_col=timestamp)
+                    (alias, col_obj, function) = self._aggregate_item(table=table, column_name=col, aggregate=agg,
+                                                                      alias_column=output, dimension_table=dim,
+                                                                      timestamp_col=timestamp)
                     agg_functions[alias] = (col_obj, function)
             else:
                 msg = ('Aggregate dictionary is not in the correct form.'
@@ -2120,24 +2011,25 @@ class Database(object):
             if timestamp is None:
                 msg = 'You must supply a timestamp column when doing a time-based aggregate'
                 raise ValueError(msg)
+            col_object = self.get_column_object( table, timestamp)
             if time_grain == timestamp:
-                group_by_cols[timestamp] = table.c[timestamp]
+                group_by_cols[timestamp] = col_object
             elif time_grain.endswith('min'):
                 minutes = int(time_grain[:-3])
-                group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(
-                    table_name, schema, timestamp, minutes, timestamp)
+                group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(table_name, schema, timestamp, minutes,
+                                                                           timestamp)
             elif time_grain.endswith('H'):
                 hours = int(time_grain[:-1])
-                group_by_cols[timestamp] = self._ts_col_rounded_to_hours(
-                    table_name, schema, timestamp, hours, timestamp)
+                group_by_cols[timestamp] = self._ts_col_rounded_to_hours(table_name, schema, timestamp, hours,
+                                                                         timestamp)
             elif time_grain == 'day':
-                group_by_cols[timestamp] = func.date(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date(col_object).label(timestamp)
             elif time_grain == 'week':
-                group_by_cols[timestamp] = func.this_week(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('week', col_object).label(timestamp)
             elif time_grain == 'month':
-                group_by_cols[timestamp] = func.this_month(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('month',col_object).label(timestamp)
             elif time_grain == 'year':
-                group_by_cols[timestamp] = func.this_year(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('year',col_object).label(timestamp)
             else:
                 pandas_aggregate = time_grain
 
@@ -2167,10 +2059,7 @@ class Database(object):
             # stage 2 is aggregation of the subquery
             # done this was to work around the fact that expressions with arguments cant be used in db2 group bys
 
-            subquery = self.prepare_aggregate_query(
-                group_by=group_by_cols,
-                aggs=agg_functions
-            )
+            subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
                 subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
@@ -2178,12 +2067,12 @@ class Database(object):
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(table.c[timestamp] >= start_ts)
+                subquery = subquery.filter(self.get_column_object( table, timestamp) >= start_ts)
             if not end_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(table.c[timestamp] < end_ts)
+                subquery = subquery.filter(self.get_column_object( table, timestamp) < end_ts)
             if not entities is None:
                 subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
@@ -2196,9 +2085,13 @@ class Database(object):
                         raise ValueError('Filter column %s not found in table or dimension' % d)
                 if isinstance(members, str):
                     members = [members]
+                if isinstance(members, int):
+                    members = [members]
+                if isinstance(members, float):
+                    members = [members]
                 if not isinstance(members, list):
-                    raise ValueError('Invalid filter on %s. Provide a list of members to filter on not %s' % (
-                        d, members))
+                    raise ValueError(
+                        'Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
                 elif len(members) == 1:
                     subquery = subquery.filter(col_obj == members[0])
                 elif len(members) == 0:
@@ -2211,11 +2104,7 @@ class Database(object):
 
             # build and aggregate query on the sub query
 
-            query = self.build_aggregate_query(
-                subquery=subquery,
-                group_by=group_by_cols,
-                aggs=agg_functions
-            )
+            query = self.build_aggregate_query(subquery=subquery, group_by=group_by_cols, aggs=agg_functions)
 
 
         else:
@@ -2224,17 +2113,9 @@ class Database(object):
             # the calling function is expected to recognise
             # that aggregation has not been performed using the pandas_aggregate in the return tuple
 
-            (query, table) = self.query(
-                table_name=table_name,
-                schema=schema,
-                timestamp_col=timestamp,
-                start_ts=start_ts,
-                end_ts=end_ts,
-                entities=entities,
-                dimension=dim,
-                filters=filters,
-                deviceid_col=deviceid_col
-            )
+            (query, table) = self.query(table_name=table_name, schema=schema, timestamp_col=timestamp,
+                                        start_ts=start_ts, end_ts=end_ts, entities=entities, dimension=dim,
+                                        filters=filters, deviceid_col=deviceid_col)
             # filter out rows where all of the metrics are null
             # reduces volumes when dealing with sparse datasets
             # also essential when doing a query to get the first or last values as null values must be ignored
@@ -2244,24 +2125,10 @@ class Database(object):
 
         return (query, table, dim, pandas_aggregate, agg_dict, requires_dim_join)
 
-
-    def special_query_agg(self, table_name, schema, agg_dict,
-                  agg_outputs=None,
-                  groupby=None,
-                  timestamp=None,
-                  time_grain=None,
-                  dimension=None,
-                  start_ts=None,
-                  end_ts=None,
-                  entities=None,
-                  auto_null_filter=False,
-                  filters=None,
-                  deviceid_col='deviceid',
-                  kvp_device_id_col='entity_id',
-                  kvp_key_col='KEY',
-                  kvp_timestamp_col='TIMESTAMP',
-                  item=None
-                  ):
+    def special_query_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None,
+                          time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None,
+                          auto_null_filter=False, filters=None, deviceid_col='deviceid', kvp_device_id_col='entity_id',
+                          kvp_key_col='key', kvp_timestamp_col='timestamp', item=None):
         '''
         Pandas style aggregate function against db table
 
@@ -2325,7 +2192,7 @@ class Database(object):
             is_kvp = True
             kvp_keys = set(agg_dict.keys())
             timestamp_col = kvp_timestamp_col
-            if ( 'deviceid' in groupby):
+            if ('deviceid' in groupby):
                 required_cols.remove('deviceid')
                 required_cols.add("entity_id")
                 groupby.remove("deviceid")
@@ -2360,14 +2227,9 @@ class Database(object):
         for col, aggs in agg_dict.items():
             if isinstance(aggs, str):
                 col_name = agg_outputs.get(col, col)
-                (alias, col_obj, function) = self._aggregate_item(
-                    table=table,
-                    column_name=col,
-                    aggregate=aggs,
-                    alias_column=col_name,
-                    dimension_table=dim,
-                    timestamp_col=timestamp
-                )
+                (alias, col_obj, function) = self._aggregate_item(table=table, column_name=col, aggregate=aggs,
+                                                                  alias_column=col_name, dimension_table=dim,
+                                                                  timestamp_col=timestamp)
                 agg_functions[alias] = (col_obj, function)
             elif isinstance(aggs, list):
                 for i, agg in enumerate(aggs):
@@ -2379,13 +2241,9 @@ class Database(object):
                         logger.warning(msg)
                     else:
                         pass
-                    (alias, col_obj, function) = self._aggregate_item(
-                        table=table,
-                        column_name=col,
-                        aggregate=agg,
-                        alias_column=output,
-                        dimension_table=dim,
-                        timestamp_col=timestamp)
+                    (alias, col_obj, function) = self._aggregate_item(table=table, column_name=col, aggregate=agg,
+                                                                      alias_column=output, dimension_table=dim,
+                                                                      timestamp_col=timestamp)
                     agg_functions[alias] = (col_obj, function)
             else:
                 msg = ('Aggregate dictionary is not in the correct form.'
@@ -2411,23 +2269,23 @@ class Database(object):
                 msg = 'You must supply a timestamp column when doing a time-based aggregate'
                 raise ValueError(msg)
             if time_grain == timestamp:
-                group_by_cols[timestamp] = table.c[timestamp]
+                group_by_cols[timestamp] = self.get_column_object( table, timestamp)
             elif time_grain.endswith('min'):
                 minutes = int(time_grain[:-3])
-                group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(
-                    table_name, schema, timestamp, minutes, timestamp)
+                group_by_cols[timestamp] = self._ts_col_rounded_to_minutes(table_name, schema, timestamp, minutes,
+                                                                           timestamp)
             elif time_grain.endswith('H'):
                 hours = int(time_grain[:-1])
-                group_by_cols[timestamp] = self._ts_col_rounded_to_hours(
-                    table_name, schema, timestamp, hours, timestamp)
+                group_by_cols[timestamp] = self._ts_col_rounded_to_hours(table_name, schema, timestamp, hours,
+                                                                         timestamp)
             elif time_grain == 'day':
-                group_by_cols[timestamp] = func.date(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date(self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'week':
-                group_by_cols[timestamp] = func.this_week(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('week', self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'month':
-                group_by_cols[timestamp] = func.this_month(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('month', self.get_column_object( table, timestamp)).label(timestamp)
             elif time_grain == 'year':
-                group_by_cols[timestamp] = func.this_year(table.c[timestamp]).label(timestamp)
+                group_by_cols[timestamp] = func.date_trunc('year', self.get_column_object( table, timestamp)).label(timestamp)
             else:
                 pandas_aggregate = time_grain
 
@@ -2457,10 +2315,7 @@ class Database(object):
             # stage 2 is aggregation of the subquery
             # done this was to work around the fact that expressions with arguments cant be used in db2 group bys
 
-            subquery = self.prepare_aggregate_query(
-                group_by=group_by_cols,
-                aggs=agg_functions
-            )
+            subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
                 subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
@@ -2468,12 +2323,12 @@ class Database(object):
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(table.c[timestamp] >= start_ts)
+                subquery = subquery.filter(self.get_column_object( table, timestamp) >= start_ts)
             if not end_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(table.c[timestamp] < end_ts)
+                subquery = subquery.filter(self.get_column_object( table, timestamp) < end_ts)
             if not entities is None:
                 subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
@@ -2487,8 +2342,8 @@ class Database(object):
                 if isinstance(members, str):
                     members = [members]
                 if not isinstance(members, list):
-                    raise ValueError('Invalid filter on %s. Provide a list of members to filter on not %s' % (
-                        d, members))
+                    raise ValueError(
+                        'Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
                 elif len(members) == 1:
                     subquery = subquery.filter(col_obj == members[0])
                 elif len(members) == 0:
@@ -2505,11 +2360,7 @@ class Database(object):
                 metric_filter = self._is_not_null(table=table, dimension_table=dim, column=item)
                 subquery = subquery.filter(metric_filter)
 
-            query = self.build_aggregate_query(
-                subquery=subquery,
-                group_by=group_by_cols,
-                aggs=agg_functions
-            )
+            query = self.build_aggregate_query(subquery=subquery, group_by=group_by_cols, aggs=agg_functions)
 
 
         else:
@@ -2518,17 +2369,9 @@ class Database(object):
             # the calling function is expected to recognise
             # that aggregation has not been performed using the pandas_aggregate in the return tuple
 
-            (query, table) = self.query(
-                table_name=table_name,
-                schema=schema,
-                timestamp_col=timestamp,
-                start_ts=start_ts,
-                end_ts=end_ts,
-                entities=entities,
-                dimension=dim,
-                filters=filters,
-                deviceid_col=deviceid_col
-            )
+            (query, table) = self.query(table_name=table_name, schema=schema, timestamp_col=timestamp,
+                                        start_ts=start_ts, end_ts=end_ts, entities=entities, dimension=dim,
+                                        filters=filters, deviceid_col=deviceid_col)
             # filter out rows where all of the metrics are null
             # reduces volumes when dealing with sparse datasets
             # also essential when doing a query to get the first or last values as null values must be ignored
@@ -2538,11 +2381,7 @@ class Database(object):
 
         return (query, table, dim, pandas_aggregate, agg_dict, requires_dim_join)
 
-
-    def query_column_aggregate(self, table_name, schema, column, aggregate,
-                               start_ts=None,
-                               end_ts=None,
-                               entities=None):
+    def query_column_aggregate(self, table_name, schema, column, aggregate, start_ts=None, end_ts=None, entities=None):
 
         '''
         Perform a single aggregate operation against a table to return a scalar value
@@ -2567,34 +2406,17 @@ class Database(object):
 
         agg_dict = {column: aggregate}
 
-        (query, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(
-            agg_dict=agg_dict,
-            table_name=table_name,
-            schema=schema,
-            groupby=None,
-            time_grain=None,
-            dimension=None,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            entities=entities
-        )
+        (query, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(agg_dict=agg_dict,
+                                                                                       table_name=table_name,
+                                                                                       schema=schema, groupby=None,
+                                                                                       time_grain=None, dimension=None,
+                                                                                       start_ts=start_ts, end_ts=end_ts,
+                                                                                       entities=entities)
 
         return (query, table)
 
-    def query_time_agg(self,
-                       table_name,
-                       schema,
-                       column,
-                       regular_agg,
-                       time_agg,
-                       groupby=None,
-                       timestamp=None,
-                       time_grain=None,
-                       dimension=None,
-                       start_ts=None,
-                       end_ts=None,
-                       entities=None,
-                       output_item=None):
+    def query_time_agg(self, table_name, schema, column, regular_agg, time_agg, groupby=None, timestamp=None,
+                       time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None, output_item=None):
         '''
         Build a query with separate aggregation functions for regular rollup and timestate rollup.
         '''
@@ -2605,18 +2427,15 @@ class Database(object):
         agg_dict = {column: regular_agg}
 
         # build query a aggregated on the regular dimension
-        (query_a, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(
-            agg_dict=agg_dict,
-            table_name=table_name,
-            schema=schema,
-            groupby=groupby,
-            time_grain=timestamp,
-            timestamp=timestamp,
-            dimension=dimension,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            entities=entities
-        )
+        (query_a, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(agg_dict=agg_dict,
+                                                                                         table_name=table_name,
+                                                                                         schema=schema, groupby=groupby,
+                                                                                         time_grain=timestamp,
+                                                                                         timestamp=timestamp,
+                                                                                         dimension=dimension,
+                                                                                         start_ts=start_ts,
+                                                                                         end_ts=end_ts,
+                                                                                         entities=entities)
 
         if pandas_aggregate:
             raise ValueError(
@@ -2631,24 +2450,20 @@ class Database(object):
             raise ValueError(msg)
 
         # build query b aggregated
-        (query_b, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(
-            agg_dict=time_agg_dict,
-            table_name=table_name,
-            schema=schema,
-            groupby=groupby,
-            time_grain=time_grain,
-            timestamp=timestamp,
-            dimension=None,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            entities=entities
-        )
+        (query_b, table, dim, pandas_aggregate, agg_dict, requires_dim) = self.query_agg(agg_dict=time_agg_dict,
+                                                                                         table_name=table_name,
+                                                                                         schema=schema, groupby=groupby,
+                                                                                         time_grain=time_grain,
+                                                                                         timestamp=timestamp,
+                                                                                         dimension=None,
+                                                                                         start_ts=start_ts,
+                                                                                         end_ts=end_ts,
+                                                                                         entities=entities)
 
         right_timestamp = '%s_%s' % (time_agg, timestamp)
         keys = [(timestamp, right_timestamp)]
         keys.extend(groupby)
-        right_cols = {right_timestamp: right_timestamp,
-                      timestamp: timestamp}
+        right_cols = {right_timestamp: right_timestamp, timestamp: timestamp}
         query = self.subquery_join(query_a, query_b, *keys, **right_cols)
 
         return (query, table)
@@ -2661,9 +2476,7 @@ class Database(object):
             function_names = [function_names]
 
         for f in function_names:
-            payload = {
-                'name': f
-            }
+            payload = {'name': f}
             r = self.http_request(object_type='function', object_name=f, request='DELETE', payload=payload)
             try:
                 msg = 'Function registration deletion status: %s' % (r.data.decode('utf-8'))
@@ -2681,11 +2494,7 @@ class Database(object):
         payload = []
 
         for f in constant_names:
-            payload.append({
-                'name': f,
-                'entityType': None
-            }
-            )
+            payload.append({'name': f, 'entityType': None})
 
         r = self.http_request(object_type='defaultConstants', object_name=f, request='DELETE', payload=payload)
         try:
@@ -2694,14 +2503,8 @@ class Database(object):
             msg = 'Constants deletion status: %s' % r
         logger.info(msg)
 
-    def write_frame(self, df,
-                    table_name,
-                    version_db_writes=False,
-                    if_exists='append',
-                    timestamp_col=None,
-                    schema=None,
-                    chunksize=None,
-                    auto_index_name='_auto_index_'):
+    def write_frame(self, df, table_name, version_db_writes=False, if_exists='append', timestamp_col=None, schema=None,
+                    chunksize=None, auto_index_name='_auto_index_'):
         '''
         Write a dataframe to a database table
 
@@ -2769,8 +2572,8 @@ class Database(object):
                     raise KeyError('Dataframe does not have required columns %s' % cols)
         self.start_session()
         try:
-            df.to_sql(name=table_name, con=self.connection, schema=schema,
-                      if_exists=if_exists, index=False, chunksize=chunksize, dtype=dtypes)
+            df.to_sql(name=table_name, con=self.connection, schema=schema, if_exists=if_exists, index=False,
+                      chunksize=chunksize, dtype=dtypes)
         except:
             self.session.rollback()
             logger.info('Attempted write of %s data to table %s ' % (cols, table_name))
@@ -2813,8 +2616,8 @@ class BaseTable(object):
             if kwschema is None:
                 msg = 'Schema passed as None, using default schema'
                 logger.debug(msg)
-        self.table = Table(self.name, self.database.metadata, *args, **kw)
-        self.id_col = Column(self._entity_id, String(50))
+        self.table = Table(self.name.lower(), self.database.metadata, *args, **kw)
+        self.id_col = Column(self._entity_id.lower(), String(50))
         self.table.create(checkfirst=True)
 
     def create(self):
@@ -2854,12 +2657,12 @@ class BaseTable(object):
             df = df[cols]
         except KeyError:
             msg = 'Dataframe does not have required columns %s. It has columns: %s and index: %s' % (
-            cols, df.columns, df.index.names)
+                cols, df.columns, df.index.names)
             raise KeyError(msg)
         self.database.start_session()
         try:
-            df.to_sql(name=self.name, con=self.database.connection, schema=self.schema,
-                      if_exists='append', index=False, chunksize=chunksize, dtype=dtypes)
+            df.to_sql(name=self.name, con=self.database.connection, schema=self.schema, if_exists='append', index=False,
+                      chunksize=chunksize, dtype=dtypes)
         except:
             self.database.session.rollback()
             raise
@@ -2888,7 +2691,7 @@ class SystemLogTable(BaseTable):
     """
 
     def __init__(self, name, database, *args, **kw):
-        self.timestamp = Column(self._timestamp, DateTime)
+        self.timestamp = Column(self._timestamp.lower(), DateTime)
         super().__init__(name, database, self.timestamp, *args, **kw)
 
 
@@ -2902,7 +2705,7 @@ class ActivityTable(BaseTable):
 
     def __init__(self, name, database, *args, **kw):
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id, String(50))
+        self.id_col = Column(self._entity_id.lower(), String(50))
         self.start_date = Column('start_date', DateTime)
         self.end_date = Column('end_date', DateTime)
         self.activity = Column('activity', String(255))
@@ -2916,9 +2719,8 @@ class Dimension(BaseTable):
 
     def __init__(self, name, database, *args, **kw):
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id, String(50))
-        super().__init__(name, database, self.id_col,
-                         *args, **kw)
+        self.id_col = Column(self._entity_id.lower(), String(50))
+        super().__init__(name, database, self.id_col, *args, **kw)
 
 
 class ResourceCalendarTable(BaseTable):
@@ -2934,7 +2736,7 @@ class ResourceCalendarTable(BaseTable):
         self.start_date = Column('start_date', DateTime)
         self.end_date = Column('end_date', DateTime)
         self.resource_id = Column('resource_id', String(255))
-        self.id_col = Column(self._entity_id, String(50))
+        self.id_col = Column(self._entity_id.lower(), String(50))
         super().__init__(name, database, self.id_col, self.start_date, self.end_date, self.resource_id, *args, **kw)
 
 
@@ -2945,18 +2747,15 @@ class TimeSeriesTable(BaseTable):
 
     def __init__(self, name, database, *args, **kw):
         self.set_params(**kw)
-        self.id_col = Column(self._entity_id, String(256))
-        self.evt_timestamp = Column(self._timestamp, DateTime)
+        self.id_col = Column(self._entity_id.lower(), String(256))
+        self.evt_timestamp = Column(self._timestamp.lower(), DateTime)
         self.device_type = Column('devicetype', String(64))
         self.logical_interface = Column('logicalinterface_id', String(64))
         self.event_type = Column('eventtype', String(64))
         self.format = Column('format', String(32))
         self.updated_timestamp = Column('updated_utc', DateTime)
-        super().__init__(name, database, self.id_col, self.evt_timestamp,
-                         self.device_type, self.logical_interface, self.event_type,
-                         self.format,
-                         self.updated_timestamp,
-                         *args, **kw)
+        super().__init__(name, database, self.id_col, self.evt_timestamp, self.device_type, self.logical_interface,
+                         self.event_type, self.format, self.updated_timestamp, *args, **kw)
 
 
 class SlowlyChangingDimension(BaseTable):
@@ -2970,6 +2769,6 @@ class SlowlyChangingDimension(BaseTable):
         self.set_params(**kw)
         self.start_date = Column('start_date', DateTime)
         self.end_date = Column('end_date', DateTime)
-        self.property_name = Column(property_name, datatype)
-        self.id_col = Column(self._entity_id, String(50))
+        self.property_name = Column(property_name.lower(), datatype)
+        self.id_col = Column(self._entity_id.lower(), String(50))
         super().__init__(name, database, self.id_col, self.start_date, self.end_date, self.property_name, **kw)

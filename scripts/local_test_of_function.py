@@ -21,7 +21,6 @@ do this with any function derived from the iotfunctions base classes.
 
 '''
 
-
 with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 db_schema = None
@@ -44,13 +43,13 @@ This file will be written to the working directory.
 '''
 
 from iotfunctions.bif import AlertExpression
-fn = AlertExpression(
-        expression = 'df["x1"] > 1',
-        alert_name = 'is_high_x1')
-fn.execute_local_test(db=db,db_schema=db_schema)
+
+fn = AlertExpression(expression='df["x1"] > 1', alert_name='is_high_x1')
+fn.execute_local_test(db=db, db_schema=db_schema)
 
 from iotfunctions.bif import DateDifference
-fn = DateDifference(date_1 = 'd1', date_2 = 'd2', num_days = 'difference')
+
+fn = DateDifference(date_1='d1', date_2='d2', num_days='difference')
 
 '''
 This function requires date imputs. To indicate that the function should
@@ -58,11 +57,7 @@ be tested using date inputs declare two date columns as below.
 
 '''
 
-fn.execute_local_test(columns = [
-        Column('d1',DateTime),
-        Column('d2',DateTime)
-        ])
-
+fn.execute_local_test(columns=[Column('d1', DateTime), Column('d2', DateTime)])
 
 '''
 If the function that you are testing requires assess to server resources,
@@ -71,12 +66,6 @@ pass a Database object
 
 from iotfunctions.bif import SaveCosDataFrame
 
-fn = SaveCosDataFrame(
-        filename = 'test_df_write',
-        columns = ['x1','x2'],
-        output_item = 'wrote_df'
-        )
+fn = SaveCosDataFrame(filename='test_df_write', columns=['x1', 'x2'], output_item='wrote_df')
 
-fn.execute_local_test(db=db,db_schema=db_schema)
-
-
+fn.execute_local_test(db=db, db_schema=db_schema)

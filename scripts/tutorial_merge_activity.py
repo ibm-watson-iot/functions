@@ -14,7 +14,6 @@ EngineLogging.configure_console_logging(logging.DEBUG)
 with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 
-
 '''
 Calculate Activity Durations
 ----------------------------
@@ -56,66 +55,32 @@ time periods.
 We will start by creating and entity type and some data. 
 '''
 
+entity_name = 'merge_test'  # you can give your entity type a better name
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 
-entity_name = 'merge_test'                    # you can give your entity type a better name
-db = Database(credentials = credentials)
-db_schema = None                            # set if you are not using the default
+shift_dict = {"1": (5.5, 14), "2": (14, 21), "3": (21, 29.5)}
 
+sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5},
+                  "scds": {'crew': ['A', 'B', 'C']}, "start_entity_id": 100, "auto_entity_count": 2
 
-shift_dict = {
-        "1": (5.5, 14),
-        "2": (14, 21),
-        "3": (21, 29.5)
-}
+                  }
 
-sim_parameters = {
-    "data_item_mean" : {'temp': 22,
-                        'pressure' : 320},
-    "data_item_sd": {'temp': 2,
-                     'pressure': 5},
-    "scds": {'crew': [
-                'A',
-                'B',
-                'C']
-            },
-    "start_entity_id": 100,
-    "auto_entity_count": 2
-
-}
-
-scd_name = '%s_scd_crew' %entity_name
-activity_name = '%s_activity' %entity_name
+scd_name = '%s_scd_crew' % entity_name
+activity_name = '%s_activity' % entity_name
 
 # entity has an EntityDataGenerator function to generate data
 # also has a SCDLookup function to retrieve data
 
 
-entity = EntityType(entity_name,db,
-                    Column('temp',Float()),
-                    Column('pressure', Float()),
-                    Column('company_code',String(50)),
-                    Column('category_code',String(5)),
-                    bif.EntityDataGenerator(
-                        parameters= sim_parameters,
-                        data_item = 'is_generated'
-                            ),
-                    bif.ShiftCalendar(
-                        shift_definition=shift_dict,
-                        period_start_date='shift_start_date',
-                        period_end_date='shift_end_date',
-                        shift_day='shift_day',
-                        shift_id='shift_id'
-                    ),
-                    bif.ActivityDuration(
-                        table_name = activity_name,
-                        activity_codes= ['maintenance'],
-                        activity_duration= ['maintenance_duration']
-                    ),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
-
+entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
+                    Column('company_code', String(50)), Column('category_code', String(5)),
+                    bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
+                    bif.ShiftCalendar(shift_definition=shift_dict, period_start_date='shift_start_date',
+                                      period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
+                    bif.ActivityDuration(table_name=activity_name, activity_codes=['maintenance'],
+                                         activity_duration=['maintenance_duration']),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 start_date = dt.datetime.utcnow() - dt.timedelta(days=2)
 
@@ -131,18 +96,12 @@ deviceid    start_date                  end_date                    activity
 
 '''
 
-activity_data = {
-    'deviceid' : '100',
-    'start_date' : dt.datetime.utcnow() - dt.timedelta(days=1),
-    'end_date' : dt.datetime.utcnow(),
-    'activity' : 'maintenance'
-}
+activity_data = {'deviceid': '100', 'start_date': dt.datetime.utcnow() - dt.timedelta(days=1),
+                 'end_date': dt.datetime.utcnow(), 'activity': 'maintenance'}
 
-activity_df = pd.DataFrame(data=activity_data, index = [0])
-#write activity data to a table
-db.write_frame( df = activity_df,
-                table_name=activity_name,
-                if_exists = 'replace')
+activity_df = pd.DataFrame(data=activity_data, index=[0])
+# write activity data to a table
+db.write_frame(df=activity_df, table_name=activity_name, if_exists='replace')
 
 entity.exec_local_pipeline(start_ts=start_date)
 
@@ -163,39 +122,19 @@ Durations may be apportioned by changes in the values of other dimensions too.
 Let's consider the maintenance crew by adding a SCD lookup function for crew. 
 '''
 
+db.drop_table(scd_name, schema=db_schema)
 
-db.drop_table(scd_name,schema=db_schema)
+entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
+                    Column('company_code', String(50)), Column('category_code', String(5)),
+                    bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
+                    bif.ShiftCalendar(shift_definition=shift_dict, period_start_date='shift_start_date',
+                                      period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
+                    bif.SCDLookup(table_name=scd_name, output_item='crew'),
+                    bif.ActivityDuration(table_name=activity_name, activity_codes=['maintenance'],
+                                         activity_duration=['maintenance_duration']),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
-entity = EntityType(entity_name,db,
-                    Column('temp',Float()),
-                    Column('pressure', Float()),
-                    Column('company_code',String(50)),
-                    Column('category_code',String(5)),
-                    bif.EntityDataGenerator(
-                        parameters= sim_parameters,
-                        data_item = 'is_generated'
-                            ),
-                    bif.ShiftCalendar(
-                        shift_definition=shift_dict,
-                        period_start_date='shift_start_date',
-                        period_end_date='shift_end_date',
-                        shift_day='shift_day',
-                        shift_id='shift_id'
-                    ),
-                    bif.SCDLookup(table_name=scd_name,
-                                  output_item='crew'),
-                    bif.ActivityDuration(
-                        table_name=activity_name,
-                        activity_codes=['maintenance'],
-                        activity_duration=['maintenance_duration']
-                    ),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
-
-
-entity.exec_local_pipeline(start_ts=start_date)                      
+entity.exec_local_pipeline(start_ts=start_date)
 
 '''
 Results are shown
@@ -220,57 +159,34 @@ case where "maintenance" activity is interrupted by a "break" activity.
 # two rows of activity data
 # maintenance is interupted by an hour break
 
-activity_data = {
-    'deviceid' : ['100', '100'],
-    'start_date' : [dt.datetime.utcnow() - dt.timedelta(days=1),dt.datetime.utcnow() - dt.timedelta(hours=12)],
-    'end_date' : [dt.datetime.utcnow(),dt.datetime.utcnow() - dt.timedelta(hours=11)],
-    'activity' : ['maintenance','break']
-}
+activity_data = {'deviceid': ['100', '100'], 'start_date': [dt.datetime.utcnow() - dt.timedelta(days=1),
+                                                            dt.datetime.utcnow() - dt.timedelta(hours=12)],
+                 'end_date': [dt.datetime.utcnow(), dt.datetime.utcnow() - dt.timedelta(hours=11)],
+                 'activity': ['maintenance', 'break']}
 
 # ActivityDuration is configured to process both types of activity
 
-fn_activity = bif.ActivityDuration(
-                        table_name=activity_name,
-                        activity_codes=['maintenance','break'],
-                        activity_duration=['maintenance_duration','break_duration']
-                    )
+fn_activity = bif.ActivityDuration(table_name=activity_name, activity_codes=['maintenance', 'break'],
+                                   activity_duration=['maintenance_duration', 'break_duration'])
 
 # ActivityDuration is configured to eliminate overlaps across both types of
 # activity. Only one type of activity of any type can take place at any
 # point in time.
 
-fn_activity.remove_gaps = 'across_all'   # configure ActivityDuration to
+fn_activity.remove_gaps = 'across_all'  # configure ActivityDuration to
 
 entity.drop_tables(recreate=True)
-entity = EntityType(entity_name,db,
-                    Column('temp',Float()),
-                    Column('pressure', Float()),
-                    Column('company_code',String(50)),
-                    Column('category_code',String(5)),
-                    bif.EntityDataGenerator(
-                        parameters= sim_parameters,
-                        data_item = 'is_generated'
-                            ),
-                    bif.ShiftCalendar(
-                        shift_definition=shift_dict,
-                        period_start_date='shift_start_date',
-                        period_end_date='shift_end_date',
-                        shift_day='shift_day',
-                        shift_id='shift_id'
-                    ),
-                    bif.SCDLookup(table_name=scd_name,
-                                  output_item='crew'),
-                    fn_activity,
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
+                    Column('company_code', String(50)), Column('category_code', String(5)),
+                    bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
+                    bif.ShiftCalendar(shift_definition=shift_dict, period_start_date='shift_start_date',
+                                      period_end_date='shift_end_date', shift_day='shift_day', shift_id='shift_id'),
+                    bif.SCDLookup(table_name=scd_name, output_item='crew'), fn_activity,
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
-activity_df = pd.DataFrame(data=activity_data, index = [0,1])
-#write activity data to a table
-db.write_frame( df = activity_df,
-                table_name=activity_name,
-                if_exists = 'replace')
+activity_df = pd.DataFrame(data=activity_data, index=[0, 1])
+# write activity data to a table
+db.write_frame(df=activity_df, table_name=activity_name, if_exists='replace')
 
 entity.exec_local_pipeline(start_ts=start_date)
 

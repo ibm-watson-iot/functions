@@ -32,7 +32,7 @@ devices.
 
 '''
 
-child1 = ('temp_data','temperature')               # (device name, metric name)
+child1 = ('temp_data', 'temperature')  # (device name, metric name)
 child2 = ('motion_data', 'motion')
 consolidated = 'work_area_test'
 device_count = 20
@@ -43,7 +43,7 @@ we will use to consolidate data across devices.
 
 Build a list of work_area ids for the simulation to run with.
 '''
-work_areas = ['w%s' %x for x in list(range(device_count))]
+work_areas = ['w%s' % x for x in list(range(device_count))]
 
 '''
 Setup the simulation parameters and build the device entity types
@@ -53,47 +53,32 @@ we need a device dimension table for each device with a work_area
 on the dimension.
 
 '''
-db = Database(credentials = credentials)
-db_schema = None                            # set if you are not using the default
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 
-
-sim_parameters = {
-    "data_item_mean" : {'temperature': 22},
-    "data_item_sd": {'temperature': 2 },
-    "data_item_domain" : {'motion' : [0,1],
-                          'work_area' : work_areas,
-                          'zone_id' : ['N','S','E','W']},
-    "auto_entity_count" : device_count
-    }
+sim_parameters = {"data_item_mean": {'temperature': 22}, "data_item_sd": {'temperature': 2},
+                  "data_item_domain": {'motion': [0, 1], 'work_area': work_areas, 'zone_id': ['N', 'S', 'E', 'W']},
+                  "auto_entity_count": device_count}
 
 # create entity types and execute the calc pipeline to get some test data
 
 data_sources = []
 start_device_id = 10000
-for (data_source_name,metric_name) in [child1,child2]:
-
+for (data_source_name, metric_name) in [child1, child2]:
     sim_parameters['start_entity_id'] = start_device_id
 
-    entity = EntityType(data_source_name,db,
-                        Column(metric_name,Float()),
-                        bif.EntityDataGenerator(
-                            parameters= sim_parameters,
-                            data_item = 'is_generated'
-                                ),
-                        **{
-                          '_timestamp' : 'evt_timestamp',
-                          '_db_schema' : db_schema
-                          })
-    dim = '%s_dim' %data_source_name
+    entity = EntityType(data_source_name, db, Column(metric_name, Float()),
+                        bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
+                        **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
+    dim = '%s_dim' % data_source_name
     entity.drop_tables([dim])
-    entity.make_dimension(dim, #build name automatically
-                          Column('work_area',String(50)))
+    entity.make_dimension(dim,  # build name automatically
+                          Column('work_area', String(50)))
 
     entity.exec_local_pipeline()
     data_sources.append(entity)
 
     start_device_id += 10000
-
 
 '''
 
@@ -167,32 +152,13 @@ each child device.
   
 '''
 
-entity = EntityType(consolidated, db,
-                    bif.GetEntityData(
-                        source_entity_type_name = child1[0],
-                        key_map_column = 'work_area',
-                        input_items = child1[1],
-                        output_items= child1[1]
-                    ),
-                    bif.GetEntityData(
-                        source_entity_type_name=child2[0],
-                        key_map_column='work_area',
-                        input_items=child2[1],
-                        output_items=child2[1]
-                    ),
-                    bif.PythonExpression(
-                        expression='df["%s"]-21.5' %child1[1],
-                        output_name='comfort_level'
-                    ),
-                    bif.PythonExpression(
-                        expression='df["%s"]' % child2[1],
-                        output_name='is_occupied'
-                    ),
-                    **{
-                        '_timestamp': 'evt_timestamp',
-                        '_db_schema': db_schema
-                    })
-
+entity = EntityType(consolidated, db, bif.GetEntityData(source_entity_type_name=child1[0], key_map_column='work_area',
+                                                        input_items=child1[1], output_items=child1[1]),
+                    bif.GetEntityData(source_entity_type_name=child2[0], key_map_column='work_area',
+                                      input_items=child2[1], output_items=child2[1]),
+                    bif.PythonExpression(expression='df["%s"]-21.5' % child1[1], output_name='comfort_level'),
+                    bif.PythonExpression(expression='df["%s"]' % child2[1], output_name='is_occupied'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 '''
 We also added two expression to the entity: comfort_level and is_occupied. These
@@ -233,5 +199,3 @@ under a single higher level construct - where that higher level construct is den
 by a common dimension on each device. 
 
 '''
-
-

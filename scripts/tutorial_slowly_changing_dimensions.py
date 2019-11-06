@@ -43,51 +43,27 @@ possible values.
 
 '''
 
-entity_name = 'scd_test'                    # you can give your entity type a better name
-db = Database(credentials = credentials)
-db_schema = None                            # set if you are not using the default
+entity_name = 'scd_test'  # you can give your entity type a better name
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 
-
-sim_parameters = {
-    "data_item_mean" : {'temp': 22,
-                        'pressure' : 320},
-    "data_item_sd": {'temp': 2,
-                     'pressure': 5},
-    "data_item_domain" : {'category_code' : ['A','B','C']},
-    "scds": {'owner': [
-                'Fred K',
-                'Mary J',
-                'Jane S',
-                'John H',
-                'Harry L',
-                'Steve S']
-    }
-}
+sim_parameters = {"data_item_mean": {'temp': 22, 'pressure': 320}, "data_item_sd": {'temp': 2, 'pressure': 5},
+                  "data_item_domain": {'category_code': ['A', 'B', 'C']},
+                  "scds": {'owner': ['Fred K', 'Mary J', 'Jane S', 'John H', 'Harry L', 'Steve S']}}
 
 # when using the generation capabilities, the table name will be created
 # automatically using the following naming convention
 
-scd_name = '%s_scd_owner' %entity_name
+scd_name = '%s_scd_owner' % entity_name
 
 # entity has an EntityDataGenerator function to generate data
 # also has a SCDLookup function to retrieve data
 
-entity = EntityType(entity_name,db,
-                    Column('temp',Float()),
-                    Column('pressure', Float()),
-                    Column('company_code',String(50)),
-                    Column('category_code',String(5)),
-                    bif.EntityDataGenerator(
-                        parameters= sim_parameters,
-                        data_item = 'is_generated'
-                            ),
-                    bif.SCDLookup(table_name=scd_name,
-                                  output_item='owner'),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
-
+entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
+                    Column('company_code', String(50)), Column('category_code', String(5)),
+                    bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
+                    bif.SCDLookup(table_name=scd_name, output_item='owner'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 '''
 Now that we have defined simulation parameters and attached them to an EntityDataGenerater
@@ -102,7 +78,7 @@ The default frequency for automatic generation of SCD data is 2 days. By startin
   
 '''
 
-db.drop_table(scd_name,schema=db_schema)
+db.drop_table(scd_name, schema=db_schema)
 start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
 entity.exec_local_pipeline(start_ts=start_date)
 
@@ -172,27 +148,15 @@ carried forward for.
 
 '''
 
-entity = EntityType(entity_name,db,
-                    Column('temp',Float()),
-                    Column('pressure', Float()),
-                    Column('company_code',String(50)),
-                    Column('category_code',String(5)),
-                    bif.EntityDataGenerator(
-                        parameters= sim_parameters,
-                        data_item = 'is_generated'
-                            ),
-                    bif.SCDLookup(table_name=scd_name,
-                                  output_item='owner'),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('temp', Float()), Column('pressure', Float()),
+                    Column('company_code', String(50)), Column('category_code', String(5)),
+                    bif.EntityDataGenerator(parameters=sim_parameters, data_item='is_generated'),
+                    bif.SCDLookup(table_name=scd_name, output_item='owner'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
-job_params = {
-    'merge_nearest_tolerance' : '1D'
-}
+job_params = {'merge_nearest_tolerance': '1D'}
 
-db.drop_table(scd_name,schema=db_schema)
+db.drop_table(scd_name, schema=db_schema)
 start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
 entity.exec_local_pipeline(start_ts=start_date, **job_params)
 

@@ -1,7 +1,7 @@
 import json
 import logging
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from iotfunctions import bif,sample
+from iotfunctions import bif, sample
 from iotfunctions.metadata import EntityType
 from iotfunctions.db import Database
 from iotfunctions.enginelog import EngineLogging
@@ -22,12 +22,12 @@ pipeline to real entity data so that you can what the actual results that the
 function will deliver.
 
 '''
-    
+
 '''
 A database object is our connection to the mother ship
 '''
-db = Database(credentials = credentials)
-db_schema = None #  set if you are not using the default
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 
 '''
 To do anything with IoT Platform Analytics, you will need one or more entity type. 
@@ -47,20 +47,12 @@ needed if you are not using the default schema. You can also rename the timestam
 '''
 entity_name = 'test_http_preload'
 db_schema = None  # replace if you are not using the default schema
-db.drop_table(entity_name, schema = db_schema)
-entity = EntityType(entity_name,db,
-                    Column('company_code',String(50)),
-                    Column('temp',Float()),
+db.drop_table(entity_name, schema=db_schema)
+entity = EntityType(entity_name, db, Column('company_code', String(50)), Column('temp', Float()),
                     Column('pressure', Float()),
-                    sample.HTTPPreload(request='GET',
-                                    url='internal_test',
-                                    output_item = 'http_preload_done'),
-                    bif.PythonExpression(expression='df["temp"]*df["pressure"]',
-                                         output_name = 'volume'),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+                    sample.HTTPPreload(request='GET', url='internal_test', output_item='http_preload_done'),
+                    bif.PythonExpression(expression='df["temp"]*df["pressure"]', output_name='volume'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 '''
 When creating an EntityType object you will need to specify the name of the entity, the database
 object that will contain entity data
@@ -90,7 +82,6 @@ view entity data
 df = db.read_table(table_name=entity_name, schema=db_schema)
 print(df.head())
 
-
 '''
 The initial test used an internal test to produce data. Now we will use an actual rest service.
 
@@ -98,19 +89,11 @@ Use the script "test_local_rest_service.py" to run a local service.
 '''
 
 entity_name = 'test_http_preload'
-db.drop_table(entity_name, schema = db_schema)
-entity = EntityType(entity_name,db,
-                    Column('company_code',String(50)),
-                    Column('temp',Float()),
+db.drop_table(entity_name, schema=db_schema)
+entity = EntityType(entity_name, db, Column('company_code', String(50)), Column('temp', Float()),
                     Column('pressure', Float()),
-                    sample.HTTPPreload(request='GET',
-                                    url='http://localhost:8080/',
-                                    output_item = 'http_preload_done'),
-                    bif.PythonExpression(expression='df["temp"]*df["pressure"]',
-                                         output_name = 'volume'),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+                    sample.HTTPPreload(request='GET', url='http://localhost:8080/', output_item='http_preload_done'),
+                    bif.PythonExpression(expression='df["temp"]*df["pressure"]', output_name='volume'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 entity.exec_local_pipeline()

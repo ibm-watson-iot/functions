@@ -12,7 +12,6 @@ def quoting_schema_name(schema_name):
 
 
 def quoting_table_name(table_name):
-    
     quoted_table_name = 'NULL'
     quote = '\"'
     two_quotes = '\"\"'
@@ -21,12 +20,11 @@ def quoting_table_name(table_name):
         table_name = table_name.upper()
         # Quote string and escape all quotes in string by an additional quote 
         quoted_table_name = quote + table_name.replace(quote, two_quotes) + quote
-        
+
     return quoted_table_name
 
 
 def quoting_sql_string(sql_value):
-    
     prepared_value = 'NULL'
     quote = '\''
     two_quotes = '\'\''
@@ -38,5 +36,5 @@ def quoting_sql_string(sql_value):
         else:
             # sql_value is no string; therefore just return it as is
             prepared_value = sql_value
-            
+
     return prepared_value

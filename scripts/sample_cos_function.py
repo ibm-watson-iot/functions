@@ -27,27 +27,24 @@ Here is a simple function:
 
 '''
 
-def f(df,parameters = None):
+
+def f(df, parameters=None):
     #  generate an 2-D array of random numbers
-    output = np.random.normal(1,0.1,len(df.index))
+    output = np.random.normal(1, 0.1, len(df.index))
     return output
+
 
 '''
 First save the function in cloud object storage
 '''
 
-db.cos_save(persisted_object=f,filename='random_1',binary=True)
+db.cos_save(persisted_object=f, filename='random_1', binary=True)
 
 '''
 Test the function by adding it to an entity type
 '''
 
-test_function = bif.PythonFunction(
-    function_code = 'random_1',
-    input_items = ['speed'],
-    output_item = 'random_1_out',
-    parameters = {}
-        )
+test_function = bif.PythonFunction(function_code='random_1', input_items=['speed'], output_item='random_1_out',
+                                   parameters={})
 
-test_function.execute_local_test(db=db,db_schema = db_schema)
-
+test_function.execute_local_test(db=db, db_schema=db_schema)

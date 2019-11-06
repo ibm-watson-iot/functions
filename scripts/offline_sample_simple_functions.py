@@ -15,13 +15,15 @@ import numpy as np
 import pandas as pd
 from collections import namedtuple
 
+
 # this simple test function mimics the behavior of PythonFunction locally
 
-def test_simple_fn(function,df,parameters = None,output_item = 'output'):
+def test_simple_fn(function, df, parameters=None, output_item='output'):
     if parameters is None:
         parameters = {}
-    df[output_item] = f(df,parameters)
+    df[output_item] = f(df, parameters)
     return df
+
 
 '''
 We will use offline test data to get familiar with simple python functions
@@ -33,24 +35,19 @@ We will start with just a couple of data items: 'speed" and "travel_time".
 '''
 
 row_count = 5
-data_items = ["speed","travel_time"]
-entities = ['XA01','XA02','XA03']
-c = {'first_checkpoint': .3,
-     'second_checkpoint' : 0.5,
-     'range' : 500}
+data_items = ["speed", "travel_time"]
+entities = ['XA01', 'XA02', 'XA03']
+c = {'first_checkpoint': .3, 'second_checkpoint': 0.5, 'range': 500}
 
 dfs = []
 for e in entities:
-    data = np.random.normal(100,10,(row_count,len(data_items)))
-    df = pd.DataFrame(data=data,columns = data_items)
+    data = np.random.normal(100, 10, (row_count, len(data_items)))
+    df = pd.DataFrame(data=data, columns=data_items)
     df['id'] = e
-    df['evt_timestamp'] = pd.date_range(
-            end=dt.datetime.utcnow(),
-            periods=row_count
-            )
+    df['evt_timestamp'] = pd.date_range(end=dt.datetime.utcnow(), periods=row_count)
     df['deviceid'] = df['id']
     df['_timestamp'] = df['evt_timestamp']
-    df = df.set_index(['id','evt_timestamp'])
+    df = df.set_index(['id', 'evt_timestamp'])
     dfs.append(df)
 
 df = pd.concat(dfs)
@@ -74,14 +71,15 @@ dataframe it receives as input.
 
 '''
 
-def f(df,parameters = None):
+
+def f(df, parameters=None):
     #  generate an 2-D array of random numbers
     import numpy as np
-    output = np.random.normal(1,0.1,len(df.index))
+    output = np.random.normal(1, 0.1, len(df.index))
     return output
 
 
-print(test_simple_fn(f,df))
+print(test_simple_fn(f, df))
 
 '''
 If you are wondering why bother using a function for this when you could have
@@ -95,16 +93,17 @@ standard deviation. Let's add some more code to calibrate it from the data.
 
 '''
 
-def f(df,parameters = None):
+
+def f(df, parameters=None):
     import numpy as np
     #  generate an 2-D array of random numbers
     mean = df['speed'].mean()
     sd = df['speed'].std()
-    output = np.random.normal(mean,sd,len(df.index))
+    output = np.random.normal(mean, sd, len(df.index))
     return output
 
 
-print(test_simple_fn(f,df))
+print(test_simple_fn(f, df))
 
 '''
 Technically speaking, the mean and standard deviation could have gone into
@@ -115,18 +114,19 @@ Of course you can also add control logic to a function.
 
 '''
 
-def f(df,parameters = None):
+
+def f(df, parameters=None):
     #  generate an 2-D array of random numbers
     import numpy as np
     mean = df['speed'].mean()
     sd = df['speed'].std()
     if df['travel_time'].min() < 90:
         sd = sd * 3
-    output = np.random.normal(mean,sd,len(df.index))
+    output = np.random.normal(mean, sd, len(df.index))
     return output
 
-print(test_simple_fn(f,df))
 
+print(test_simple_fn(f, df))
 
 '''
 If you need to loop through the incoming dataframe and produce a new
@@ -134,15 +134,16 @@ output for every row you can do that too, but keep in mind that
 vectorized pandas and numpy functions are a lot faster than looping.
 '''
 
-def f(df,parameters = None):
+
+def f(df, parameters=None):
     #  loop to calculate distance the slow and cumbersome way
     output = []
     for index, row in df.iterrows():
-        output.append(row['speed']*row['travel_time'])
+        output.append(row['speed'] * row['travel_time'])
     return output
 
 
-print(test_simple_fn(f,df))
+print(test_simple_fn(f, df))
 
 '''
 You can pass parameters to a simple functions.
@@ -151,70 +152,69 @@ This function uses a parameter called 'rating'.
 
 '''
 
-def f(df,parameters = None):
+
+def f(df, parameters=None):
     #  generate an 2-D array of random number
     import numpy as np
-    mean = df['speed'].mean() * parameters.get('rating',1)
+    mean = df['speed'].mean() * parameters.get('rating', 1)
     sd = df['speed'].std()
-    output = np.random.normal(mean,sd,len(df.index))
+    output = np.random.normal(mean, sd, len(df.index))
     return output
 
-print(test_simple_fn(f,df,parameters={'rating':.25}))
 
+print(test_simple_fn(f, df, parameters={'rating': .25}))
 
 '''
 The following simple function shows how to do a lookup using a dictionary
 supplied as a parameter from the UI 
 '''
 
-def f(df,parameters=None):
+
+def f(df, parameters=None):
     import pandas as pd
     # do a dictionary lookup
     # parameters is a dictionary of two dictionaries
     # the first is the lookup_item: name of the item being looked up
     # the next is the data: dictionary that contains the lookup data
-    lookup_item = parameters.get('lookup_item',None)
-    data = parameters.get('data',None)
+    lookup_item = parameters.get('lookup_item', None)
+    data = parameters.get('data', None)
     df['id_col'] = df['deviceid']
     return df['id_col'].replace(data)
 
-params = {
-        'XA01' : 1,
-        'XA02' : 2,
-        'XA03' : 3
-        }
 
-print(test_simple_fn(f,df,parameters=params))
+params = {'XA01': 1, 'XA02': 2, 'XA03': 3}
 
+print(test_simple_fn(f, df, parameters=params))
 
 '''
 If you need to access the timestamp in a PythonFunction, PythonExpression or
 custom function you can access it using the column name '_timestamp'
 '''
 
-def f(df,parameters = None):
+
+def f(df, parameters=None):
     #  calculate the age of each incoming record by comparing its timestamp with the current date
     import datetime as dt
     output = (dt.datetime.utcnow() - df['_timestamp']).dt.total_seconds() / (60 * 60 * 24)
     return output
 
-print(test_simple_fn(f,df,parameters=None))
 
+print(test_simple_fn(f, df, parameters=None))
 
 '''
 If you need to access the id of the entity type in a PythonFunction, PythonExpression or
 custom function you can access it using the column name 'deviceid'
 '''
 
-def f(df,parameters = None):
+
+def f(df, parameters=None):
     #  calculate the age of each incoming record by comparing its timestamp with the current date
     import numpy as np
-    output = np.where(df['deviceid']=='XA01', 1, 0)
+    output = np.where(df['deviceid'] == 'XA01', 1, 0)
     return output
 
-print(test_simple_fn(f,df,parameters=None))
 
-
+print(test_simple_fn(f, df, parameters=None))
 
 '''
 There are also a few system parameters that will be automatically added to
@@ -229,4 +229,3 @@ pasted into the UI, you can store the function in Cloud Object Storage.
 See sample_cos_function
 
 '''
-

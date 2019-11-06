@@ -40,50 +40,29 @@ We will start by trying to predict the easy on: y1 using the SimpleRegressor fun
 
 '''
 
-entity_name = 'predict_test'                    # you can give your entity type a better nane
-db = Database(credentials = credentials)
-db_schema = None                                # set if you are not using the default
+entity_name = 'predict_test'  # you can give your entity type a better nane
+db = Database(credentials=credentials)
+db_schema = None  # set if you are not using the default
 db.drop_table(entity_name)
 
 fn_gen = bif.EntityDataGenerator(output_item='generator_ok')
 fn_dep1 = bif.PythonExpression(  # linear relatoionship
-    '5*df["x1"]-df["x2"]',
-    'y1')
-fn_dep2 = bif.PythonExpression(
-    'df["x1"]*df["x1"]-df["x2"]',  # non-linear relationship
-    'y3'
-)
+    '5*df["x1"]-df["x2"]', 'y1')
+fn_dep2 = bif.PythonExpression('df["x1"]*df["x1"]-df["x2"]',  # non-linear relationship
+                               'y3')
 fn_noise = bif.RandomNoise(  # add noise to y1 and y3 to produce y2 and y4
-    input_items=['y1', 'y3'],
-    standard_deviation=.5,
-    output_items=['y2', 'y4']
-)
+    input_items=['y1', 'y3'], standard_deviation=.5, output_items=['y2', 'y4'])
 
-job_settings = {
-    'delete_existing_models' : True,
-}
+job_settings = {'delete_existing_models': True, }
 
-entity = EntityType(entity_name,db,
-                    Column('x1',Float()),
-                    Column('x2',Float()),
-                    Column('x3',Float()),
-                    Column('y0',Float()),
-                    fn_gen,
-                    fn_dep1,
-                    fn_dep2,
-                    fn_noise,
-                    estimator.SimpleRegressor(
-                        features = ['x1','x2','x3'],
-                        targets = ['y1'],
-                        predictions = ['y1_predicted']),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
+                    Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise,
+                    estimator.SimpleRegressor(features=['x1', 'x2', 'x3'], targets=['y1'],
+                                              predictions=['y1_predicted']),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 entity.register(raise_error=True)
 start_date = dt.datetime.utcnow() - dt.timedelta(days=30)
-entity.exec_local_pipeline(start_ts = start_date,
-                           **job_settings)
+entity.exec_local_pipeline(start_ts=start_date, **job_settings)
 
 '''
 When we execute the pipeline, it runs the preload generator, builds the target variables
@@ -127,27 +106,13 @@ retrain. Scoring will take place using the existing saved model.
 
 '''
 
-job_settings = {
-    'delete_existing_models' : False,
-}
+job_settings = {'delete_existing_models': False, }
 
-entity = EntityType(entity_name,db,
-                    Column('x1',Float()),
-                    Column('x2',Float()),
-                    Column('x3',Float()),
-                    Column('y0',Float()),
-                    fn_gen,
-                    fn_dep1,
-                    fn_dep2,
-                    fn_noise,
-                    estimator.SimpleRegressor(
-                        features = ['x1','x2','x3'],
-                        targets = ['y1'],
-                        predictions = ['y1_predicted']),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
+                    Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise,
+                    estimator.SimpleRegressor(features=['x1', 'x2', 'x3'], targets=['y1'],
+                                              predictions=['y1_predicted']),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 entity.register(raise_error=True)
 entity.exec_local_pipeline(**job_settings)
 
@@ -179,25 +144,11 @@ try to predict it.
 
 '''
 
-fn_regression =    estimator.SimpleRegressor(
-                        features = ['x1','x2','x3'],
-                        targets = ['y0'],
-                        predictions = ['y0_predicted'])
+fn_regression = estimator.SimpleRegressor(features=['x1', 'x2', 'x3'], targets=['y0'], predictions=['y0_predicted'])
 
-entity = EntityType(entity_name,db,
-                    Column('x1',Float()),
-                    Column('x2',Float()),
-                    Column('x3',Float()),
-                    Column('y0',Float()),
-                    fn_gen,
-                    fn_dep1,
-                    fn_dep2,
-                    fn_noise,
-                    fn_regression,
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
+                    Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise, fn_regression,
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 entity.register(raise_error=True)
 entity.exec_local_pipeline()
 
@@ -236,10 +187,7 @@ metric value at which the model will actually be deloyed and used.
 We will increase this to 0.5 and see what happens.
 
 '''
-job_settings = {
-    'delete_existing_models' : True,
-    'acceptable_score_for_model_acceptance' : 0.5
-}
+job_settings = {'delete_existing_models': True, 'acceptable_score_for_model_acceptance': 0.5}
 
 entity.register(raise_error=True)
 entity.exec_local_pipeline(**job_settings)
@@ -276,16 +224,13 @@ of better than 0, but that it should continue trying to improve until it gets at
 
 '''
 
-job_settings = {
-    'delete_existing_models' : False,
-    'acceptable_score_for_model_acceptance' : 0,
-    'stop_auto_improve_at' : 0.5
-}
+job_settings = {'delete_existing_models': False, 'acceptable_score_for_model_acceptance': 0,
+                'stop_auto_improve_at': 0.5}
 
 entity.register(raise_error=True)
 entity.exec_local_pipeline(**job_settings)
 
-#execute twice to confirm that retraining takes place again
+# execute twice to confirm that retraining takes place again
 
 entity.exec_local_pipeline(**job_settings)
 
@@ -352,38 +297,20 @@ In this case we will pick a threshold of 0.1.
 
 '''
 
-job_settings = {
-    'delete_existing_models' : False,
-    'acceptable_score_for_model_acceptance' : 0,
-    'stop_auto_improve_at' : 0.5
-}
+job_settings = {'delete_existing_models': False, 'acceptable_score_for_model_acceptance': 0,
+                'stop_auto_improve_at': 0.5}
 
-fn_anomaly =    estimator.SimpleAnomaly(
-                        features = ['x1','x2','x3'],
-                        targets = ['y0'],
-                        threshold = 0.1,
-                        predictions = ['y0_predicted'],
-                        alerts = ['is_y0_anomalous'])
+fn_anomaly = estimator.SimpleAnomaly(features=['x1', 'x2', 'x3'], targets=['y0'], threshold=0.1,
+                                     predictions=['y0_predicted'], alerts=['is_y0_anomalous'])
 
-entity = EntityType(entity_name,db,
-                    Column('x1',Float()),
-                    Column('x2',Float()),
-                    Column('x3',Float()),
-                    Column('y0',Float()),
-                    fn_gen,
-                    fn_dep1,
-                    fn_dep2,
-                    fn_noise,
-                    fn_anomaly,
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
+                    Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise, fn_anomaly,
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 entity.register(raise_error=True)
 entity.exec_local_pipeline(**job_settings)
 
-#execute twice to confirm that retraining takes place again
+# execute twice to confirm that retraining takes place again
 
 entity.exec_local_pipeline(**job_settings)
 
@@ -431,27 +358,12 @@ Let's try with y1 and the same threshold.
 
 '''
 
-fn_anomaly =    estimator.SimpleAnomaly(
-                        features = ['x1','x2','x3'],
-                        targets = ['y1'],
-                        threshold = 0.1,
-                        predictions = ['y1_predicted'],
-                        alerts = ['is_y1_anomalous'])
+fn_anomaly = estimator.SimpleAnomaly(features=['x1', 'x2', 'x3'], targets=['y1'], threshold=0.1,
+                                     predictions=['y1_predicted'], alerts=['is_y1_anomalous'])
 
-entity = EntityType(entity_name,db,
-                    Column('x1',Float()),
-                    Column('x2',Float()),
-                    Column('x3',Float()),
-                    Column('y0',Float()),
-                    fn_gen,
-                    fn_dep1,
-                    fn_dep2,
-                    fn_noise,
-                    fn_anomaly,
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
+                    Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise, fn_anomaly,
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 
 entity.register(raise_error=True)
 entity.exec_local_pipeline(**job_settings)
@@ -516,33 +428,14 @@ bins
 
 '''
 
-fn_cat = bif.PythonExpression(
-            'pd.cut(df["y1"],bins = 3, labels = [100,101,908])',
-            output_name = 'z'
-)
+fn_cat = bif.PythonExpression('pd.cut(df["y1"],bins = 3, labels = [100,101,908])', output_name='z')
 
-job_settings = {
-    'delete_existing_models' : True
-}
+job_settings = {'delete_existing_models': True}
 
-entity = EntityType(entity_name,db,
-                    Column('x1',Float()),
-                    Column('x2',Float()),
-                    Column('x3',Float()),
-                    Column('y0',Float()),
-                    fn_gen,
-                    fn_dep1,
-                    fn_dep2,
-                    fn_noise,
-                    fn_cat,
-                    estimator.SimpleClassifier(
-                        features = ['x1','x2','x3'],
-                        targets = ['z'],
-                        predictions = ['z_predicted']),
-                    **{
-                      '_timestamp' : 'evt_timestamp',
-                      '_db_schema' : db_schema
-                      })
+entity = EntityType(entity_name, db, Column('x1', Float()), Column('x2', Float()), Column('x3', Float()),
+                    Column('y0', Float()), fn_gen, fn_dep1, fn_dep2, fn_noise, fn_cat,
+                    estimator.SimpleClassifier(features=['x1', 'x2', 'x3'], targets=['z'], predictions=['z_predicted']),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 entity.register(raise_error=True)
 entity.exec_local_pipeline(**job_settings)
 
@@ -593,4 +486,3 @@ with your own custom implementations of these methods. Take a look at the
 source code (estimator.py) and see how simple it is to build predictive functions. 
 
 '''
-
