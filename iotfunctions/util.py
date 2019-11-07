@@ -57,7 +57,7 @@ MH_USER = os.environ.get('MH_USER')
 MH_PASSWORD = os.environ.get('MH_PASSWORD')
 MH_BROKERS_SASL = os.environ.get('MH_BROKERS_SASL')
 MH_DEFAULT_ALERT_TOPIC = os.environ.get('MH_DEFAULT_ALERT_TOPIC')
-MH_CLIENT_ID = 'as-pypeline-alerts-producer'
+MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 
 
 def adjust_probabilities(p_list):
@@ -814,11 +814,13 @@ class MessageHub:
                         f.write(self.MH_CA_CERT)
                 else:
                     logger.info('EventStreams ca certificate is empty.')
-                    if sys.platform == "darwin":  # MAC OS
+                    if sys.platform == "linux":  # Red Hat linux
+                        self.MH_CA_CERT_PATH = '/etc/pki/tls/cert.pem'
+                    elif sys.platform == "darwin":  # MAC OS
                         self.MH_CA_CERT_PATH = '/etc/ssl/cert.pem'
-                    else:
+                    else:  # IBM Cloud/Ubuntu
                         self.MH_CA_CERT_PATH = '/etc/ssl/certs'
-        except Exception as ex:
+        except Exception:
             logger.error('Initialization of EventStreams failed.')
             raise
 
