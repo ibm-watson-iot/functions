@@ -1775,7 +1775,8 @@ class BaseDBActivityMerge(BaseDataSource):
                 af[self._activity] = a
                 msg = 'Read activity table %s' % table_name
                 self.log_df_info(af, msg)
-                dfs.append(af)
+                if len(af.index) > 0:
+                    dfs.append(af)
                 self.available_non_activity_cols.append(self._get_non_activity_cols(af))
         # execute sql provided explictly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
@@ -1788,7 +1789,8 @@ class BaseDBActivityMerge(BaseDataSource):
                 logger.warning(sql)
                 raise
             af[self._activity] = activity
-            dfs.append(af)
+            if len(af.index) > 0:
+                dfs.append(af)
             self.available_non_activity_cols.append(self._get_non_activity_cols(af))
 
         if len(dfs) == 0:

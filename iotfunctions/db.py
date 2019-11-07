@@ -1868,6 +1868,23 @@ class Database(object):
                         missing_columns.remove(required_col)
         return missing_columns
 
+    def is_column_exists_in_table(self, table, column):
+        try:
+            col_obj = table.c[column]
+            return True
+        except KeyError:
+            try:
+                col_obj = table.c[column.lower()]
+                return True
+            except KeyError:
+                try:
+                    col_obj = table.c[column.upper()]
+                    return True
+                except KeyError:
+                    return False
+        return False
+
+
     def query_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
                   dimension=None, start_ts=None, end_ts=None, entities=None, auto_null_filter=False, filters=None,
                   deviceid_col='deviceid', kvp_device_id_col='entity_id', kvp_key_col='key',
@@ -1930,8 +1947,12 @@ class Database(object):
         required_cols |= set(filters.keys())
 
         # work out whether this is a kvp or regular table
+        is_exist_kvp_key_col = self.is_column_exists_in_table(table, kvp_key_col)
+        is_exist_kvp_device_id_col = self.is_column_exists_in_table(table, kvp_device_id_col)
+        is_exist_kvp_timestamp_col = self.is_column_exists_in_table(table, kvp_timestamp_col)
 
-        if kvp_key_col in table_cols and kvp_device_id_col in table_cols and kvp_timestamp_col in table_cols:
+        #if kvp_key_col in table_cols and kvp_device_id_col in table_cols and kvp_timestamp_col in table_cols:
+        if is_exist_kvp_key_col and is_exist_kvp_device_id_col and is_exist_kvp_timestamp_col:
             is_kvp = True
             kvp_keys = set(agg_dict.keys())
             timestamp_col = kvp_timestamp_col
@@ -2187,8 +2208,12 @@ class Database(object):
         required_cols |= set(filters.keys())
 
         # work out whether this is a kvp or regular table
+        is_exist_kvp_key_col = self.is_column_exists_in_table(table, kvp_key_col)
+        is_exist_kvp_device_id_col = self.is_column_exists_in_table(table, kvp_device_id_col)
+        is_exist_kvp_timestamp_col = self.is_column_exists_in_table(table, kvp_timestamp_col)
 
-        if kvp_key_col in table_cols and kvp_device_id_col in table_cols and kvp_timestamp_col in table_cols:
+        #if kvp_key_col in table_cols and kvp_device_id_col in table_cols and kvp_timestamp_col in table_cols:
+        if is_exist_kvp_key_col and is_exist_kvp_device_id_col and is_exist_kvp_timestamp_col:
             is_kvp = True
             kvp_keys = set(agg_dict.keys())
             timestamp_col = kvp_timestamp_col
