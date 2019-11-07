@@ -1788,6 +1788,7 @@ class EntityType(object):
         table['metricTableName'] = self.name
         table['metricTimestampColumn'] = self._timestamp
         table['description'] = self.description
+        table['origin'] = 'AS_SAMPLE'
         for c in self.db.get_column_names(self.table, schema=self._db_schema):
             cols.append((self.table, c, 'METRIC'))
             metric_column_names.append(c)
