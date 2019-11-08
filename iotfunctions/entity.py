@@ -318,7 +318,8 @@ class Robot(metadata.BaseCustomEntityType):
 
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-                             Column('load_rating', Float()), Column('axes', Float()), Column('stats_acc', Float())]
+                             Column('load_rating', Float()), Column('axes', Float()), Column('stats_acc', Float()),
+                             Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns,
@@ -364,7 +365,8 @@ class PackagingHopper(metadata.BaseCustomEntityType):
         # dimension columns
 
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-                             Column('plant', String(50)), Column('line', String(50))]
+                             Column('plant', String(50)), Column('line', String(50)),
+                             Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
@@ -409,7 +411,8 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
 
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-                             Column('plant', String(50)), Column('line', String(50))]
+                             Column('plant', String(50)), Column('line', String(50)),
+                             Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
