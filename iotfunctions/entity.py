@@ -183,7 +183,8 @@ class Boiler(metadata.BaseCustomEntityType):
                                                    probabilities=[0.9, 0.05, 0.02, 0.02, 0.01], output_item='p_leak'))
 
         # dimension columns
-        dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50))]
+        dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50))
+            ,Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, output_items_extended_metadata={},
