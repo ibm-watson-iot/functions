@@ -1464,7 +1464,7 @@ class EntityType(object):
             df['logicalinterface_id'] = ''
             df['devicetype'] = self.logical_name
             df['format'] = ''
-            df['updated_utc'] = None
+            df['updated_utc'] = dt.datetime.utcnow()
             self.db.write_frame(table_name=self.name, df=df, schema=self._db_schema, timestamp_col=self._timestamp)
 
         for (at_name, at_table) in list(self.activity_tables.items()):
@@ -1788,6 +1788,7 @@ class EntityType(object):
         table['metricTableName'] = self.name
         table['metricTimestampColumn'] = self._timestamp
         table['description'] = self.description
+        table['origin'] = 'AS_SAMPLE'
         for c in self.db.get_column_names(self.table, schema=self._db_schema):
             cols.append((self.table, c, 'METRIC'))
             metric_column_names.append(c)

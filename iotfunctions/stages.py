@@ -293,7 +293,7 @@ class DataWriterSqlAlchemy(DataWriter):
             try:
                 col_list = col_props.keys()
                 logger.debug('Deleting old data items %s from table %s for time range [%s, %s]' % (
-                    col_list, table_name, start_ts, end_ts))
+                    list(col_list), table_name, start_ts, end_ts))
 
                 start_time = dt.datetime.utcnow()
 
