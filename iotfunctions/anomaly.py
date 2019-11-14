@@ -123,7 +123,7 @@ class ASAnomalyHandler:
 
         return (df)
 
-class GapAnomalyScore(BaseTransformer):
+class NoDataAnomalyScore(BaseTransformer):
     '''
     Employs spectral analysis to extract features from the gaps in time series data and to compute zscore from it
     '''
@@ -188,7 +188,7 @@ class GapAnomalyScore(BaseTransformer):
             # one dimensional time series - named temperature for catchyness
             temperature = dfe[[self.input_item]].to_numpy().reshape(-1,)
 
-            logger.debug('GapAnomaly: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
+            logger.debug('NoDataAnomaly: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
                          str(self.output_item) + ', ' + str(self.windowoverlap) + ', ' + str(temperature.size))
 
             if temperature.size > self.windowsize:
@@ -209,7 +209,7 @@ class GapAnomalyScore(BaseTransformer):
 
                 # compute zscore over the energy
                 ets_zscore = (ETS - ETS.mean())/ETS.std(ddof=0)
-                logger.debug('Gap z-score max: ' + str(ets_zscore.max()))
+                logger.debug('NoData z-score max: ' + str(ets_zscore.max()))
 
                 # length of timesTS, ETS and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length 
@@ -236,7 +236,7 @@ class GapAnomalyScore(BaseTransformer):
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity,:], self.output_item] = zScoreII
 
-        msg = 'GapAnomalyScore'
+        msg = 'NoDataAnomalyScore'
         self.trace_append(msg)
         return (df_copy)
 
