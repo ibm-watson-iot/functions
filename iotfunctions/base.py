@@ -2128,7 +2128,7 @@ class BasePreload(BaseTransformer):
     def __init__(self, dummy_items, output_item=None):
         super().__init__()
         self.dummy_items = dummy_items
-        self.output_item = self.name.lower()
+        self.output_item = output_item
         self.optionalItems.extend([self.dummy_items])
         self.itemDatatypes['dummy_items'] = None
         self.itemDatatypes['output_items'] = 'BOOLEAN'
