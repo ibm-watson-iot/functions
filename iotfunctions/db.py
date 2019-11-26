@@ -560,7 +560,7 @@ class Database(object):
             msg = 'tenant_id instance variable is not set. database object was not initialized with valid credentials'
             raise ValueError(msg)
         
-        base_url = 'http://%s/api' %(self.credentials['as']['host'])
+        base_url = 'https://%s/api' %(self.credentials['as']['host'])
         self.url = {}
         self.url[('allFunctions','GET')] = '/'.join([base_url,'catalog','v1',self.tenant_id,'function?customFunctionsOnly=false'])
         
