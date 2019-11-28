@@ -1309,6 +1309,8 @@ class EntityType(object):
 
     def get_end_ts_override(self):
         if self._end_ts_override is not None:
+            if isinstance(self._end_ts_override, dt.datetime):
+                return self._end_ts_override
             date_time_obj = dt.datetime.strptime(self._end_ts_override[0], '%Y-%m-%d %H:%M:%S')
             return date_time_obj
         return None
