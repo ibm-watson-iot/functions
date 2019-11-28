@@ -1714,7 +1714,7 @@ class BaseDBActivityMerge(BaseDataSource):
             cols = []
             cols.append(self.activity_duration)
             cols.append(self.additional_items)
-            adf = self.empty_dataframe(columns=cols)            
+            cdf = self.empty_dataframe(columns=cols)
         else:
             adf = pd.concat(dfs,sort=False)
             self.log_df_info(adf,'After merging activity data from all sources')
@@ -1782,7 +1782,7 @@ class BaseDBActivityMerge(BaseDataSource):
                 cdf[self.activity_duration[i]] = cdf[self.activity_duration[i]].astype(float)
             
             self.log_df_info(cdf,'After pivot rows to columns')
-                        
+
             for i,nadf in enumerate(dfs):
                add_cols = [x for x in self.available_non_activity_cols[i] if x in self.additional_items]
                if len(add_cols) > 0:
@@ -1904,7 +1904,12 @@ class BaseDBActivityMerge(BaseDataSource):
         if self._entity_scd_dict is not None:
             scd_properties = list(self._entity_scd_dict.keys())
             cols.extend(scd_properties)
-        return pd.DataFrame(columns = cols)
+        new_df = pd.DataFrame(columns=cols)
+
+        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
+        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
+
+        return new_df
                 
     def read_activity_data(self,table_name,activity_code,start_ts=None,end_ts=None,entities=None):
         """
