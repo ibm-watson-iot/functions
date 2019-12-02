@@ -1,3 +1,4 @@
+
 # IoT Functions
 
 A companion package to IBM Watson IoT Platform Analytics containing sample functions and base classes from which to derive custom functions.
@@ -8,23 +9,24 @@ These instructions will get you up and running in your local environment or in W
 
 ### Prerequisites
 
- + python 3.X
- + numpy
- + pandas
- + ibm_db
- + ibm_dbi
- + sqlalchemy
+ + python 3.X (https://www.anaconda.com/distribution/)
+ + future (pip install future)
+ + pandas (pip install pandas)
+ + sqlalchemy (pip install sqlalchemy)
+ + ibm_db_sa (pip install ibm_db_sa)
+ + ibm_cos_sdk (pip install ibm-cos-sdk)
+ + lxml (pip install lxml)
 
 ### Installing
 
 To install in your local environment:
 ```
-pip install git+git://github.com/ibm-watson-iot/functions.git@ --upgrade
+pip install git+git://github.com/ibm-watson-iot/functions.git@production --upgrade
 ```
 
 To install in IBM Watson Studio from another Jupyter notebook:
 ```
-!pip install git+git://github.com/ibm-watson-iot/functions.git@ --upgrade
+!pip install git+git://github.com/ibm-watson-iot/functions.git@production --upgrade
 ```
 
 Test for sucessful install:

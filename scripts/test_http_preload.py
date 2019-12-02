@@ -1,11 +1,10 @@
 import json
 import logging
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from iotfunctions import bif
+from iotfunctions import bif, sample
 from iotfunctions.metadata import EntityType
 from iotfunctions.db import Database
 from iotfunctions.enginelog import EngineLogging
-import datetime as dt
 
 EngineLogging.configure_console_logging(logging.DEBUG)
 
@@ -46,12 +45,13 @@ The keyword args dict specifies extra properties. The database schema is only
 needed if you are not using the default schema. You can also rename the timestamp.
 
 '''
-entity_name = 'widgets'
+entity_name = 'test_http_preload'
 db_schema = None  # replace if you are not using the default schema
 db.drop_table(entity_name, schema=db_schema)
 entity = EntityType(entity_name, db, Column('company_code', String(50)), Column('temp', Float()),
                     Column('pressure', Float()),
-                    bif.EntityDataGenerator(ids=['A01', 'A02', 'B01'], data_item='is_generated'),
+                    sample.HTTPPreload(request='GET', url='internal_test', output_item='http_preload_done'),
+                    bif.PythonExpression(expression='df["temp"]*df["pressure"]', output_name='volume'),
                     **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
 '''
 When creating an EntityType object you will need to specify the name of the entity, the database
@@ -62,23 +62,7 @@ To also register the functions and constants associated with the entity type, sp
 'publish_kpis' = True.
 '''
 entity.register(raise_error=False)
-'''
-Entities can get pretty lonely without data. 
-
-The EntityDataGenerator that we included on the entity will execute and add
-a few rows of random data each time the AS pipeline runs (generally every 5 min).
-
-You can also load some historical data using 'generate_data'
-
-'''
-entity.generate_data(days=0.5, drop_existing=True)
-
-'''
-To see the data you just loaded, ask the db object to read the database
-table and produce a pandas dataframe.
-'''
-df = db.read_table(table_name=entity_name, schema=db_schema)
-print(df.head())
+db.register_functions([sample.HTTPPreload])
 
 '''
 To test the execution of kpi calculations defined for the entity type locally
@@ -92,23 +76,24 @@ lake. Instead kpi data is written to the local filesystem in csv form.
 entity.exec_local_pipeline()
 
 '''
-
-By default, exec_local_pipelines executes on data created since the last
-execution. The last execution is inferred from the job log.
-
-The default end date for the execution is the current utc date.
-
-You can select custom start and end dates for execution.
-
+view entity data
 '''
 
-start = dt.datetime.utcnow() - dt.timedelta(days=7)
-end = dt.datetime.utcnow() - dt.timedelta(days=1)
-entity.exec_local_pipeline(start_ts=start, end_ts=end)
+df = db.read_table(table_name=entity_name, schema=db_schema)
+print(df.head())
 
 '''
-You can also execute on a specific list of entities
+The initial test used an internal test to produce data. Now we will use an actual rest service.
 
+Use the script "test_local_rest_service.py" to run a local service. 
 '''
 
-entity.exec_local_pipeline(entities=['73000', '73001'])
+entity_name = 'test_http_preload'
+db.drop_table(entity_name, schema=db_schema)
+entity = EntityType(entity_name, db, Column('company_code', String(50)), Column('temp', Float()),
+                    Column('pressure', Float()),
+                    sample.HTTPPreload(request='GET', url='http://localhost:8080/', output_item='http_preload_done'),
+                    bif.PythonExpression(expression='df["temp"]*df["pressure"]', output_name='volume'),
+                    **{'_timestamp': 'evt_timestamp', '_db_schema': db_schema})
+
+entity.exec_local_pipeline()

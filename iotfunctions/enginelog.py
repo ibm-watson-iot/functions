@@ -8,8 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class EngineLogging:
-
-    FORMATTER = logging.Formatter(fmt='%(asctime)s.%(msecs)03d %(name)s.%(funcName)s %(levelname)s %(message)s',
+    FORMATTER = logging.Formatter(fmt='%(asctime)s.%(msecs)03d %(levelname)s %(name)s.%(funcName)s %(message)s',
                                   datefmt='%Y-%m-%dT%H:%M:%S', style='%')
     consoleHandler = logging.StreamHandler(sys.stdout)
     consoleHandler.setFormatter(FORMATTER)
@@ -34,22 +33,22 @@ class EngineLogging:
     @classmethod
     def start_setup_log(cls, tenant_id, entity_type_name):
         today = dt.datetime.utcnow()
-        cls.setupLogCosPath = ('%s/%s/%s/%s.setup.gz' %
-                               (tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
+        cls.setupLogCosPath = ('%s/%s/%s/%s_setup.gz' % (
+            tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
         root_logger = logging.getLogger()
         handler = logging.FileHandler(cls.SETUP_LOG_NAME, mode='w')
         handler.setFormatter(cls.FORMATTER)
         root_logger.addHandler(handler)
         cls.setupLogHandler = handler
 
-        logger.info('Started logging into file %s. Object Store path will be %s' %
-                    (cls.SETUP_LOG_NAME, cls.setupLogCosPath))
+        logger.info(
+            'Started logging into file %s. Object Store path will be %s' % (cls.SETUP_LOG_NAME, cls.setupLogCosPath))
 
     @classmethod
     def finish_setup_log(cls):
         if cls.setupLogHandler is not None:
-            logger.info('Stopping logging into file %s. File will be pushed to Object Store under %s' %
-                        (cls.SETUP_LOG_NAME, cls.setupLogCosPath))
+            logger.info('Stopping logging into file %s. File will be pushed to Object Store under %s' % (
+                cls.SETUP_LOG_NAME, cls.setupLogCosPath))
 
             root_logger = logging.getLogger()
             root_logger.removeHandler(cls.setupLogHandler)
@@ -63,22 +62,22 @@ class EngineLogging:
     @classmethod
     def start_run_log(cls, tenant_id, entity_type_name):
         today = dt.datetime.utcnow()
-        cls.runLogCosPath = ('%s/%s/%s/%s.gz' %
-                             (tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
+        cls.runLogCosPath = ('%s/%s/%s/%s_run.gz' % (
+            tenant_id, entity_type_name, today.strftime('%Y%m%d'), today.strftime('%H%M%S')))
         root_logger = logging.getLogger()
         handler = logging.FileHandler(cls.RUN_LOG_NAME, mode='w')
         handler.setFormatter(cls.FORMATTER)
         root_logger.addHandler(handler)
         cls.runLogHandler = handler
 
-        logger.info('Started logging into file %s. Object Store path will be %s' %
-                    (cls.RUN_LOG_NAME, cls.runLogCosPath))
+        logger.info(
+            'Started logging into file %s. Object Store path will be %s' % (cls.RUN_LOG_NAME, cls.runLogCosPath))
 
     @classmethod
     def finish_run_log(cls):
         if cls.runLogHandler is not None:
-            logger.info('Stopping logging into file %s. File will be pushed to Object Store under %s' %
-                        (cls.RUN_LOG_NAME, cls.runLogCosPath))
+            logger.info('Stopping logging into file %s. File will be pushed to Object Store under %s' % (
+                cls.RUN_LOG_NAME, cls.runLogCosPath))
 
             root_logger = logging.getLogger()
             root_logger.removeHandler(cls.runLogHandler)
@@ -102,20 +101,20 @@ class EngineLogging:
             if bucket is not None and len(bucket) > 0:
                 try:
                     with open(file_name, 'r') as file:
-                        cls.cosClient.cos_put(cos_path, gzip.compress(file.read().encode()), bucket=bucket)
+                        cls.cosClient.cos_put(cos_path, gzip.compress(file.read().encode()), bucket=bucket,
+                                              serialize=False)
                 except Exception as ex:
                     raise Exception(('The log file %s could not be transferred to Object Store '
-                                    'in bucket %s under %s: %s') %
-                                    (file_name, bucket, cos_path, str(ex))) from ex
+                                     'in bucket %s under %s: %s') % (file_name, bucket, cos_path, str(ex))) from ex
                 else:
-                    logger.info('File %s was successfully stored in Object Store in bucket %s under %s' %
-                                (file_name, bucket, cos_path))
+                    logger.info('File %s was successfully stored in Object Store in bucket %s under %s' % (
+                        file_name, bucket, cos_path))
             else:
                 logger.warning(('The log file %s could not be transferred to Object Store '
                                 'because environment variable COS_BUCKET_LOGGING has not been set.') % file_name)
         else:
             logger.warning(('The log file %s could not be transferred to Object Store '
-                           'because access to Object Store has not been configured yet.') % file_name)
+                            'because access to Object Store has not been configured yet.') % file_name)
 
     @classmethod
     def set_cos_client(cls, cos_client):

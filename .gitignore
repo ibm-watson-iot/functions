@@ -121,3 +121,9 @@ scripts/EntityType_widgets_trace_20190516051848439272.json
 scripts/register_bifs.py
 scripts/intro_tutorial.py
 scripts/intro_tutorial.py
+scripts/intro_tutorial.py
+tests/test_broken_functions.py
+tests/test_merge_dt_test.py
+tests/test_specialization_of_function.py
+tests/test_specialization_of_function.py
+tests/test_broken_functions.py

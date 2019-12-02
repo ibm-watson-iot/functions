@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 from collections import namedtuple
 
-
 PythonExpression = namedtuple('Exp', 'output expression')
 
 '''
@@ -29,22 +28,17 @@ We will start with just a couple of data items: 'speed" and "travel_time".
 '''
 
 row_count = 5
-data_items = ["speed","travel_time"]
-entities = ['XA01','XA02','XA03']
-c = {'first_checkpoint': .3,
-     'second_checkpoint' : 0.5,
-     'range' : 500}
+data_items = ["speed", "travel_time"]
+entities = ['XA01', 'XA02', 'XA03']
+c = {'first_checkpoint': .3, 'second_checkpoint': 0.5, 'range': 500}
 
 dfs = []
 for e in entities:
-    data = np.random.normal(100,10,(row_count,len(data_items)))
-    df = pd.DataFrame(data=data,columns = data_items)
+    data = np.random.normal(100, 10, (row_count, len(data_items)))
+    df = pd.DataFrame(data=data, columns=data_items)
     df['id'] = e
-    df['evt_timestamp'] = pd.date_range(
-            end=dt.datetime.utcnow(),
-            periods=row_count
-            )
-    df = df.set_index(['id','evt_timestamp'])
+    df['evt_timestamp'] = pd.date_range(end=dt.datetime.utcnow(), periods=row_count)
+    df = df.set_index(['id', 'evt_timestamp'])
     dfs.append(df)
 
 df = pd.concat(dfs)
@@ -74,7 +68,7 @@ expression.
 
 '''
 
-ex1 = PythonExpression('distance','df["speed"]*df["travel_time"]')
+ex1 = PythonExpression('distance', 'df["speed"]*df["travel_time"]')
 
 '''
 Our tuple describes the column 'distance' as computed from the
@@ -96,7 +90,6 @@ as the expression and name the output of the expression.
 
 '''
 
-
 '''
 Not all elements of your python expression have to dataframe columns.
 You can also use scalar values. These will be broadcast to all rows of the
@@ -108,7 +101,7 @@ Let's calculate the half way mark.
 
 '''
 
-ex2 = PythonExpression('half_way_mark','df["distance"]/2')
+ex2 = PythonExpression('half_way_mark', 'df["distance"]/2')
 df[ex2.output] = eval(ex2.expression)
 print(df)
 
@@ -124,7 +117,7 @@ we will use the integer division operator //
 
 '''
 
-ex3 = PythonExpression('refuel_stops','df["distance"]//c["range"]')
+ex3 = PythonExpression('refuel_stops', 'df["distance"]//c["range"]')
 df[ex3.output] = eval(ex3.expression)
 print(df)
 
@@ -133,9 +126,7 @@ You can also use numpy arrays.The array must have the same length as the
 dataframe though.
 '''
 
-ex4 = PythonExpression(
-        'random_distance',
-        'df["distance"] + np.random.normal(10,1,row_count*len(entities))')
+ex4 = PythonExpression('random_distance', 'df["distance"] + np.random.normal(10,1,row_count*len(entities))')
 df[ex4.output] = eval(ex4.expression)
 print(df)
 
@@ -144,10 +135,7 @@ Since aggregate functions produce scalars, you can mix in aggregate functions
 with vectorized parts of the expression.
 '''
 
-ex5 = PythonExpression(
-        'perc_total_distance',
-        'df["distance"] / df["distance"].sum()'
-        )
+ex5 = PythonExpression('perc_total_distance', 'df["distance"] / df["distance"].sum()')
 df[ex5.output] = eval(ex5.expression)
 
 '''
@@ -181,10 +169,7 @@ In this case you can use you can use the & operator.
 
 '''
 
-ex6 = PythonExpression(
-        'far_and_fast',
-        '(df["distance"]>105) & (df["speed"]>100)'
-        )
+ex6 = PythonExpression('far_and_fast', '(df["distance"]>105) & (df["speed"]>100)')
 df[ex6.output] = eval(ex6.expression)
 print(df)
 
@@ -202,10 +187,7 @@ Here are a few examples:
 
 '''
 
-ex7 = PythonExpression(
-        'is_moderate_speed',
-        'df["speed"].between(95,98)'
-        )
+ex7 = PythonExpression('is_moderate_speed', 'df["speed"].between(95,98)')
 df[ex7.output] = eval(ex7.expression)
 print(df)
 
@@ -214,10 +196,7 @@ The next example reminds me of the pranks that the presenters of Top Gear
 used to pull. Was I speeding? No never.
 '''
 
-ex8 = PythonExpression(
-        'speed_clipped',
-        'df["speed"].clip(92,100)'
-        )
+ex8 = PythonExpression('speed_clipped', 'df["speed"].clip(92,100)')
 df[ex8.output] = eval(ex8.expression)
 print(df)
 
@@ -231,17 +210,3 @@ particular use cases that PythonExpression are suitable:
     --  do not add or remove rows of data.
 
 '''
-
-
-
-
-
-
-
-
-    
-
-
-
-
-
