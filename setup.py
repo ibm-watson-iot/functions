@@ -18,7 +18,7 @@ setup(
         'ibm_db_sa==0.3.3',
         'ibm-cos-sdk==2.1.3',
         'scipy>=1.1.0',
-        'scikit-learn>=0.20.3',
+        'scikit-learn==0.20.3',
         'nose>=1.3.7',
         'scikit-image>=0.16.2',
         'pyod>=0.7.5',
