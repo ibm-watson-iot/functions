@@ -1772,7 +1772,7 @@ class BaseDBActivityMerge(BaseDataSource):
                 # any columns added by the applied method will be missing. Need to add them
                 if cdf.empty:
                     cdf = self._get_empty_combine_data()
-                    self.log_df_info(cdf,'No data in merge source, processing empty dataframe')
+                    self.log_df_info(cdf,'No data in merge source, processing empty dataframe with columns %s and index %s' % (list(cdf.columns), list(cdf.index.names)))
                 else:
                     self.log_df_info(cdf,'combined activity data after removing overlap')
                     cdf['duration'] = round((cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds()) / 60
@@ -1898,9 +1898,7 @@ class BaseDBActivityMerge(BaseDataSource):
         '''
         
         cols = [self._start_date, self._end_date, self._activity, 'duration']
-        cols.extend(self.execute_by)
-        if self.custom_calendar_df is not None:
-            cols.extend(['shift_id','shift_day'])
+
         if self._entity_scd_dict is not None:
             scd_properties = list(self._entity_scd_dict.keys())
             cols.extend(scd_properties)
@@ -1908,6 +1906,13 @@ class BaseDBActivityMerge(BaseDataSource):
 
         new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
         new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
+        new_df['duration'] = new_df['duration'].astype('float64')
+
+        for s in self.execute_by:
+            new_df[s] = []
+            new_df[s] = new_df[s].astype('float64')
+        new_df.set_index(['activity'], drop=False, inplace=True)
+        new_df.set_index(self.execute_by, append=True, inplace=True)
 
         return new_df
                 
