@@ -1904,7 +1904,7 @@ class BaseDBActivityMerge(BaseDataSource):
                 previous_date = next_date
             else:
                 previous_date = previous_date + micro_second
-                start_dates_series.iat[i] = previous_date
+                #start_dates_series.iat[i] = previous_date
 
         df[self._start_date] = start_dates_series
 
