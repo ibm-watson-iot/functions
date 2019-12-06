@@ -1513,7 +1513,13 @@ class IoTShiftCalendar(BaseTransformer):
     
     def get_empty_data(self):
         cols = [self.shift_day, self.shift_id, self.period_start_date, self.period_end_date]
-        df = pd.DataFrame(columns = cols)
+        df = pd.DataFrame(columns=cols)
+
+        df[self.period_start_date] = df[self.period_start_date].astype('datetime64[ns]')
+        df[self.period_end_date] = df[self.period_end_date].astype('datetime64[ns]')
+        df[self.shift_day] = df[self.shift_day].astype('datetime64[ns]')
+        df[self.shift_id] = df[self.shift_id].astype('float64')
+
         return df
     
     def execute(self,df):
