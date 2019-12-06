@@ -1891,7 +1891,7 @@ class BaseDBActivityMerge(BaseDataSource):
         return cols
 
     def _unique_start_date(self, df):
-        micro_second = dt.timedelta(microseconds=1)
+        micro_second = dt.timedelta(milliseconds=1)
 
         df = df.sort_values(by=self._start_date)
         start_dates_series = df[self._start_date]
