@@ -1891,7 +1891,7 @@ class BaseDBActivityMerge(BaseDataSource):
         return cols
 
     def _unique_start_date(self, df):
-        micro_second = dt.timedelta(milliseconds=1)
+        micro_second = pd.Timedelta(milliseconds=1)
 
         df = df.sort_values(by=self._start_date)
         start_dates_series = df[self._start_date]
@@ -1904,7 +1904,7 @@ class BaseDBActivityMerge(BaseDataSource):
                 previous_date = next_date
             else:
                 previous_date = previous_date + micro_second
-                #start_dates_series.iat[i] = previous_date
+                start_dates_series.iat[i] = previous_date
 
         df[self._start_date] = start_dates_series
 
@@ -1950,7 +1950,7 @@ class BaseDBActivityMerge(BaseDataSource):
         c.index.name = self._start_date
         #use original data to update the new set of intervals in slices
         for df_row in df.itertuples():
-            end_date = getattr(df_row, self._end_date) - dt.timedelta(microseconds=1)
+            end_date = getattr(df_row, self._end_date) - dt.timedelta(milliseconds=1)
             c[getattr(df_row, self._start_date):end_date] = getattr(df_row, self._activity)
         df = c.to_frame().reset_index()
         if is_logged:
@@ -1958,7 +1958,7 @@ class BaseDBActivityMerge(BaseDataSource):
         
         #add end dates
         df[self._end_date] = df[self._start_date].shift(-1)
-        df[self._end_date] = df[self._end_date] - dt.timedelta(microseconds=1)
+        df[self._end_date] = df[self._end_date] - dt.timedelta(milliseconds=1)
         
         #remove gaps
         if self.remove_gaps:
