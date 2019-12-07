@@ -1772,26 +1772,35 @@ class BaseDBActivityMerge(BaseDataSource):
                 af = self.read_activity_data(table_name=table_name, activity_code=a, start_ts=start_ts, end_ts=end_ts,
                                              entities=entities)
 
-                af[self._activity] = a
+                unique_af = self.make_start_dates_unique(af)
+
+                unique_af[self._activity] = a
+
                 msg = 'Read activity table %s' % table_name
-                self.log_df_info(af, msg)
-                if len(af.index) > 0:
-                    dfs.append(af)
-                self.available_non_activity_cols.append(self._get_non_activity_cols(af))
-        # execute sql provided explictly
+                self.log_df_info(unique_af, msg)
+                dfs.append(unique_af)
+                self.available_non_activity_cols.append(self._get_non_activity_cols(unique_af))
+
+        # execute sql provided explicitly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
                 af = pd.read_sql_query(sql, con=self._entity_type.db.connection,
                                        parse_dates=[self._start_date, self._end_date])
             except:
                 logger.warning(
-                    'Function attempted to retrieve data for a merge operation using custom sql. There was a problem with this retrieval operation. Confirm that the sql is valid and contains column aliases for start_date,end_date and device_id')
+                    'Function attempted to retrieve data for a merge operation using custom sql. There was '
+                    'a problem with this retrieval operation. Confirm that the sql is valid and contains '
+                    'column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
                 raise
-            af[self._activity] = activity
-            if len(af.index) > 0:
-                dfs.append(af)
-            self.available_non_activity_cols.append(self._get_non_activity_cols(af))
+
+            unique_af = self.make_start_dates_unique(af)
+
+            unique_af[self._activity] = activity
+
+            dfs.append(unique_af)
+            self.log_df_info(unique_af, msg)
+            self.available_non_activity_cols.append(self._get_non_activity_cols(unique_af))
 
         if len(dfs) == 0:
             cols = []
@@ -1840,6 +1849,8 @@ class BaseDBActivityMerge(BaseDataSource):
                     else:
                         group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(s)))
                 levels.append(s)
+
+            # Combine activities to remove overlaps of maintenance periods
             try:
                 group = adf.groupby(group_base)
             except KeyError:
@@ -1869,6 +1880,8 @@ class BaseDBActivityMerge(BaseDataSource):
 
             self.log_df_info(cdf, 'After pivot rows to columns')
 
+            # Dataframe cdf contains list of non-overlapping maintenance periods. Merge original lists with
+            # overlapping maintenance periods (dfs) using start_date/deviceid as merge-key
             for i, nadf in enumerate(dfs):
                 add_cols = [x for x in self.available_non_activity_cols[i] if x in self.additional_items]
                 if len(add_cols) > 0:
@@ -1881,15 +1894,54 @@ class BaseDBActivityMerge(BaseDataSource):
                     self.log_df_info(cdf, 'post merge')
                     cdf = self._coallesce_columns(cdf, add_cols)
                     self.log_df_info(cdf, 'post coallesce')
+
             # rename initial outputs
             cdf[self._entity_type._timestamp] = cdf[self._start_date]
-            # add end dates
-            cdf[self._end_date] = cdf[self._start_date].shift(-1)
+
             # index
             cdf = self._entity_type.index_df(cdf)
             cdf = self.rename_cols(cdf, self.additional_items, self.additional_output_names)
 
         return cdf
+
+
+    def make_start_dates_unique(self, af):
+
+        # Add micro second to start date if we have two maintenance periods with an identical start date.
+        # start_date will be used later as key for merge. Therefore the start date must be a unique key
+
+        group_base = []
+        for s in self.execute_by:
+            if s in af.columns:
+                group_base.append(s)
+            else:
+                try:
+                    af.index.get_level_values(s)
+                except KeyError:
+                    raise ValueError('This function groups by column %s. This column was not found in columns or '
+                                     'index. Columns: %s Index: %s' % (s, list(af.columns), list(af.index.names)))
+                else:
+                    group_base.append(pd.Grouper(axis=0, level=af.index.names.index(s)))
+
+        try:
+            group = af.groupby(group_base)
+        except KeyError:
+            msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were not found' % self.execute_by
+            logger.debug(msg)
+            raise
+
+        try:
+            unique_af = group.apply(self._unique_start_date)
+        except KeyError:
+            msg = 'unique_start_date requires deviceid, start_date, end_date and activity. ' \
+                  'supplied columns are %s' % list(af.columns)
+            logger.debug(msg)
+            raise
+
+        # remove index created by groupby operation
+        unique_af.reset_index(drop=True, inplace=True)
+
+        return unique_af
 
     def get_item_values(self, arg, db=None):
         '''
@@ -1918,6 +1970,26 @@ class BaseDBActivityMerge(BaseDataSource):
                          'activity']
         cols = [x for x in df.columns if x not in activity_cols]
         return cols
+
+    def _unique_start_date(self, df):
+        micro_second = dt.timedelta(microseconds=1)
+
+        df = df.sort_values(by=self._start_date)
+        start_dates_series = df[self._start_date]
+
+        # Add as many microseconds to start_date that it is unique
+        previous_date = start_dates_series.iat[0]
+        for i in range(1, start_dates_series.size):
+            next_date = start_dates_series.iat[i]
+            if next_date > previous_date:
+                previous_date = next_date
+            else:
+                previous_date = previous_date + micro_second
+                start_dates_series.iat[i] = previous_date
+
+        df[self._start_date] = start_dates_series
+
+        return df
 
     def _combine_activities(self, df):
         '''
