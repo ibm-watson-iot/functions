@@ -2293,11 +2293,13 @@ class CalcPipeline:
             msg = 'KeyError while conforming index prior to execution of function %s. ' % name
             self.trace_add(msg, created_by=stage, df=df)
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
-        # there are two signatures for the execute method
 
         msg = 'Stage %s :' % name
         self.trace_add(msg=msg, df=df)
+        logger.debug('Start of stage %s' % name)
+        start_time = pd.Timestamp.utcnow()
         try:
+            # there are two signatures for the execute method
             try:
                 newdf = stage.execute(df=df, start_ts=start_ts, end_ts=end_ts, entities=entities)
             except TypeError:
@@ -2323,6 +2325,9 @@ class CalcPipeline:
         except BaseException as e:
             self.trace_add('The function %s failed to execute. ' % name, created_by=stage)
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
+
+        logger.debug('End of stage %s, execution time = %s s' % (name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
+
         # validate that stage has not violated any pipeline processing rules
         try:
             self.validate_df(df, newdf)

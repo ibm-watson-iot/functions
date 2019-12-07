@@ -1463,7 +1463,7 @@ class BaseDataSource(BaseTransformer):
         '''
         Retrieve data and combine with pipeline data
         '''
-        new_df = self.get_data(start_ts=start_ts, end_ts=end_ts, entities=None)
+        new_df = self.get_data(start_ts=start_ts, end_ts=end_ts, entities=entities)
         try:
             new_df = self._entity_type.index_df(new_df)
         except AttributeError:
@@ -1962,9 +1962,9 @@ class BaseDBActivityMerge(BaseDataSource):
         c.name = self._activity
         c.index.name = self._start_date
         # use original data to update the new set of intervals in slices
-        for index, row in df.iterrows():
-            end_date = row[self._end_date] - dt.timedelta(microseconds=1)
-            c[row[self._start_date]:end_date] = row[self._activity]
+        for df_row in df.itertuples():
+            end_date = getattr(df_row, self._end_date) - dt.timedelta(microseconds=1)
+            c[getattr(df_row, self._start_date):end_date] = getattr(df_row, self._activity)
         df = c.to_frame()
         df.reset_index(inplace=True)
         df.index.name = self.auto_index_name
