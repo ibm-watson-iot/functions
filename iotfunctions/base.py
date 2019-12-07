@@ -1826,8 +1826,11 @@ class BaseDBActivityMerge(BaseDataSource):
                     self.add_dates = []
                     self.custom_calendar_df = custom_calendar.get_empty_data()
             # get scd changes
-            self._entity_scd_dict = self._get_scd_history(start_ts=adf[self._start_date].min(),
-                                                          end_ts=adf[self._end_date].max(), entities=entities)
+            if adf.size > 0:
+                self._entity_scd_dict = self._get_scd_history(start_ts=adf[self._start_date].min(),
+                                                              end_ts=adf[self._end_date].max(), entities=entities)
+            else:
+                self._entity_scd_dict = None
             # merge takes place separately by entity instance
             if self.remove_gaps == 'across_all':
                 group_base = []
@@ -1910,36 +1913,40 @@ class BaseDBActivityMerge(BaseDataSource):
         # Add micro second to start date if we have two maintenance periods with an identical start date.
         # start_date will be used later as key for merge. Therefore the start date must be a unique key
 
-        group_base = []
-        for s in self.execute_by:
-            if s in af.columns:
-                group_base.append(s)
-            else:
-                try:
-                    af.index.get_level_values(s)
-                except KeyError:
-                    raise ValueError('This function groups by column %s. This column was not found in columns or '
-                                     'index. Columns: %s Index: %s' % (s, list(af.columns), list(af.index.names)))
+        if af.size > 0:
+            group_base = []
+            for s in self.execute_by:
+                if s in af.columns:
+                    group_base.append(s)
                 else:
-                    group_base.append(pd.Grouper(axis=0, level=af.index.names.index(s)))
+                    try:
+                        af.index.get_level_values(s)
+                    except KeyError:
+                        raise ValueError('This function groups by column %s. This column was not found in columns or '
+                                         'index. Columns: %s Index: %s' % (s, list(af.columns), list(af.index.names)))
+                    else:
+                        group_base.append(pd.Grouper(axis=0, level=af.index.names.index(s)))
 
-        try:
-            group = af.groupby(group_base)
-        except KeyError:
-            msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were not found' % self.execute_by
-            logger.debug(msg)
-            raise
+            try:
+                group = af.groupby(group_base)
+            except KeyError:
+                msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were not found' % self.execute_by
+                logger.debug(msg)
+                raise
 
-        try:
-            unique_af = group.apply(self._unique_start_date)
-        except KeyError:
-            msg = 'unique_start_date requires deviceid, start_date, end_date and activity. ' \
-                  'supplied columns are %s' % list(af.columns)
-            logger.debug(msg)
-            raise
+            try:
+                unique_af = group.apply(self._unique_start_date)
+            except KeyError:
+                msg = 'unique_start_date requires deviceid, start_date, end_date and activity. ' \
+                      'supplied columns are %s' % list(af.columns)
+                logger.debug(msg)
+                raise
 
-        # remove index created by groupby operation
-        unique_af.reset_index(drop=True, inplace=True)
+            # remove index created by groupby operation
+            unique_af.reset_index(drop=True, inplace=True)
+        else:
+            # return af directly to keep all columns because group.apply() swallows all columns if dataframe is empty!
+            unique_af = af
 
         return unique_af
 
@@ -2060,6 +2067,7 @@ class BaseDBActivityMerge(BaseDataSource):
         '''
 
         cols = [self._start_date, self._end_date, self._activity, 'duration']
+        cols.extend(self.execute_by)
 
         if self._entity_scd_dict is not None:
             scd_properties = list(self._entity_scd_dict.keys())
@@ -2072,9 +2080,6 @@ class BaseDBActivityMerge(BaseDataSource):
         new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
         new_df['duration'] = new_df['duration'].astype('float64')
 
-        for s in self.execute_by:
-            new_df[s] = []
-            new_df[s] = new_df[s].astype('float64')
         new_df.set_index(['activity'], drop=False, inplace=True)
         new_df.set_index(self.execute_by, append=True, inplace=True)
 
