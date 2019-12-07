@@ -1988,9 +1988,7 @@ class BaseDBActivityMerge(BaseDataSource):
         '''
 
         cols = [self._start_date, self._end_date, self._activity, 'duration']
-        cols.extend(self.execute_by)
-        if self.custom_calendar_df is not None:
-            cols.extend(['shift_id', 'shift_day'])
+
         if self._entity_scd_dict is not None:
             scd_properties = list(self._entity_scd_dict.keys())
             cols.extend(scd_properties)
@@ -2000,6 +1998,13 @@ class BaseDBActivityMerge(BaseDataSource):
 
         new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
         new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
+        new_df['duration'] = new_df['duration'].astype('float64')
+
+        for s in self.execute_by:
+            new_df[s] = []
+            new_df[s] = new_df[s].astype('float64')
+        new_df.set_index(['activity'], drop=False, inplace=True)
+        new_df.set_index(self.execute_by, append=True, inplace=True)
 
         return new_df
 
