@@ -1994,10 +1994,14 @@ class BaseDBActivityMerge(BaseDataSource):
         if self._entity_scd_dict is not None:
             scd_properties = list(self._entity_scd_dict.keys())
             cols.extend(scd_properties)
-        df = pd.DataFrame(columns=cols)
-        df.index.name = self.auto_index_name
 
-        return df
+        new_df = pd.DataFrame(columns=cols)
+        new_df.index.name = self.auto_index_name
+
+        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
+        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
+
+        return new_df
 
     def read_activity_data(self, table_name, activity_code, start_ts=None, end_ts=None, entities=None):
         """
