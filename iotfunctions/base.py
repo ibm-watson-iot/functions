@@ -802,11 +802,11 @@ class BaseFunction(object):
         return bucket    
     
     
-    def get_scd_data(self,table_name,start_ts, end_ts, entities):
+    def get_scd_data(self, table_name, start_ts, end_ts, entities):
         '''
         Retrieve a slowly changing dimension property as a dataframe
         '''       
-        (query,table) = self._entity_type.db.query(table_name,schema = self._entity_type._db_schema)
+        (query,table) = self._entity_type.db.query(table_name, schema=self._entity_type._db_schema)
         if not start_ts is None:
             query = query.filter(table.c.end_date >= start_ts)
         if not end_ts is None:
@@ -2048,15 +2048,14 @@ class BaseSCDLookup(BaseTransformer):
         super().__init__()
         self.itemTags['output_item'] = ['DIMENSION']
         
-    def execute(self,df):
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
         
-        msg = 'Starting scd lookup of %s from table %s. ' %(self.output_item,self.table_name)
+        msg = 'Starting scd lookup of %s from table %s for time interval [%s, %s]. ' % (self.output_item, self.table_name, start_ts, end_ts)
         msg = self.log_df_info(df,msg) 
         self.trace_append(msg)
-        
-        (start_ts, end_ts, entities) = self._get_data_scope(df)
-        resource_df = self.get_scd_data(table_name = self.table_name, start_ts = start_ts, end_ts=end_ts, entities=entities)
-        msg = 'df for resource lookup' 
+
+        resource_df = self.get_scd_data(table_name=self.table_name, start_ts=start_ts, end_ts=end_ts, entities=entities)
+        msg = 'df for resource lookup'
         msg = self.log_df_info(resource_df,msg) + '. '
         self.trace_append(msg)       
         system_cols = [self._start_date,self._end_date,self._entity_type._entity_id]
