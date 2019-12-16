@@ -1826,7 +1826,7 @@ class Database(object):
                 col_obj = self.get_column_object(table, d)
             except KeyError:
                 try:
-                    col_obj = self.get_column_object( dim, d)
+                    col_obj = self.get_column_object(dim, d)
                 except KeyError:
                     raise ValueError('Filter column %s not found in table or dimension' % d)
             if isinstance(members, str):
