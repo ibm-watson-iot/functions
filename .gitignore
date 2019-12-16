@@ -66,6 +66,8 @@ GTAGS
 *.tgz
 *.zip
 
+.pytest_cache
+
 # Python files #
 ################
 # setup.py working directory
