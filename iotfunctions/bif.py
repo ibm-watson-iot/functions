@@ -1494,9 +1494,14 @@ class IoTShiftCalendar(BaseTransformer):
         super().__init__()
     
     def get_data(self,start_date,end_date):
-        start_date = start_date.date()
-        end_date = end_date.date()
-        dates = pd.DatetimeIndex(start=start_date,end=end_date,freq='1D').tolist()
+        # Subtract a day from start_date and add a day to end_date to provide shift information for the full
+        # calendar days at left and right boundary.
+        # Example: shift1 = [22:00,10:00], shift2 = [10:00, 22:00], data point = '2019-11-22 23:01:00' ==> data point
+        # falls into shift_day '2019-11-23', not '2019-11-22'
+        one_day = pd.DateOffset(days=1)
+        start_date = start_date.date() - one_day
+        end_date = end_date.date() + one_day
+        dates = pd.DatetimeIndex(start=start_date, end=end_date, freq='1D').tolist()
         dfs = []
         for shift_id,start_end in list(self.shift_definition.items()):
             data = {}
