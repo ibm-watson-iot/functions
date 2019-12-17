@@ -1830,25 +1830,26 @@ class Database(object):
             query = query.filter(self.get_column_object(table, timestamp_col) < end_ts)
         if not entities is None:
             query = query.filter(table.c[deviceid_col].in_(entities))
-            for d, members in list(filters.items()):
+        
+        for d, members in list(filters.items()):
+            try:
+                col_obj = self.get_column_object(table, d)
+            except KeyError:
                 try:
-                    col_obj = self.get_column_object(table, d)
+                    col_obj = self.get_column_object(dim, d)
                 except KeyError:
-                    try:
-                        col_obj = self.get_column_object(dim, d)
-                    except KeyError:
-                        raise ValueError('Filter column %s not found in table or dimension' % d)
-                if isinstance(members, str):
-                    members = [members]
-                if not isinstance(members, list):
-                    raise ValueError(
-                        'Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
-                elif len(members) == 1:
-                    query = query.filter(col_obj == members[0])
-                elif len(members) == 0:
-                    logger.debug('Ignored query filter on %s with no members', d)
-                else:
-                    query = query.filter(col_obj.in_(members[0]))
+                    raise ValueError('Filter column %s not found in table or dimension' % d)
+            if isinstance(members, str):
+                members = [members]
+            if not isinstance(members, list):
+                raise ValueError(
+                    'Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
+            elif len(members) == 1:
+                query = query.filter(col_obj == members[0])
+            elif len(members) == 0:
+                logger.debug('Ignored query filter on %s with no members', d)
+            else:
+                query = query.filter(col_obj.in_(members[0]))
 
         return (query, table)
 
