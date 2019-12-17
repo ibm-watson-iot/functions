@@ -1181,6 +1181,10 @@ class EntityType(object):
         else:
             tw['entity_filter'] = '%s entities' % len(entities)
 
+        dimension_table_exists = self.db.if_exists(table_name=self._dimension_table_name, schema=self._db_schema)
+        if not dimension_table_exists:
+            self._dimension_table_name = None
+
         if self._pre_aggregate_time_grain is None:
             df = self.db.read_table(table_name=self.name, schema=self._db_schema, timestamp_col=self._timestamp,
                                     parse_dates=None, columns=columns, start_ts=start_ts, end_ts=end_ts,
