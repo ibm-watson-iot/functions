@@ -1,5 +1,5 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0
@@ -75,7 +75,7 @@ def minDelta(df):
 
 class NoDataAnomalyScore(BaseTransformer):
     '''
-    Employs spectral analysis to extract features from the gaps in time series data and to compute zscore from it
+    Employs spectral analysis to extract features from the gaps in time series data and to compute the elliptic envelope from it
     '''
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
@@ -121,22 +121,25 @@ class NoDataAnomalyScore(BaseTransformer):
 
             logger.info('Timedelta:' + str(mindelta))
 
-            # upsample original per entity dataframe and compute the gap frame
-            #upsampled_na = dfe_orig.resample(meandelta).apply(custom_resampler)
+            # count the timedelta in seconds between two events
+            timeSeq = dfe.index.values - dfe.index[0].to_datetime64()
+            temperature = np.gradient(timeSeq)  # we look at the gradient for anomaly detection
 
-            upsampled_na = dfe_orig.resample(mindelta).apply(custom_resampler)
-
-            #dfe = upsampled_na.where(upsampled_na.isna(), 0).fillna(1)
             # interpolate gaps - data imputation
-            Size = dfe[[self.input_item]].to_numpy().size
+            dfe[[self.input_item]] = temperature
+            Size = temperature.size
+            dfe = dfe.interpolate(method='time')
 
             # one dimensional time series - named temperature for catchyness
-            temperature = dfe[[self.input_item]].to_numpy().reshape(-1,)
+            #temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
 
-            logger.info('NoDataAnomaly: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
+            logger.info('Spectral: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
                          str(self.output_item) + ', ' + str(self.windowoverlap) + ', ' + str(temperature.size))
 
-            if temperature.size > self.windowsize:
+            if temperature.size <= self.windowsize:
+                logger.info(str(temperature.size) + ' <= ' + str(self.windowsize))
+                df_copy.loc[[entity]] = 0.0001
+            else:
                 logger.info(str(temperature.size) + str(self.windowsize))
                 # Fourier transform:
                 #   frequency, time, spectral density
@@ -149,19 +152,53 @@ class NoDataAnomalyScore(BaseTransformer):
                 freqsTS = freqsTS * freqsTSb
                 freqsTS[freqsTS == 0] = 1 / self.windowsize
 
-                # Compute energy = frequency * spectral density over time in decibel - no log10
-                ETS = np.dot(SxTS.T, freqsTS)
+                highfreqsTS = freqsTS.copy()
+                lowfreqsTS = freqsTS.copy()
+                highfreqsTS[highfreqsTS <= 0.3] = 0
+                lowfreqsTS[lowfreqsTS > 0.3] = 0
 
-                # compute zscore over the energy
-                ets_zscore = np.abs((ETS - ETS.mean())/ETS.std(ddof=0))
-                logger.info('NoData z-score max: ' + str(ets_zscore.max()))
+                # Compute energy = frequency * spectral density over time in decibel
+                try:
+                    lowETS = np.log10(np.dot(SxTS.T, lowfreqsTS))
+                    highETS = np.log10(np.dot(SxTS.T, highfreqsTS))
+                    ETS = np.log10(np.dot(SxTS.T, freqsTS))
 
-                # length of timesTS, ETS and ets_zscore is smaller than half the original
-                #   extend it to cover the full original length 
-                Linear = sp.interpolate.interp1d(timesTS, ets_zscore, kind='linear', fill_value='extrapolate')
-                zscoreI = Linear(np.arange(0, temperature.size, 1))
+                    # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
+                    #    standardizing
+                    lowETS = (lowETS - lowETS.mean())/lowETS.std(ddof=0)
+                    highETS = (highETS - highETS.mean())/highETS.std(ddof=0)
 
-                dfe[self.output_item] = zscoreI
+                    twoDimETS = np.vstack((lowETS, highETS)).T
+                    logger.info('lowETS: ' + str(lowETS) + ', highETS:' + str(highETS) + 'input' + str(twoDimETS))
+
+                    # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
+                    dfe[self.output_item] = 0.0002
+                    ellEnv = EllipticEnvelope(random_state=0)
+
+                    dfe[self.output_item] = 0.0003
+                    ellEnv.fit(twoDimETS)
+                    #ets_zscore = ellEnv.predict(twoDimETS)
+                    dfe[self.output_item] = 0.0004
+                    ets_zscore = ellEnv.decision_function(twoDimETS, raw_values=True).copy()
+
+                    # compute zscore over the energy
+                    #ets_zscore = np.abs((ETS - ETS.mean())/ETS.std(ddof=0))
+                    logger.info('Spectral z-score max: ' + str(ets_zscore.max()))
+
+                    # length of timesTS, ETS and ets_zscore is smaller than half the original
+                    #   extend it to cover the full original length 
+                    dfe[self.output_item] = 0.0005
+                    Linear = sp.interpolate.interp1d(timesTS, ets_zscore, kind='linear', fill_value='extrapolate')
+
+                    dfe[self.output_item] = 0.0006
+                    zscoreI = Linear(np.arange(0, temperature.size, 1))
+
+                    dfe[self.output_item] = zscoreI
+
+                except Exception as e:
+                    logger.error('Spectral failed with ' + str(e))
+
+
 
                 # absolute zscore > 3 ---> anomaly
                 #df_copy.loc[(entity,), self.output_item] = zscoreI
