@@ -188,10 +188,10 @@ class NoDataAnomalyScore(BaseTransformer):
                     # length of timesTS, ETS and ets_zscore is smaller than half the original
                     #   extend it to cover the full original length 
                     dfe[self.output_item] = 0.0005
-                    Linear = sp.interpolate.interp1d(timesTS, ets_zscore, kind='linear', fill_value='extrapolate')
+                    linear_interpolate = sp.interpolate.interp1d(timesTS, ets_zscore, kind='linear', fill_value='extrapolate')
 
                     dfe[self.output_item] = 0.0006
-                    zscoreI = Linear(np.arange(0, temperature.size, 1))
+                    zscoreI = linear_interpolate(np.arange(0, temperature.size, 1))
 
                     dfe[self.output_item] = zscoreI
 
@@ -361,10 +361,10 @@ class SpectralAnomalyScore(BaseTransformer):
                     # length of timesTS, ETS and ets_zscore is smaller than half the original
                     #   extend it to cover the full original length 
                     dfe[self.output_item] = 0.0005
-                    Linear = sp.interpolate.interp1d(timesTS, ets_zscore, kind='linear', fill_value='extrapolate')
+                    linear_interpolate = sp.interpolate.interp1d(timesTS, ets_zscore, kind='linear', fill_value='extrapolate')
 
                     dfe[self.output_item] = 0.0006
-                    zscoreI = Linear(np.arange(0, temperature.size, 1))
+                    zscoreI = linear_interpolate(np.arange(0, temperature.size, 1))
 
                     dfe[self.output_item] = zscoreI
 
@@ -506,10 +506,10 @@ class KMeansAnomalyScore(BaseTransformer):
                 print (timesTS.shape, pred_score.shape)
 
                 #timesI = np.linspace(0, Size - 1, Size)
-                LinearK = sp.interpolate.interp1d(timesTS, pred_score, kind='linear', fill_value='extrapolate')
+                linear_interpolateK = sp.interpolate.interp1d(timesTS, pred_score, kind='linear', fill_value='extrapolate')
 
                 #kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
-                kmeans_scoreI = LinearK(np.arange(0, temperature.size, 1))
+                kmeans_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
 
                 dfe[self.output_item] = kmeans_scoreI
 
