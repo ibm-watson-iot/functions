@@ -145,7 +145,8 @@ class NoDataAnomalyScore(BaseTransformer):
                 logger.debug(str(temperature.size) + str(self.windowsize))
                 # Fourier transform:
                 #   frequency, time, spectral density
-                frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
+                frequency_temperature, time_series_temperature, spectral_density_temperature =
+                    signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
                                                         nperseg = self.windowsize, noverlap = self.windowoverlap,
                                                         detrend = False, scaling='spectrum')
 
@@ -171,7 +172,8 @@ class NoDataAnomalyScore(BaseTransformer):
                     highsignal_energy = (highsignal_energy - highsignal_energy.mean())/highsignal_energy.std(ddof=0)
 
                     twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
-                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' + str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
+                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
+                        str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
 
                     # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
                     dfe[self.output_item] = 0.0002
@@ -317,7 +319,8 @@ class SpectralAnomalyScore(BaseTransformer):
                 logger.debug(str(temperature.size) + str(self.windowsize))
                 # Fourier transform:
                 #   frequency, time, spectral density
-                frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
+                frequency_temperature, time_series_temperature, spectral_density_temperature =
+                    signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
                                                         nperseg = self.windowsize, noverlap = self.windowoverlap,
                                                         detrend = False, scaling='spectrum')
 
@@ -343,7 +346,8 @@ class SpectralAnomalyScore(BaseTransformer):
                     highsignal_energy = (highsignal_energy - highsignal_energy.mean())/highsignal_energy.std(ddof=0)
 
                     twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
-                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' + str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
+                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
+                        str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
 
                     # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
                     dfe[self.output_item] = 0.0002
@@ -503,7 +507,8 @@ class KMeansAnomalyScore(BaseTransformer):
 
                 # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length 
-                time_series_temperature = np.linspace(self.windowsize//2, temperature.size - self.windowsize//2 + 1, temperature.size - self.windowsize + 1)
+                time_series_temperature = np.linspace(
+                    self.windowsize//2, temperature.size - self.windowsize//2 + 1, temperature.size - self.windowsize + 1)
 
                 #print (time_series_temperature.shape, pred_score.shape)
 
