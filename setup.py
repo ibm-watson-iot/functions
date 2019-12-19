@@ -20,7 +20,7 @@ setup(
         'scipy>=1.1.0',
         'scikit-learn==0.20.3',
         'nose>=1.3.7',
-        'scikit-image>=0.16.2',
+        'scikit-image==0.15.0',
         'pyod>=0.7.5',
         'psycopg2-binary>=2.8.4',
         'tabulate==0.8.5'
