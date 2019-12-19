@@ -228,9 +228,13 @@ class EntityType(object):
         except AttributeError:
             self.logical_name = name
 
-        name = name.lower()
-        name = name.replace(' ', '_')
-        name = name.replace('-', '_')
+        #name = name.lower()
+        #name = name.replace(' ', '_')
+        #name = name.replace('-', '_')
+        if db.db_type == 'db2':
+            name = name.upper()
+        else:
+            name = name.lower()
         self.name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
@@ -1453,7 +1457,9 @@ class EntityType(object):
         ts.data_item_domain = data_item_domain
         df = ts.execute()
 
-        if self._dimension_table_name is not None:
+        dimension_table_exists = self.db.if_exists(table_name=self._dimension_table_name, schema=self._db_schema)
+
+        if self._dimension_table_name is not None and dimension_table_exists:
             self.generate_dimension_data(entities, write=write, data_item_mean=data_item_mean,
                                          data_item_sd=data_item_sd, data_item_domain=data_item_domain)
 
