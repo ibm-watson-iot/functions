@@ -1,5 +1,5 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0
@@ -21,6 +21,8 @@ import scipy as sp
 # for Spectral Analysis
 from scipy import signal
 from scipy.stats import energy_distance
+from sklearn import metrics
+from sklearn.covariance import EllipticEnvelope
 
 # for KMeans
 import skimage as ski
@@ -34,8 +36,9 @@ import warnings
 import json
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
-                   BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
+                   BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator, BaseRegressor, BaseClassifier)
 
+from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIStatusFlag, UIParameters)
 
@@ -45,87 +48,36 @@ logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 _IS_PREINSTALLED = True
 
+FrequencySplit = 0.3
+
 def custom_resampler(array_like):
+    # initialize
+    if not 'gap' in dir():
+        gap = 0
+    
     if (array_like.values.size > 0):
-        return array_like.values[0]
-    return np.nan
+        gap = 0
+        return 0
+    else:
+        gap += 1
+        return gap
 
+def min_delta(df):
+    # minimal time delta for merging
+            
+    try: 
+        mindelta = dfe_orig.index.to_series().diff().min()
+    except: 
+        mindelta = pd.Timedelta('5 seconds')
 
-class ASAnomalyHandler:
-    '''
-    Superclass not to be instantiated directly
-    '''
-    def __init__(self, input_item , output_item, scorer):
-
-        self.entities = np.unique(self.df.levels[0])
-        self.input_item = input_item
-        self.output_item = output_item
-
-        #logger.debug(str(entities))
-
-        self.df[self.output_item] = 0
-        self.df.sort_index()
-
-    def score(self, df):
-
-        # pipeline provides a copy
-
-        for entity in entities:
-            # per entity
-            dfe = df.loc[[entity]].dropna(how='all')
-            dfe_orig = df.loc[[entity]].copy()
-
-            # get rid of entityid part of the index
-            dfe = dfe.reset_index(level=[0]).sort_index()
-            dfe_orig = dfe_orig.reset_index(level=[0]).sort_index()
-
-            # minimal time delta for merging
-            mindelta = dfe_orig.index.to_series().diff().min()
-            if mindelta == dt.timedelta(seconds = 0) or pd.isnull(mindelta):
-                mindelta = pd.Timedelta('5 seconds')
-
-            # interpolate gaps - data imputation
-            Size = dfe[[self.input_item]].fillna(0).to_numpy().size
-            dfe = dfe.interpolate(method='time')
-
-            # get a one-dim numpy array as resulting pred_score
-            # computed from a one-dim numpy array as input, conveniently named temperature
-            temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
-            pred_score = scorer.execute(temperature)
-
-            stretchFactor = temperature.size - pred_score.size
-
-            # length of timesTS, pred_zscore are smaller than the original
-            #   and need to be stretched to the original
-            timesTS = np.linspace(stretchFactor//2, temperature.size - stretchFactor//2 + 1, temperature.size - stretchFactor//2*2 + 1)
-
-            #print (timesTS.shape, pred_score.shape)
-
-            # stretch the results and assign them to the originating dataframe 
-            Linear = sp.interpolate.interp1d(timesTS, pred_score, kind='linear', fill_value='extrapolate')
-            dfe[self.output_item] = Linear(np.arange(0, temperature.size, 1))
-
-            # merge original dataframe with the modified one to get point in times almost right
-            dfe_orig = pd.merge_asof(dfe_orig, dfe[self.output_item],
-                         left_index = True, right_index = True, direction='nearest', tolerance = mindelta)
-
-            # now extract the merged output column - the _y column *should* exist
-            if self.output_item+'_y' in dfe_orig:
-                adaptedScore = dfe_orig[self.output_item+'_y'].to_numpy()
-            else:
-                adaptedScore = dfe_orig[self.input_item].to_numpy()
-
-            # deal with the multi index over entities and time values
-            idx = pd.IndexSlice
-
-            # and add the entity specific slice's column for the predicted and adapted score
-            df.loc[idx[entity,:], self.output_item] = adaptedScore
-
-        return (df)
+    if mindelta == dt.timedelta(seconds = 0) or pd.isnull(mindelta):
+        mindelta = pd.Timedelta('5 seconds')
+    return mindelta
+    
 
 class NoDataAnomalyScore(BaseTransformer):
     '''
-    Employs spectral analysis to extract features from the gaps in time series data and to compute zscore from it
+    Employs spectral analysis to extract features from the gaps in time series data and to compute the elliptic envelope from it
     '''
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
@@ -167,56 +119,90 @@ class NoDataAnomalyScore(BaseTransformer):
             dfe_orig = dfe_orig.reset_index(level=[0]).sort_index()
 
             # minimal time delta for merging
-            mindelta = dfe_orig.index.to_series().diff().min()
-            if mindelta == dt.timedelta(seconds = 0) or pd.isnull(mindelta):
-                mindelta = pd.Timedelta('5 seconds')
+            mindelta = min_delta(dfe_orig)
 
-            # compute meandelta for upsampling
-            meandelta = dfe_orig.index.to_series().diff().mean()
-            if meandelta == dt.timedelta(seconds = 0) or pd.isnull(meandelta):
-                meandelta = mindelta
+            logger.debug('Timedelta:' + str(mindelta))
 
-            logger.info('Timedelta:' + str(mindelta) + ',' + str(meandelta))
-
-            # upsample original per entity dataframe and compute the gap frame
-            upsampled_na = dfe_orig.resample(meandelta).apply(custom_resampler)
-            dfe = upsampled_na.where(upsampled_na.isna(), 0).fillna(1)
+            # count the timedelta in seconds between two events
+            timeSeq = dfe.index.values - dfe.index[0].to_datetime64()
+            temperature = np.gradient(timeSeq)  # we look at the gradient for anomaly detection
 
             # interpolate gaps - data imputation
-            Size = dfe[[self.input_item]].to_numpy().size
+            dfe[[self.input_item]] = temperature
+            Size = temperature.size
+            dfe = dfe.interpolate(method='time')
 
             # one dimensional time series - named temperature for catchyness
-            temperature = dfe[[self.input_item]].to_numpy().reshape(-1,)
+            #temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
 
-            logger.debug('NoDataAnomaly: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
+            logger.debug('Spectral: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
                          str(self.output_item) + ', ' + str(self.windowoverlap) + ', ' + str(temperature.size))
 
-            if temperature.size > self.windowsize:
+            if temperature.size <= self.windowsize:
+                logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
+                df_copy.loc[[entity]] = 0.0001
+            else:
                 logger.debug(str(temperature.size) + str(self.windowsize))
                 # Fourier transform:
                 #   frequency, time, spectral density
-                freqsTS, timesTS, SxTS = signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
+                frequency_temperature, time_series_temperature, spectral_density_temperature =
+                    signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
                                                         nperseg = self.windowsize, noverlap = self.windowoverlap,
                                                         detrend = False, scaling='spectrum')
 
                 # cut off freqencies too low to fit into the window
-                freqsTSb = (freqsTS > 2/self.windowsize).astype(int)
-                freqsTS = freqsTS * freqsTSb
-                freqsTS[freqsTS == 0] = 1 / self.windowsize
+                frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
+                frequency_temperature = frequency_temperature * frequency_temperatureb
+                frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
 
-                # Compute energy = frequency * spectral density over time in decibel - no log10
-                ETS = np.dot(SxTS.T, freqsTS)
+                highfrequency_temperature = frequency_temperature.copy()
+                lowfrequency_temperature = frequency_temperature.copy()
+                highfrequency_temperature[highfrequency_temperature <= FrequencySplit] = 0
+                lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
 
-                # compute zscore over the energy
-                ets_zscore = (ETS - ETS.mean())/ETS.std(ddof=0)
-                logger.debug('NoData z-score max: ' + str(ets_zscore.max()))
+                # Compute energy = frequency * spectral density over time in decibel
+                try:
+                    lowsignal_energy = np.log10(np.dot(spectral_density_temperature.T, lowfrequency_temperature))
+                    highsignal_energy = np.log10(np.dot(spectral_density_temperature.T, highfrequency_temperature))
+                    signal_energy = np.log10(np.dot(spectral_density_temperature.T, frequency_temperature))
 
-                # length of timesTS, ETS and ets_zscore is smaller than half the original
-                #   extend it to cover the full original length 
-                Linear = sp.interpolate.interp1d(timesTS, ets_zscore, kind='linear', fill_value='extrapolate')
-                zscoreI = Linear(np.arange(0, temperature.size, 1))
+                    # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
+                    #    standardizing
+                    lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/lowsignal_energy.std(ddof=0)
+                    highsignal_energy = (highsignal_energy - highsignal_energy.mean())/highsignal_energy.std(ddof=0)
 
-                dfe[self.output_item] = zscoreI
+                    twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
+                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
+                        str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
+
+                    # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
+                    dfe[self.output_item] = 0.0002
+                    ellEnv = EllipticEnvelope(random_state=0)
+
+                    dfe[self.output_item] = 0.0003
+                    ellEnv.fit(twoDimsignal_energy)
+                    #ets_zscore = ellEnv.predict(twoDimsignal_energy)
+                    dfe[self.output_item] = 0.0004
+                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
+
+                    # compute zscore over the energy
+                    #ets_zscore = np.abs((signal_energy - signal_energy.mean())/signal_energy.std(ddof=0))
+                    logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
+
+                    # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
+                    #   extend it to cover the full original length 
+                    dfe[self.output_item] = 0.0005
+                    linear_interpolate = sp.interpolate.interp1d(time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
+
+                    dfe[self.output_item] = 0.0006
+                    zscoreI = linear_interpolate(np.arange(0, temperature.size, 1))
+
+                    dfe[self.output_item] = zscoreI
+
+                except Exception as e:
+                    logger.error('Spectral failed with ' + str(e))
+
+
 
                 # absolute zscore > 3 ---> anomaly
                 #df_copy.loc[(entity,), self.output_item] = zscoreI
@@ -238,6 +224,9 @@ class NoDataAnomalyScore(BaseTransformer):
 
         msg = 'NoDataAnomalyScore'
         self.trace_append(msg)
+
+        #print(df_copy.head(20))
+
         return (df_copy)
 
     @classmethod
@@ -309,11 +298,9 @@ class SpectralAnomalyScore(BaseTransformer):
             dfe_orig = dfe_orig.reset_index(level=[0]).sort_index()
 
             # minimal time delta for merging
-            mindelta = dfe_orig.index.to_series().diff().min()
-            if mindelta == dt.timedelta(seconds = 0) or pd.isnull(mindelta):
-                mindelta = pd.Timedelta('5 seconds')
+            mindelta = min_delta(dfe_orig)
 
-            logger.info('Timedelta:' + str(mindelta))
+            logger.debug('Timedelta:' + str(mindelta))
 
             # interpolate gaps - data imputation
             Size = dfe[[self.input_item]].fillna(0).to_numpy().size
@@ -325,32 +312,72 @@ class SpectralAnomalyScore(BaseTransformer):
             logger.debug('Spectral: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
                          str(self.output_item) + ', ' + str(self.windowoverlap) + ', ' + str(temperature.size))
 
-            if temperature.size > self.windowsize:
+            if temperature.size <= self.windowsize:
+                logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
+                df_copy.loc[[entity]] = 0.0001
+            else:
                 logger.debug(str(temperature.size) + str(self.windowsize))
                 # Fourier transform:
                 #   frequency, time, spectral density
-                freqsTS, timesTS, SxTS = signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
+                frequency_temperature, time_series_temperature, spectral_density_temperature =
+                    signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
                                                         nperseg = self.windowsize, noverlap = self.windowoverlap,
                                                         detrend = False, scaling='spectrum')
 
                 # cut off freqencies too low to fit into the window
-                freqsTSb = (freqsTS > 2/self.windowsize).astype(int)
-                freqsTS = freqsTS * freqsTSb
-                freqsTS[freqsTS == 0] = 1 / self.windowsize
+                frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
+                frequency_temperature = frequency_temperature * frequency_temperatureb
+                frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
+
+                highfrequency_temperature = frequency_temperature.copy()
+                lowfrequency_temperature = frequency_temperature.copy()
+                highfrequency_temperature[highfrequency_temperature <= FrequencySplit] = 0
+                lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
 
                 # Compute energy = frequency * spectral density over time in decibel
-                ETS = np.log10(np.dot(SxTS.T, freqsTS))
+                try:
+                    lowsignal_energy = np.log10(np.dot(spectral_density_temperature.T, lowfrequency_temperature))
+                    highsignal_energy = np.log10(np.dot(spectral_density_temperature.T, highfrequency_temperature))
+                    signal_energy = np.log10(np.dot(spectral_density_temperature.T, frequency_temperature))
 
-                # compute zscore over the energy
-                ets_zscore = (ETS - ETS.mean())/ETS.std(ddof=0)
-                logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
+                    # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
+                    #    standardizing
+                    lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/lowsignal_energy.std(ddof=0)
+                    highsignal_energy = (highsignal_energy - highsignal_energy.mean())/highsignal_energy.std(ddof=0)
 
-                # length of timesTS, ETS and ets_zscore is smaller than half the original
-                #   extend it to cover the full original length 
-                Linear = sp.interpolate.interp1d(timesTS, ets_zscore, kind='linear', fill_value='extrapolate')
-                zscoreI = Linear(np.arange(0, temperature.size, 1))
+                    twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
+                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
+                        str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
 
-                dfe[self.output_item] = zscoreI
+                    # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
+                    dfe[self.output_item] = 0.0002
+                    ellEnv = EllipticEnvelope(random_state=0)
+
+                    dfe[self.output_item] = 0.0003
+                    ellEnv.fit(twoDimsignal_energy)
+                     
+                    #ets_zscore = ellEnv.predict(twoDimsignal_energy)
+                    dfe[self.output_item] = 0.0004
+                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
+
+                    # compute zscore over the energy
+                    #ets_zscore = np.abs((signal_energy - signal_energy.mean())/signal_energy.std(ddof=0))
+                    logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
+
+                    # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
+                    #   extend it to cover the full original length 
+                    dfe[self.output_item] = 0.0005
+                    linear_interpolate = sp.interpolate.interp1d(time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
+
+                    dfe[self.output_item] = 0.0006
+                    zscoreI = linear_interpolate(np.arange(0, temperature.size, 1))
+
+                    dfe[self.output_item] = zscoreI
+
+                except Exception as e:
+                    logger.error('Spectral failed with ' + str(e))
+
+                    
 
                 # absolute zscore > 3 ---> anomaly
                 #df_copy.loc[(entity,), self.output_item] = zscoreI
@@ -442,11 +469,9 @@ class KMeansAnomalyScore(BaseTransformer):
             dfe_orig = dfe_orig.reset_index(level=[0]).sort_index()
 
             # minimal time delta for merging
-            mindelta = dfe_orig.index.to_series().diff().min()
-            if mindelta == dt.timedelta(seconds = 0) or pd.isnull(mindelta):
-                mindelta = pd.Timedelta('5 seconds')
+            mindelta = min_delta(dfe_orig)
 
-            logger.info('Timedelta:' + str(mindelta))
+            logger.debug('Timedelta:' + str(mindelta))
 
             # interpolate gaps - data imputation
             Size = dfe[[self.input_item]].fillna(0).to_numpy().size
@@ -472,21 +497,26 @@ class KMeansAnomalyScore(BaseTransformer):
                    n_clus = 20
 
                 cblofwin = CBLOF(n_clusters=n_clus, n_jobs=-1)
-                cblofwin.fit(slices)
-
+                try:
+                    cblofwin.fit(slices)
+                except:
+                    self.trace_append('KMeans failed')
+                    continue
+                    
                 pred_score = cblofwin.decision_scores_.copy()
 
-                # length of timesTS, ETS and ets_zscore is smaller than half the original
+                # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length 
-                timesTS = np.linspace(self.windowsize//2, temperature.size - self.windowsize//2 + 1, temperature.size - self.windowsize + 1)
+                time_series_temperature = np.linspace(
+                    self.windowsize//2, temperature.size - self.windowsize//2 + 1, temperature.size - self.windowsize + 1)
 
-                #print (timesTS.shape, pred_score.shape)
+                #print (time_series_temperature.shape, pred_score.shape)
 
                 #timesI = np.linspace(0, Size - 1, Size)
-                LinearK = sp.interpolate.interp1d(timesTS, pred_score, kind='linear', fill_value='extrapolate')
+                linear_interpolateK = sp.interpolate.interp1d(time_series_temperature, pred_score, kind='linear', fill_value='extrapolate')
 
-                #kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
-                kmeans_scoreI = LinearK(np.arange(0, temperature.size, 1))
+                #kmeans_scoreI = np.interp(timesI, time_series_temperature, pred_score)
+                kmeans_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
 
                 dfe[self.output_item] = kmeans_scoreI
 
@@ -537,4 +567,74 @@ class KMeansAnomalyScore(BaseTransformer):
                 ))
         return (inputs,outputs)
 
+
+class SimpleAnomaly(BaseRegressor):
+    '''
+    Sample function uses a regression model to predict the value of one or more output
+    variables. It compares the actual value to the prediction and generates an alert 
+    when the difference between the actual and predicted value is outside of a threshold.
+    '''
+    # class variables
+    train_if_no_model = True
+    estimators_per_execution = 3
+    num_rounds_per_estimator = 3
+
+    def __init__(self, features, targets, threshold, predictions=None, alerts=None):
+        super().__init__(features=features, targets=targets, predictions=predictions)
+        if alerts is None:
+            alerts = ['%s_alert' % x for x in self.targets]
+        self.alerts = alerts
+        self.threshold = threshold
+
+    def execute(self, df):
+
+        df = super().execute(df)
+        for i, t in enumerate(self.targets):
+            prediction = self.predictions[i]
+            df['_diff_'] = (df[t] - df[prediction]).abs()
+            alert = AlertHighValue(input_item='_diff_', upper_threshold=self.threshold, alert_name=self.alerts[i])
+            alert.set_entity_type(self.get_entity_type())
+            df = alert.execute(df)
+
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+        inputs.append(UISingle(name='threshold', datatype=float, description=('Threshold for firing an alert. '
+                                                                              'Expressed as absolute value not percent.')))
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(
+            UIFunctionOutMulti(name='alerts', datatype=bool, cardinality_from='targets', is_datatype_derived=False, ))
+
+        return (inputs, outputs)
+
+
+class SimpleRegressor(BaseRegressor):
+    '''
+    Sample function that predicts the value of a continuous target variable using the selected list of features.
+    This function is intended to demonstrate the basic workflow of training, evaluating, deploying
+    using a model. 
+    '''
+    # class variables
+    train_if_no_model = True
+    estimators_per_execution = 3
+    num_rounds_per_estimator = 3
+
+    def __init__(self, features, targets, predictions=None):
+        super().__init__(features=features, targets=targets, predictions=predictions)
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+        return (inputs, [])
 
