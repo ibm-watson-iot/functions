@@ -228,13 +228,13 @@ class EntityType(object):
         except AttributeError:
             self.logical_name = name
 
-        #name = name.lower()
+        name = name.lower()
         #name = name.replace(' ', '_')
         #name = name.replace('-', '_')
-        if db.db_type == 'db2':
-            name = name.upper()
-        else:
-            name = name.lower()
+        #if db.db_type == 'db2':
+        #    name = name.upper()
+        #else:
+        #    name = name.lower()
         self.name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
