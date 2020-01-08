@@ -335,11 +335,21 @@ class DataWriterSqlAlchemy(DataWriter):
         counter = 0
         sql_alchemy_timedelta = dt.timedelta()
         start_time = dt.datetime.utcnow()
-        # Loop over rows of data frame, loop over data item in rows
-        for df_row in df.itertuples():
-            ix = getattr(df_row, 'Index')
+        # Remember position of column in dataframe. Index starts at 1.
+        col_position = {}
+        for pos, col_name in enumerate(df.columns, 1):
+            col_position[col_name] = pos
+        # Loop over rows of data frame
+        # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
+        # keywords and column names starting with underscore; both lead to renaming of column names in df_rows.
+        # Additionally, namedtuples are limited to 255 columns in itertuples(). We access the columns in df_row
+        # by index. Position starts at 1 because 0 is reserved for the row index.
+        for df_row in df.itertuples(index=True, name=None):
+            # Get index that is always at position 0 in df_row
+            ix = df_row[0]
+            # Loop over data item in rows
             for item_name, (item_type, table_name) in col_props:
-                derived_value = getattr(df_row, item_name)
+                derived_value = df_row[col_position[item_name]]
                 if pd.isna(derived_value):
                     continue
 
@@ -373,8 +383,8 @@ class DataWriterSqlAlchemy(DataWriter):
                     row[map[self.COLUMN_NAME_VALUE_TIMESTAMP]] = None
 
                 if helper_cols_avail:
-                    row[map[self.COLUMN_NAME_TIMESTAMP_MIN]] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MIN)
-                    row[map[self.COLUMN_NAME_TIMESTAMP_MAX]] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MAX)
+                    row[map[self.COLUMN_NAME_TIMESTAMP_MIN]] = df_row[col_position[DataWriter.ITEM_NAME_TIMESTAMP_MIN]]
+                    row[map[self.COLUMN_NAME_TIMESTAMP_MAX]] = df_row[col_position[DataWriter.ITEM_NAME_TIMESTAMP_MAX]]
 
                 # Add new row to the corresponding row list
                 row_list.append(row)
