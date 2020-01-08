@@ -339,7 +339,7 @@ class DataWriterSqlAlchemy(DataWriter):
         col_position = {}
         for pos, col_name in enumerate(df.columns, 1):
             col_position[col_name] = pos
-        # Loop over rows of data frame
+        # Loop over rows of data frame.
         # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
         # keywords and column names starting with underscore; both lead to renaming of column names in df_rows.
         # Additionally, namedtuples are limited to 255 columns in itertuples(). We access the columns in df_row
