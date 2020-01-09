@@ -228,13 +228,13 @@ class EntityType(object):
         except AttributeError:
             self.logical_name = name
 
-        name = name.lower()
-        #name = name.replace(' ', '_')
-        #name = name.replace('-', '_')
-        #if db.db_type == 'db2':
-        #    name = name.upper()
-        #else:
-        #    name = name.lower()
+        # name = name.lower()
+        # name = name.replace(' ', '_')
+        # name = name.replace('-', '_')
+        if db.db_type == 'db2':
+            name = name.upper()
+        else:
+            name = name.lower()
         self.name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
@@ -366,7 +366,12 @@ class EntityType(object):
 
         kwargs['_activities'] = activities
         kwargs['schema'] = self._db_schema
-        name = name.lower()
+        # name = name.lower()
+        if self.db.db_type == 'db2':
+            name = name.upper()
+        else:
+            name = name.lower()
+
         table = db_module.ActivityTable(name, self.db, *args, **kwargs)
         try:
             sqltable = self.db.get_table(name, self._db_schema)
@@ -394,6 +399,10 @@ class EntityType(object):
 
         name = '%s_scd_%s' % (self.name, property_name)
         kwargs['schema'] = self._db_schema
+        if self.db.db_type == 'db2':
+            name = name.upper()
+        else:
+            name = name.lower()
         table = db_module.SlowlyChangingDimension(name=name, database=self.db, property_name=property_name,
                                                   datatype=datatype, **kwargs)
 
@@ -1577,6 +1586,10 @@ class EntityType(object):
                 df[d] = pd.to_datetime(df[d])
 
             if write:
+                if self.db.db_type == 'db2':
+                    self._dimension_table_name = self._dimension_table_name.upper()
+                else:
+                    self._dimension_table_name = self._dimension_table_name.lower()
                 self.db.write_frame(df, table_name=self._dimension_table_name, if_exists='append',
                                     schema=self._db_schema)
 
@@ -1699,12 +1712,15 @@ class EntityType(object):
         if name is None:
             name = '%s_dimension' % self.name
 
-        name = name.lower()
-
-        self._dimension_table_name = name
+        # name = name.lower()
+        # self._dimension_table_name = name
+        if self.db.db_type == 'db2':
+            self._dimension_table_name = name.upper()
+        else:
+            self._dimension_table_name = name.lower()
 
         try:
-            self._dimension_table = self.db.get_table(name, self._db_schema)
+            self._dimension_table = self.db.get_table(self._dimension_table_name, self._db_schema)
         except KeyError:
             dim = db_module.Dimension(self._dimension_table_name, self.db, *args, **kw)
             self._dimension_table = dim.table

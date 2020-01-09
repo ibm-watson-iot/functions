@@ -2635,7 +2635,7 @@ class BaseTable(object):
     def __init__(self, name, database, *args, **kw):
         as_keywords = ['_timestamp', '_timestamp_col', '_activities', '_freq', '_entity_id', '_df_index_entity_id',
                        '_tenant_id']
-        self.name = name
+        #self.name = name
         self.database = database
         # the keyword arguments may contain properties and sql alchemy dialect specific options
         # set them in child classes before calling super._init__()
@@ -2659,7 +2659,12 @@ class BaseTable(object):
             if kwschema is None:
                 msg = 'Schema passed as None, using default schema'
                 logger.debug(msg)
-        self.table = Table(self.name.lower(), self.database.metadata, *args, **kw)
+
+        if self.database.db_type == 'db2':
+            self.name = name.upper()
+        else:
+            self.name = name.lower()
+        self.table = Table(self.name, self.database.metadata, *args, **kw)
         self.id_col = Column(self._entity_id.lower(), String(50))
         self.table.create(checkfirst=True)
 
