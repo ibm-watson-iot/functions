@@ -111,7 +111,7 @@ class NoDataAnomalyScore(BaseTransformer):
 
         df_copy[self.output_item] = 0
         # df_copy.sort_index(level=1)
-        df_copy.sort_index()
+        # df_copy.sort_index()   - NoOP
 
         for entity in entities:
             # per entity
@@ -276,7 +276,7 @@ class SpectralAnomalyScore(BaseTransformer):
         logger.debug(str(entities))
 
         df_copy[self.output_item] = 0
-        df_copy.sort_index()   # does it do anything ?
+        # df_copy.sort_index()   # NoOp
 
         for entity in entities:
             # per entity
@@ -438,7 +438,7 @@ class KMeansAnomalyScore(BaseTransformer):
         logger.debug(str(entities))
 
         df_copy[self.output_item] = 0
-        df_copy.sort_index()
+        # df_copy.sort_index() - NoOP
 
         for entity in entities:
             # per entity
