@@ -43,6 +43,7 @@ _IS_PREINSTALLED = True
 
 FrequencySplit = 0.3
 DefaultWindowSize = 12
+SmallEnergy = 0.0000001
 
 
 def custom_resampler(array_like):
@@ -147,36 +148,49 @@ class NoDataAnomalyScore(BaseTransformer):
                          ', Overlap: ' + str(self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
 
             if temperature.size <= self.windowsize:
-                logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
-                df_copy.loc[[entity]] = 0.0001
+                logger.info(str(temperature.size) + ' <= ' + str(self.windowsize))
+                # df_copy.loc[[entity]] = 0.0001
             else:
-                logger.debug(str(temperature.size) + str(self.windowsize))
+                logger.debug('Size:' + str(temperature.size) + ', Windowsize: ' + str(self.windowsize) +
+                             ', Type: ' + str(temperature.dtype))
+                dfe[self.output_item] = 0.0007
                 # Fourier transform:
                 #   frequency, time, spectral density
-                frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
-                    temperature, fs=self.frame_rate, window='hanning',
-                    nperseg=self.windowsize, noverlap=self.windowoverlap,
-                    detrend=False, scaling='spectrum')
-
-                # cut off freqencies too low to fit into the window
-                frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
-                frequency_temperature = frequency_temperature * frequency_temperatureb
-                frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
-
-                highfrequency_temperature = frequency_temperature.copy()
-                lowfrequency_temperature = frequency_temperature.copy()
-                highfrequency_temperature[highfrequency_temperature <= FrequencySplit] = 0
-                lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
-
-                # Compute energy = frequency * spectral density over time in decibel
                 try:
-                    lowsignal_energy = np.log10(np.dot(spectral_density_temperature.T, lowfrequency_temperature))
-                    highsignal_energy = np.log10(np.dot(spectral_density_temperature.T, highfrequency_temperature))
+                    frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
+                        temperature, fs=self.frame_rate, window='hanning',
+                        nperseg=self.windowsize, noverlap=self.windowoverlap,
+                        detrend=False, scaling='spectrum')
+
+                    # cut off freqencies too low to fit into the window
+                    frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
+                    frequency_temperature = frequency_temperature * frequency_temperatureb
+                    frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
+
+                    highfrequency_temperature = frequency_temperature.copy()
+                    lowfrequency_temperature = frequency_temperature.copy()
+                    highfrequency_temperature[highfrequency_temperature <= FrequencySplit] = 0
+                    lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
+
+                    # Compute energy = frequency * spectral density over time in decibel
+                    lowsignal_energy = np.log10(
+                        np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T, lowfrequency_temperature)))
+                    highsignal_energy = np.log10(
+                        np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T, highfrequency_temperature)))
 
                     # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
                     #    standardizing
-                    lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/lowsignal_energy.std(ddof=0)
-                    highsignal_energy = (highsignal_energy - highsignal_energy.mean())/highsignal_energy.std(ddof=0)
+                    low_stddev = lowsignal_energy.std(ddof=0)
+                    high_stddev = highsignal_energy.std(ddof=0)
+
+                    if low_stddev != 0:
+                        lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/low_stddev
+                    else:
+                        lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())
+                    if high_stddev != 0:
+                        highsignal_energy = (highsignal_energy - highsignal_energy.mean())/high_stddev
+                    else:
+                        highsignal_energy = (highsignal_energy - highsignal_energy.mean())
 
                     twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
                     logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
@@ -311,36 +325,49 @@ class SpectralAnomalyScore(BaseTransformer):
                          ', Overlap: ' + str(self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
 
             if temperature.size <= self.windowsize:
-                logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
-                df_copy.loc[[entity]] = 0.0001
+                logger.info(str(temperature.size) + ' <= ' + str(self.windowsize))
+                # df_copy.loc[[entity]] = 0.0001
             else:
                 logger.debug(str(temperature.size) + str(self.windowsize))
 
-                # Fourier transform:
-                #   frequency, time, spectral density
-                frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
-                    temperature, fs=self.frame_rate, window='hanning',
-                    nperseg=self.windowsize, noverlap=self.windowoverlap,
-                    detrend=False, scaling='spectrum')
-
-                # cut off freqencies too low to fit into the window
-                frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
-                frequency_temperature = frequency_temperature * frequency_temperatureb
-                frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
-
-                highfrequency_temperature = frequency_temperature.copy()
-                lowfrequency_temperature = frequency_temperature.copy()
-                highfrequency_temperature[highfrequency_temperature <= FrequencySplit] = 0
-                lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
-
-                # Compute energy = frequency * spectral density over time in decibel
+                dfe[self.output_item] = 0.0007
                 try:
-                    lowsignal_energy = np.log10(np.dot(spectral_density_temperature.T, lowfrequency_temperature))
-                    highsignal_energy = np.log10(np.dot(spectral_density_temperature.T, highfrequency_temperature))
+                    # Fourier transform:
+                    #   frequency, time, spectral density
+                    frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
+                        temperature, fs=self.frame_rate, window='hanning',
+                        nperseg=self.windowsize, noverlap=self.windowoverlap,
+                        detrend=False, scaling='spectrum')
+
+                    # cut off freqencies too low to fit into the window
+                    frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
+                    frequency_temperature = frequency_temperature * frequency_temperatureb
+                    frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
+
+                    highfrequency_temperature = frequency_temperature.copy()
+                    lowfrequency_temperature = frequency_temperature.copy()
+                    highfrequency_temperature[highfrequency_temperature <= FrequencySplit] = 0
+                    lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
+
+                    # Compute energy = frequency * spectral density over time in decibel
+                    lowsignal_energy = np.log10(
+                        np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T, lowfrequency_temperature)))
+                    highsignal_energy = np.log10(
+                        np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T, highfrequency_temperature)))
 
                     # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
-                    lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/lowsignal_energy.std(ddof=0)
-                    highsignal_energy = (highsignal_energy - highsignal_energy.mean())/highsignal_energy.std(ddof=0)
+                    #    standardizing
+                    low_stddev = lowsignal_energy.std(ddof=0)
+                    high_stddev = highsignal_energy.std(ddof=0)
+
+                    if low_stddev != 0:
+                        lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/low_stddev
+                    else:
+                        lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())
+                    if high_stddev != 0:
+                        highsignal_energy = (highsignal_energy - highsignal_energy.mean())/high_stddev
+                    else:
+                        highsignal_energy = (highsignal_energy - highsignal_energy.mean())
 
                     twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
                     logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
@@ -487,6 +514,10 @@ class KMeansAnomalyScore(BaseTransformer):
                 else:
                     n_clus = 20
 
+                n_clus = np.minimum(n_clus, slices.size // 2)
+
+                logger.debug('KMeans parms, Clusters: ' + str(n_clus) + ', Slices: ' + str(slices.shape))
+
                 cblofwin = CBLOF(n_clusters=n_clus, n_jobs=-1)
                 try:
                     cblofwin.fit(slices)
@@ -607,7 +638,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
             mindelta = min_delta(dfe_orig)
 
             # interpolate gaps - data imputation
-            Size = dfe[[self.input_item]].fillna(0).to_numpy().size
+            # Size = dfe[[self.input_item]].fillna(0).to_numpy().size
             dfe = dfe.interpolate(method="time")
 
             # one dimensional time series - named temperature for catchyness
@@ -622,7 +653,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
                 # NN = GeneralizedAnomalyModel( base_learner=MinCovDet(), fit_function="fit",
                 #        predict_function="mahalanobis", score_sign=1,)
-                loc = np.mean(temperature, axis=0)
+                temperature -= np.mean(temperature, axis=0)
                 mcd = MinCovDet()
 
                 # Chop into overlapping windows (default) or run through FFT first
@@ -655,14 +686,14 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
                     dfe[self.output_item] = gam_scoreI
 
-                except:
+                except Exception as e:
                     dfe[self.output_item] = 0
                     logger.error(
                         "GeneralizedAnomalyScore: "
                         + str(entity) + ", " + str(self.input_item) + ", "
                         + str(self.windowsize) + ", " + str(self.output_item) + ", "
                         + str(self.step) + ", " + str(temperature.size)
-                        + " failed in the fitting step.")
+                        + " failed in the fitting step with " + str(e))
 
                 # absolute kmeans_score > 1000 ---> anomaly
 
