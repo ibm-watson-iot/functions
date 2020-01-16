@@ -13,48 +13,43 @@ The Built In Functions module contains preinstalled functions
 '''
 
 import datetime as dt
-import time
-from collections import OrderedDict
 import numpy as np
 import scipy as sp
 
-# for Spectral Analysis
+#  for Spectral Analysis
 from scipy import signal
-from scipy.stats import energy_distance
-from sklearn import metrics
+# from scipy.stats import energy_distance
+# from sklearn import metrics
 from sklearn.covariance import EllipticEnvelope
 
-# for KMeans
-import skimage as ski
-from skimage import util as skiutil # for nifty windowing
+#   for KMeans
+#  import skimage as ski
+from skimage import util as skiutil  # for nifty windowing
 from pyod.models.cblof import CBLOF
 
-import re
+# import re
 import pandas as pd
 import logging
-import warnings
-import json
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
-                   BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator, BaseRegressor, BaseClassifier)
-
+# import warnings
+# import json
+# from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
+from .base import (BaseTransformer, BaseRegressor)
 from .bif import (AlertHighValue)
-from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
-                 UIText, UIStatusFlag, UIParameters)
-
-from .util import adjust_probabilities, reset_df_index
+from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 _IS_PREINSTALLED = True
 
 FrequencySplit = 0.3
+DefaultWindowSize = 12
+
 
 def custom_resampler(array_like):
     # initialize
-    if not 'gap' in dir():
+    if 'gap' not in dir():
         gap = 0
-    
+
     if (array_like.values.size > 0):
         gap = 0
         return 0
@@ -62,36 +57,46 @@ def custom_resampler(array_like):
         gap += 1
         return gap
 
+
 def min_delta(df):
     # minimal time delta for merging
-            
-    try: 
-        mindelta = dfe_orig.index.to_series().diff().min()
-    except: 
+
+    try:
+        mindelta = df.index.to_series().diff().min()
+    except Exception as e:
+        logger.debug('Min Delta error: ' + str(e))
         mindelta = pd.Timedelta('5 seconds')
 
-    if mindelta == dt.timedelta(seconds = 0) or pd.isnull(mindelta):
+    if mindelta == dt.timedelta(seconds=0) or pd.isnull(mindelta):
         mindelta = pd.Timedelta('5 seconds')
     return mindelta
-    
+
+
+def set_window_size_and_overlap(windowsize, trim_value=2*DefaultWindowSize):
+    # make sure it is positive and not too large
+    trimmed_ws = np.minimum(np.maximum(windowsize, 1), trim_value)
+
+    # overlap
+    if trimmed_ws == 1:
+        ws_overlap = 0
+    else:
+        ws_overlap = trimmed_ws - np.maximum(trimmed_ws // DefaultWindowSize, 1)
+
+    return trimmed_ws, ws_overlap
+
 
 class NoDataAnomalyScore(BaseTransformer):
     '''
-    Employs spectral analysis to extract features from the gaps in time series data and to compute the elliptic envelope from it
+    Employs spectral analysis to extract features from the
+      gaps in time series data and to compute the elliptic envelope from it
     '''
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
         logger.debug(input_item)
         self.input_item = input_item
 
-        # use 24 by default - must be larger than 12
-        self.windowsize = np.maximum(windowsize,1)
-
-        # overlap 
-        if self.windowsize == 1:
-            self.windowoverlap = 0
-        else:
-            self.windowoverlap = self.windowsize - np.maximum(self.windowsize // 12, 1)
+        # use 24 by default - must be larger than 1
+        self.windowsize, self.windowoverlap = set_window_size_and_overlap(windowsize)
 
         # assume 1 per sec for now
         self.frame_rate = 1
@@ -104,10 +109,9 @@ class NoDataAnomalyScore(BaseTransformer):
         entities = np.unique(df.index.levels[0])
         logger.debug(str(entities))
 
-
         df_copy[self.output_item] = 0
-        #df_copy.sort_index(level=1)
-        df_copy.sort_index()
+        # df_copy.sort_index(level=1)
+        # df_copy.sort_index()   - NoOP
 
         for entity in entities:
             # per entity
@@ -129,13 +133,13 @@ class NoDataAnomalyScore(BaseTransformer):
 
             # interpolate gaps - data imputation
             dfe[[self.input_item]] = temperature
-            Size = temperature.size
+            # Size = temperature.size
             dfe = dfe.interpolate(method='time')
 
-            # one dimensional time series - named temperature for catchyness
-            #temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+            #   one dimensional time series - named temperature for catchyness
+            # temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
 
-            logger.debug('Spectral: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
+            logger.debug('NoData: ' + str(entity) + ', ' + str(self.input_item) + ', ' + str(self.windowsize) + ', ' +
                          str(self.output_item) + ', ' + str(self.windowoverlap) + ', ' + str(temperature.size))
 
             if temperature.size <= self.windowsize:
@@ -145,10 +149,10 @@ class NoDataAnomalyScore(BaseTransformer):
                 logger.debug(str(temperature.size) + str(self.windowsize))
                 # Fourier transform:
                 #   frequency, time, spectral density
-                frequency_temperature, time_series_temperature, spectral_density_temperature =
-                    signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
-                                                        nperseg = self.windowsize, noverlap = self.windowoverlap,
-                                                        detrend = False, scaling='spectrum')
+                frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
+                    temperature, fs=self.frame_rate, window='hanning',
+                    nperseg=self.windowsize, noverlap=self.windowoverlap,
+                    detrend=False, scaling='spectrum')
 
                 # cut off freqencies too low to fit into the window
                 frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
@@ -164,7 +168,6 @@ class NoDataAnomalyScore(BaseTransformer):
                 try:
                     lowsignal_energy = np.log10(np.dot(spectral_density_temperature.T, lowfrequency_temperature))
                     highsignal_energy = np.log10(np.dot(spectral_density_temperature.T, highfrequency_temperature))
-                    signal_energy = np.log10(np.dot(spectral_density_temperature.T, frequency_temperature))
 
                     # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
                     #    standardizing
@@ -173,7 +176,7 @@ class NoDataAnomalyScore(BaseTransformer):
 
                     twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
                     logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
-                        str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
+                                 str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
 
                     # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
                     dfe[self.output_item] = 0.0002
@@ -181,18 +184,18 @@ class NoDataAnomalyScore(BaseTransformer):
 
                     dfe[self.output_item] = 0.0003
                     ellEnv.fit(twoDimsignal_energy)
-                    #ets_zscore = ellEnv.predict(twoDimsignal_energy)
-                    dfe[self.output_item] = 0.0004
-                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
 
-                    # compute zscore over the energy
-                    #ets_zscore = np.abs((signal_energy - signal_energy.mean())/signal_energy.std(ddof=0))
+                    dfe[self.output_item] = 0.0004
+
+                    # compute elliptic envelope
+                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
                     logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
 
                     # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
-                    #   extend it to cover the full original length 
+                    #   extend it to cover the full original length
                     dfe[self.output_item] = 0.0005
-                    linear_interpolate = sp.interpolate.interp1d(time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
+                    linear_interpolate = sp.interpolate.interp1d(
+                        time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
 
                     dfe[self.output_item] = 0.0006
                     zscoreI = linear_interpolate(np.arange(0, temperature.size, 1))
@@ -202,57 +205,51 @@ class NoDataAnomalyScore(BaseTransformer):
                 except Exception as e:
                     logger.error('Spectral failed with ' + str(e))
 
-
-
                 # absolute zscore > 3 ---> anomaly
-                #df_copy.loc[(entity,), self.output_item] = zscoreI
-
-                dfe_orig = pd.merge_asof(dfe_orig, dfe[self.output_item],
-                         left_index = True, right_index = True, direction='nearest', tolerance = mindelta)
+                dfe_orig = pd.merge_asof(
+                            dfe_orig, dfe[self.output_item], left_index=True, right_index=True,
+                            direction='nearest', tolerance=mindelta)
 
                 if self.output_item+'_y' in dfe_orig:
                     zScoreII = dfe_orig[self.output_item+'_y'].to_numpy()
                 elif self.output_item in dfe_orig:
                     zScoreII = dfe_orig[self.output_item].to_numpy()
                 else:
-                    #print (dfe_orig.head(2))
                     zScoreII = dfe_orig[self.input_item].to_numpy()
 
-                #df_copy.loc[(entity,) :, self.output_item] = zScoreII
                 idx = pd.IndexSlice
-                df_copy.loc[idx[entity,:], self.output_item] = zScoreII
+                df_copy.loc[idx[entity, :], self.output_item] = zScoreII
 
         msg = 'NoDataAnomalyScore'
         self.trace_append(msg)
-
-        #print(df_copy.head(20))
 
         return (df_copy)
 
     @classmethod
     def build_ui(cls):
-        #define arguments that behave as function inputs
+
+        # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(
-                name = 'input_item',
+                name='input_item',
                 datatype=float,
-                description = 'Column for feature extraction'
+                description='Column for feature extraction'
                                               ))
 
         inputs.append(UISingle(
-                name = 'windowsize',
+                name='windowsize',
                 datatype=int,
-                description = 'Window size for spectral analysis - default 12'
+                description='Window size for no data spectral analysis - default 12'
                                               ))
 
-        #define arguments that behave as function outputs
+        # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(
-                name = 'output_item',
+                name='output_item',
                 datatype=float,
-                description='Anomaly gap score'
+                description='No data anomaly score'
                 ))
-        return (inputs,outputs)
+        return (inputs, outputs)
 
 
 class SpectralAnomalyScore(BaseTransformer):
@@ -264,14 +261,8 @@ class SpectralAnomalyScore(BaseTransformer):
         logger.debug(input_item)
         self.input_item = input_item
 
-        # use 24 by default - must be larger than 12
-        self.windowsize = np.maximum(windowsize,1)
-
-        # overlap 
-        if self.windowsize == 1:
-            self.windowoverlap = 0
-        else:
-            self.windowoverlap = self.windowsize - np.maximum(self.windowsize // 12, 1)
+        # use 12 by default
+        self.windowsize, self.windowoverlap = set_window_size_and_overlap(windowsize)
 
         # assume 1 per sec for now
         self.frame_rate = 1
@@ -285,8 +276,7 @@ class SpectralAnomalyScore(BaseTransformer):
         logger.debug(str(entities))
 
         df_copy[self.output_item] = 0
-        #df_copy.sort_index(level=1)
-        df_copy.sort_index()
+        # df_copy.sort_index()   # NoOp
 
         for entity in entities:
             # per entity
@@ -302,8 +292,8 @@ class SpectralAnomalyScore(BaseTransformer):
 
             logger.debug('Timedelta:' + str(mindelta))
 
-            # interpolate gaps - data imputation
-            Size = dfe[[self.input_item]].fillna(0).to_numpy().size
+            #  interpolate gaps - data imputation
+            # Size = dfe[[self.input_item]].fillna(0).to_numpy().size
             dfe = dfe.interpolate(method='time')
 
             # one dimensional time series - named temperature for catchyness
@@ -319,10 +309,10 @@ class SpectralAnomalyScore(BaseTransformer):
                 logger.debug(str(temperature.size) + str(self.windowsize))
                 # Fourier transform:
                 #   frequency, time, spectral density
-                frequency_temperature, time_series_temperature, spectral_density_temperature =
-                    signal.spectrogram(temperature, fs = self.frame_rate, window = 'hanning',
-                                                        nperseg = self.windowsize, noverlap = self.windowoverlap,
-                                                        detrend = False, scaling='spectrum')
+                frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
+                    temperature, fs=self.frame_rate, window='hanning',
+                    nperseg=self.windowsize, noverlap=self.windowoverlap,
+                    detrend=False, scaling='spectrum')
 
                 # cut off freqencies too low to fit into the window
                 frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
@@ -338,7 +328,6 @@ class SpectralAnomalyScore(BaseTransformer):
                 try:
                     lowsignal_energy = np.log10(np.dot(spectral_density_temperature.T, lowfrequency_temperature))
                     highsignal_energy = np.log10(np.dot(spectral_density_temperature.T, highfrequency_temperature))
-                    signal_energy = np.log10(np.dot(spectral_density_temperature.T, frequency_temperature))
 
                     # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
                     #    standardizing
@@ -347,7 +336,7 @@ class SpectralAnomalyScore(BaseTransformer):
 
                     twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
                     logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
-                        str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
+                                 str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
 
                     # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
                     dfe[self.output_item] = 0.0002
@@ -355,19 +344,17 @@ class SpectralAnomalyScore(BaseTransformer):
 
                     dfe[self.output_item] = 0.0003
                     ellEnv.fit(twoDimsignal_energy)
-                     
-                    #ets_zscore = ellEnv.predict(twoDimsignal_energy)
-                    dfe[self.output_item] = 0.0004
-                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
 
                     # compute zscore over the energy
-                    #ets_zscore = np.abs((signal_energy - signal_energy.mean())/signal_energy.std(ddof=0))
+                    dfe[self.output_item] = 0.0004
+                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
                     logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
 
                     # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
-                    #   extend it to cover the full original length 
+                    #   extend it to cover the full original length
                     dfe[self.output_item] = 0.0005
-                    linear_interpolate = sp.interpolate.interp1d(time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
+                    linear_interpolate = sp.interpolate.interp1d(
+                        time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
 
                     dfe[self.output_item] = 0.0006
                     zscoreI = linear_interpolate(np.arange(0, temperature.size, 1))
@@ -377,72 +364,66 @@ class SpectralAnomalyScore(BaseTransformer):
                 except Exception as e:
                     logger.error('Spectral failed with ' + str(e))
 
-                    
-
                 # absolute zscore > 3 ---> anomaly
-                #df_copy.loc[(entity,), self.output_item] = zscoreI
-
                 dfe_orig = pd.merge_asof(dfe_orig, dfe[self.output_item],
-                         left_index = True, right_index = True, direction='nearest', tolerance = mindelta)
+                                         left_index=True, right_index=True, direction='nearest', tolerance=mindelta)
 
                 if self.output_item+'_y' in dfe_orig:
                     zScoreII = dfe_orig[self.output_item+'_y'].to_numpy()
                 elif self.output_item in dfe_orig:
                     zScoreII = dfe_orig[self.output_item].to_numpy()
                 else:
-                    #print (dfe_orig.head(2))
                     zScoreII = dfe_orig[self.input_item].to_numpy()
 
-                #print (dfe_orig.head(2))
-
                 idx = pd.IndexSlice
-                df_copy.loc[idx[entity,:], self.output_item] = zScoreII
+                df_copy.loc[idx[entity, :], self.output_item] = zScoreII
 
         msg = 'SpectralAnomalyScore'
         self.trace_append(msg)
-        #print(df_copy.head(30))
 
         return (df_copy)
 
     @classmethod
     def build_ui(cls):
-        #define arguments that behave as function inputs
+
+        # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(
-                name = 'input_item',
+                name='input_item',
                 datatype=float,
-                description = 'Column for feature extraction'
+                description='Column for feature extraction'
                                               ))
 
         inputs.append(UISingle(
-                name = 'windowsize',
+                name='windowsize',
                 datatype=int,
-                description = 'Window size for spectral analysis - default 12'
+                description='Window size for spectral analysis - default 12'
                                               ))
 
-        #define arguments that behave as function outputs
+        # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(
-                name = 'output_item',
+                name='output_item',
                 datatype=float,
-                description='Anomaly score (zScore)'
+                description='Spectral anomaly score (elliptic envelope)'
                 ))
-        return (inputs,outputs)
+        return (inputs, outputs)
 
 
 class KMeansAnomalyScore(BaseTransformer):
     '''
-    Employs kmeans on windowed time series data and to compute an anomaly score from proximity to centroid's center points
+    Employs kmeans on windowed time series data and to compute
+     an anomaly score from proximity to centroid's center points
     '''
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
         logger.debug(input_item)
         self.input_item = input_item
 
-        # use 24 by default - must be larger than 12
-        self.windowsize = np.maximum(windowsize,1)
+        # use 12 by default
+        self.windowsize, _ = set_window_size_and_overlap(windowsize)
 
-        # step 
+        # step
         self.step = 1
 
         # assume 1 per sec for now
@@ -457,7 +438,7 @@ class KMeansAnomalyScore(BaseTransformer):
         logger.debug(str(entities))
 
         df_copy[self.output_item] = 0
-        df_copy.sort_index()
+        # df_copy.sort_index() - NoOP
 
         for entity in entities:
             # per entity
@@ -473,10 +454,9 @@ class KMeansAnomalyScore(BaseTransformer):
 
             logger.debug('Timedelta:' + str(mindelta))
 
-            # interpolate gaps - data imputation
-            Size = dfe[[self.input_item]].fillna(0).to_numpy().size
+            #  interpolate gaps - data imputation
+            # Size = dfe[[self.input_item]].fillna(0).to_numpy().size
             dfe = dfe.interpolate(method='time')
-
 
             # one dimensional time series - named temperature for catchyness
             temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
@@ -489,54 +469,48 @@ class KMeansAnomalyScore(BaseTransformer):
 
                 # Chop into overlapping windows
                 slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
-                #print (slices.shape)
 
                 if self.windowsize > 1:
-                   n_clus = 40
+                    n_clus = 40
                 else:
-                   n_clus = 20
+                    n_clus = 20
 
                 cblofwin = CBLOF(n_clusters=n_clus, n_jobs=-1)
                 try:
                     cblofwin.fit(slices)
-                except:
-                    self.trace_append('KMeans failed')
+                except Exception as e:
+                    logger.info('KMeans failed with ' + str(e))
+                    self.trace_append('KMeans failed with' + str(e))
                     continue
-                    
+
                 pred_score = cblofwin.decision_scores_.copy()
 
                 # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
-                #   extend it to cover the full original length 
+                #   extend it to cover the full original length
                 time_series_temperature = np.linspace(
-                    self.windowsize//2, temperature.size - self.windowsize//2 + 1, temperature.size - self.windowsize + 1)
+                     self.windowsize//2, temperature.size - self.windowsize//2 + 1,
+                     temperature.size - self.windowsize + 1)
 
-                #print (time_series_temperature.shape, pred_score.shape)
+                linear_interpolateK = sp.interpolate.interp1d(
+                    time_series_temperature, pred_score, kind='linear', fill_value='extrapolate')
 
-                #timesI = np.linspace(0, Size - 1, Size)
-                linear_interpolateK = sp.interpolate.interp1d(time_series_temperature, pred_score, kind='linear', fill_value='extrapolate')
-
-                #kmeans_scoreI = np.interp(timesI, time_series_temperature, pred_score)
                 kmeans_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
 
                 dfe[self.output_item] = kmeans_scoreI
 
                 # absolute kmeans_score > 1000 ---> anomaly
-                #df_copy.loc[(entity,), self.output_item] = kmeans_scoreI
                 dfe_orig = pd.merge_asof(dfe_orig, dfe[self.output_item],
-                         left_index = True, right_index = True, direction='nearest', tolerance = mindelta)
+                                         left_index=True, right_index=True, direction='nearest', tolerance=mindelta)
 
                 if self.output_item+'_y' in dfe_orig:
                     zScoreII = dfe_orig[self.output_item+'_y'].to_numpy()
                 elif self.output_item in dfe_orig:
                     zScoreII = dfe_orig[self.output_item].to_numpy()
                 else:
-                    #print (dfe_orig.head(2))
                     zScoreII = dfe_orig[self.input_item].to_numpy()
 
-                #df_copy.loc[(entity,) :, self.output_item] = zScoreII
                 idx = pd.IndexSlice
-                df_copy.loc[idx[entity,:], self.output_item] = zScoreII
-
+                df_copy.loc[idx[entity, :], self.output_item] = zScoreII
 
         msg = 'KMeansAnomalyScore'
         self.trace_append(msg)
@@ -544,34 +518,34 @@ class KMeansAnomalyScore(BaseTransformer):
 
     @classmethod
     def build_ui(cls):
-        #define arguments that behave as function inputs
+        # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(
-                name = 'input_item',
+                name='input_item',
                 datatype=float,
-                description = 'Column for feature extraction'
+                description='Column for feature extraction'
                                               ))
 
         inputs.append(UISingle(
-                name = 'windowsize',
+                name='windowsize',
                 datatype=int,
-                description = 'Window size for spectral analysis - default 12'
+                description='Window size for spectral analysis - default 12'
                                               ))
 
-        #define arguments that behave as function outputs
+        # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(
-                name = 'output_item',
+                name='output_item',
                 datatype=float,
                 description='Anomaly score (kmeans)'
                 ))
-        return (inputs,outputs)
+        return (inputs, outputs)
 
 
 class SimpleAnomaly(BaseRegressor):
     '''
     Sample function uses a regression model to predict the value of one or more output
-    variables. It compares the actual value to the prediction and generates an alert 
+    variables. It compares the actual value to the prediction and generates an alert
     when the difference between the actual and predicted value is outside of a threshold.
     '''
     # class variables
@@ -605,8 +579,8 @@ class SimpleAnomaly(BaseRegressor):
         inputs.append(UIMultiItem(name='features', datatype=float, required=True))
         inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
                                   is_output_datatype_derived=True))
-        inputs.append(UISingle(name='threshold', datatype=float, description=('Threshold for firing an alert. '
-                                                                              'Expressed as absolute value not percent.')))
+        inputs.append(UISingle(name='threshold', datatype=float,
+                               description=('Threshold for firing an alert. Expressed as absolute value not percent.')))
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(
@@ -619,7 +593,7 @@ class SimpleRegressor(BaseRegressor):
     '''
     Sample function that predicts the value of a continuous target variable using the selected list of features.
     This function is intended to demonstrate the basic workflow of training, evaluating, deploying
-    using a model. 
+    using a model.
     '''
     # class variables
     train_if_no_model = True
@@ -637,4 +611,3 @@ class SimpleRegressor(BaseRegressor):
         inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
                                   is_output_datatype_derived=True))
         return (inputs, [])
-
