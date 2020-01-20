@@ -86,188 +86,88 @@ def set_window_size_and_overlap(windowsize, trim_value=2*DefaultWindowSize):
     return trimmed_ws, ws_overlap
 
 
-class NoDataAnomalyScore(BaseTransformer):
-    '''
-    Employs spectral analysis to extract features from the
-      gaps in time series data and to compute the elliptic envelope from it
-    '''
-    def __init__(self, input_item, windowsize, output_item):
-        super().__init__()
-        logger.debug(input_item)
-        self.input_item = input_item
+# Saliency helper functions
+# copied from https://github.com/y-bar/ml-based-anomaly-detection
+#   remove the boring part from an image resp. time series
+def series_filter(values, kernel_size=3):
+    """
+    Filter a time series. Practically, calculated mean value inside kernel size.
+    As math formula, see https://docs.opencv.org/2.4/modules/imgproc/doc/filtering.html.
+    :param values:
+    :param kernel_size:
+    :return: The list of filtered average
+    """
+    filter_values = np.cumsum(values, dtype=float)
 
-        # use 24 by default - must be larger than 1
-        self.windowsize, self.windowoverlap = set_window_size_and_overlap(windowsize)
+    filter_values[kernel_size:] = filter_values[kernel_size:] - filter_values[:-kernel_size]
+    filter_values[kernel_size:] = filter_values[kernel_size:] / kernel_size
 
-        # assume 1 per sec for now
-        self.frame_rate = 1
+    for i in range(1, kernel_size):
+        filter_values[i] /= i + 1
 
-        self.output_item = output_item
+    return filter_values
 
-    def execute(self, df):
 
-        df_copy = df.copy()
-        entities = np.unique(df.index.levels[0])
-        logger.debug(str(entities))
+def extrapolate_next(values):
+    """
+    Extrapolates the next value by sum up the slope of the last value with previous values.
+    :param values: a list or numpy array of time-series
+    :return: the next value of time-series
+    """
 
-        df_copy[self.output_item] = 0
-        # df_copy.sort_index(level=1)
-        # df_copy.sort_index()   - NoOP
+    last_value = values[-1]
+    slope = [(last_value - v) / i for (i, v) in enumerate(values[::-1])]
+    slope[0] = 0
+    next_values = last_value + np.cumsum(slope)
 
-        for entity in entities:
-            # per entity - copy for later inplace operations
-            dfe = df_copy.loc[[entity]].dropna(how='all')
-            dfe_orig = df_copy.loc[[entity]].copy()
+    return next_values
 
-            # get rid of entityid part of the index
-            # do it inplace as we copied the data before
-            dfe.reset_index(level=[0], inplace=True)
-            dfe.sort_index(inplace=True)
-            dfe_orig.reset_index(level=[0], inplace=True)
-            dfe_orig.sort_index(inplace=True)
 
-            # minimal time delta for merging
-            mindelta = min_delta(dfe_orig)
+def marge_series(values, extend_num=5, forward=5):
 
-            logger.debug('Timedelta:' + str(mindelta))
+    next_value = extrapolate_next(values)[forward]
+    extension = [next_value] * extend_num
 
-            # count the timedelta in seconds between two events
-            timeSeq = dfe.index.values - dfe.index[0].to_datetime64()
-            temperature = np.gradient(timeSeq)  # we look at the gradient for anomaly detection
+    if isinstance(values, list):
+        marge_values = values + extension
+    else:
+        marge_values = np.append(values, extension)
+    return marge_values
 
-            # interpolate gaps - data imputation
-            dfe[[self.input_item]] = temperature
-            # Size = temperature.size
-            dfe = dfe.interpolate(method='time')
 
-            #   one dimensional time series - named temperature for catchyness
-            # temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+# Saliency class
+#  see https://www.inf.uni-hamburg.de/en/inst/ab/cv/research/research1-visual-attention.html
+class Saliency(object):
+    def __init__(self, amp_window_size, series_window_size, score_window_size):
+        self.amp_window_size = amp_window_size
+        self.series_window_size = series_window_size
+        self.score_window_size = score_window_size
 
-            logger.debug('Module NoData, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
-                         ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
-                         ', Overlap: ' + str(self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
+    def transform_saliency_map(self, values):
+        """
+        Transform a time-series into spectral residual, which is method in computer vision.
+        For example, See https://docs.opencv.org/master/d8/d65/group__saliency.html
+        :param values: a list or numpy array of float values.
+        :return: silency map and spectral residual
+        """
 
-            if temperature.size <= self.windowsize:
-                logger.info(str(temperature.size) + ' <= ' + str(self.windowsize))
-                # df_copy.loc[[entity]] = 0.0001
-            else:
-                logger.debug('Size:' + str(temperature.size) + ', Windowsize: ' + str(self.windowsize) +
-                             ', Type: ' + str(temperature.dtype))
-                dfe[self.output_item] = 0.0007
-                # Fourier transform:
-                #   frequency, time, spectral density
-                try:
-                    frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
-                        temperature, fs=self.frame_rate, window='hanning',
-                        nperseg=self.windowsize, noverlap=self.windowoverlap,
-                        detrend=False, scaling='spectrum')
+        freq = np.fft.fft(values)
+        mag = np.sqrt(freq.real ** 2 + freq.imag ** 2)
 
-                    # cut off freqencies too low to fit into the window
-                    frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
-                    frequency_temperature = frequency_temperature * frequency_temperatureb
-                    frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
+        # remove the boring part of a timeseries
+        spectral_residual = np.exp(np.log(mag) - series_filter(np.log(mag), self.amp_window_size))
 
-                    highfrequency_temperature = frequency_temperature.copy()
-                    lowfrequency_temperature = frequency_temperature.copy()
-                    highfrequency_temperature[highfrequency_temperature <= FrequencySplit] = 0
-                    lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
+        freq.real = freq.real * spectral_residual / mag
+        freq.imag = freq.imag * spectral_residual / mag
 
-                    # Compute energy = frequency * spectral density over time in decibel
-                    lowsignal_energy = np.log10(
-                        np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T, lowfrequency_temperature)))
-                    highsignal_energy = np.log10(
-                        np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T, highfrequency_temperature)))
+        # and apply inverse fourier transform
+        saliency_map = np.fft.ifft(freq)
+        return saliency_map
 
-                    # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
-                    #    standardizing
-                    low_stddev = lowsignal_energy.std(ddof=0)
-                    high_stddev = highsignal_energy.std(ddof=0)
-
-                    if low_stddev != 0:
-                        lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/low_stddev
-                    else:
-                        lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())
-                    if high_stddev != 0:
-                        highsignal_energy = (highsignal_energy - highsignal_energy.mean())/high_stddev
-                    else:
-                        highsignal_energy = (highsignal_energy - highsignal_energy.mean())
-
-                    twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
-                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
-                                 str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
-
-                    # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
-                    dfe[self.output_item] = 0.0002
-                    ellEnv = EllipticEnvelope(random_state=0)
-
-                    dfe[self.output_item] = 0.0003
-                    ellEnv.fit(twoDimsignal_energy)
-
-                    dfe[self.output_item] = 0.0004
-
-                    # compute elliptic envelope
-                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
-                    logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
-
-                    # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
-                    #   extend it to cover the full original length
-                    dfe[self.output_item] = 0.0005
-                    linear_interpolate = sp.interpolate.interp1d(
-                        time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
-
-                    dfe[self.output_item] = 0.0006
-                    zscoreI = linear_interpolate(np.arange(0, temperature.size, 1))
-
-                    dfe[self.output_item] = zscoreI
-
-                except Exception as e:
-                    logger.error('Spectral failed with ' + str(e))
-
-                # absolute zscore > 3 ---> anomaly
-                dfe_orig = pd.merge_asof(
-                            dfe_orig, dfe[self.output_item], left_index=True, right_index=True,
-                            direction='nearest', tolerance=mindelta)
-
-                if self.output_item+'_y' in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item+'_y'].to_numpy()
-                elif self.output_item in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item].to_numpy()
-                else:
-                    zScoreII = dfe_orig[self.input_item].to_numpy()
-
-                idx = pd.IndexSlice
-                df_copy.loc[idx[entity, :], self.output_item] = zScoreII
-
-        msg = 'NoDataAnomalyScore'
-        self.trace_append(msg)
-
-        return (df_copy)
-
-    @classmethod
-    def build_ui(cls):
-
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Column for feature extraction'
-                                              ))
-
-        inputs.append(UISingle(
-                name='windowsize',
-                datatype=int,
-                description='Window size for no data spectral analysis - default 12'
-                                              ))
-
-        # define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='No data anomaly score'
-                ))
-        return (inputs, outputs)
+    def transform_spectral_residual(self, values):
+        saliency_map = self.transform_saliency_map(values)
+        spectral_residual = np.sqrt(saliency_map.real ** 2 + saliency_map.imag ** 2)
+        return spectral_residual
 
 
 class SpectralAnomalyScore(BaseTransformer):
@@ -325,7 +225,7 @@ class SpectralAnomalyScore(BaseTransformer):
                          ', Overlap: ' + str(self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
 
             if temperature.size <= self.windowsize:
-                logger.info(str(temperature.size) + ' <= ' + str(self.windowsize))
+                logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
                 # df_copy.loc[[entity]] = 0.0001
             else:
                 logger.debug(str(temperature.size) + str(self.windowsize))
@@ -350,28 +250,29 @@ class SpectralAnomalyScore(BaseTransformer):
                     lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
 
                     # Compute energy = frequency * spectral density over time in decibel
-                    lowsignal_energy = np.log10(
-                        np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T, lowfrequency_temperature)))
-                    highsignal_energy = np.log10(
-                        np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T, highfrequency_temperature)))
+                    lowsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
+                                                lowfrequency_temperature)) + SmallEnergy)
+                    highsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
+                                                 highfrequency_temperature)) + SmallEnergy)
 
                     # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
                     #    standardizing
-                    low_stddev = lowsignal_energy.std(ddof=0)
-                    high_stddev = highsignal_energy.std(ddof=0)
+                    # low_stddev = lowsignal_energy.std(ddof=0)
+                    # high_stddev = highsignal_energy.std(ddof=0)
 
-                    if low_stddev != 0:
-                        lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/low_stddev
-                    else:
-                        lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())
-                    if high_stddev != 0:
-                        highsignal_energy = (highsignal_energy - highsignal_energy.mean())/high_stddev
-                    else:
-                        highsignal_energy = (highsignal_energy - highsignal_energy.mean())
+                    # if low_stddev != 0:
+                    #     lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/low_stddev
+                    # else:
+                    lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())
+
+                    # if high_stddev != 0:
+                    #     highsignal_energy = (highsignal_energy - highsignal_energy.mean())/high_stddev
+                    # else:
+                    highsignal_energy = (highsignal_energy - highsignal_energy.mean())
 
                     twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
-                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy) + ', highsignal_energy:' +
-                                 str(highsignal_energy) + 'input' + str(twoDimsignal_energy))
+                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy.shape) + ', highsignal_energy:' +
+                                 str(highsignal_energy.shape) + 'input' + str(twoDimsignal_energy.shape))
 
                     # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
                     dfe[self.output_item] = 0.0002
@@ -382,7 +283,10 @@ class SpectralAnomalyScore(BaseTransformer):
 
                     # compute distance to elliptic envelope
                     dfe[self.output_item] = 0.0004
-                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
+
+                    # ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
+                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy).copy()
+
                     logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
 
                     # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
@@ -510,15 +414,15 @@ class KMeansAnomalyScore(BaseTransformer):
                 slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
 
                 if self.windowsize > 1:
-                    n_clus = 40
+                    n_cluster = 40
                 else:
-                    n_clus = 20
+                    n_cluster = 20
 
-                n_clus = np.minimum(n_clus, slices.size // 2)
+                n_cluster = np.minimum(n_cluster, slices.shape[0] // 2)
 
-                logger.debug('KMeans parms, Clusters: ' + str(n_clus) + ', Slices: ' + str(slices.shape))
+                logger.debug('KMeans parms, Clusters: ' + str(n_cluster) + ', Slices: ' + str(slices.shape))
 
-                cblofwin = CBLOF(n_clusters=n_clus, n_jobs=-1)
+                cblofwin = CBLOF(n_clusters=n_cluster, n_jobs=-1)
                 try:
                     cblofwin.fit(slices)
                 except Exception as e:
@@ -587,12 +491,15 @@ class KMeansAnomalyScore(BaseTransformer):
 
 class GeneralizedAnomalyScore(BaseTransformer):
     """
-    Employs GAM on windowed time series data and to compute an anomaly score from proximity to centroid's center points
+    Employs GAM on windowed time series data to compute an anomaly score from the covariance matrix
     """
 
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
         logger.debug(input_item)
+
+        self.whoami = 'GAM'
+
         self.input_item = input_item
 
         # use 12 by default
@@ -606,8 +513,22 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
         self.output_item = output_item
 
+    def prepare_data(self, dfEntity):
+
+        logger.debug(self.whoami + ': prepare Data')
+
+        # interpolate gaps - data imputation
+        dfe = dfEntity.interpolate(method="time")
+
+        # one dimensional time series - named temperature for catchyness
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+
+        return dfe, temperature
+
     def feature_extract(self, temperature):
-        logger.debug('GAM extract')
+
+        logger.debug(self.whoami + ': feature extract')
+
         slices = skiutil.view_as_windows(
             temperature, window_shape=(self.windowsize,), step=self.step
         )
@@ -637,12 +558,9 @@ class GeneralizedAnomalyScore(BaseTransformer):
             # minimal time delta for merging
             mindelta = min_delta(dfe_orig)
 
-            # interpolate gaps - data imputation
-            # Size = dfe[[self.input_item]].fillna(0).to_numpy().size
-            dfe = dfe.interpolate(method="time")
-
-            # one dimensional time series - named temperature for catchyness
-            temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+            # interpolate gaps - data imputation by default
+            #   for missing data detection we look at the timestamp gradient instead
+            dfe, temperature = self.prepare_data(dfe)
 
             logger.debug('Module GeneralizedAnomaly, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
                          ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
@@ -659,6 +577,8 @@ class GeneralizedAnomalyScore(BaseTransformer):
                 # Chop into overlapping windows (default) or run through FFT first
                 slices = self.feature_extract(temperature)
 
+                pred_score = None
+
                 try:
                     # NN.fit(slices)
                     mcd.fit(slices)
@@ -666,34 +586,50 @@ class GeneralizedAnomalyScore(BaseTransformer):
                     # pred_score = NN.decision_function(slices).copy()
                     pred_score = mcd.mahalanobis(slices).copy()
 
-                    # length of timesTS, ETS and ets_zscore is smaller than half the original
-                    #   extend it to cover the full original length
-                    timesTS = np.linspace(
-                        self.windowsize // 2,
-                        temperature.size - self.windowsize // 2 + 1,
-                        temperature.size - self.windowsize + 1,
-                    )
+                except ValueError as ve:
 
-                    print(timesTS.shape, pred_score.shape)
+                    logger.info(
+                        self.whoami + " GeneralizedAnomalyScore: Entity: "
+                        + str(entity) + ", Input: " + str(self.input_item) + ", WindowSize: "
+                        + str(self.windowsize) + ", Output: " + str(self.output_item) + ", Step: "
+                        + str(self.step) + ", InputSize: " + str(slices.shape)
+                        + " failed in the fitting step with \"" + str(ve) + "\" - scoring zero")
 
-                    # timesI = np.linspace(0, Size - 1, Size)
-                    linear_interpolateK = sp.interpolate.interp1d(
-                        timesTS, pred_score, kind="linear", fill_value="extrapolate"
-                    )
-
-                    # kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
-                    gam_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
-
-                    dfe[self.output_item] = gam_scoreI
+                    pred_score = np.zeros(slices.shape[0])
+                    pass
 
                 except Exception as e:
+
                     dfe[self.output_item] = 0
                     logger.error(
-                        "GeneralizedAnomalyScore: "
-                        + str(entity) + ", " + str(self.input_item) + ", "
-                        + str(self.windowsize) + ", " + str(self.output_item) + ", "
-                        + str(self.step) + ", " + str(temperature.size)
+                        self.whoami + " GeneralizedAnomalyScore: Entity: "
+                        + str(entity) + ", Input: " + str(self.input_item) + ", WindowSize: "
+                        + str(self.windowsize) + ", Output: " + str(self.output_item) + ", Step: "
+                        + str(self.step) + ", InputSize: " + str(slices.shape)
                         + " failed in the fitting step with " + str(e))
+                    continue
+
+                # will break if pred_score is None
+                # length of timesTS, ETS and ets_zscore is smaller than half the original
+                #   extend it to cover the full original length
+                timesTS = np.linspace(
+                    self.windowsize // 2,
+                    temperature.size - self.windowsize // 2 + 1,
+                    temperature.size - self.windowsize + 1,
+                )
+
+                logger.debug(self.whoami + '   Entity: ' + str(entity) + ', result shape: ' + str(timesTS.shape) +
+                             ' score shape: ' + str(pred_score.shape))
+
+                # timesI = np.linspace(0, Size - 1, Size)
+                linear_interpolateK = sp.interpolate.interp1d(
+                    timesTS, pred_score, kind="linear", fill_value="extrapolate"
+                )
+
+                # kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
+                gam_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
+
+                dfe[self.output_item] = gam_scoreI
 
                 # absolute kmeans_score > 1000 ---> anomaly
 
@@ -714,7 +650,6 @@ class GeneralizedAnomalyScore(BaseTransformer):
                     print(dfe_orig.head(2))
                     zScoreII = dfe_orig[self.input_item].to_numpy()
 
-                # df_copy.loc[(entity,) :, self.output_item] = zScoreII
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity, :], self.output_item] = zScoreII
 
@@ -754,26 +689,89 @@ class GeneralizedAnomalyScore(BaseTransformer):
         return (inputs, outputs)
 
 
+class NoDataAnomalyScore(GeneralizedAnomalyScore):
+    '''
+    Employs generalized anomaly analysis to extract features from the
+      gaps in time series data and to compute the elliptic envelope from it
+    '''
+    def __init__(self, input_item, windowsize, output_item):
+        super().__init__(input_item, windowsize, output_item)
+        self.whoami = 'NoData'
+        logger.debug('NoData')
+
+    def prepare_data(self, dfEntity):
+
+        logger.debug(self.whoami + ': prepare Data')
+
+        # count the timedelta in seconds between two events
+        timeSeq = (dfEntity.index.values - dfEntity.index[0].to_datetime64()) / np.timedelta64(1, 's')
+
+        # one dimensional time series - named temperature for catchyness
+        #   we look at the gradient of the time series timestamps for anomaly detection
+        temperature = np.gradient(timeSeq)
+
+        dfe = dfEntity.copy()
+        dfe[[self.input_item]] = temperature
+
+        return dfe, temperature
+
+    def execute(self, df):
+        df_copy = super().execute(df)
+
+        msg = "NoDataAnomalyScore"
+        self.trace_append(msg)
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(
+                name='input_item',
+                datatype=float,
+                description='Column for feature extraction'
+                                              ))
+
+        inputs.append(UISingle(
+                name='windowsize',
+                datatype=int,
+                description='Window size for no data spectral analysis - default 12'
+                                              ))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(
+                name='output_item',
+                datatype=float,
+                description='No data anomaly score'
+                ))
+        return (inputs, outputs)
+
+
 class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
     """
-    Employs GAM on windowed time series data and to compute an anomaly score from proximity to centroid's center points
+    Employs FFT and GAM on windowed time series data to compute an anomaly score from the covariance matrix
     """
 
     def __init__(self, input_item, windowsize, output_item):
         super().__init__(input_item, windowsize, output_item)
-        logger.debug(input_item)
+        self.whoami = 'FFT'
+        logger.debug('FFT')
 
     def feature_extract(self, temperature):
 
-        logger.debug('FFT extract')
+        logger.debug(self.whoami + ': feature extract')
+
         slices_ = skiutil.view_as_windows(
             temperature, window_shape=(self.windowsize,), step=self.step
         )
-        slices = []
+        slicelist = []
         for slice in slices_:
-            slices.append(fftpack.rfft(slice))
+            slicelist.append(fftpack.rfft(slice))
 
-        return slices
+        # return np.array(slicelist)
+        return np.stack(slicelist, axis=0)
 
     def execute(self, df):
         df_copy = super().execute(df)
@@ -799,6 +797,67 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
                 name="windowsize",
                 datatype=int,
                 description="Window size for FFT feature based Generalized Anomaly analysis - default 12",
+            )
+        )
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(
+            UIFunctionOutSingle(
+                name="output_item",
+                datatype=float,
+                description="Anomaly score (FFTbasedGeneralizedAnomalyScore)",
+            )
+        )
+        return (inputs, outputs)
+
+
+class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
+    """
+    Employs Saliency and GAM on windowed time series data to compute an anomaly score from the covariance matrix
+    """
+
+    def __init__(self, input_item, windowsize, output_item):
+        super().__init__(input_item, windowsize, output_item)
+        self.whoami = 'Saliency'
+        self.saliency = Saliency(windowsize, 0, 0)
+        logger.debug('Saliency')
+
+    def feature_extract(self, temperature):
+
+        logger.debug(self.whoami + ': feature extract')
+
+        temperature_saliency = self.saliency.transform_spectral_residual(temperature)
+
+        slices = skiutil.view_as_windows(
+            temperature_saliency, window_shape=(self.windowsize,), step=self.step
+        )
+        return slices
+
+    def execute(self, df):
+        df_copy = super().execute(df)
+
+        msg = "SaliencybasedGeneralizedAnomalyScore"
+        self.trace_append(msg)
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(
+            UISingleItem(
+                name="input_item",
+                datatype=float,
+                description="Column for feature extraction",
+            )
+        )
+
+        inputs.append(
+            UISingle(
+                name="windowsize",
+                datatype=int,
+                description="Window size for Saliency feature based Generalized Anomaly analysis - default 12",
             )
         )
 
