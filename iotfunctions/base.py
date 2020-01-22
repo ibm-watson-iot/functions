@@ -2040,10 +2040,10 @@ class BaseDBActivityMerge(BaseDataSource):
         c.index = pd.to_datetime(c.index)
         c.name = self._activity
         c.index.name = self._start_date
-        # use original data to update the new set of intervals in slices
-        for df_row in df.itertuples():
-            end_date = getattr(df_row, self._end_date) - dt.timedelta(milliseconds=1)
-            c[getattr(df_row, self._start_date):end_date] = getattr(df_row, self._activity)
+        # use original data to update the new set of intervals in slices.
+        for df_row in df[[self._start_date, self._end_date, self._activity]].itertuples(index=False, name=None):
+            end_date = df_row[1] - dt.timedelta(milliseconds=1)
+            c[df_row[0]:end_date] = df_row[2]
         df = c.to_frame()
         df.reset_index(inplace=True)
         df.index.name = self.auto_index_name
