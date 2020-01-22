@@ -2043,7 +2043,7 @@ class CalcPipeline:
         self.entity_type = entity_type
         self.set_stages(stages)
         self.log_pipeline_stages()
-        warnings.warn("CalcPipeline is deprecated. Replaced by JobController.", DeprecationWarning)
+        #warnings.warn("CalcPipeline is deprecated. Replaced by JobController.", DeprecationWarning)
 
     def add_expression(self, name, expression):
         '''

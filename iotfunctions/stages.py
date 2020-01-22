@@ -15,7 +15,7 @@ import json
 import datetime as dt
 import numpy as np
 from sqlalchemy import (MetaData, Table)
-from .util import MessageHub
+from .util import MessageHub, asList
 from .exceptions import StageException, DataWriterException
 
 # Kohlmann verify location of the following constants
@@ -41,14 +41,29 @@ class ProduceAlerts(object):
     is_system_function = True
     produces_output_items = False
 
-    def __init__(self, dms, alerts, **kwargs):
-        self.name = dms.logical_name
+    def __init__(self, dms, alerts=None, all_cols=None, **kwargs):
+
+        try:
+            self.logical_name = dms.logical_name
+        except AttributeError:
+            self.logical_name = dms.entity_type
+
         if dms is None:
             raise RuntimeError("argument dms must be provided")
-        if alerts is None:
-            raise RuntimeError("argument alerts must be provided")
+        if alerts is None and all_cols is None:
+            raise RuntimeError("either alerts argument or all_cols arguments must be provided")
         self.dms = dms
-        self.alerts = alerts
+        self.alerts = []
+        if alerts is None:
+            if all_cols is not None:
+                for alert_data_item in asList(all_cols):
+                    # self.alerts.append(alert)
+                    metadata = self.dms.data_items.get(alert_data_item)
+                    if metadata is not None:
+                        if DATA_ITEM_TAG_ALERT in metadata.get(DATA_ITEM_TAGS_KEY, []):
+                            self.alerts.append(alert_data_item)
+        else:
+            self.alerts = alerts
         self.messagehub = MessageHub()
 
     def __str__(self):
@@ -85,11 +100,11 @@ class ProduceAlerts(object):
                         # publish alert format
                         # key: <tenant-id>|<entity-type-name>|<alert-name>
                         # value: json document containing all metrics at the same time / same device / same grain
-                        key = '%s|%s|%s' % (self.dms.tenant_id, self.name, alert)
+                        key = '%s|%s|%s' % (self.dms.tenant_id, self.logical_name, alert)
                         value = self.get_json_values(index_names, index_value, row)
                         msg_and_keys.append((key, value))
         else:
-            logger.debug("No alerts to produce for %s." % self.name)
+            logger.debug("No alerts to produce for %s." % self.logical_name)
             return df
 
         if len(msg_and_keys) > 0:

@@ -228,9 +228,6 @@ class EntityType(object):
         except AttributeError:
             self.logical_name = name
 
-        # name = name.lower()
-        # name = name.replace(' ', '_')
-        # name = name.replace('-', '_')
         if db.db_type == 'db2':
             name = name.upper()
         else:

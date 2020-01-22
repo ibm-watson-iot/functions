@@ -51,7 +51,7 @@ except BaseException:
 else:
     IBMBOTO_INSTALLED = True
 
-FLUSH_PRODUCER_EVERY = 1000
+FLUSH_PRODUCER_EVERY = 500
 
 MH_USER = os.environ.get('MH_USER')
 MH_PASSWORD = os.environ.get('MH_PASSWORD')
@@ -442,6 +442,10 @@ def log_df_info(df, msg, include_data=False):
         logger.warning('dataframe contents not logged due to an unknown logging error')
         return ''
 
+def asList(x):
+    if not isinstance(x, list):
+        x = [x]
+    return x
 
 class CosClient:
     '''
