@@ -1830,7 +1830,7 @@ class Database(object):
             query = query.filter(self.get_column_object(table, timestamp_col) < end_ts)
         if not entities is None:
             query = query.filter(table.c[deviceid_col].in_(entities))
-        
+
         for d, members in list(filters.items()):
             try:
                 col_obj = self.get_column_object(table, d)
@@ -1842,8 +1842,7 @@ class Database(object):
             if isinstance(members, str):
                 members = [members]
             if not isinstance(members, list):
-                raise ValueError(
-                    'Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
+                raise ValueError('Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
             elif len(members) == 1:
                 query = query.filter(col_obj == members[0])
             elif len(members) == 0:
@@ -2635,7 +2634,7 @@ class BaseTable(object):
     def __init__(self, name, database, *args, **kw):
         as_keywords = ['_timestamp', '_timestamp_col', '_activities', '_freq', '_entity_id', '_df_index_entity_id',
                        '_tenant_id']
-        #self.name = name
+        # self.name = name
         self.database = database
         # the keyword arguments may contain properties and sql alchemy dialect specific options
         # set them in child classes before calling super._init__()

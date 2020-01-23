@@ -37,6 +37,34 @@ DATA_ITEM_TAGS_KEY = 'tags'
 logger = logging.getLogger(__name__)
 
 
+class PersistColumns:
+
+    def __init__(self, dms, sources=None):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if dms is None:
+            raise RuntimeError("argument dms must be provided")
+        if sources is None:
+            raise RuntimeError("argument sources must be provided")
+        self.dms = dms
+        self.sources = asList(sources)
+
+    def execute(self, df):
+        self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
+
+        t1 = dt.datetime.now()
+        self.dms.store_derived_metrics(df[list(set(self.sources) & set(df.columns))]);
+        t2 = dt.datetime.now()
+        if self.dms.production_mode:
+            self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
+        self.dms.create_checkpoint_entries(df)
+        t3 = dt.datetime.now()
+        if self.dms.production_mode:
+            self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
+
+        return df
+
+
 class ProduceAlerts(object):
     is_system_function = True
     produces_output_items = False
@@ -137,6 +165,59 @@ class ProduceAlerts(object):
         updated_value = json.loads(value)
         updated_value["index"] = index_json
         return json.dumps(updated_value, default=self._serialize_converter)
+
+
+class RecordUsage:
+
+    def __init__(self, dms, function_kpi_generated, start_ts, completed=False):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if dms is None:
+            raise RuntimeError("argument dms must be provided")
+        if function_kpi_generated is None or not isinstance(function_kpi_generated, list):
+            raise RuntimeError("argument function_kpi_generated must be provided as a list")
+        if start_ts is None:
+            raise RuntimeError("argument start_ts must be provided")
+
+        self.dms = dms
+        self.function_kpi_generated = function_kpi_generated
+        self.start_ts = start_ts
+        self.completed = completed
+
+    def execute(self, df, *args, **kwargs):
+        if self.dms.production_mode:
+            end_ts = None
+            if self.completed:
+                end_ts = pd.Timestamp('today')
+
+            usage = []
+            for fname, kfname, kpis, kpiFunctionId in self.function_kpi_generated:
+                total_records = None
+                if self.completed:
+                    total_records = 0
+                    for kpi in kpis:
+                        try:
+                            records = df[kpi].dropna().shape[0]
+                            total_records += records
+                            self.logger.info('fname=%s, kpi=%s, records=%d' % (fname, kpi, records))
+                        except KeyError:
+                            self.logger.info('not able to calculate usage for the %s ' % kpi)
+                usage.append({"entityTypeName": self.dms.entity_type, "kpiFunctionName": kfname,
+                              "startTimestamp": self.start_ts.value // 1000000,
+                              "endTimestamp": (end_ts.value // 1000000) if self.completed else None,
+                              "numberOfResultsProcessed": total_records, })
+
+            self.logger.info('usage_records=%s' % str(usage))
+
+            if len(usage) > 0:
+                # util.api_request(USAGE_REQUEST_TEMPLATE.format(self.dms.tenant_id), method='post', json=usage)
+                try:
+                    self.dms.db.http_request(object_type='usage', object_name='', request='POST', payload=usage)
+                except BaseException as e:
+                    msg = 'Unable to write usage. %s' % str(e)
+                    self.logger.error(msg)
+
+        return df
 
 
 class DataWriter(object):
