@@ -224,7 +224,7 @@ class Database(object):
             self.session = None
         self.metadata = MetaData(self.connection)
         logger.debug('Db connection established')
-        self.http = urllib3.PoolManager()
+        self.http = urllib3.PoolManager(timeout=30.0)
         try:
             self.cos_client = CosClient(self.credentials)
         except KeyError:
