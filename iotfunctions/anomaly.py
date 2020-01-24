@@ -227,6 +227,7 @@ class SpectralAnomalyScore(BaseTransformer):
             if temperature.size <= self.windowsize:
                 logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
                 # df_copy.loc[[entity]] = 0.0001
+                dfe[self.output_item] = 0.0001
             else:
                 logger.debug(str(temperature.size) + str(self.windowsize))
 
@@ -250,10 +251,15 @@ class SpectralAnomalyScore(BaseTransformer):
                     lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
 
                     # Compute energy = frequency * spectral density over time in decibel
-                    lowsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
-                                                lowfrequency_temperature)) + SmallEnergy)
-                    highsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
-                                                 highfrequency_temperature)) + SmallEnergy)
+                    # lowsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
+                    #                             lowfrequency_temperature)) + SmallEnergy)
+                    # highsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
+                    #                              highfrequency_temperature)) + SmallEnergy)
+
+                    lowsignal_energy = np.dot(spectral_density_temperature.T, lowfrequency_temperature)
+                    highsignal_energy = np.dot(spectral_density_temperature.T, highfrequency_temperature)
+                    lowsignal_energy[lowsignal_energy < 0] = 0
+                    highsignal_energy[highsignal_energy < 0] = 0
 
                     # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
                     #    standardizing
@@ -284,7 +290,7 @@ class SpectralAnomalyScore(BaseTransformer):
                     # compute distance to elliptic envelope
                     dfe[self.output_item] = 0.0004
 
-                    # ets_zscore = ellEnv.decision_function(twoDimsignal_energy, raw_values=True).copy()
+                    #ets_zscore = np.maximum(ellEnv.decision_function(twoDimsignal_energy).copy(), -0.1)
                     ets_zscore = ellEnv.decision_function(twoDimsignal_energy).copy()
 
                     logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
@@ -893,13 +899,18 @@ class SimpleAnomaly(BaseRegressor):
 
     def execute(self, df):
 
-        df = super().execute(df)
-        for i, t in enumerate(self.targets):
-            prediction = self.predictions[i]
-            df['_diff_'] = (df[t] - df[prediction]).abs()
-            alert = AlertHighValue(input_item='_diff_', upper_threshold=self.threshold, alert_name=self.alerts[i])
-            alert.set_entity_type(self.get_entity_type())
-            df = alert.execute(df)
+        try:
+            df_new = super().execute(df)
+            df = df_new
+            for i, t in enumerate(self.targets):
+                prediction = self.predictions[i]
+                df['_diff_'] = (df[t] - df[prediction]).abs()
+                alert = AlertHighValue(input_item='_diff_', upper_threshold=self.threshold, alert_name=self.alerts[i])
+                alert.set_entity_type(self.get_entity_type())
+                df = alert.execute(df)
+        except Exception as e:
+            logger.info('Simple Anomaly failed with: ' + str(e))
+            pass
 
         return df
 
