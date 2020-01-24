@@ -17,7 +17,6 @@ import inspect
 import sys
 import importlib
 import datetime
-
 import pandas as pd
 import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
@@ -33,6 +32,7 @@ from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
 # Table reflection of SqlAlchemy on DB2 returns DB2-specific type DOUBLE instead of SQL standard type FLOAT
@@ -296,7 +296,7 @@ class Database(object):
 
         logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
 
-        self.http = urllib3.PoolManager()
+        self.http = urllib3.PoolManager(timeout=30.0)
         try:
             self.cos_client = CosClient(self.credentials)
         except KeyError:

@@ -1190,7 +1190,7 @@ class BaseFunction(object):
         if not credentials is None:
             msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, or omit credentials to use credentials associated with the Database object for the function'
             logger.info(msg)
-            http = urllib3.PoolManager()
+            http = urllib3.PoolManager(timeout=30.0)
             encoded_payload = json.dumps(payload).encode('utf-8')
             if show_metadata or metadata_only:
                 print(encoded_payload)

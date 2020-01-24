@@ -12,9 +12,11 @@
 import logging
 import pandas as pd
 import json
+import ibm_db
 import datetime as dt
 import numpy as np
 from sqlalchemy import (MetaData, Table)
+from . import dbhelper
 from .util import MessageHub, asList
 from .exceptions import StageException, DataWriterException
 
@@ -81,18 +83,24 @@ class ProduceAlerts(object):
         if alerts is None and all_cols is None:
             raise RuntimeError("either alerts argument or all_cols arguments must be provided")
         self.dms = dms
+        self.is_postgres_sql = dms.is_postgres_sql
+        self.db_connection = dms.db_connection
+        self.schema = dms.schema
+        self.alert_to_kpi_input_dict = dict()
         self.alerts = []
         if alerts is None:
             if all_cols is not None:
                 for alert_data_item in asList(all_cols):
-                    # self.alerts.append(alert)
-                    metadata = self.dms.data_items.get(alert_data_item)
+                    metadata = dms.data_items.get(alert_data_item)
                     if metadata is not None:
                         if DATA_ITEM_TAG_ALERT in metadata.get(DATA_ITEM_TAGS_KEY, []):
                             self.alerts.append(alert_data_item)
+                            kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
+                            self.alert_to_kpi_input_dict[alert_data_item] = kpi_func_dto.get('input')
+
         else:
             self.alerts = alerts
-        self.messagehub = MessageHub()
+        self.message_hub = MessageHub()
 
     def __str__(self):
 
@@ -102,43 +110,46 @@ class ProduceAlerts(object):
 
         logger.debug('alerts_to_produce = %s ' % str(self.alerts))
 
-        msg_and_keys = []
+        key_and_msg = []
         filtered_alerts = []
         alert_filter_expression = None
 
         if len(self.alerts) > 0:  # no alert, do iterate which is slow
 
             # pre-filtering the data frame to be just those rows with True alert column values because iterating through the whole data frame is a slow process.
-            for alert in self.alerts:
-                if alert in df.columns:
+            for alert_name in self.alerts:
+                if alert_name in df.columns:
                     if alert_filter_expression is None:
-                        alert_filter_expression = alert + " == True"
+                        alert_filter_expression = alert_name + " == True"
                     else:
-                        alert_filter_expression = alert_filter_expression + " | " + alert + " == True"
-                    filtered_alerts.append(alert)
+                        alert_filter_expression = alert_filter_expression + " | " + alert_name + " == True"
+                    filtered_alerts.append(alert_name)
 
             filtered_df = df.query(alert_filter_expression)
             index_names = filtered_df.index.names
 
             # for df_row in filtered_df.itertuples():
             for index_value, row in filtered_df.iterrows():
-                for alert in filtered_alerts:
+                for alert_name in filtered_alerts:
                     # derived_value = getattr(payload, alert)
-                    if row[alert]:
+                    if row[alert_name]:
+                        rowVals = list()
                         # publish alert format
                         # key: <tenant-id>|<entity-type-name>|<alert-name>
                         # value: json document containing all metrics at the same time / same device / same grain
-                        key = '%s|%s|%s' % (self.dms.tenant_id, self.logical_name, alert)
+                        key = '%s|%s|%s' % (self.dms.tenant_id, self.logical_name, alert_name)
                         value = self.get_json_values(index_names, index_value, row)
-                        msg_and_keys.append((key, value))
+                        key_and_msg.append((key, value))
+
+
         else:
             logger.debug("No alerts to produce for %s." % self.logical_name)
             return df
 
-        if len(msg_and_keys) > 0:
-            self.messagehub.produce_batch_alert_to_default_topic(msg_and_keys=msg_and_keys)
+        if len(key_and_msg) > 0:
+            self.message_hub.produce_batch_alert_to_default_topic(msg_and_keys=key_and_msg)
 
-        logger.info("Total alerts produced = %d " % len(msg_and_keys))
+        logger.info("Total alerts produced = %d " % len(key_and_msg))
 
         return df
 
@@ -165,6 +176,19 @@ class ProduceAlerts(object):
         updated_value = json.loads(value)
         updated_value["index"] = index_json
         return json.dumps(updated_value, default=self._serialize_converter)
+
+    def insert_data_into_alert_table(self, value_list=[]):
+
+        if self.is_postgres_sql:
+
+            sql = "insert into " + self.schema + ".dm_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status') values (%s, %s, %s, %s, %s, %s, 'New') on conflict on constraint uc_dm_alert do nothing"
+            dbhelper.execute_batch(self.db_connection, sql, value_list)
+
+        else:
+            sql = "insert into " + self.schema + ".DM_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS') values (?, ?, ?, ?, ?, ?, 'New') on conflict on constraint UC_DM_ALERT do nothing"
+            stmt = ibm_db.prepare(self.db_connection, sql)
+            res = ibm_db.execute_many(stmt, tuple(value_list))
+            saved = res if res is not None else ibm_db.num_rows(stmt)
 
 
 class RecordUsage:
