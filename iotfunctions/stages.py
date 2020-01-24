@@ -74,16 +74,16 @@ class ProduceAlerts(object):
     def __init__(self, dms, alerts=None, all_cols=None, **kwargs):
 
         try:
-            self.logical_name = dms.logical_name
+            self.entity_type_name = dms.logical_name
         except AttributeError:
-            self.logical_name = dms.entity_type
+            self.entity_type_name = dms.entity_type
 
         if dms is None:
             raise RuntimeError("argument dms must be provided")
         if alerts is None and all_cols is None:
             raise RuntimeError("either alerts argument or all_cols arguments must be provided")
         self.dms = dms
-        self.is_postgres_sql = dms.is_postgres_sql
+        self.is_postgre_sql = dms.is_postgre_sql
         self.db_connection = dms.db_connection
         self.schema = dms.schema
         self.alert_to_kpi_input_dict = dict()
@@ -116,6 +116,8 @@ class ProduceAlerts(object):
 
         if len(self.alerts) > 0:  # no alert, do iterate which is slow
 
+            value_list = []
+
             # pre-filtering the data frame to be just those rows with True alert column values because iterating through the whole data frame is a slow process.
             for alert_name in self.alerts:
                 if alert_name in df.columns:
@@ -132,18 +134,19 @@ class ProduceAlerts(object):
             for index_value, row in filtered_df.iterrows():
                 for alert_name in filtered_alerts:
                     # derived_value = getattr(payload, alert)
+                    kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
                     if row[alert_name]:
-                        rowVals = list()
                         # publish alert format
                         # key: <tenant-id>|<entity-type-name>|<alert-name>
                         # value: json document containing all metrics at the same time / same device / same grain
-                        key = '%s|%s|%s' % (self.dms.tenant_id, self.logical_name, alert_name)
+                        key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
                         value = self.get_json_values(index_names, index_value, row)
                         key_and_msg.append((key, value))
-
+                        value_list.append((self.entity_type_name, alert_name, kpi_input.get('severity'),
+                                           kpi_input.get('priority'), kpi_input.get('domain_status')))
 
         else:
-            logger.debug("No alerts to produce for %s." % self.logical_name)
+            logger.debug("No alerts to produce for %s." % self.entity_type_name)
             return df
 
         if len(key_and_msg) > 0:
@@ -179,7 +182,7 @@ class ProduceAlerts(object):
 
     def insert_data_into_alert_table(self, value_list=[]):
 
-        if self.is_postgres_sql:
+        if self.is_postgre_sql:
 
             sql = "insert into " + self.schema + ".dm_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status') values (%s, %s, %s, %s, %s, %s, 'New') on conflict on constraint uc_dm_alert do nothing"
             dbhelper.execute_batch(self.db_connection, sql, value_list)
