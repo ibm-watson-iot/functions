@@ -17,7 +17,6 @@ import inspect
 import sys
 import importlib
 import datetime
-
 import pandas as pd
 import subprocess
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
@@ -33,6 +32,7 @@ from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
 # Table reflection of SqlAlchemy on DB2 returns DB2-specific type DOUBLE instead of SQL standard type FLOAT
@@ -296,7 +296,7 @@ class Database(object):
 
         logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
 
-        self.http = urllib3.PoolManager()
+        self.http = urllib3.PoolManager(timeout=30.0)
         try:
             self.cos_client = CosClient(self.credentials)
         except KeyError:
@@ -1830,7 +1830,7 @@ class Database(object):
             query = query.filter(self.get_column_object(table, timestamp_col) < end_ts)
         if not entities is None:
             query = query.filter(table.c[deviceid_col].in_(entities))
-        
+
         for d, members in list(filters.items()):
             try:
                 col_obj = self.get_column_object(table, d)
@@ -1842,8 +1842,7 @@ class Database(object):
             if isinstance(members, str):
                 members = [members]
             if not isinstance(members, list):
-                raise ValueError(
-                    'Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
+                raise ValueError('Invalid filter on %s. Provide a list of members to filter on not %s' % (d, members))
             elif len(members) == 1:
                 query = query.filter(col_obj == members[0])
             elif len(members) == 0:
@@ -2635,7 +2634,7 @@ class BaseTable(object):
     def __init__(self, name, database, *args, **kw):
         as_keywords = ['_timestamp', '_timestamp_col', '_activities', '_freq', '_entity_id', '_df_index_entity_id',
                        '_tenant_id']
-        #self.name = name
+        # self.name = name
         self.database = database
         # the keyword arguments may contain properties and sql alchemy dialect specific options
         # set them in child classes before calling super._init__()

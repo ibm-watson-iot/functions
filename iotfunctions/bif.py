@@ -111,7 +111,7 @@ class AlertExpression(BaseEvent):
     Create alerts that are triggered when data values the expression is True
     '''
 
-    def __init__(self, expression, alert_name):
+    def __init__(self, expression, alert_name, **kwargs):
         self.expression = expression
         self.alert_name = alert_name
         super().__init__()
@@ -157,7 +157,7 @@ class AlertOutOfRange(BaseEvent):
     """
 
     def __init__(self, input_item, lower_threshold=None, upper_threshold=None, output_alert_upper='output_alert_upper',
-                 output_alert_lower='output_alert_lower'):
+                 output_alert_lower='output_alert_lower', **kwargs):
 
         self.input_item = input_item
         if not lower_threshold is None:
@@ -212,7 +212,7 @@ class AlertHighValue(BaseEvent):
     Fire alert when metric exceeds an upper threshold'.
     """
 
-    def __init__(self, input_item, upper_threshold=None, alert_name='alert_name', ):
+    def __init__(self, input_item, upper_threshold=None, alert_name='alert_name', **kwargs):
         self.input_item = input_item
         self.upper_threshold = float(upper_threshold)
         self.alert_name = alert_name
@@ -250,7 +250,7 @@ class AlertLowValue(BaseEvent):
     Fire alert when metric goes below a threshold'.
     """
 
-    def __init__(self, input_item, lower_threshold=None, alert_name='alert_name', ):
+    def __init__(self, input_item, lower_threshold=None, alert_name='alert_name', **kwargs):
         self.input_item = input_item
         self.lower_threshold = float(lower_threshold)
         self.alert_name = alert_name
@@ -1383,7 +1383,7 @@ class ShiftCalendar(BaseTransformer):
             raise ValueError('Start date is required when building data for a shift calendar')
         if end_date is None:
             raise ValueError('End date is required when building data for a shift calendar')
-        
+
         # Subtract a day from start_date and add a day to end_date to provide shift information for the full
         # calendar days at left and right boundary.
         # Example: shift1 = [22:00,10:00], shift2 = [10:00, 22:00], data point = '2019-11-22 23:01:00' ==> data point
@@ -1391,7 +1391,7 @@ class ShiftCalendar(BaseTransformer):
         one_day = pd.DateOffset(days=1)
         start_date = start_date.date() - one_day
         end_date = end_date.date() + one_day
-        dates= pd.date_range(start=start_date, end=end_date, freq='1D').tolist()
+        dates = pd.date_range(start=start_date, end=end_date, freq='1D').tolist()
         dfs = []
         for shift_id, start_end in list(self.shift_definition.items()):
             data = {}
