@@ -12,9 +12,11 @@
 import logging
 import pandas as pd
 import json
+import sys
 import ibm_db
 import datetime as dt
 import numpy as np
+from alive_progress import alive_bar
 from sqlalchemy import (MetaData, Table)
 from . import dbhelper
 from .util import MessageHub, asList
@@ -30,11 +32,9 @@ DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
 DATA_ITEM_TRANSIENT_KEY = 'transient'
 DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
 DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
-
-METADATA_TYPE_KEY = 'type'
-
 DATA_ITEM_TAG_ALERT = 'ALERT'
 DATA_ITEM_TAGS_KEY = 'tags'
+DATA_ITEM_TYPE_KEY = 'type'
 
 logger = logging.getLogger(__name__)
 
@@ -106,11 +106,12 @@ class ProduceAlerts(object):
 
         return 'System generated ProduceAlerts stage'
 
-    def execute(self, df):
+    def execute(self, df, start_ts=None, end_ts=None):
 
         logger.debug('alerts_to_produce = %s ' % str(self.alerts))
 
-        key_and_msg = []
+        key_and_msg_and_db_parameter = []
+        updated_key_and_msg = []
         filtered_alerts = []
         alert_filter_expression = None
 
@@ -141,18 +142,20 @@ class ProduceAlerts(object):
                         # value: json document containing all metrics at the same time / same device / same grain
                         key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
                         value = self.get_json_values(index_names, index_value, row)
-                        key_and_msg.append((key, value))
-                        value_list.append((self.entity_type_name, alert_name, kpi_input.get('severity'),
-                                           kpi_input.get('priority'), kpi_input.get('domain_status')))
+                        db_insert_parameter = (index_value[0], index_value[1], self.entity_type_name, alert_name,
+                                               kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                               kpi_input.get('Status', None))
+                        key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
 
         else:
             logger.debug("No alerts to produce for %s." % self.entity_type_name)
             return df
 
-        if len(key_and_msg) > 0:
-            self.message_hub.produce_batch_alert_to_default_topic(msg_and_keys=key_and_msg)
+        if len(key_and_msg_and_db_parameter) > 0:
+            updated_key_and_msg = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
 
-        logger.info("Total alerts produced = %d " % len(key_and_msg))
+        if len(updated_key_and_msg) > 0:
+            self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=updated_key_and_msg)
 
         return df
 
@@ -180,18 +183,41 @@ class ProduceAlerts(object):
         updated_value["index"] = index_json
         return json.dumps(updated_value, default=self._serialize_converter)
 
-    def insert_data_into_alert_table(self, value_list=[]):
+    def insert_data_into_alert_table(self, key_and_msg_and_db_parameter=[]):
+        updated_key_and_msg = []
+        postgres_sql = "insert into " + self.schema + ".dm_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.schema + ".DM_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
+        start_time = dt.datetime.now()
+        with alive_bar(len(key_and_msg_and_db_parameter)) as bar:
 
-        if self.is_postgre_sql:
+            for key, msg, db_params in key_and_msg_and_db_parameter:
+                try:
+                    bar()
+                    if self.is_postgre_sql:
+                        dbhelper.execute_postgre_sql_query(self.db_connection, sql=postgres_sql, params=db_params)
+                    else:
+                        stmt = ibm_db.prepare(self.db_connection, db2_sql)
+                        for i, param in enumerate(iterable=db_params, start=1):
+                            ibm_db.bind_param(stmt, i, param)
 
-            sql = "insert into " + self.schema + ".dm_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status') values (%s, %s, %s, %s, %s, %s, 'New') on conflict on constraint uc_dm_alert do nothing"
-            dbhelper.execute_batch(self.db_connection, sql, value_list)
+                        res = ibm_db.execute(stmt)
 
-        else:
-            sql = "insert into " + self.schema + ".DM_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS') values (?, ?, ?, ?, ?, ?, 'New') on conflict on constraint UC_DM_ALERT do nothing"
-            stmt = ibm_db.prepare(self.db_connection, sql)
-            res = ibm_db.execute_many(stmt, tuple(value_list))
-            saved = res if res is not None else ibm_db.num_rows(stmt)
+                    updated_key_and_msg.append((key, msg))
+
+                except Exception as ex:
+                    if self.is_postgre_sql:
+                        if ex.pgcode == '23505':
+                            continue
+                    else:
+                        if "SQLSTATE=23505" in ex.args[0]:
+                            continue
+                    logger.warning(ex)
+
+            end_time = dt.datetime.now()
+            logger.info("Total time taken to insert the alert to database = %s seconds." % (
+                    end_time - start_time).total_seconds())
+
+        return updated_key_and_msg
 
 
 class RecordUsage:
@@ -558,7 +584,7 @@ class DataWriterSqlAlchemy(DataWriter):
         first_loop_cycle = True
         for col_name, col_type in df.dtypes.iteritems():
             metadata = self.data_item_metadata.get(col_name)
-            if metadata is not None and metadata.get(METADATA_TYPE_KEY).upper() == 'DERIVED_METRIC':
+            if metadata is not None and metadata.get(DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
                 if metadata.get(DATA_ITEM_TRANSIENT_KEY, False) is False:
                     table_name = metadata.get(DATA_ITEM_SOURCETABLE_KEY)
                     data_item_type = metadata.get(DATA_ITEM_COLUMN_TYPE_KEY)
