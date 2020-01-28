@@ -12,11 +12,9 @@
 import logging
 import pandas as pd
 import json
-import sys
 import ibm_db
 import datetime as dt
 import numpy as np
-from alive_progress import alive_bar
 from sqlalchemy import (MetaData, Table)
 from . import dbhelper
 from .util import MessageHub, asList
@@ -152,6 +150,9 @@ class ProduceAlerts(object):
             return df
 
         if len(key_and_msg_and_db_parameter) > 0:
+            logger.debug("Processing %s alerts. This alert may contain duplicates, "
+                         "so need to process the alert before inserting into Database. " % len(
+                key_and_msg_and_db_parameter))
             updated_key_and_msg = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
 
         if len(updated_key_and_msg) > 0:
@@ -188,34 +189,33 @@ class ProduceAlerts(object):
         postgres_sql = "insert into " + self.schema + ".dm_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
         db2_sql = "insert into " + self.schema + ".DM_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
         start_time = dt.datetime.now()
-        with alive_bar(len(key_and_msg_and_db_parameter)) as bar:
 
-            for key, msg, db_params in key_and_msg_and_db_parameter:
-                try:
-                    bar()
-                    if self.is_postgre_sql:
-                        dbhelper.execute_postgre_sql_query(self.db_connection, sql=postgres_sql, params=db_params)
-                    else:
-                        stmt = ibm_db.prepare(self.db_connection, db2_sql)
-                        for i, param in enumerate(iterable=db_params, start=1):
-                            ibm_db.bind_param(stmt, i, param)
+        for key, msg, db_params in key_and_msg_and_db_parameter:
+            try:
+                if self.is_postgre_sql:
+                    dbhelper.execute_postgre_sql_query(self.db_connection, sql=postgres_sql, params=db_params)
+                else:
+                    stmt = ibm_db.prepare(self.db_connection, db2_sql)
+                    for i, param in enumerate(iterable=db_params, start=1):
+                        ibm_db.bind_param(stmt, i, param)
 
-                        res = ibm_db.execute(stmt)
+                    ibm_db.execute(stmt)
 
-                    updated_key_and_msg.append((key, msg))
+                updated_key_and_msg.append((key, msg))
 
-                except Exception as ex:
-                    if self.is_postgre_sql:
-                        if ex.pgcode == '23505':
-                            continue
-                    else:
-                        if "SQLSTATE=23505" in ex.args[0]:
-                            continue
-                    logger.warning(ex)
+            except Exception as ex:
+                if self.is_postgre_sql:
+                    if ex.pgcode == '23505':
+                        continue
+                else:
+                    if "SQLSTATE=23505" in ex.args[0]:
+                        continue
 
-            end_time = dt.datetime.now()
-            logger.info("Total time taken to insert the alert to database = %s seconds." % (
-                    end_time - start_time).total_seconds())
+                raise ex
+
+        end_time = dt.datetime.now()
+        logger.info(
+            "Total time taken to insert the alert to database = %s seconds." % (end_time - start_time).total_seconds())
 
         return updated_key_and_msg
 

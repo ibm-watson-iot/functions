@@ -23,8 +23,7 @@ setup(
         'pyod==0.7.5',
         'scikit-image==0.16.2',
         'sqlalchemy==1.3.10',
-        'tabulate==0.8.5',
-        'alive-progress==1.3.3'
+        'tabulate==0.8.5'
     ],
     extras_require = {
         'kafka':  ['confluent-kafka==0.11.5']
