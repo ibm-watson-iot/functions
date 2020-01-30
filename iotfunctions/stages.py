@@ -12,10 +12,12 @@
 import logging
 import pandas as pd
 import json
+import ibm_db
 import datetime as dt
 import numpy as np
 from sqlalchemy import (MetaData, Table)
-from .util import MessageHub
+from . import dbhelper
+from .util import MessageHub, asList
 from .exceptions import StageException, DataWriterException
 
 # Kohlmann verify location of the following constants
@@ -28,74 +30,146 @@ DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
 DATA_ITEM_TRANSIENT_KEY = 'transient'
 DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
 DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
-
-METADATA_TYPE_KEY = 'type'
-
 DATA_ITEM_TAG_ALERT = 'ALERT'
+DATA_ITEM_TAG_ALERT_DB = 'ALERT_DB'
 DATA_ITEM_TAGS_KEY = 'tags'
+DATA_ITEM_TYPE_KEY = 'type'
 
 logger = logging.getLogger(__name__)
+
+
+class PersistColumns:
+
+    def __init__(self, dms, sources=None):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if dms is None:
+            raise RuntimeError("argument dms must be provided")
+        if sources is None:
+            raise RuntimeError("argument sources must be provided")
+        self.dms = dms
+        self.sources = asList(sources)
+
+    def execute(self, df):
+        self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
+
+        t1 = dt.datetime.now()
+        self.dms.store_derived_metrics(df[list(set(self.sources) & set(df.columns))]);
+        t2 = dt.datetime.now()
+        if self.dms.production_mode:
+            self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
+        self.dms.create_checkpoint_entries(df)
+        t3 = dt.datetime.now()
+        if self.dms.production_mode:
+            self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
+
+        return df
 
 
 class ProduceAlerts(object):
     is_system_function = True
     produces_output_items = False
 
-    def __init__(self, dms, alerts, **kwargs):
-        self.name = dms.logical_name
+    def __init__(self, dms, alerts=None, all_cols=None, **kwargs):
+
+        try:
+            self.entity_type_name = dms.logical_name
+        except AttributeError:
+            self.entity_type_name = dms.entity_type
+
         if dms is None:
             raise RuntimeError("argument dms must be provided")
-        if alerts is None:
-            raise RuntimeError("argument alerts must be provided")
+        if alerts is None and all_cols is None:
+            raise RuntimeError("either alerts argument or all_cols arguments must be provided")
         self.dms = dms
-        self.alerts = alerts
-        self.messagehub = MessageHub()
+        self.is_postgre_sql = dms.is_postgre_sql
+        self.db_connection = dms.db_connection
+        self.schema = dms.schema
+        self.alert_to_kpi_input_dict = dict()
+        self.alerts_to_message_hub = []
+        self.alerts_to_database = []
+        if alerts is None:
+            if all_cols is not None:
+                for alert_data_item in asList(all_cols):
+                    metadata = dms.data_items.get(alert_data_item)
+                    if metadata is not None:
+                        if DATA_ITEM_TAG_ALERT in metadata.get(DATA_ITEM_TAGS_KEY, []):
+                            self.alerts_to_message_hub.append(alert_data_item)
+
+                        if DATA_ITEM_TAG_ALERT_DB in metadata.get(DATA_ITEM_TAGS_KEY, []):
+                            self.alerts_to_database.append(alert_data_item)
+                            kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
+                            self.alert_to_kpi_input_dict[alert_data_item] = kpi_func_dto.get('input')
+
+
+        else:
+            self.alerts_to_message_hub = alerts
+        self.message_hub = MessageHub()
 
     def __str__(self):
 
         return 'System generated ProduceAlerts stage'
 
-    def execute(self, df):
+    def execute(self, df, start_ts=None, end_ts=None):
 
-        logger.debug('alerts_to_produce = %s ' % str(self.alerts))
+        logger.info('alerts_to_produce into message hub = %s ' % str(self.alerts_to_message_hub))
+        logger.info('alerts_to_produce into database = %s ' % str(self.alerts_to_database))
 
-        msg_and_keys = []
-        filtered_alerts = []
-        alert_filter_expression = None
+        key_and_msg = []
+        key_and_msg_and_db_parameter = []
 
-        if len(self.alerts) > 0:  # no alert, do iterate which is slow
+        if len(self.alerts_to_message_hub) > 0:
 
-            # pre-filtering the data frame to be just those rows with True alert column values because iterating through the whole data frame is a slow process.
-            for alert in self.alerts:
-                if alert in df.columns:
+            filtered_alerts = []
+            alert_filter_expression = None
+
+            # pre-filtering the data frame to be just those rows with True alert column values.
+            # Iterating through the whole data frame is a slow process.
+            for alert_name in self.alerts_to_message_hub:
+                if alert_name in df.columns:
                     if alert_filter_expression is None:
-                        alert_filter_expression = alert + " == True"
+                        alert_filter_expression = alert_name + " == True"
                     else:
-                        alert_filter_expression = alert_filter_expression + " | " + alert + " == True"
-                    filtered_alerts.append(alert)
+                        alert_filter_expression = alert_filter_expression + " | " + alert_name + " == True"
+                    filtered_alerts.append(alert_name)
 
             filtered_df = df.query(alert_filter_expression)
             index_names = filtered_df.index.names
 
             # for df_row in filtered_df.itertuples():
             for index_value, row in filtered_df.iterrows():
-                for alert in filtered_alerts:
+                for alert_name in filtered_alerts:
                     # derived_value = getattr(payload, alert)
-                    if row[alert]:
+
+                    if row[alert_name]:
                         # publish alert format
                         # key: <tenant-id>|<entity-type-name>|<alert-name>
                         # value: json document containing all metrics at the same time / same device / same grain
-                        key = '%s|%s|%s' % (self.dms.tenant_id, self.name, alert)
+                        key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
                         value = self.get_json_values(index_names, index_value, row)
-                        msg_and_keys.append((key, value))
+                        key_and_msg.append((key, value))
+
+                        if alert_name in self.alerts_to_database:
+                            kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+                            db_insert_parameter = (index_value[0], index_value[1], self.entity_type_name, alert_name,
+                                                   kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                                   kpi_input.get('Status', None))
+                            key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
+
         else:
-            logger.debug("No alerts to produce for %s." % self.name)
+            logger.debug("No alerts to produce for %s." % self.entity_type_name)
             return df
 
-        if len(msg_and_keys) > 0:
-            self.messagehub.produce_batch_alert_to_default_topic(msg_and_keys=msg_and_keys)
+        if len(key_and_msg_and_db_parameter) > 0:
+            try:
+                self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
+            except Exception as ex:
+                # TODO:: Remove the exception once you create dm_wiot_as_alert table for all the tenant.
+                self.logger.warning('Inserting data into alert table failed: %s' % str(ex))
 
-        logger.info("Total alerts produced = %d " % len(msg_and_keys))
+        if len(key_and_msg) > 0:
+            # TODO:: Duplicate alert issue is still exist.
+            self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg)
 
         return df
 
@@ -122,6 +196,97 @@ class ProduceAlerts(object):
         updated_value = json.loads(value)
         updated_value["index"] = index_json
         return json.dumps(updated_value, default=self._serialize_converter)
+
+    def insert_data_into_alert_table(self, key_and_msg_and_db_parameter=[]):
+        logger.info("Processing %s alerts. This alert may contain duplicates, "
+                    "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
+        updated_key_and_msg = []
+        postgres_sql = "insert into " + self.schema + ".dm_wiot_as_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.schema + ".DM_WIOT_AS_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
+        start_time = dt.datetime.now()
+
+        for key, msg, db_params in key_and_msg_and_db_parameter:
+            try:
+                if self.is_postgre_sql:
+                    dbhelper.execute_postgre_sql_query(self.db_connection, sql=postgres_sql, params=db_params)
+                else:
+                    stmt = ibm_db.prepare(self.db_connection, db2_sql)
+                    for i, param in enumerate(iterable=db_params, start=1):
+                        ibm_db.bind_param(stmt, i, param)
+
+                    ibm_db.execute(stmt)
+
+                updated_key_and_msg.append((key, msg))
+
+            except Exception as ex:
+                if self.is_postgre_sql:
+                    if ex.pgcode == '23505':
+                        continue
+                else:
+                    if "SQLSTATE=23505" in ex.args[0]:
+                        continue
+
+                raise ex
+
+        end_time = dt.datetime.now()
+        logger.info("Total alerts produced to database = %d " % len(updated_key_and_msg))
+        logger.info(
+            "Total time taken to insert the alert to database = %s seconds." % (end_time - start_time).total_seconds())
+
+        return updated_key_and_msg
+
+
+class RecordUsage:
+
+    def __init__(self, dms, function_kpi_generated, start_ts, completed=False):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if dms is None:
+            raise RuntimeError("argument dms must be provided")
+        if function_kpi_generated is None or not isinstance(function_kpi_generated, list):
+            raise RuntimeError("argument function_kpi_generated must be provided as a list")
+        if start_ts is None:
+            raise RuntimeError("argument start_ts must be provided")
+
+        self.dms = dms
+        self.function_kpi_generated = function_kpi_generated
+        self.start_ts = start_ts
+        self.completed = completed
+
+    def execute(self, df, *args, **kwargs):
+        if self.dms.production_mode:
+            end_ts = None
+            if self.completed:
+                end_ts = pd.Timestamp('today')
+
+            usage = []
+            for fname, kfname, kpis, kpiFunctionId in self.function_kpi_generated:
+                total_records = None
+                if self.completed:
+                    total_records = 0
+                    for kpi in kpis:
+                        try:
+                            records = df[kpi].dropna().shape[0]
+                            total_records += records
+                            self.logger.info('fname=%s, kpi=%s, records=%d' % (fname, kpi, records))
+                        except KeyError:
+                            self.logger.info('not able to calculate usage for the %s ' % kpi)
+                usage.append({"entityTypeName": self.dms.entity_type, "kpiFunctionName": kfname,
+                              "startTimestamp": self.start_ts.value // 1000000,
+                              "endTimestamp": (end_ts.value // 1000000) if self.completed else None,
+                              "numberOfResultsProcessed": total_records, })
+
+            self.logger.info('usage_records=%s' % str(usage))
+
+            if len(usage) > 0:
+                # util.api_request(USAGE_REQUEST_TEMPLATE.format(self.dms.tenant_id), method='post', json=usage)
+                try:
+                    self.dms.db.http_request(object_type='usage', object_name='', request='POST', payload=usage)
+                except BaseException as e:
+                    msg = 'Unable to write usage. %s' % str(e)
+                    self.logger.error(msg)
+
+        return df
 
 
 class DataWriter(object):
@@ -335,11 +500,21 @@ class DataWriterSqlAlchemy(DataWriter):
         counter = 0
         sql_alchemy_timedelta = dt.timedelta()
         start_time = dt.datetime.utcnow()
-        # Loop over rows of data frame, loop over data item in rows
-        for df_row in df.itertuples():
-            ix = getattr(df_row, 'Index')
+        # Remember position of column in dataframe. Index starts at 1.
+        col_position = {}
+        for pos, col_name in enumerate(df.columns, 1):
+            col_position[col_name] = pos
+        # Loop over rows of data frame.
+        # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
+        # keywords and column names starting with underscore; both lead to renaming of column names in df_rows.
+        # Additionally, namedtuples are limited to 255 columns in itertuples(). We access the columns in df_row
+        # by index. Position starts at 1 because 0 is reserved for the row index.
+        for df_row in df.itertuples(index=True, name=None):
+            # Get index that is always at position 0 in df_row
+            ix = df_row[0]
+            # Loop over data item in rows
             for item_name, (item_type, table_name) in col_props:
-                derived_value = getattr(df_row, item_name)
+                derived_value = df_row[col_position[item_name]]
                 if pd.isna(derived_value):
                     continue
 
@@ -373,8 +548,8 @@ class DataWriterSqlAlchemy(DataWriter):
                     row[map[self.COLUMN_NAME_VALUE_TIMESTAMP]] = None
 
                 if helper_cols_avail:
-                    row[map[self.COLUMN_NAME_TIMESTAMP_MIN]] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MIN)
-                    row[map[self.COLUMN_NAME_TIMESTAMP_MAX]] = getattr(df_row, DataWriter.ITEM_NAME_TIMESTAMP_MAX)
+                    row[map[self.COLUMN_NAME_TIMESTAMP_MIN]] = df_row[col_position[DataWriter.ITEM_NAME_TIMESTAMP_MIN]]
+                    row[map[self.COLUMN_NAME_TIMESTAMP_MAX]] = df_row[col_position[DataWriter.ITEM_NAME_TIMESTAMP_MAX]]
 
                 # Add new row to the corresponding row list
                 row_list.append(row)
@@ -425,7 +600,7 @@ class DataWriterSqlAlchemy(DataWriter):
         first_loop_cycle = True
         for col_name, col_type in df.dtypes.iteritems():
             metadata = self.data_item_metadata.get(col_name)
-            if metadata is not None and metadata.get(METADATA_TYPE_KEY).upper() == 'DERIVED_METRIC':
+            if metadata is not None and metadata.get(DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
                 if metadata.get(DATA_ITEM_TRANSIENT_KEY, False) is False:
                     table_name = metadata.get(DATA_ITEM_SOURCETABLE_KEY)
                     data_item_type = metadata.get(DATA_ITEM_COLUMN_TYPE_KEY)
