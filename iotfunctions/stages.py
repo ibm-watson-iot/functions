@@ -31,6 +31,7 @@ DATA_ITEM_TRANSIENT_KEY = 'transient'
 DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
 DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
 DATA_ITEM_TAG_ALERT = 'ALERT'
+DATA_ITEM_TAG_ALERT_DB = 'ALERT_DB'
 DATA_ITEM_TAGS_KEY = 'tags'
 DATA_ITEM_TYPE_KEY = 'type'
 
@@ -85,19 +86,24 @@ class ProduceAlerts(object):
         self.db_connection = dms.db_connection
         self.schema = dms.schema
         self.alert_to_kpi_input_dict = dict()
-        self.alerts = []
+        self.alerts_to_message_hub = []
+        self.alerts_to_database = []
         if alerts is None:
             if all_cols is not None:
                 for alert_data_item in asList(all_cols):
                     metadata = dms.data_items.get(alert_data_item)
                     if metadata is not None:
                         if DATA_ITEM_TAG_ALERT in metadata.get(DATA_ITEM_TAGS_KEY, []):
-                            self.alerts.append(alert_data_item)
+                            self.alerts_to_message_hub.append(alert_data_item)
+
+                        if DATA_ITEM_TAG_ALERT_DB in metadata.get(DATA_ITEM_TAGS_KEY, []):
+                            self.alerts_to_database.append(alert_data_item)
                             kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
                             self.alert_to_kpi_input_dict[alert_data_item] = kpi_func_dto.get('input')
 
+
         else:
-            self.alerts = alerts
+            self.alerts_to_message_hub = alerts
         self.message_hub = MessageHub()
 
     def __str__(self):
@@ -106,19 +112,20 @@ class ProduceAlerts(object):
 
     def execute(self, df, start_ts=None, end_ts=None):
 
-        logger.debug('alerts_to_produce = %s ' % str(self.alerts))
+        logger.info('alerts_to_produce into message hub = %s ' % str(self.alerts_to_message_hub))
+        logger.info('alerts_to_produce into database = %s ' % str(self.alerts_to_database))
 
+        key_and_msg = []
         key_and_msg_and_db_parameter = []
-        updated_key_and_msg = []
-        filtered_alerts = []
-        alert_filter_expression = None
 
-        if len(self.alerts) > 0:  # no alert, do iterate which is slow
+        if len(self.alerts_to_message_hub) > 0:
 
-            value_list = []
+            filtered_alerts = []
+            alert_filter_expression = None
 
-            # pre-filtering the data frame to be just those rows with True alert column values because iterating through the whole data frame is a slow process.
-            for alert_name in self.alerts:
+            # pre-filtering the data frame to be just those rows with True alert column values.
+            # Iterating through the whole data frame is a slow process.
+            for alert_name in self.alerts_to_message_hub:
                 if alert_name in df.columns:
                     if alert_filter_expression is None:
                         alert_filter_expression = alert_name + " == True"
@@ -133,30 +140,36 @@ class ProduceAlerts(object):
             for index_value, row in filtered_df.iterrows():
                 for alert_name in filtered_alerts:
                     # derived_value = getattr(payload, alert)
-                    kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+
                     if row[alert_name]:
                         # publish alert format
                         # key: <tenant-id>|<entity-type-name>|<alert-name>
                         # value: json document containing all metrics at the same time / same device / same grain
                         key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
                         value = self.get_json_values(index_names, index_value, row)
-                        db_insert_parameter = (index_value[0], index_value[1], self.entity_type_name, alert_name,
-                                               kpi_input.get('Severity', None), kpi_input.get('Priority', None),
-                                               kpi_input.get('Status', None))
-                        key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
+                        key_and_msg.append((key, value))
+
+                        if alert_name in self.alerts_to_database:
+                            kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+                            db_insert_parameter = (index_value[0], index_value[1], self.entity_type_name, alert_name,
+                                                   kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                                   kpi_input.get('Status', None))
+                            key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
 
         else:
             logger.debug("No alerts to produce for %s." % self.entity_type_name)
             return df
 
         if len(key_and_msg_and_db_parameter) > 0:
-            logger.debug("Processing %s alerts. This alert may contain duplicates, "
-                         "so need to process the alert before inserting into Database. " % len(
-                key_and_msg_and_db_parameter))
-            updated_key_and_msg = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
+            try:
+                self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
+            except Exception as ex:
+                # TODO:: Remove the exception once you create dm_wiot_as_alert table for all the tenant.
+                self.logger.warning('Inserting data into alert table failed: %s' % str(ex))
 
-        if len(updated_key_and_msg) > 0:
-            self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=updated_key_and_msg)
+        if len(key_and_msg) > 0:
+            # TODO:: Duplicate alert issue is still exist.
+            self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg)
 
         return df
 
@@ -185,9 +198,11 @@ class ProduceAlerts(object):
         return json.dumps(updated_value, default=self._serialize_converter)
 
     def insert_data_into_alert_table(self, key_and_msg_and_db_parameter=[]):
+        logger.info("Processing %s alerts. This alert may contain duplicates, "
+                    "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
         updated_key_and_msg = []
-        postgres_sql = "insert into " + self.schema + ".dm_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
-        db2_sql = "insert into " + self.schema + ".DM_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
+        postgres_sql = "insert into " + self.schema + ".dm_wiot_as_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.schema + ".DM_WIOT_AS_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
         start_time = dt.datetime.now()
 
         for key, msg, db_params in key_and_msg_and_db_parameter:
@@ -214,6 +229,7 @@ class ProduceAlerts(object):
                 raise ex
 
         end_time = dt.datetime.now()
+        logger.info("Total alerts produced to database = %d " % len(updated_key_and_msg))
         logger.info(
             "Total time taken to insert the alert to database = %s seconds." % (end_time - start_time).total_seconds())
 

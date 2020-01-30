@@ -760,7 +760,7 @@ class MessageHub:
             producer.flush()
 
         end_time = dt.datetime.now()
-        logger.info("Total alerts produced = %d " % len(key_and_msg))
+        logger.info("Total alerts produced to message hub = %d " % len(key_and_msg))
         logger.info("Total time taken to produce the alert to message hub = %s seconds." % (
                     end_time - start_time).total_seconds())
 
