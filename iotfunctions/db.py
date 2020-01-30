@@ -359,7 +359,7 @@ class Database(object):
         metadata = None
 
         if entity_metadata is None:
-            metadata = self.http_request(object_type='entityType', object_name='', request='GET', payload={},
+            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
                                          object_name_2='')
             if metadata is not None:
                 try:
