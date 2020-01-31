@@ -15,6 +15,7 @@ import json
 import ibm_db
 import datetime as dt
 import numpy as np
+from collections import defaultdict
 from sqlalchemy import (MetaData, Table)
 from . import dbhelper
 from .util import MessageHub, asList
@@ -37,6 +38,10 @@ DATA_ITEM_TYPE_KEY = 'type'
 
 logger = logging.getLogger(__name__)
 
+DATALAKE_BATCH_UPDATE_ROWS = 5000
+KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
+OPERATION_PIPELINE = 'PIPELINE'
+
 
 class PersistColumns:
 
@@ -48,13 +53,16 @@ class PersistColumns:
         if sources is None:
             raise RuntimeError("argument sources must be provided")
         self.dms = dms
+        self.schema = self.dms.schema
+        self.db_connection = self.dms.db_connection
+        self.is_postgre_sql = dms.is_postgre_sql
         self.sources = asList(sources)
 
     def execute(self, df):
         self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
 
         t1 = dt.datetime.now()
-        self.dms.store_derived_metrics(df[list(set(self.sources) & set(df.columns))]);
+        self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
         t2 = dt.datetime.now()
         if self.dms.production_mode:
             self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
@@ -64,6 +72,247 @@ class PersistColumns:
             self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
 
         return df
+
+    def store_derived_metrics(self, dataFrame):
+        if self.dms.production_mode:
+            table_insert_stmt = {}
+            table_metrics_to_persist = defaultdict(dict)
+
+            for source, dtype in dataFrame.dtypes.to_dict().items():
+                source_metadata = self.dms.data_items.get(source)
+                if source_metadata is None:
+                    continue
+
+                # skip transient data items
+                if source_metadata.get(DATA_ITEM_TRANSIENT_KEY) == True:
+                    self.logger.debug('skip persisting transient data_item=%s' % source)
+                    continue
+
+                # if source not in (get_all_kpi_targets(self.get_pipeline()) & self.data_items.get_derived_metrics()):
+                #     continue
+
+                try:
+                    tableName = source_metadata.get(DATA_ITEM_SOURCETABLE_KEY)
+                except Exception:
+                    self.logger.warning('sourceTableName invalid for derived_metric=%s' % source, exc_info=True,
+                                        extra={'operation': OPERATION_PIPELINE})
+                    continue
+
+                if tableName not in table_insert_stmt:
+                    grain = self.dms.target_grains[source]
+                    sql = None
+                    try:
+
+                        if self.is_postgre_sql:
+                            sql = self.create_upsert_statement_postgres_sql(tableName, grain)
+                            table_insert_stmt[tableName] = (sql, grain)
+
+                        else:
+                            sql = self.create_upsert_statement(tableName, grain)
+                            stmt = ibm_db.prepare(self.db_connection, sql)
+                            table_insert_stmt[tableName] = (stmt, grain)
+
+                        self.logger.debug('derived_metrics_upsert_sql = %s' % sql)
+                    except Exception:
+                        self.logger.warning('Error creating db upsert statement for sql = %s' % sql, exc_info=True,
+                                            extra={'operation': OPERATION_PIPELINE})
+                        continue
+
+                value_bool = False
+                value_number = False
+                value_string = False
+                value_timestamp = False
+
+                dtype = dtype.name.lower()
+                # if dtype.startswith('int') or dtype.startswith('float') or dtype.startswith('long') or dtype.startswith('complex'):
+                if source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_NUMBER:
+                    value_number = True
+                # elif dtype.startswith('bool'):
+                elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_BOOLEAN:
+                    value_bool = True
+                # elif dtype.startswith('datetime'):
+                elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_TIMESTAMP:
+                    value_timestamp = True
+                else:
+                    value_string = True
+
+                table_metrics_to_persist[tableName][source] = [value_bool, value_number, value_string, value_timestamp]
+
+            self.logger.debug('table_metrics_to_persist=%s' % str(table_metrics_to_persist))
+
+            # Remember position of column in dataframe. Index starts at 1.
+            col_position = {}
+            for pos, col_name in enumerate(dataFrame.columns, 1):
+                col_position[col_name] = pos
+
+            index_name_pos = {name: idx for idx, name in enumerate(dataFrame.index.names)}
+            for table, metric_and_type in table_metrics_to_persist.items():
+                stmt, grain = table_insert_stmt[table]
+
+                # Loop over rows of data frame
+                # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
+                # keywords and column names starting with underscore; both lead to renaming of column names in df_rows.
+                # Additionally, namedtuples are limited to 255 columns in itertuples(). We access the columns in df_row
+                # by index. Position starts at 1 because 0 is reserved for the row index.
+                valueList = []
+                cnt = 0
+                total_saved = 0
+
+                for df_row in dataFrame.itertuples(index=True, name=None):
+                    ix = df_row[0]
+                    for metric, metric_type in metric_and_type.items():
+                        derivedMetricVal = df_row[col_position[metric]]
+
+                        # Skip missing values
+                        if pd.notna(derivedMetricVal):
+                            rowVals = list()
+                            rowVals.append(metric)
+
+                            if grain is None or len(grain) == 0:
+                                # no grain, the index must be an array of (id, timestamp)
+                                rowVals.append(ix[0])
+                                rowVals.append(ix[1])
+                            elif not isinstance(ix, list) and not isinstance(ix, tuple):
+                                # only one element in the grain, ix is not an array, just append it anyway
+                                rowVals.append(ix)
+                            else:
+                                if grain[2]:
+                                    # entity_first, the first level index must be the entity id
+                                    rowVals.append(ix[0])
+                                if grain[0] is not None:
+                                    if grain[2]:
+                                        # if both id and time are included in the grain, time must be at pos 1
+                                        rowVals.append(ix[1])
+                                    else:
+                                        # if only time is included, time must be at pos 0
+                                        rowVals.append(ix[0])
+                                if grain[1] is not None:
+                                    for dimension in grain[1]:
+                                        rowVals.append(ix[index_name_pos[dimension]])
+
+                            if metric_type[0]:
+                                if self.dms.is_postgre_sql:
+                                    rowVals.append(
+                                        False if (derivedMetricVal == False or derivedMetricVal == 0) else True)
+                                else:
+                                    rowVals.append(0 if (derivedMetricVal == False or derivedMetricVal == 0) else 1)
+                            else:
+                                rowVals.append(None)
+
+                            if metric_type[1]:
+                                myFloat = float(derivedMetricVal)
+                                rowVals.append(myFloat if np.isfinite(myFloat) else None)
+                            else:
+                                rowVals.append(None)
+
+                            rowVals.append(str(derivedMetricVal) if metric_type[2] else None)
+                            rowVals.append(derivedMetricVal if metric_type[3] else None)
+
+                            if metric_type[1] and float(derivedMetricVal) is np.nan or metric_type[2] and str(
+                                    derivedMetricVal) == 'nan':
+                                self.logger.debug('!!! weird case, derivedMetricVal=%s' % derivedMetricVal)
+                                continue
+
+                            valueList.append(tuple(rowVals))
+                            cnt += 1
+
+                        if cnt >= DATALAKE_BATCH_UPDATE_ROWS:
+                            try:
+                                # Bulk insert
+
+                                if self.is_postgre_sql:
+                                    dbhelper.execute_batch(self.db_connection, stmt, valueList,
+                                                           DATALAKE_BATCH_UPDATE_ROWS)
+                                    saved = cnt  # Work around because we don't receive row count from batch query.
+
+                                else:
+                                    res = ibm_db.execute_many(stmt, tuple(valueList))
+                                    saved = res if res is not None else ibm_db.num_rows(stmt)
+
+                                total_saved += saved
+                                self.logger.debug('Records saved so far = %d' % total_saved)
+                            except Exception:
+                                self.logger.warning('Error persisting derived metrics, valueList=%s' % str(valueList),
+                                                    exc_info=True, extra={'operation': OPERATION_PIPELINE})
+
+                            valueList = []
+                            cnt = 0
+
+                if len(valueList) > 0:
+                    try:
+                        # Bulk insert
+                        if self.is_postgre_sql:
+                            dbhelper.execute_batch(self.db_connection, stmt, valueList, DATALAKE_BATCH_UPDATE_ROWS)
+                            saved = cnt  # Work around because we don't receive row count from batch query.
+                        else:
+                            res = ibm_db.execute_many(stmt, tuple(valueList))
+                            saved = res if res is not None else ibm_db.num_rows(stmt)
+
+                        total_saved += saved
+                    except Exception:
+                        self.logger.warning('Error persisting derived metrics, valueList = %s' % str(valueList),
+                                            exc_info=True, extra={'operation': OPERATION_PIPELINE})
+
+                self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
+
+    def create_upsert_statement(self, tableName, grain):
+        dimensions = []
+        if grain is None or len(grain) == 0:
+            dimensions.append(KPI_ENTITY_ID_COLUMN)
+            dimensions.append('TIMESTAMP')
+        else:
+            if grain[2]:
+                dimensions.append(KPI_ENTITY_ID_COLUMN)
+            if grain[0] is not None:
+                dimensions.append('TIMESTAMP')
+            if grain[1] is not None:
+                dimensions.extend(grain[1])
+
+        colExtension = ''
+        parmExtension = ''
+        joinExtension = ''
+        sourceExtension = ''
+        for dimension in dimensions:
+            quoted_dimension = dbhelper.quotingColumnName(dimension)
+            colExtension += ', ' + quoted_dimension
+            parmExtension += ', ?'
+            joinExtension += ' AND TARGET.' + quoted_dimension + ' = SOURCE.' + quoted_dimension
+            sourceExtension += ', SOURCE.' + quoted_dimension
+
+        return ("MERGE INTO %s.%s AS TARGET "
+                "USING (VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) "
+                "ON TARGET.KEY = SOURCE.KEY%s "
+                "WHEN MATCHED THEN "
+                "UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
+                "WHEN NOT MATCHED THEN "
+                "INSERT (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) VALUES (SOURCE.KEY%s, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, CURRENT TIMESTAMP)") % (
+                   dbhelper.quotingSchemaName(self.schema), dbhelper.quotingTableName(tableName), parmExtension,
+                   colExtension, joinExtension, colExtension, sourceExtension)
+
+    def create_upsert_statement_postgres_sql(self, tableName, grain):
+        dimensions = []
+        if grain is None or len(grain) == 0:
+            dimensions.append(KPI_ENTITY_ID_COLUMN.lower())
+            dimensions.append('timestamp')
+        else:
+            if grain[2]:
+                dimensions.append(KPI_ENTITY_ID_COLUMN.lower())
+            if grain[0] is not None:
+                dimensions.append('timestamp')
+            if grain[1] is not None:
+                dimensions.extend(grain[1])
+
+        colExtension = ''
+        parmExtension = ''
+
+        for dimension in dimensions:
+            # Note: the dimension grain need to be in lower case since the table will be created with lowercase column.
+            quoted_dimension = dbhelper.quotingColumnName(dimension.lower(), self.is_postgre_sql)
+            colExtension += ', ' + quoted_dimension
+            parmExtension += ', %s'
+
+        sql = "insert into " + self.schema + "." + tableName + " (key " + colExtension + ",value_b,value_n,value_s,value_t,last_update) values (%s " + parmExtension + ", %s, %s, %s, %s, current_timestamp) on conflict on constraint uc_" + tableName + " do update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, value_t = EXCLUDED.value_t, last_update = EXCLUDED.last_update"
+        return sql
 
 
 class ProduceAlerts(object):
