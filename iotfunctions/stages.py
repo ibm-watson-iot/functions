@@ -101,7 +101,6 @@ class ProduceAlerts(object):
                             kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
                             self.alert_to_kpi_input_dict[alert_data_item] = kpi_func_dto.get('input')
 
-
         else:
             self.alerts_to_message_hub = alerts
         self.message_hub = MessageHub()
@@ -116,6 +115,7 @@ class ProduceAlerts(object):
         logger.info('alerts_to_produce into database = %s ' % str(self.alerts_to_database))
 
         key_and_msg = []
+        key_and_msg_updated = []
         key_and_msg_and_db_parameter = []
 
         if len(self.alerts_to_message_hub) > 0:
@@ -147,7 +147,6 @@ class ProduceAlerts(object):
                         # value: json document containing all metrics at the same time / same device / same grain
                         key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
                         value = self.get_json_values(index_names, index_value, row)
-                        key_and_msg.append((key, value))
 
                         if alert_name in self.alerts_to_database:
                             kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
@@ -155,6 +154,8 @@ class ProduceAlerts(object):
                                                    kpi_input.get('Severity', None), kpi_input.get('Priority', None),
                                                    kpi_input.get('Status', None))
                             key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
+                        else:
+                            key_and_msg.append((key, value))
 
         else:
             logger.debug("No alerts to produce for %s." % self.entity_type_name)
@@ -162,14 +163,17 @@ class ProduceAlerts(object):
 
         if len(key_and_msg_and_db_parameter) > 0:
             try:
-                self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
+                key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
             except Exception as ex:
                 # TODO:: Remove the exception once you create dm_wiot_as_alert table for all the tenant.
                 self.logger.warning('Inserting data into alert table failed: %s' % str(ex))
 
-        if len(key_and_msg) > 0:
+        if len(key_and_msg) > 0 or len(key_and_msg_updated) > 0:
             # TODO:: Duplicate alert issue is still exist.
-            self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg)
+            key_and_msg_merged = []
+            key_and_msg_merged.extend(key_and_msg)
+            key_and_msg_merged.extend(key_and_msg_updated)
+            self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg_merged)
 
         return df
 
