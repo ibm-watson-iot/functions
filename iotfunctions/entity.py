@@ -183,8 +183,8 @@ class Boiler(metadata.BaseCustomEntityType):
                                                    probabilities=[0.9, 0.05, 0.02, 0.02, 0.01], output_item='p_leak'))
 
         # dimension columns
-        dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50))
-            ,Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
+        dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
+                             Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, output_items_extended_metadata={},
@@ -311,6 +311,9 @@ class Robot(metadata.BaseCustomEntityType):
         functions.append(
             bif.RandomUniform(min_value=0.8, max_value=0.95, output_item='percent_meeting_target_duration'))
 
+        functions.append(
+            bif.AlertHighValue(input_item='acc', upper_threshold=2.75, alert_name='acc_gre_2point75_alert'))
+
         # data type for operator cannot be infered automatically
         # state it explicitly
 
@@ -365,8 +368,8 @@ class PackagingHopper(metadata.BaseCustomEntityType):
         # dimension columns
 
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-                             Column('plant', String(50)), Column('line', String(50)),
-                             Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
+                             Column('plant', String(50)), Column('line', String(50)), Column('devicetype', String(50)),
+                             Column('evt_timestamp', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
@@ -411,8 +414,8 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
 
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-                             Column('plant', String(50)), Column('line', String(50)),
-                             Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
+                             Column('plant', String(50)), Column('line', String(50)), Column('devicetype', String(50)),
+                             Column('evt_timestamp', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
