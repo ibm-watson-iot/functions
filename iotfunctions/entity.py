@@ -311,9 +311,6 @@ class Robot(metadata.BaseCustomEntityType):
         functions.append(
             bif.RandomUniform(min_value=0.8, max_value=0.95, output_item='percent_meeting_target_duration'))
 
-        functions.append(
-            bif.AlertHighValue(input_item='acc', upper_threshold=2.75, alert_name='acc_gre_2point75_alert'), Severity='Medium', Status='New')
-
         # data type for operator cannot be infered automatically
         # state it explicitly
 
