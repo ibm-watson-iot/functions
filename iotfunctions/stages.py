@@ -31,8 +31,8 @@ DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
 DATA_ITEM_TRANSIENT_KEY = 'transient'
 DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
 DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
+DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'functionName'
 DATA_ITEM_TAG_ALERT = 'ALERT'
-DATA_ITEM_TAG_ALERT_DB = 'ALERT_DB'
 DATA_ITEM_TAGS_KEY = 'tags'
 DATA_ITEM_TYPE_KEY = 'type'
 
@@ -337,6 +337,7 @@ class ProduceAlerts(object):
         self.alert_to_kpi_input_dict = dict()
         self.alerts_to_message_hub = []
         self.alerts_to_database = []
+        self.alert_catalogs = dms.catalog.get_alerts()
         if alerts is None:
             if all_cols is not None:
                 for alert_data_item in asList(all_cols):
@@ -345,9 +346,11 @@ class ProduceAlerts(object):
                         if DATA_ITEM_TAG_ALERT in metadata.get(DATA_ITEM_TAGS_KEY, []):
                             self.alerts_to_message_hub.append(alert_data_item)
 
-                        if DATA_ITEM_TAG_ALERT_DB in metadata.get(DATA_ITEM_TAGS_KEY, []):
+                        kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY, None)
+                        kpi_function_name = kpi_func_dto.get(DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME, None)
+                        alert_catalog = self.alert_catalogs.get(kpi_function_name, None)
+                        if alert_catalog is not None:
                             self.alerts_to_database.append(alert_data_item)
-                            kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
                             self.alert_to_kpi_input_dict[alert_data_item] = kpi_func_dto.get('input')
 
         else:
