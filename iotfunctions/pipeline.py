@@ -2043,7 +2043,7 @@ class CalcPipeline:
         self.entity_type = entity_type
         self.set_stages(stages)
         self.log_pipeline_stages()
-        warnings.warn("CalcPipeline is deprecated. Replaced by JobController.", DeprecationWarning)
+        #warnings.warn("CalcPipeline is deprecated. Replaced by JobController.", DeprecationWarning)
 
     def add_expression(self, name, expression):
         '''
@@ -2200,18 +2200,22 @@ class CalcPipeline:
         # Behavior is different during initial transform
         if entities is None:
             entities = self.entity_type.get_entity_filter()
+
         start_ts_override = self.entity_type.get_start_ts_override()
         if start_ts_override is not None:
             start_ts = start_ts_override
         end_ts_override = self.entity_type.get_end_ts_override()
         if end_ts_override is not None:
             end_ts = end_ts_override
+
         if is_initial_transform:
             if not start_ts is None:
                 msg = 'Start timestamp: %s.' % start_ts
+                logger.debug(msg)
                 self.trace_add(msg)
             if not end_ts is None:
                 msg = 'End timestamp: %s.' % end_ts
+                logger.debug(msg)
                 self.trace_add(msg)
             # process preload stages first if there are any
             (stages, preload_item_names) = self._execute_preload_stages(start_ts=start_ts, end_ts=end_ts,

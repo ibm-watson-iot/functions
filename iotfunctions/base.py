@@ -314,7 +314,7 @@ class BaseFunction(object):
     def execute(self, df):
         """
         AS calls the execute() method of your function to transform or aggregate data. The execute method accepts a dataframe as input and returns a dataframe as output.
-        
+
         If the function should be executed on all entities combined you can replace the execute method wih a custom one
         If the function should be executed by entity instance, use the base execute method. Provide a custom _calc method instead.
         """
@@ -580,7 +580,7 @@ class BaseFunction(object):
         """
         Assemble a dictionary of ICS Analytics Function metadata. Used to submit
         classes the ICS Analytics Function Catalog.
-        
+
         Parameters:
         -----------
         df: DataFrame
@@ -1190,7 +1190,7 @@ class BaseFunction(object):
         if not credentials is None:
             msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, or omit credentials to use credentials associated with the Database object for the function'
             logger.info(msg)
-            http = urllib3.PoolManager()
+            http = urllib3.PoolManager(timeout=30.0)
             encoded_payload = json.dumps(payload).encode('utf-8')
             if show_metadata or metadata_only:
                 print(encoded_payload)
@@ -1361,7 +1361,7 @@ class BaseFunction(object):
     def write_frame(self, df, table_name=None, version_db_writes=None, if_exists=None):
         '''
         Write a dataframe to a database table
-        
+
         Parameters
         ---------------------
         table_name: str (optional)
@@ -1370,11 +1370,11 @@ class BaseFunction(object):
             Add seprate version_date column to table. If not provided, will use default for instance / class
         if_exists : str (optional)
             What to do if table already exists. If not provided, will use default for instance / class
-        
+
         Returns
         -----------
         numerical status. 1 for successful write.
-            
+
         '''
         df = df.copy()
 
@@ -1526,13 +1526,14 @@ class BaseDataSource(BaseTransformer):
 
 class BaseEvent(BaseTransformer):
     """
-    Base class for AS Functions that product events or alerts. 
+    Base class for AS Functions that product events or alerts.
 
     """
 
     def __init__(self):
         super().__init__()
         self.tags.append('EVENT')
+        self.tags.append('ALERT')
 
 
 class BaseFilter(BaseTransformer):
@@ -2040,10 +2041,10 @@ class BaseDBActivityMerge(BaseDataSource):
         c.index = pd.to_datetime(c.index)
         c.name = self._activity
         c.index.name = self._start_date
-        # use original data to update the new set of intervals in slices
-        for df_row in df.itertuples():
-            end_date = getattr(df_row, self._end_date) - dt.timedelta(milliseconds=1)
-            c[getattr(df_row, self._start_date):end_date] = getattr(df_row, self._activity)
+        # use original data to update the new set of intervals in slices.
+        for df_row in df[[self._start_date, self._end_date, self._activity]].itertuples(index=False, name=None):
+            end_date = df_row[1] - dt.timedelta(milliseconds=1)
+            c[df_row[0]:end_date] = df_row[2]
         df = c.to_frame()
         df.reset_index(inplace=True)
         df.index.name = self.auto_index_name
@@ -2088,7 +2089,7 @@ class BaseDBActivityMerge(BaseDataSource):
     def read_activity_data(self, table_name, activity_code, start_ts=None, end_ts=None, entities=None):
         """
         Issue a query to return a dataframe. Subject is an activity table with columns: deviceid, start_date, end_date, activity
-        
+
         Parameters
         ----------
         table_name: str
@@ -2098,7 +2099,7 @@ class BaseDBActivityMerge(BaseDataSource):
         start_ts : datetime (optional)
             Date filter
         end_ts : datetime (optional)
-            Date filter            
+            Date filter
         entities: list (optional)
             Filter on list of device ids
         Returns
@@ -2203,7 +2204,7 @@ class BasePreload(BaseTransformer):
     Preload functions do not take a dataframe as input
     Preload functions return a single boolean output on execution. Pipeline will proceed when True.
     You guessed it, preload methods have no boundaries. You can use them to do anything!
-    They are monitored. Excessive resource consumption will be billed by estimating an equivalent number of function executions. 
+    They are monitored. Excessive resource consumption will be billed by estimating an equivalent number of function executions.
     """
     is_preload = True
     requires_input_items = False
@@ -2262,7 +2263,7 @@ class BaseMetadataProvider(BasePreload):
 
 class BaseEstimatorFunction(BaseTransformer):
     '''
-    Base class for functions that train, evaluate and predict using sklearn 
+    Base class for functions that train, evaluate and predict using sklearn
     compatible estimators.
     '''
     shelf_life_days = None
@@ -2494,10 +2495,20 @@ class BaseEstimatorFunction(BaseTransformer):
             estimator = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
                                                 features=features)
             trace_msg = 'Trained model: %s' % counter
-            results = {'name': self.get_model_name(target_name=target), 'target': target, 'features': features,
+
+            try:
+                est_score = estimator.score(df_train[features], df_train[target])
+            except Exception as e:
+                logger.info('Estimator predict failed with ' + str(e))
+                trace_msg = 'Trained model prediction failed with ' + str(e)
+                est_score = 0
+
+            results = {'name': self.get_model_name(target_name=target),
+                       'target': target, 'features': features,
                        'params': estimator.best_params_, 'eval_metric_name': metric_name,
-                       'eval_metric_train': estimator.score(df_train[features], df_train[target]),
+                       'eval_metric_train': est_score,
                        'estimator_name': name, 'shelf_life_days': self.shelf_life_days, 'col_name': col_name}
+
             model = Model(estimator=estimator, **results)
             results['eval_metric_test'] = model.test(df_test)
             trained_models.append(model)

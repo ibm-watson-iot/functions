@@ -51,7 +51,7 @@ except BaseException:
 else:
     IBMBOTO_INSTALLED = True
 
-FLUSH_PRODUCER_EVERY = 1000
+FLUSH_PRODUCER_EVERY = 500
 
 MH_USER = os.environ.get('MH_USER')
 MH_PASSWORD = os.environ.get('MH_PASSWORD')
@@ -443,6 +443,12 @@ def log_df_info(df, msg, include_data=False):
         return ''
 
 
+def asList(x):
+    if not isinstance(x, list):
+        x = [x]
+    return x
+
+
 class CosClient:
     '''
     Cloud Object Storage client
@@ -732,19 +738,17 @@ class MessageHub:
     # else:
     #     logger.info('Message delivered to {} [{}]'.format(msg.topic(), msg.partition()))
 
-    def produce_batch_alert_to_default_topic(self, msg_and_keys):
-        start_time = dt.datetime.now()
-        self.produce_batch(topic=MH_DEFAULT_ALERT_TOPIC, msg_and_keys=msg_and_keys)
-        end_time = dt.datetime.now()
-        logger.info("Total time taken to produce the alert = %s seconds." % (end_time - start_time).total_seconds())
+    def produce_batch_alert_to_default_topic(self, key_and_msg):
+        self.produce_batch(topic=MH_DEFAULT_ALERT_TOPIC, key_and_msg=key_and_msg)
 
-    def produce_batch(self, topic, msg_and_keys):
-        if topic is None or len(topic) == 0 or msg_and_keys is None:
+    def produce_batch(self, topic, key_and_msg):
+        start_time = dt.datetime.now()
+        if topic is None or len(topic) == 0 or key_and_msg is None:
             return
 
         counter = 0
         producer = None
-        for key, msg in msg_and_keys:
+        for key, msg in key_and_msg:
             producer = self.produce(topic, msg=msg, key=key, producer=producer)
             counter += 1
             if counter % FLUSH_PRODUCER_EVERY == 0:
@@ -754,6 +758,11 @@ class MessageHub:
                 logger.info('Number of alert produced so far : %d (%s)' % (counter, topic))
         if producer is not None:
             producer.flush()
+
+        end_time = dt.datetime.now()
+        logger.info("Total alerts produced to message hub = %d " % len(key_and_msg))
+        logger.info("Total time taken to produce the alert to message hub = %s seconds." % (
+                    end_time - start_time).total_seconds())
 
     def produce(self, topic, msg, key=None, producer=None, callback=_delivery_report):
         if topic is None or len(topic) == 0 or msg is None:

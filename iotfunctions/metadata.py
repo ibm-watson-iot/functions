@@ -90,59 +90,59 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
 
 class EntityType(object):
     '''
-    Data is organised around Entity Types. Entity Types have one or more 
+    Data is organised around Entity Types. Entity Types have one or more
     physical database object for their data. When creating a new Entity Type,
     it will attempt to connect itself to a table of the same name in the
     database. If no table exists the Entity Type will create one.
-    
+
     Entity types describe the payload of an AS job. A job is built by a
     JobController using functions metadata prepared by the Entity Type.
     Metadata prepared is:
-    
-    _functions: 
-        
+
+    _functions:
+
         List of function objects
-        
+
     _data_items:
-        
+
         List of data items and all of their metadata such as their
         datatype.
-        
+
     _granularities_dict:
-        
+
         Dictionary keyed on granularity name. Contains a granularity object
         that provides access to granularity metadata such as the time
         level and other dimensions involved in the aggregation.
-        
+
     _schedules_dict:
-        
+
         Dictionary keyed on a schedule frequency containing other metadata
         about the operations to be run at this frequency, e.g. how many days
         should be backtracked when retrieving daat.
-        
-    
+
+
     Entity types may be initialized as client objects for local testing
-    or may be loaded from the server. After initialization all of the 
+    or may be loaded from the server. After initialization all of the
     above instance variables will be populated. The metadata looks the same
     regardless of whether the entity type was loaded from the server
-    or initialized on the client. The logic to build the metadata is 
+    or initialized on the client. The logic to build the metadata is
     different though.
-    
+
     Parameters
     ----------
     name: str
         Name of the entity type. Use lower case. Will be used as the physical
         database table name so don't use database reserved works of special
-        characters. 
+        characters.
     db: Database object
         Contains the connection info for the database
     *args:
         Additional positional arguments are used to add the list of SQL Alchemy
         Column objects contained within this table. Similar to the style of a
-        CREATE TABLE sql statement. There is no need to specify column names 
+        CREATE TABLE sql statement. There is no need to specify column names
         if you are using an existing database table as an entity type.
     **kwargs
-        Additional keywork args. 
+        Additional keywork args.
         _timestamp: str
             Overide the timestamp column name from the default of 'evt_timestamp'
     '''
@@ -228,13 +228,13 @@ class EntityType(object):
         except AttributeError:
             self.logical_name = name
 
-        name = name.lower()
-        #name = name.replace(' ', '_')
-        #name = name.replace('-', '_')
-        #if db.db_type == 'db2':
-        #    name = name.upper()
-        #else:
-        #    name = name.lower()
+
+        if db == None:
+            name = 'None'
+        elif db.db_type == 'db2':
+            name = name.upper()
+        else:
+            name = name.lower()
         self.name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
@@ -333,7 +333,7 @@ class EntityType(object):
         self.ui_constants = constants
         self.build_ui_constants()
 
-        #  _functions 
+        #  _functions
         #  functions may have been provided as kwarg and may be includes as args
         #  compbine all
         if self._functions is None:
@@ -347,8 +347,8 @@ class EntityType(object):
 
     def add_activity_table(self, name, activities, *args, **kwargs):
         '''
-        add an activity table for this entity type. 
-        
+        add an activity table for this entity type.
+
         parameters
         ----------
         name: str
@@ -366,7 +366,12 @@ class EntityType(object):
 
         kwargs['_activities'] = activities
         kwargs['schema'] = self._db_schema
-        name = name.lower()
+        # name = name.lower()
+        if self.db.db_type == 'db2':
+            name = name.upper()
+        else:
+            name = name.lower()
+
         table = db_module.ActivityTable(name, self.db, *args, **kwargs)
         try:
             sqltable = self.db.get_table(name, self._db_schema)
@@ -377,7 +382,7 @@ class EntityType(object):
     def add_slowly_changing_dimension(self, property_name, datatype, **kwargs):
         '''
         add a slowly changing dimension table containing a single property for this entity type
-        
+
         parameters
         ----------
         property_name : str
@@ -394,6 +399,10 @@ class EntityType(object):
 
         name = '%s_scd_%s' % (self.name, property_name)
         kwargs['schema'] = self._db_schema
+        if self.db.db_type == 'db2':
+            name = name.upper()
+        else:
+            name = name.lower()
         table = db_module.SlowlyChangingDimension(name=name, database=self.db, property_name=property_name,
                                                   datatype=datatype, **kwargs)
 
@@ -434,15 +443,15 @@ class EntityType(object):
         '''
         Examine the metadata provided by build_ui() to understand more about
         the arguments to a function.
-        
+
         Place the values of inputs and outputs into 2 dicts
         Return these two dicts in a tuple along with an output_meta dict
         that contains argument values and types
-        
+
         Build the _input_set and _output list. These describe the set of
         data items required as inputs to a function and the list of data
         items produced by the function.
-        
+
         '''
 
         name = obj.__class__.__name__
@@ -644,7 +653,7 @@ class EntityType(object):
 
     def build_item_metadata(self, table):
         '''
-        Build a client generated version of AS server metadata from a 
+        Build a client generated version of AS server metadata from a
         sql alachemy table object.
         '''
 
@@ -673,7 +682,7 @@ class EntityType(object):
         '''
         Build a dictionary of schedule metadata from the schedules contained
         within function definitions.
-        
+
         The schedule dictionary is keyed on a pandas freq string. This
         frequency denotes the schedule interval. The dictionary contains a
         tuple (start_hour,start_minute,backtrack_days)
@@ -681,13 +690,13 @@ class EntityType(object):
         Returns
         -------
         tuple containing updated metadata and a dict of schedules
-        
+
         Example
         -------
-        
-        { '5min': [16,3,7] } 
+
+        { '5min': [16,3,7] }
         5 minute schedule interval with a start time of 4:03pm and backtrack of 7 days.
-        
+
         '''
 
         freqs = {}
@@ -737,9 +746,9 @@ class EntityType(object):
 
     def classify_stages(self):
         '''
-        Create a dictionary of stage objects. Dictionary is keyed by 
+        Create a dictionary of stage objects. Dictionary is keyed by
         stage type and a granularity obj. It contains a list of stage
-        objects. Stages are classified by timing of execution, ie: preload, 
+        objects. Stages are classified by timing of execution, ie: preload,
         get_data, transform, aggregate
         '''
 
@@ -848,7 +857,7 @@ class EntityType(object):
             obj._input_set = input_set
             obj._output_list = output_list
 
-            # The stage may have metadata parameters that need to be 
+            # The stage may have metadata parameters that need to be
             # copied onto the entity type
             try:
                 entity_metadata = obj._metadata_params
@@ -1327,15 +1336,15 @@ class EntityType(object):
         '''
         Examine the stage object to determine how it should be processed by
         the JobController
-        
+
         Sets the stage type to the first valid entry in the stage map
         the stage map is a list of tuples containing a stage type and
         a boolean property name:
-        
-        example: 
+
+        example:
             [('get_data','is_data_source'),
              ('simple_aggregate','is_simple_aggregate')]
-        
+
         if a stage has both an is_data_source = True and
         a is_simple_aggregate = True, the stage type will be returned as
         'get_data'
@@ -1395,7 +1404,7 @@ class EntityType(object):
                       start_entity_id=None, auto_entity_count=None, datasource=None, datasourcemetrics=None):
         '''
         Generate random time series data for entities
-        
+
         Parameters
         ----------
         entities: list
@@ -1415,7 +1424,7 @@ class EntityType(object):
         data_item_sd: dict
             std values for generated data items. dict is keyed on data item name
         data_item_domain: dict
-            domains of values for categorical data items. dict is keyed on data item name            
+            domains of values for categorical data items. dict is keyed on data item name
         datasource: dataframe
             dataframe as data source
         datasourcemetrics : list of strings
@@ -1463,7 +1472,11 @@ class EntityType(object):
         ts.data_item_domain = data_item_domain
         df = ts.execute()
 
-        dimension_table_exists = self.db.if_exists(table_name=self._dimension_table_name, schema=self._db_schema)
+        dimension_table_exists = False
+        try:
+            dimension_table_exists = self.db.if_exists(table_name=self._dimension_table_name, schema=self._db_schema)
+        except Exception:
+            pass
 
         if self._dimension_table_name is not None and dimension_table_exists:
             self.generate_dimension_data(entities, write=write, data_item_mean=data_item_mean,
@@ -1581,6 +1594,10 @@ class EntityType(object):
                 df[d] = pd.to_datetime(df[d])
 
             if write:
+                if self.db.db_type == 'db2':
+                    self._dimension_table_name = self._dimension_table_name.upper()
+                else:
+                    self._dimension_table_name = self._dimension_table_name.lower()
                 self.db.write_frame(df, table_name=self._dimension_table_name, if_exists='append',
                                     schema=self._db_schema)
 
@@ -1589,7 +1606,7 @@ class EntityType(object):
 
     def get_entity_filter(self):
         '''
-        Get the list of entity ids that are valid for pipeline processing. 
+        Get the list of entity ids that are valid for pipeline processing.
         '''
 
         return self._entity_filter_list
@@ -1685,7 +1702,7 @@ class EntityType(object):
     def make_dimension(self, name=None, *args, **kw):
         '''
         Add dimension table by specifying additional columns
-        
+
         Parameters
         ----------
         name: str
@@ -1703,12 +1720,15 @@ class EntityType(object):
         if name is None:
             name = '%s_dimension' % self.name
 
-        name = name.lower()
-
-        self._dimension_table_name = name
+        # name = name.lower()
+        # self._dimension_table_name = name
+        if self.db.db_type == 'db2':
+            self._dimension_table_name = name.upper()
+        else:
+            self._dimension_table_name = name.lower()
 
         try:
-            self._dimension_table = self.db.get_table(name, self._db_schema)
+            self._dimension_table = self.db.get_table(self._dimension_table_name, self._db_schema)
         except KeyError:
             dim = db_module.Dimension(self._dimension_table_name, self.db, *args, **kw)
             self._dimension_table = dim.table
@@ -1779,7 +1799,7 @@ class EntityType(object):
     def register(self, publish_kpis=False, raise_error=False):
         '''
         Register entity type so that it appears in the UI. Create a table for input data.
-        
+
         Parameters
         ----------
         credentials: dict
@@ -1869,7 +1889,7 @@ class EntityType(object):
     def get_server_params(self):
         '''
         Retrieve the set of properties assigned through the UI
-        Assign to instance variables        
+        Assign to instance variables
         '''
 
         if self.db is None:
@@ -2021,7 +2041,7 @@ class ServerEntityType(EntityType):
         self._dimension_table_name = server_meta['dimensionsTable']
 
         #  set the data items metadata directly - no need to create cols
-        #  as table is assumed to exist already since this is a 
+        #  as table is assumed to exist already since this is a
         #  server entity type
 
         #  _data_items is a list of dicts. elements are:
@@ -2068,7 +2088,7 @@ class ServerEntityType(EntityType):
 
     def build_function_objects(self, server_kpis):
         '''
-        Create function objects from server kpi definitions 
+        Create function objects from server kpi definitions
         '''
 
         functions = []
@@ -2340,28 +2360,28 @@ class BaseCustomEntityType(EntityType):
 class Granularity(object):
     '''
     Describe granularity level in terms of the pandas grouper that is used
-    to aggregate to this grain and any custom calendar object that may have 
+    to aggregate to this grain and any custom calendar object that may have
     been used to create it.
-    
+
     Parameters:
     -----------
     name: str
 
     dimensions: list of data items used as dimension keys in group by
-    
+
     entity_id: str. column name used to group by entity id. None if not
     an entity level summary
-    
+
     freq = Pandas frequency string
-    
+
     custom_calendar_keys: list of strs containing custom calendar data item
     names to be grouped on
-    
+
     custom_calendar: function object
 
     grouper: pandas Grouper object. Optional. If not provided, the
     grouper will be built using other arguments
-    
+
     '''
 
     is_granularity = True
