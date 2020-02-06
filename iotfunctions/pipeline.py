@@ -2096,6 +2096,11 @@ class CalcPipeline:
             if not self.entity_type._is_preload_complete:
                 msg = 'Stage %s :' % p.__class__.__name__
                 self.trace_add(msg)
+                self.entity_type.current_stage_number += 1
+                dblogging.write_stage_info(module=p.modulename,
+                                           function_name=p.functionname,
+                                           current_stage_name=p.name,
+                                           current_stage_number=self.entity_type.current_stage_number)
                 status = p.execute(df=None, start_ts=start_ts, end_ts=end_ts, entities=entities)
                 msg = '%s completed as pre-load. ' % p.__class__.__name__
                 self.trace_add(msg)
