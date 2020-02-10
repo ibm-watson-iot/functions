@@ -12,20 +12,24 @@
 The Built In Functions module contains preinstalled functions
 '''
 
+import re
 import datetime as dt
 import numpy as np
 import scipy as sp
 
 #  for Spectral Analysis
-from scipy import signal
+from scipy import signal, fftpack
 # from scipy.stats import energy_distance
-# from sklearn import metrics
-from sklearn.covariance import EllipticEnvelope, MinCovDet
+from sklearn import metrics
+from sklearn.covariance import MinCovDet
 
 #   for KMeans
 #  import skimage as ski
 from skimage import util as skiutil  # for nifty windowing
 from pyod.models.cblof import CBLOF
+
+# for gradient boosting
+import lightgbm
 
 # import re
 import pandas as pd
@@ -33,9 +37,9 @@ import logging
 # import warnings
 # import json
 # from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from .base import (BaseTransformer, BaseRegressor)
+from .base import (BaseTransformer, BaseRegressor, BaseEvent, BaseEstimatorFunction)
 from .bif import (AlertHighValue)
-from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
+from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIExpression)
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -106,33 +110,6 @@ def series_filter(values, kernel_size=3):
         filter_values[i] /= i + 1
 
     return filter_values
-
-
-def extrapolate_next(values):
-    """
-    Extrapolates the next value by sum up the slope of the last value with previous values.
-    :param values: a list or numpy array of time-series
-    :return: the next value of time-series
-    """
-
-    last_value = values[-1]
-    slope = [(last_value - v) / i for (i, v) in enumerate(values[::-1])]
-    slope[0] = 0
-    next_values = last_value + np.cumsum(slope)
-
-    return next_values
-
-
-def marge_series(values, extend_num=5, forward=5):
-
-    next_value = extrapolate_next(values)[forward]
-    extension = [next_value] * extend_num
-
-    if isinstance(values, list):
-        marge_values = values + extension
-    else:
-        marge_values = np.append(values, extension)
-    return marge_values
 
 
 # Saliency class
@@ -256,24 +233,19 @@ class SpectralAnomalyScore(BaseTransformer):
                     # highsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
                     #                              highfrequency_temperature)) + SmallEnergy)
 
+                    signal_energy = np.dot(spectral_density_temperature.T, frequency_temperature)
                     lowsignal_energy = np.dot(spectral_density_temperature.T, lowfrequency_temperature)
                     highsignal_energy = np.dot(spectral_density_temperature.T, highfrequency_temperature)
+
+                    signal_energy[signal_energy < 0] = 0
                     lowsignal_energy[lowsignal_energy < 0] = 0
                     highsignal_energy[highsignal_energy < 0] = 0
 
                     # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
                     #    standardizing
-                    # low_stddev = lowsignal_energy.std(ddof=0)
-                    # high_stddev = highsignal_energy.std(ddof=0)
 
-                    # if low_stddev != 0:
-                    #     lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())/low_stddev
-                    # else:
+                    signal_energy = (signal_energy - signal_energy.mean())
                     lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())
-
-                    # if high_stddev != 0:
-                    #     highsignal_energy = (highsignal_energy - highsignal_energy.mean())/high_stddev
-                    # else:
                     highsignal_energy = (highsignal_energy - highsignal_energy.mean())
 
                     twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
@@ -282,16 +254,20 @@ class SpectralAnomalyScore(BaseTransformer):
 
                     # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
                     dfe[self.output_item] = 0.0002
-                    ellEnv = EllipticEnvelope(random_state=0)
+                    # ellEnv = EllipticEnvelope(random_state=0)
 
-                    dfe[self.output_item] = 0.0003
-                    ellEnv.fit(twoDimsignal_energy)
+                    # dfe[self.output_item] = 0.0003
+                    # ellEnv.fit(twoDimsignal_energy)
 
                     # compute distance to elliptic envelope
-                    dfe[self.output_item] = 0.0004
+                    # dfe[self.output_item] = 0.0004
 
-                    #ets_zscore = np.maximum(ellEnv.decision_function(twoDimsignal_energy).copy(), -0.1)
-                    ets_zscore = ellEnv.decision_function(twoDimsignal_energy).copy()
+                    # ets_zscore = np.maximum(ellEnv.decision_function(twoDimsignal_energy).copy(), -0.1)
+                    # ets_zscore = ellEnv.decision_function(twoDimsignal_energy).copy()
+                    # ets_zscore = ellEnv.score_samples(twoDimsignal_energy).copy() - ellEnv.offset_
+                    ets_zscore = abs(sp.stats.zscore(signal_energy))
+
+                    # ets_zscore = (-ellEnv.offset_) ** 0.33 - (-ets_zscore) ** 0.33
 
                     logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
 
@@ -712,12 +688,20 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
         # count the timedelta in seconds between two events
         timeSeq = (dfEntity.index.values - dfEntity.index[0].to_datetime64()) / np.timedelta64(1, 's')
 
+        dfe = dfEntity.copy()
+
         # one dimensional time series - named temperature for catchyness
         #   we look at the gradient of the time series timestamps for anomaly detection
-        temperature = np.gradient(timeSeq)
-
-        dfe = dfEntity.copy()
-        dfe[[self.input_item]] = temperature
+        #   might throw an exception - we catch it in the super class !!
+        try:
+            temperature = np.gradient(timeSeq)
+            dfe[[self.input_item]] = temperature
+        except Exception as pe:
+            logger.info("NoData Gradient failed with " + str(pe))
+            dfe[[self.input_item]] = 0
+            temperature = dfe[[self.input_item]].values
+            temperature[0] = 10**10
+            pass
 
         return dfe, temperature
 
@@ -878,6 +862,171 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
         )
         return (inputs, outputs)
 
+#######################################################################################
+
+
+class AlertExpressionWithFilter(BaseEvent):
+    '''
+    Create alerts that are triggered when data values the expression is True
+    '''
+
+    def __init__(self, expression, dimension_name, dimension_value, alert_name, **kwargs):
+        self.dimension_name = dimension_name
+        self.dimension_value = dimension_value
+        self.expression = expression
+        self.alert_name = alert_name
+        logger.info('AlertExpressionWithFilter  dim: ' + dimension_name + '  exp: ' + expression + '  alert: ' +
+                    alert_name)
+        super().__init__()
+
+    def _calc(self, df):
+        '''
+        unused
+        '''
+        return df
+
+    def execute(self, df):
+        # c = self._entity_type.get_attributes_dict()
+        df = df.copy()
+        logger.info('AlertExpressionWithFilter  exp: ' + self.expression + '  input: ' + str(df.columns))
+
+        expr = self.expression
+
+        # if '${}' in expr:
+        #    expr = expr.replace("${}", "df['" + self.dimension_name + "']")
+
+        if '${' in expr:
+            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expr)
+            msg = 'Expression converted to %s. ' % expr
+        else:
+            msg = 'Expression (%s). ' % expr
+
+        self.trace_append(msg)
+
+        expr = str(expr)
+        logger.info('AlertExpressionWithFilter  - after regexp: ' + expr)
+
+        try:
+            evl = eval(expr)
+            n1 = np.where(evl, True, False)
+            n2 = np.where(df[self.dimension_name] == self.dimension_value, True, False)
+            np_res = np.logical_and(n1, n2)
+            logger.info('AlertExpressionWithFilter  shapes ' + str(n1.shape) + ' ' + str(n2.shape) + ' ' +
+                        str(np_res.shape) + '  results\n - ' + str(n1) + '\n - ' + str(n2) + '\n - ' + str(np_res))
+            df[self.alert_name] = np_res
+
+        except Exception as e:
+            logger.info('AlertExpressionWithFilter  eval for ' + expr + ' failed with ' + str(e))
+            df[self.alert_name] = None
+            pass
+
+        return df
+
+    def get_input_items(self):
+        items = set(self.dimension_name)
+        items = items | self.get_expression_items(self.expression)
+        return items
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name='dimension_name', datatype=str))
+        inputs.append(UISingle(name='dimension_value', datatype=str,
+                               description='Dimension Filter Value'))
+        inputs.append(UIExpression(name='expression',
+                                   description="Define alert expression using pandas systax. \
+                                                Example: df['inlet_temperature']>50. ${pressure} will be substituted \
+                                                with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
+        return (inputs, outputs)
+
+#######################################################################################
+
+
+class GBMRegressor(BaseEstimatorFunction):
+
+    '''
+    Regressor based on gradient boosting method as provided by lightGBM
+    '''
+    eval_metric = staticmethod(metrics.r2_score)
+
+    # class variables
+    train_if_no_model = True
+    estimators_per_execution = 1
+    num_rounds_per_estimator = 1
+
+    def set_estimators(self):
+        # gradient_boosted
+        self.estimators['light_gradient_boosted_regressor'] = (lightgbm.LGBMRegressor, self.params)
+        logger.info('GBMRegressor start search for best model')
+
+    def __init__(self, features, targets, threshold, predictions=None, alerts=None,
+                 n_estimators=None, num_leaves=None, learning_rate=None, max_depth=None):
+        super().__init__(features=features, targets=targets, predictions=predictions)
+        if alerts is None:
+            alerts = ['%s_alert' % x for x in self.targets]
+        self.alerts = alerts
+        self.threshold = threshold
+        # if n_estimators is not None or num_leaves is not None or learning_rate is not None or max_depth is not None:
+        if n_estimators is not None or num_leaves is not None or learning_rate is not None:
+            self.params = {'n_estimators': [n_estimators],
+                           'num_leaves': [num_leaves],
+                           'learning_rate': [learning_rate],
+                           'max_depth': [max_depth],
+                           'verbosity': [2]}
+        else:
+            self.params = {'n_estimators': [500],
+                           'num_leaves': [50],
+                           'learning_rate': [0.001],
+                           'verbosity': [2]}
+        self.stop_auto_improve_at = -2
+
+    def execute(self, df):
+
+        try:
+            df_new = super().execute(df)
+        except Exception as e:
+            logger.info('GBMRegressor failed with: ' + str(e))
+            pass
+
+        try:
+            df = df_new
+            for i, t in enumerate(self.targets):
+                prediction = self.predictions[i]
+                df['_diff_'] = (df[t] - df[prediction]).abs()
+                alert = AlertHighValue(input_item='_diff_', upper_threshold=self.threshold, alert_name=self.alerts[i])
+                alert.set_entity_type(self.get_entity_type())
+                df = alert.execute(df)
+        except Exception as e4:
+            logger.info('GBMRegressor eval failed with: ' + str(e4))
+            pass
+
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+        inputs.append(UISingle(name='threshold', datatype=float,
+                               description=('Threshold for firing an alert. Expressed as absolute value not percent.')))
+        inputs.append(UISingle(name='n_estimators', datatype=int, description=('Max rounds of boosting')))
+        inputs.append(UISingle(name='num_leaves', datatype=int, description=('Max leaves in a boosting tree')))
+        inputs.append(UISingle(name='learning_rate', datatype=float, description=('Learning rate')))
+        inputs.append(UISingle(name='max_depth', datatype=int, description=('Cut tree to prevent overfitting')))
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(
+            UIFunctionOutMulti(name='alerts', datatype=bool, cardinality_from='targets', is_datatype_derived=False, ))
+
+        return (inputs, outputs)
+
 
 class SimpleAnomaly(BaseRegressor):
     '''
@@ -885,6 +1034,7 @@ class SimpleAnomaly(BaseRegressor):
     variables. It compares the actual value to the prediction and generates an alert
     when the difference between the actual and predicted value is outside of a threshold.
     '''
+
     # class variables
     train_if_no_model = True
     estimators_per_execution = 3
