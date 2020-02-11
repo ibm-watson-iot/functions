@@ -4,6 +4,7 @@ import pandas as pd
 from sqlalchemy import Column, Float
 from iotfunctions.anomaly import SaliencybasedGeneralizedAnomalyScore, SpectralAnomalyScore, \
                                  FFTbasedGeneralizedAnomalyScore, KMeansAnomalyScore
+from nose.tools import assert_equal
 
 # constants
 Temperature = 'Temperature'
@@ -67,5 +68,6 @@ comp = (np.all(np.where(df_comp[spectral] != df_comp[spectral+'O'], True, False)
         np.all(np.where(df_comp[kmeans] != df_comp[kmeans+'O'], True, False)))
 
 print(comp)
+assert_equal(comp, (True, True, True, True))
 
 exit(np.all(comp))
