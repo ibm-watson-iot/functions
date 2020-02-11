@@ -69,5 +69,3 @@ comp = (np.all(np.where(df_comp[spectral] != df_comp[spectral+'O'], True, False)
 
 print(comp)
 assert_equal(comp, (True, True, True, True))
-
-exit(np.all(comp))
