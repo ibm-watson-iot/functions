@@ -4,7 +4,7 @@ import pandas as pd
 from sqlalchemy import Column, Float
 from iotfunctions.anomaly import SaliencybasedGeneralizedAnomalyScore, SpectralAnomalyScore, \
                                  FFTbasedGeneralizedAnomalyScore, KMeansAnomalyScore
-from nose.tools import assert_equal
+from nose.tools import assert_true
 
 # constants
 Temperature = 'Temperature'
@@ -14,58 +14,64 @@ spectral = 'TemperatureSpectralScore'
 sal = 'SaliencyAnomalyScore'
 gen = 'TemperatureGeneralizedScore'
 
-# Run on the good pump first
-# Get stuff in
-print('Read Anomaly Sample data in')
-df_i = pd.read_csv('./AzureAnomalysample.csv', index_col=False, parse_dates=['timestamp'])
 
-df_i['entity'] = 'MyRoom'
-df_i[Temperature] = df_i['value'] + 20
-df_i = df_i.drop(columns=['value'])
+def test_anomaly_scores():
 
-# and sort it by timestamp
-df_i = df_i.sort_values(by='timestamp')
-df_i = df_i.set_index(['entity', 'timestamp']).dropna()
+    # Run on the good pump first
+    # Get stuff in
+    print('Read Anomaly Sample data in')
+    df_i = pd.read_csv('./AzureAnomalysample.csv', index_col=False, parse_dates=['timestamp'])
 
-#####
+    df_i['entity'] = 'MyRoom'
+    df_i[Temperature] = df_i['value'] + 20
+    df_i = df_i.drop(columns=['value'])
 
-print('Compute Spectral Anomaly Score')
-spsi = SpectralAnomalyScore(Temperature, 12, spectral)
-et = spsi._build_entity_type(columns=[Column(Temperature, Float())])
-spsi._entity_type = et
-df_i = spsi.execute(df=df_i)
+    # and sort it by timestamp
+    df_i = df_i.sort_values(by='timestamp')
+    df_i = df_i.set_index(['entity', 'timestamp']).dropna()
 
-print('Compute Saliency Anomaly Score')
-sali = SaliencybasedGeneralizedAnomalyScore(Temperature, 12, sal)
-et = sali._build_entity_type(columns=[Column(Temperature, Float())])
-sali._entity_type = et
-df_i = sali.execute(df=df_i)
+    #####
 
-print('Compute FFT Anomaly Score')
-ffti = FFTbasedGeneralizedAnomalyScore(Temperature, 12, fft)
-et = ffti._build_entity_type(columns=[Column(Temperature, Float())])
-ffti._entity_type = et
-df_i = ffti.execute(df=df_i)
+    print('Compute Spectral Anomaly Score')
+    spsi = SpectralAnomalyScore(Temperature, 12, spectral)
+    et = spsi._build_entity_type(columns=[Column(Temperature, Float())])
+    spsi._entity_type = et
+    df_i = spsi.execute(df=df_i)
 
-print('Compute K-Means Anomaly Score')
-kmi = KMeansAnomalyScore(Temperature, 12, kmeans)
-et = kmi._build_entity_type(columns=[Column(Temperature, Float())])
-kmi._entity_type = et
-df_i = kmi.execute(df=df_i)
+    print('Compute Saliency Anomaly Score')
+    sali = SaliencybasedGeneralizedAnomalyScore(Temperature, 12, sal)
+    et = sali._build_entity_type(columns=[Column(Temperature, Float())])
+    sali._entity_type = et
+    df_i = sali.execute(df=df_i)
 
-df_o = pd.read_csv('AzureAnomalysampleOutput.csv')
+    print('Compute FFT Anomaly Score')
+    ffti = FFTbasedGeneralizedAnomalyScore(Temperature, 12, fft)
+    et = ffti._build_entity_type(columns=[Column(Temperature, Float())])
+    ffti._entity_type = et
+    df_i = ffti.execute(df=df_i)
 
-df_comp = df_i.copy()
-df_comp[spectral+'O'] = df_o[spectral]
-df_comp[fft+'O'] = df_o[fft]
-df_comp[sal+'O'] = df_o[sal]
-df_comp[kmeans+'O'] = df_o[kmeans]
+    print('Compute K-Means Anomaly Score')
+    kmi = KMeansAnomalyScore(Temperature, 12, kmeans)
+    et = kmi._build_entity_type(columns=[Column(Temperature, Float())])
+    kmi._entity_type = et
+    df_comp = kmi.execute(df=df_i)
 
-print('Compare Scores')
-comp = (np.all(np.where(df_comp[spectral] != df_comp[spectral+'O'], True, False)),
-        np.all(np.where(df_comp[sal] != df_comp[sal+'O'], True, False)),
-        np.all(np.where(df_comp[fft] != df_comp[fft+'O'], True, False)),
-        np.all(np.where(df_comp[kmeans] != df_comp[kmeans+'O'], True, False)))
+    # df_comp.to_csv('AzureAnomalysampleOutput.csv')
+    df_o = pd.read_csv('AzureAnomalysampleOutput.csv')
 
-print(comp)
-assert_equal(comp, (True, True, True, True))
+    print('Compare Scores')
+
+    comp = {spectral: np.max(abs(df_comp[spectral].values - df_o[spectral].values)),
+            fft: np.max(abs(df_comp[fft].values - df_o[fft].values)),
+            sal: np.max(abs(df_comp[sal].values - df_o[sal].values)),
+            kmeans: np.max(abs(df_comp[kmeans].values - df_o[kmeans].values))}
+
+    print(comp)
+    assert_true(comp[spectral] < 5)
+    assert_true(comp[fft] < 25)
+    assert_true(comp[sal] < 100)
+    assert_true(comp[kmeans] < 5)
+
+    pass
+
+# test_anomaly_scores()
