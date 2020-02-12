@@ -1,8 +1,9 @@
-
+from collections import OrderedDict
+import datetime as dt
 import numpy as np
 import pandas as pd
-from sqlalchemy import Column, Float
-from iotfunctions.bif import Coalesce
+from sqlalchemy import Column, Float, DateTime
+from iotfunctions.bif import Coalesce, DateDifference
 from nose.tools import assert_true
 
 # constants
@@ -24,6 +25,7 @@ def test_base_functions():
     df_i['entity'] = 'MyRoom'
     df_i[Temperature] = df_i['value'] + 20
     df_i = df_i.drop(columns=['value'])
+    df_i['evt_timestamp'] = df_i['timestamp']
 
     # and sort it by timestamp
     df_i = df_i.sort_values(by='timestamp')
@@ -58,23 +60,36 @@ def test_base_functions():
     coal._entity_type = et
     df_i = coal.execute(df=df_i)
 
+    print('Run DateDifference')
+
+    my_delta = 42.0
+    my_timedelta = dt.timedelta(days=my_delta)
+    df_i['test_timestamp'] = df_i['evt_timestamp'] + my_timedelta
+    ddiff = DateDifference(None, 'test_timestamp', 'datediff')
+    et = ddiff._build_entity_type(Column('datediff', DateTime()))
+    ddiff._entity_type = et
+    print(ddiff._entity_type._timestamp)
+    df_i = ddiff.execute(df=df_i)
+
     print('Compare Scores')
     results1 = df_i['Results1'].values[0:5]
     results2 = df_i['Results2'].values[0:5]
     origins1 = np.asarray([23.0, 23.00125, 23.0025, 23.00375, 23.005])
     origins2 = np.asarray([23.0, 10000.0, 23.0025, 20000.0, 23.005])
 
-    comp = (np.all(results1 == origins1), np.all(results2 == origins2))
+    print (df_i['datediff'])
+    comp = (np.all(results1 == origins1), np.all(results2 == origins2),
+            np.all(df_i['datediff'] == my_delta))
 
-
-    print (results1)
-    print (results2)
-    print (origins1)
-    print (origins2)
+    print(results1)
+    print(results2)
+    print(origins1)
+    print(origins2)
     print(comp)
 
     assert_true(comp[0])
     assert_true(comp[1])
+    assert_true(comp[2])
 
     pass
 
