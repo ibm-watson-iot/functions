@@ -113,15 +113,17 @@ def execute_postgre_sql_select_query(db_connection, sql, params=None):
             cursor.close()
 
 
-def execute_postgre_sql_query(db_connection, sql, params=None):
+def execute_postgre_sql_query(db_connection, sql, params=None, raise_error=True):
     cursor = None
     try:
         cursor = db_connection.cursor()
         cursor.execute(sql) if params is None else cursor.execute(sql, params)
         db_connection.commit()
     except:
+        db_connection.rollback()
+        if raise_error:
+            raise
         logger.warning('Error while executing PostgreSQL query. SQL: %s , params: %s ' % (sql, params))
-        raise
     finally:
         if cursor is not None:
             cursor.close()

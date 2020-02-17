@@ -1533,6 +1533,7 @@ class BaseEvent(BaseTransformer):
     def __init__(self):
         super().__init__()
         self.tags.append('EVENT')
+        self.tags.append('ALERT')
 
 
 class BaseFilter(BaseTransformer):
@@ -2319,11 +2320,18 @@ class BaseEstimatorFunction(BaseTransformer):
         for i, target in enumerate(self.targets):
             results = {}
             trace_message = 'predicting target %s' % target
+            logger.info(trace_message)
             features = self.make_feature_list(features=self.features, df=df, unprocessed_targets=unprocessed_targets)
             model_name = self.get_model_name(target)
+
             # retrieve existing model
             model = db.cos_load(filename=model_name, bucket=bucket, binary=True)
+            logger.info('load model %s' % str(model))
+
             training_required, results['training_required'] = self.decide_training_required(model)
+
+            logger.info('training required: ' + str(training_required) + '  results: ' + results['training_required'])
+
             if training_required:
                 results['use_existing_model'] = False
                 if model is None:
@@ -2494,9 +2502,11 @@ class BaseEstimatorFunction(BaseTransformer):
             estimator = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
                                                 features=features)
             trace_msg = 'Trained model: %s' % counter
+            logger.info(trace_msg)
 
             try:
                 est_score = estimator.score(df_train[features], df_train[target])
+                logger.info(trace_msg + ' score:' + str(est_score))
             except Exception as e:
                 logger.info('Estimator predict failed with ' + str(e))
                 trace_msg = 'Trained model prediction failed with ' + str(e)

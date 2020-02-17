@@ -15,6 +15,7 @@ import json
 import ibm_db
 import datetime as dt
 import numpy as np
+from collections import defaultdict
 from sqlalchemy import (MetaData, Table)
 from . import dbhelper
 from .util import MessageHub, asList
@@ -30,13 +31,16 @@ DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
 DATA_ITEM_TRANSIENT_KEY = 'transient'
 DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
 DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
-
-METADATA_TYPE_KEY = 'type'
-
+DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'functionName'
 DATA_ITEM_TAG_ALERT = 'ALERT'
 DATA_ITEM_TAGS_KEY = 'tags'
+DATA_ITEM_TYPE_KEY = 'type'
 
 logger = logging.getLogger(__name__)
+
+DATALAKE_BATCH_UPDATE_ROWS = 5000
+KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
+OPERATION_PIPELINE = 'PIPELINE'
 
 
 class PersistColumns:
@@ -49,13 +53,16 @@ class PersistColumns:
         if sources is None:
             raise RuntimeError("argument sources must be provided")
         self.dms = dms
+        self.schema = self.dms.schema
+        self.db_connection = self.dms.db_connection
+        self.is_postgre_sql = dms.is_postgre_sql
         self.sources = asList(sources)
 
     def execute(self, df):
         self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
 
         t1 = dt.datetime.now()
-        self.dms.store_derived_metrics(df[list(set(self.sources) & set(df.columns))]);
+        self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
         t2 = dt.datetime.now()
         if self.dms.production_mode:
             self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
@@ -65,6 +72,247 @@ class PersistColumns:
             self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
 
         return df
+
+    def store_derived_metrics(self, dataFrame):
+        if self.dms.production_mode:
+            table_insert_stmt = {}
+            table_metrics_to_persist = defaultdict(dict)
+
+            for source, dtype in dataFrame.dtypes.to_dict().items():
+                source_metadata = self.dms.data_items.get(source)
+                if source_metadata is None:
+                    continue
+
+                # skip transient data items
+                if source_metadata.get(DATA_ITEM_TRANSIENT_KEY) == True:
+                    self.logger.debug('skip persisting transient data_item=%s' % source)
+                    continue
+
+                # if source not in (get_all_kpi_targets(self.get_pipeline()) & self.data_items.get_derived_metrics()):
+                #     continue
+
+                try:
+                    tableName = source_metadata.get(DATA_ITEM_SOURCETABLE_KEY)
+                except Exception:
+                    self.logger.warning('sourceTableName invalid for derived_metric=%s' % source, exc_info=True,
+                                        extra={'operation': OPERATION_PIPELINE})
+                    continue
+
+                if tableName not in table_insert_stmt:
+                    grain = self.dms.target_grains[source]
+                    sql = None
+                    try:
+
+                        if self.is_postgre_sql:
+                            sql = self.create_upsert_statement_postgres_sql(tableName, grain)
+                            table_insert_stmt[tableName] = (sql, grain)
+
+                        else:
+                            sql = self.create_upsert_statement(tableName, grain)
+                            stmt = ibm_db.prepare(self.db_connection, sql)
+                            table_insert_stmt[tableName] = (stmt, grain)
+
+                        self.logger.debug('derived_metrics_upsert_sql = %s' % sql)
+                    except Exception:
+                        self.logger.warning('Error creating db upsert statement for sql = %s' % sql, exc_info=True,
+                                            extra={'operation': OPERATION_PIPELINE})
+                        continue
+
+                value_bool = False
+                value_number = False
+                value_string = False
+                value_timestamp = False
+
+                dtype = dtype.name.lower()
+                # if dtype.startswith('int') or dtype.startswith('float') or dtype.startswith('long') or dtype.startswith('complex'):
+                if source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_NUMBER:
+                    value_number = True
+                # elif dtype.startswith('bool'):
+                elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_BOOLEAN:
+                    value_bool = True
+                # elif dtype.startswith('datetime'):
+                elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_TIMESTAMP:
+                    value_timestamp = True
+                else:
+                    value_string = True
+
+                table_metrics_to_persist[tableName][source] = [value_bool, value_number, value_string, value_timestamp]
+
+            self.logger.debug('table_metrics_to_persist=%s' % str(table_metrics_to_persist))
+
+            # Remember position of column in dataframe. Index starts at 1.
+            col_position = {}
+            for pos, col_name in enumerate(dataFrame.columns, 1):
+                col_position[col_name] = pos
+
+            index_name_pos = {name: idx for idx, name in enumerate(dataFrame.index.names)}
+            for table, metric_and_type in table_metrics_to_persist.items():
+                stmt, grain = table_insert_stmt[table]
+
+                # Loop over rows of data frame
+                # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
+                # keywords and column names starting with underscore; both lead to renaming of column names in df_rows.
+                # Additionally, namedtuples are limited to 255 columns in itertuples(). We access the columns in df_row
+                # by index. Position starts at 1 because 0 is reserved for the row index.
+                valueList = []
+                cnt = 0
+                total_saved = 0
+
+                for df_row in dataFrame.itertuples(index=True, name=None):
+                    ix = df_row[0]
+                    for metric, metric_type in metric_and_type.items():
+                        derivedMetricVal = df_row[col_position[metric]]
+
+                        # Skip missing values
+                        if pd.notna(derivedMetricVal):
+                            rowVals = list()
+                            rowVals.append(metric)
+
+                            if grain is None or len(grain) == 0:
+                                # no grain, the index must be an array of (id, timestamp)
+                                rowVals.append(ix[0])
+                                rowVals.append(ix[1])
+                            elif not isinstance(ix, list) and not isinstance(ix, tuple):
+                                # only one element in the grain, ix is not an array, just append it anyway
+                                rowVals.append(ix)
+                            else:
+                                if grain[2]:
+                                    # entity_first, the first level index must be the entity id
+                                    rowVals.append(ix[0])
+                                if grain[0] is not None:
+                                    if grain[2]:
+                                        # if both id and time are included in the grain, time must be at pos 1
+                                        rowVals.append(ix[1])
+                                    else:
+                                        # if only time is included, time must be at pos 0
+                                        rowVals.append(ix[0])
+                                if grain[1] is not None:
+                                    for dimension in grain[1]:
+                                        rowVals.append(ix[index_name_pos[dimension]])
+
+                            if metric_type[0]:
+                                if self.dms.is_postgre_sql:
+                                    rowVals.append(
+                                        False if (derivedMetricVal == False or derivedMetricVal == 0) else True)
+                                else:
+                                    rowVals.append(0 if (derivedMetricVal == False or derivedMetricVal == 0) else 1)
+                            else:
+                                rowVals.append(None)
+
+                            if metric_type[1]:
+                                myFloat = float(derivedMetricVal)
+                                rowVals.append(myFloat if np.isfinite(myFloat) else None)
+                            else:
+                                rowVals.append(None)
+
+                            rowVals.append(str(derivedMetricVal) if metric_type[2] else None)
+                            rowVals.append(derivedMetricVal if metric_type[3] else None)
+
+                            if metric_type[1] and float(derivedMetricVal) is np.nan or metric_type[2] and str(
+                                    derivedMetricVal) == 'nan':
+                                self.logger.debug('!!! weird case, derivedMetricVal=%s' % derivedMetricVal)
+                                continue
+
+                            valueList.append(tuple(rowVals))
+                            cnt += 1
+
+                        if cnt >= DATALAKE_BATCH_UPDATE_ROWS:
+                            try:
+                                # Bulk insert
+
+                                if self.is_postgre_sql:
+                                    dbhelper.execute_batch(self.db_connection, stmt, valueList,
+                                                           DATALAKE_BATCH_UPDATE_ROWS)
+                                    saved = cnt  # Work around because we don't receive row count from batch query.
+
+                                else:
+                                    res = ibm_db.execute_many(stmt, tuple(valueList))
+                                    saved = res if res is not None else ibm_db.num_rows(stmt)
+
+                                total_saved += saved
+                                self.logger.debug('Records saved so far = %d' % total_saved)
+                            except Exception:
+                                self.logger.warning('Error persisting derived metrics, valueList=%s' % str(valueList),
+                                                    exc_info=True, extra={'operation': OPERATION_PIPELINE})
+
+                            valueList = []
+                            cnt = 0
+
+                if len(valueList) > 0:
+                    try:
+                        # Bulk insert
+                        if self.is_postgre_sql:
+                            dbhelper.execute_batch(self.db_connection, stmt, valueList, DATALAKE_BATCH_UPDATE_ROWS)
+                            saved = cnt  # Work around because we don't receive row count from batch query.
+                        else:
+                            res = ibm_db.execute_many(stmt, tuple(valueList))
+                            saved = res if res is not None else ibm_db.num_rows(stmt)
+
+                        total_saved += saved
+                    except Exception:
+                        self.logger.warning('Error persisting derived metrics, valueList = %s' % str(valueList),
+                                            exc_info=True, extra={'operation': OPERATION_PIPELINE})
+
+                self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
+
+    def create_upsert_statement(self, tableName, grain):
+        dimensions = []
+        if grain is None or len(grain) == 0:
+            dimensions.append(KPI_ENTITY_ID_COLUMN)
+            dimensions.append('TIMESTAMP')
+        else:
+            if grain[2]:
+                dimensions.append(KPI_ENTITY_ID_COLUMN)
+            if grain[0] is not None:
+                dimensions.append('TIMESTAMP')
+            if grain[1] is not None:
+                dimensions.extend(grain[1])
+
+        colExtension = ''
+        parmExtension = ''
+        joinExtension = ''
+        sourceExtension = ''
+        for dimension in dimensions:
+            quoted_dimension = dbhelper.quotingColumnName(dimension)
+            colExtension += ', ' + quoted_dimension
+            parmExtension += ', ?'
+            joinExtension += ' AND TARGET.' + quoted_dimension + ' = SOURCE.' + quoted_dimension
+            sourceExtension += ', SOURCE.' + quoted_dimension
+
+        return ("MERGE INTO %s.%s AS TARGET "
+                "USING (VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) "
+                "ON TARGET.KEY = SOURCE.KEY%s "
+                "WHEN MATCHED THEN "
+                "UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
+                "WHEN NOT MATCHED THEN "
+                "INSERT (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) VALUES (SOURCE.KEY%s, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, CURRENT TIMESTAMP)") % (
+                   dbhelper.quotingSchemaName(self.schema), dbhelper.quotingTableName(tableName), parmExtension,
+                   colExtension, joinExtension, colExtension, sourceExtension)
+
+    def create_upsert_statement_postgres_sql(self, tableName, grain):
+        dimensions = []
+        if grain is None or len(grain) == 0:
+            dimensions.append(KPI_ENTITY_ID_COLUMN.lower())
+            dimensions.append('timestamp')
+        else:
+            if grain[2]:
+                dimensions.append(KPI_ENTITY_ID_COLUMN.lower())
+            if grain[0] is not None:
+                dimensions.append('timestamp')
+            if grain[1] is not None:
+                dimensions.extend(grain[1])
+
+        colExtension = ''
+        parmExtension = ''
+
+        for dimension in dimensions:
+            # Note: the dimension grain need to be in lower case since the table will be created with lowercase column.
+            quoted_dimension = dbhelper.quotingColumnName(dimension.lower(), self.is_postgre_sql)
+            colExtension += ', ' + quoted_dimension
+            parmExtension += ', %s'
+
+        sql = "insert into " + self.schema + "." + tableName + " (key " + colExtension + ",value_b,value_n,value_s,value_t,last_update) values (%s " + parmExtension + ", %s, %s, %s, %s, current_timestamp) on conflict on constraint uc_" + tableName + " do update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, value_t = EXCLUDED.value_t, last_update = EXCLUDED.last_update"
+        return sql
 
 
 class ProduceAlerts(object):
@@ -87,39 +335,49 @@ class ProduceAlerts(object):
         self.db_connection = dms.db_connection
         self.schema = dms.schema
         self.alert_to_kpi_input_dict = dict()
-        self.alerts = []
+        self.alerts_to_message_hub = []
+        self.alerts_to_database = []
+        self.alert_catalogs = dms.catalog.get_alerts()
         if alerts is None:
             if all_cols is not None:
                 for alert_data_item in asList(all_cols):
                     metadata = dms.data_items.get(alert_data_item)
                     if metadata is not None:
                         if DATA_ITEM_TAG_ALERT in metadata.get(DATA_ITEM_TAGS_KEY, []):
-                            self.alerts.append(alert_data_item)
-                            kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
+                            self.alerts_to_message_hub.append(alert_data_item)
+
+                        kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY, None)
+                        kpi_function_name = kpi_func_dto.get(DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME, None)
+                        alert_catalog = self.alert_catalogs.get(kpi_function_name, None)
+                        if alert_catalog is not None:
+                            self.alerts_to_database.append(alert_data_item)
                             self.alert_to_kpi_input_dict[alert_data_item] = kpi_func_dto.get('input')
 
         else:
-            self.alerts = alerts
+            self.alerts_to_message_hub = alerts
         self.message_hub = MessageHub()
 
     def __str__(self):
 
         return 'System generated ProduceAlerts stage'
 
-    def execute(self, df):
+    def execute(self, df, start_ts=None, end_ts=None):
 
-        logger.debug('alerts_to_produce = %s ' % str(self.alerts))
+        logger.info('alerts_to_produce into message hub = %s ' % str(self.alerts_to_message_hub))
+        logger.info('alerts_to_produce into database = %s ' % str(self.alerts_to_database))
 
         key_and_msg = []
-        filtered_alerts = []
-        alert_filter_expression = None
+        key_and_msg_updated = []
+        key_and_msg_and_db_parameter = []
 
-        if len(self.alerts) > 0:  # no alert, do iterate which is slow
+        if len(self.alerts_to_message_hub) > 0:
 
-            value_list = []
+            filtered_alerts = []
+            alert_filter_expression = None
 
-            # pre-filtering the data frame to be just those rows with True alert column values because iterating through the whole data frame is a slow process.
-            for alert_name in self.alerts:
+            # pre-filtering the data frame to be just those rows with True alert column values.
+            # Iterating through the whole data frame is a slow process.
+            for alert_name in self.alerts_to_message_hub:
                 if alert_name in df.columns:
                     if alert_filter_expression is None:
                         alert_filter_expression = alert_name + " == True"
@@ -134,25 +392,40 @@ class ProduceAlerts(object):
             for index_value, row in filtered_df.iterrows():
                 for alert_name in filtered_alerts:
                     # derived_value = getattr(payload, alert)
-                    kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+
                     if row[alert_name]:
                         # publish alert format
                         # key: <tenant-id>|<entity-type-name>|<alert-name>
                         # value: json document containing all metrics at the same time / same device / same grain
                         key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
                         value = self.get_json_values(index_names, index_value, row)
-                        key_and_msg.append((key, value))
-                        value_list.append((self.entity_type_name, alert_name, kpi_input.get('severity'),
-                                           kpi_input.get('priority'), kpi_input.get('domain_status')))
+
+                        if alert_name in self.alerts_to_database:
+                            kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+                            db_insert_parameter = (index_value[0], index_value[1], self.entity_type_name, alert_name,
+                                                   kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                                   kpi_input.get('Status', None))
+                            key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
+                        else:
+                            key_and_msg.append((key, value))
 
         else:
             logger.debug("No alerts to produce for %s." % self.entity_type_name)
             return df
 
-        if len(key_and_msg) > 0:
-            self.message_hub.produce_batch_alert_to_default_topic(msg_and_keys=key_and_msg)
+        if len(key_and_msg_and_db_parameter) > 0:
+            try:
+                key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
+            except Exception as ex:
+                # TODO:: Remove the exception once you create dm_wiot_as_alert table for all the tenant.
+                self.logger.warning('Inserting data into alert table failed: %s' % str(ex))
 
-        logger.info("Total alerts produced = %d " % len(key_and_msg))
+        if len(key_and_msg) > 0 or len(key_and_msg_updated) > 0:
+            # TODO:: Duplicate alert issue is still exist.
+            key_and_msg_merged = []
+            key_and_msg_merged.extend(key_and_msg)
+            key_and_msg_merged.extend(key_and_msg_updated)
+            self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg_merged)
 
         return df
 
@@ -180,18 +453,43 @@ class ProduceAlerts(object):
         updated_value["index"] = index_json
         return json.dumps(updated_value, default=self._serialize_converter)
 
-    def insert_data_into_alert_table(self, value_list=[]):
+    def insert_data_into_alert_table(self, key_and_msg_and_db_parameter=[]):
+        logger.info("Processing %s alerts. This alert may contain duplicates, "
+                    "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
+        updated_key_and_msg = []
+        postgres_sql = "insert into " + self.schema + ".dm_wiot_as_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.schema + ".DM_WIOT_AS_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
+        start_time = dt.datetime.now()
 
-        if self.is_postgre_sql:
+        for key, msg, db_params in key_and_msg_and_db_parameter:
+            try:
+                if self.is_postgre_sql:
+                    dbhelper.execute_postgre_sql_query(self.db_connection, sql=postgres_sql, params=db_params)
+                else:
+                    stmt = ibm_db.prepare(self.db_connection, db2_sql)
+                    for i, param in enumerate(iterable=db_params, start=1):
+                        ibm_db.bind_param(stmt, i, param)
 
-            sql = "insert into " + self.schema + ".dm_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status') values (%s, %s, %s, %s, %s, %s, 'New') on conflict on constraint uc_dm_alert do nothing"
-            dbhelper.execute_batch(self.db_connection, sql, value_list)
+                    ibm_db.execute(stmt)
 
-        else:
-            sql = "insert into " + self.schema + ".DM_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS') values (?, ?, ?, ?, ?, ?, 'New') on conflict on constraint UC_DM_ALERT do nothing"
-            stmt = ibm_db.prepare(self.db_connection, sql)
-            res = ibm_db.execute_many(stmt, tuple(value_list))
-            saved = res if res is not None else ibm_db.num_rows(stmt)
+                updated_key_and_msg.append((key, msg))
+
+            except Exception as ex:
+                if self.is_postgre_sql:
+                    if ex.pgcode == '23505':
+                        continue
+                else:
+                    if "SQLSTATE=23505" in ex.args[0]:
+                        continue
+
+                raise ex
+
+        end_time = dt.datetime.now()
+        logger.info("Total alerts produced to database = %d " % len(updated_key_and_msg))
+        logger.info(
+            "Total time taken to insert the alert to database = %s seconds." % (end_time - start_time).total_seconds())
+
+        return updated_key_and_msg
 
 
 class RecordUsage:
@@ -558,7 +856,7 @@ class DataWriterSqlAlchemy(DataWriter):
         first_loop_cycle = True
         for col_name, col_type in df.dtypes.iteritems():
             metadata = self.data_item_metadata.get(col_name)
-            if metadata is not None and metadata.get(METADATA_TYPE_KEY).upper() == 'DERIVED_METRIC':
+            if metadata is not None and metadata.get(DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
                 if metadata.get(DATA_ITEM_TRANSIENT_KEY, False) is False:
                     table_name = metadata.get(DATA_ITEM_SOURCETABLE_KEY)
                     data_item_type = metadata.get(DATA_ITEM_COLUMN_TYPE_KEY)
