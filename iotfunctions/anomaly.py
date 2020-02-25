@@ -55,14 +55,6 @@ FFT_normalizer = 1
 Saliency_normalizer = 1
 Generalized_normalizer = 1 / 300
 
-if dt.datetime(2020,3,1) > dt.datetime.now():
-    KMeans_normalizer = 1
-    Spectral_normalizer = 1
-    FFT_normalizer = 1
-    Saliency_normalizer = 1
-    Generalized_normalizer = 1
-
-
 
 def custom_resampler(array_like):
     # initialize
@@ -80,8 +72,15 @@ def custom_resampler(array_like):
 def min_delta(df):
     # minimal time delta for merging
 
+    if len(df.index.names) > 1:
+        df2 = df.copy()
+        print(df.index.size)
+        df2.index = df2.index.droplevel(list(range(1, df.index.size-1)))
+    else:
+        df2 = df
+
     try:
-        mindelta = df.index.to_series().diff().min()
+        mindelta = df2.index.to_series().diff().min()
     except Exception as e:
         logger.debug('Min Delta error: ' + str(e))
         mindelta = pd.Timedelta('5 seconds')
@@ -542,7 +541,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
         # assume 1 per sec for now
         self.frame_rate = 1
 
-        self.dampening = 1 # dampening - dampen anomaly score
+        self.dampening = 1  # dampening - dampen anomaly score
 
         self.output_item = output_item
 
@@ -553,10 +552,23 @@ class GeneralizedAnomalyScore(BaseTransformer):
         logger.debug(self.whoami + ': prepare Data')
 
         # interpolate gaps - data imputation
-        dfe = dfEntity.interpolate(method="time")
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index().set_index(index_names[0])
+        else:
+            index_names = None
+            dfe = dfEntity
+
+        try:
+            dfe = dfe.interpolate(method="time")
+        except Exception as e:
+            logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
         temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+
+        if index_names is not None:
+            dfe = dfe.reset_index().set_index(index_names)
 
         return dfe, temperature
 
@@ -1155,16 +1167,24 @@ class GBMRegressor(BaseEstimatorFunction):
                                   is_output_datatype_derived=True))
         inputs.append(UISingle(name='threshold', datatype=float,
                                description=('Threshold for firing an alert. Expressed as absolute value not percent.')))
-        inputs.append(UISingle(name='n_estimators', datatype=int, description=('Max rounds of boosting')))
-        inputs.append(UISingle(name='num_leaves', datatype=int, description=('Max leaves in a boosting tree')))
-        inputs.append(UISingle(name='learning_rate', datatype=float, description=('Learning rate')))
-        inputs.append(UISingle(name='max_depth', datatype=int, description=('Cut tree to prevent overfitting')))
+        inputs.append(UISingle(name='n_estimators', datatype=int, required=False,
+                               description=('Max rounds of boosting')))
+        inputs.append(UISingle(name='num_leaves', datatype=int, required=False,
+                               description=('Max leaves in a boosting tree')))
+        inputs.append(UISingle(name='learning_rate', datatype=float, required=False,
+                               description=('Learning rate')))
+        inputs.append(UISingle(name='max_depth', datatype=int, required=False,
+                               description=('Cut tree to prevent overfitting')))
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(
             UIFunctionOutMulti(name='alerts', datatype=bool, cardinality_from='targets', is_datatype_derived=False, ))
 
         return (inputs, outputs)
+
+    @classmethod
+    def get_input_items(cls):
+        return ['features', 'targets', 'threshold']
 
 
 class SimpleAnomaly(BaseRegressor):
