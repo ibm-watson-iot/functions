@@ -1,7 +1,7 @@
 
 import numpy as np
 import pandas as pd
-import scipy as sp
+from sklearn.metrics import r2_score
 from sqlalchemy import Column, Float
 from iotfunctions.anomaly import SaliencybasedGeneralizedAnomalyScore, SpectralAnomalyScore, \
                                  FFTbasedGeneralizedAnomalyScore, KMeansAnomalyScore
@@ -62,7 +62,7 @@ def test_anomaly_scores():
     # df_comp.to_csv('AzureAnomalysampleOutput.csv')
     df_o = pd.read_csv('AzureAnomalysampleOutput.csv')
 
-    print('Compare Scores')
+    print('Compare Scores - Linf')
 
     comp = {spectral: np.max(abs(df_comp[spectral].values - df_o[spectral].values)),
             fft: np.max(abs(df_comp[fft].values - df_o[fft].values)),
@@ -71,18 +71,21 @@ def test_anomaly_scores():
 
     print(comp)
 
-    comp2 = {spectral: sp.metrics.r2_score(df_comp[spectral].values, df_o[spectral].values),
-             fft: sp.metrics.r2_score(df_comp[fft].values, df_o[fft].values),
-             sal: sp.metrics.r2_score(df_comp[sal].values, df_o[sal].values),
-             kmeans: sp.metrics.r2_score(df_comp[kmeans].values, df_o[kmeans].values)}
+    print('Compare Scores R2-score')
+
+    comp2 = {spectral: r2_score(df_o[spectral].values, df_comp[spectral].values),
+             fft: r2_score(df_o[fft].values, df_comp[fft].values),
+             sal: r2_score(df_o[sal].values, df_comp[sal].values),
+             kmeans: r2_score(df_o[kmeans].values, df_comp[kmeans].values)}
 
     print(comp2)
 
-    assert_true(comp[spectral] < 5)
-    assert_true(comp[fft] < 25)
-    assert_true(comp[sal] < 100)
-    assert_true(comp[kmeans] < 50)
+    assert_true(comp2[spectral] > 0.9)
+    assert_true(comp2[fft] > 0.9)
+    assert_true(comp2[sal] > 0.9)
+    assert_true(comp2[kmeans] > 0.9)
 
     pass
 
+# uncomment to run from the command line
 # test_anomaly_scores()
