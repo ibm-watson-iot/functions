@@ -4,10 +4,12 @@ python:
 # command to install dependencies
 install:
   - pip install nose pylint
+  - pip install .
 # command to run tests
 script:
-  - nosetests
+  - nosetests --nocapture
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:
   only:
   - master
+  - addTravisTests
