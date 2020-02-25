@@ -55,6 +55,8 @@ def test_anomaly_scores():
     et = kmi._build_entity_type(columns=[Column(Temperature, Float())])
     kmi._entity_type = et
     df_comp = kmi.execute(df=df_i)
+    
+    print ("Executed Anomaly functions")
 
     # df_comp.to_csv('AzureAnomalysampleOutput.csv')
     df_o = pd.read_csv('AzureAnomalysampleOutput.csv')
