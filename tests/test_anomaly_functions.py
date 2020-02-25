@@ -55,7 +55,7 @@ def test_anomaly_scores():
     et = kmi._build_entity_type(columns=[Column(Temperature, Float())])
     kmi._entity_type = et
     df_comp = kmi.execute(df=df_i)
-    
+
     print ("Executed Anomaly functions")
 
     # df_comp.to_csv('AzureAnomalysampleOutput.csv')
@@ -72,7 +72,7 @@ def test_anomaly_scores():
     assert_true(comp[spectral] < 5)
     assert_true(comp[fft] < 25)
     assert_true(comp[sal] < 100)
-    assert_true(comp[kmeans] < 5)
+    assert_true(comp[kmeans] < 20)
 
     pass
 
