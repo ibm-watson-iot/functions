@@ -62,14 +62,14 @@ def test_anomaly_scores():
     # df_comp.to_csv('AzureAnomalysampleOutput.csv')
     df_o = pd.read_csv('AzureAnomalysampleOutput.csv')
 
-    print('Compare Scores - Linf')
+    #print('Compare Scores - Linf')
 
     comp = {spectral: np.max(abs(df_comp[spectral].values - df_o[spectral].values)),
             fft: np.max(abs(df_comp[fft].values - df_o[fft].values)),
             sal: np.max(abs(df_comp[sal].values - df_o[sal].values)),
             kmeans: np.max(abs(df_comp[kmeans].values - df_o[kmeans].values))}
 
-    print(comp)
+    #print(comp)
 
     print('Compare Scores R2-score')
 
