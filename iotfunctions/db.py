@@ -1193,6 +1193,8 @@ class Database(object):
 
         df = self.read_table(table_name=dimension, schema=schema, entities=entities, columns=columns,
                              parse_dates=parse_dates)
+        if parse_dates is not None:
+            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
         return df
 
@@ -1228,6 +1230,9 @@ class Database(object):
                               timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
         df = pd.read_sql_query(sql=q.statement, con=self.connection, parse_dates=parse_dates)
+        if parse_dates is not None:
+            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
+
         return (df)
 
     def read_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
@@ -2624,7 +2629,6 @@ class Database(object):
             self.commit()
             logger.info('Wrote data to table %s ' % table_name)
         return 1
-
 
 class BaseTable(object):
     is_table = True

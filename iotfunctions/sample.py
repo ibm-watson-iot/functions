@@ -312,8 +312,11 @@ class MergeSampleTimeSeries(BaseDataSource):
             query = query.filter(table.c[self._entity_type._timestamp] < end_ts)
         if not entities is None:
             query = query.filter(table.c.deviceid.in_(entities))
-        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection,
-                               parse_dates=[self._entity_type._timestamp])
+
+        parse_dates = [self._entity_type._timestamp]
+        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection, parse_dates=parse_dates)
+        df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
+
         return df
 
     @classmethod
