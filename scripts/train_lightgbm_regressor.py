@@ -7,6 +7,8 @@ import json
 from iotfunctions import estimator
 from iotfunctions.db import Database
 from iotfunctions.enginelog import EngineLogging
+#from iotfunctions.anomaly import GBMRegressor
+from mmfunctions.anomaly import GBMRegressor
 from iotfunctions import pipeline as pp
 
 import datetime as dt
@@ -27,15 +29,16 @@ def main(argv):
     predictC = 'predict'
     startTime = None
     endTime = None
-    startTimeV = dt.datetime.utcnow()
-    endTimeV = dt.datetime.utcnow()
-    helpString = 'train.py -E <entityType> -f <feature column> -o <target column> -p <prediction column> \
+    startTimeV = 0
+    endTimeV = 0
+    helpString = 'train.py -E <entityType> -f <feature column> -t <target column> -p <prediction column> \
 -s <starttime> -e <endtime>'
 
     try:
         opts, args = getopt.getopt(
             argv, "hf:t:p:s:e:E:", ["featureC=", "targetC=", "predictC=", "startTime=", "endTime=", "entityType="])
-    except getopt.GetoptError:
+    except getopt.GetoptError as ge:
+        print(str(ge))
         print(helpString)
         sys.exit(2)
     for opt, arg in opts:
@@ -67,13 +70,17 @@ def main(argv):
         sys.exit(3)
 
     # endTime == None means now
+    if endTime == None:
+        endTimeV = 0
+    else:
+        endTimeV = eval(endTime)
 
     if startTime == None:
-        print('startTime is missing, please specify relative to endTime (-3 means 3 days before endTime)')
+        print('startTime is missing, please specify relative to endTime (3 means 3 days before endTime)')
         print(helpString)
         sys.exit(4)
     else:
-        startTimeV = dt.datetime.utcnow() - dt.timedelta(days=int(startTime))
+        startTimeV = eval(startTime) + endTimeV
 
     # db_schema = None
     db = Database(credentials=credentials)
@@ -83,12 +90,15 @@ def main(argv):
 
     logger.info('Connected to database')
 
-    est = anomaly.GBMRegressor(features=[featureC], targets=[targetC], predictions=[predictC],
-                               max_depth=20, num_leaves=40, threshold=2, n_estimators=4000,
-                               learning_rate=0.00001)
+    gbm = GBMRegressor(features=[featureC], targets=[targetC], threshold=2, predictions=[predictC])
+                       #max_depth=20, num_leaves=40, n_estimators=4000, learning_rate=0.00001)
 
-    est.delete_existing_models = True
-    meta._functions = [est]
+    gbm.delete_existing_models = True
+
+    #gbm_fndef = db.load_catalog(function_list=['GBMRegressor'])
+    #print (gbm_fndef)
+
+    meta._functions = [gbm]
 
     logger.info('Created Regressor')
 
@@ -98,9 +108,10 @@ def main(argv):
                              'name': predictC, 'parentDataItemName': None, 'sourceTableName': 'DM_CLIENTS04',
                              'tags': {}, 'transient': True, 'type': 'DERIVED_METRIC'})
 
-    jobsettings = {'_production_mode': False,
-                   '_start_ts_override': dt.datetime.utcnow() - dt.timedelta(days=10),
-                   '_end_ts_override': (dt.datetime.utcnow() - dt.timedelta(days=1)),  # .strftime('%Y-%m-%d %H:%M:%S'),
+    jobsettings = {'db': db,
+                   '_production_mode': False,
+                   '_start_ts_override': (dt.datetime.utcnow() - dt.timedelta(days=startTimeV)),
+                   '_end_ts_override': (dt.datetime.utcnow() - dt.timedelta(days=endTimeV)),
                    '_db_schema': 'BLUADMIN',
                    'save_trace_to_file': True}
 
