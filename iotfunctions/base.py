@@ -882,6 +882,10 @@ class BaseFunction(object):
         logger.debug(msg)
         df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection,
                                parse_dates=[self._start_date, self._end_date])
+
+        df[self._start_date] = df[self._start_date].astype('datetime64[ms]')
+        df[self._end_date] = df[self._end_date].astype('datetime64[ms]')
+
         return df
 
     def get_test_data(self):
@@ -1648,6 +1652,8 @@ class BaseDatabaseLookup(BaseTransformer):
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
             df = pd.read_sql_query(self.sql, con=self.db, index_col=lup_keys, parse_dates=date_cols)
+            df = df.astype(dtype={col: 'datetime64[ms]' for col in date_cols}, errors='ignore')
+
             df.columns = [x.lower() for x in list(df.columns)]
             return (list(df.columns))
 
@@ -1672,6 +1678,9 @@ class BaseDatabaseLookup(BaseTransformer):
         self.trace_append(msg)
         df_sql = pd.read_sql_query(self.sql, self.db.connection, index_col=self.lookup_keys,
                                    parse_dates=self.parse_dates)
+        if self.parse_dates is not None:
+            df_sql = df_sql.astype(dtype={col: 'datetime64[ms]' for col in self.parse_dates}, errors='ignore')
+
         msg = 'Lookup returned columns %s. ' % ','.join(list(df_sql.columns))
         self.trace_append(msg)
 
@@ -1785,8 +1794,9 @@ class BaseDBActivityMerge(BaseDataSource):
         # execute sql provided explicitly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
-                af = pd.read_sql_query(sql, con=self._entity_type.db.connection,
-                                       parse_dates=[self._start_date, self._end_date])
+                parse_dates = [self._start_date, self._end_date]
+                af = pd.read_sql_query(sql, con=self._entity_type.db.connection, parse_dates=parse_dates)
+                af = af.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
             except:
                 logger.warning(
                     'Function attempted to retrieve data for a merge operation using custom sql. There was '
@@ -2077,8 +2087,8 @@ class BaseDBActivityMerge(BaseDataSource):
         new_df = pd.DataFrame(columns=cols)
         new_df.index.name = self.auto_index_name
 
-        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
-        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
+        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ms]')
+        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ms]')
         new_df['duration'] = new_df['duration'].astype('float64')
 
         new_df.set_index(['activity'], drop=False, inplace=True)
@@ -2117,8 +2127,9 @@ class BaseDBActivityMerge(BaseDataSource):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading activity %s from %s to %s using %s' % (activity_code, start_ts, end_ts, query.statement)
         logger.debug(msg)
-        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection,
-                               parse_dates=[self._start_date, self._end_date])
+        parse_dates = [self._start_date, self._end_date]
+        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection, parse_dates=parse_dates)
+        df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
         return df
 
@@ -2320,11 +2331,18 @@ class BaseEstimatorFunction(BaseTransformer):
         for i, target in enumerate(self.targets):
             results = {}
             trace_message = 'predicting target %s' % target
+            logger.info(trace_message)
             features = self.make_feature_list(features=self.features, df=df, unprocessed_targets=unprocessed_targets)
             model_name = self.get_model_name(target)
+
             # retrieve existing model
             model = db.cos_load(filename=model_name, bucket=bucket, binary=True)
+            logger.info('load model %s' % str(model))
+
             training_required, results['training_required'] = self.decide_training_required(model)
+
+            logger.info('training required: ' + str(training_required) + '  results: ' + results['training_required'])
+
             if training_required:
                 results['use_existing_model'] = False
                 if model is None:
@@ -2495,9 +2513,11 @@ class BaseEstimatorFunction(BaseTransformer):
             estimator = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
                                                 features=features)
             trace_msg = 'Trained model: %s' % counter
+            logger.info(trace_msg)
 
             try:
                 est_score = estimator.score(df_train[features], df_train[target])
+                logger.info(trace_msg + ' score:' + str(est_score))
             except Exception as e:
                 logger.info('Estimator predict failed with ' + str(e))
                 trace_msg = 'Trained model prediction failed with ' + str(e)

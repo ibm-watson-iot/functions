@@ -98,12 +98,15 @@ def execute_sql_query(db_connection, db_type, sql, params=None):
         execute_postgre_sql_select_query(db_connection, sql, params)
 
 
-def execute_postgre_sql_select_query(db_connection, sql, params=None):
+def execute_postgre_sql_select_query(db_connection, sql, params=None, fetch_one_only=False):
     cursor = None
     try:
         cursor = db_connection.cursor()
         cursor.execute(sql) if params is None else cursor.execute(sql, params)
-        result = cursor.fetchall()
+        if fetch_one_only:
+            result = cursor.fetchone()
+        else:
+            result = cursor.fetchall()
         return result
     except:
         logger.warning('Error while executing PostgreSQL query. SQL: %s , params: %s ' % (sql, params))
