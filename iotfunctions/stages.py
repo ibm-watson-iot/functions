@@ -373,19 +373,19 @@ class ProduceAlerts(object):
         if len(self.alerts_to_message_hub) > 0:
 
             filtered_alerts = []
-            alert_filter_expression = None
+            alert_filter = None
 
             # pre-filtering the data frame to be just those rows with True alert column values.
             # Iterating through the whole data frame is a slow process.
             for alert_name in self.alerts_to_message_hub:
                 if alert_name in df.columns:
-                    if alert_filter_expression is None:
-                        alert_filter_expression = alert_name + " == True"
+                    if alert_filter is None:
+                        alert_filter = (df[alert_name] == True)
                     else:
-                        alert_filter_expression = alert_filter_expression + " | " + alert_name + " == True"
+                        alert_filter = alert_filter  | (df[alert_name] == True)
                     filtered_alerts.append(alert_name)
 
-            filtered_df = df.query(alert_filter_expression)
+            filtered_df = df[alert_filter]
             index_names = filtered_df.index.names
 
             # for df_row in filtered_df.itertuples():
