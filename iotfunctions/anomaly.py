@@ -49,6 +49,12 @@ FrequencySplit = 0.3
 DefaultWindowSize = 12
 SmallEnergy = 0.0000001
 
+KMeans_normalizer = 100 / 1.3
+Spectral_normalizer = 100 / 2.8
+FFT_normalizer = 1
+Saliency_normalizer = 1
+Generalized_normalizer = 1 / 300
+
 
 def custom_resampler(array_like):
     # initialize
@@ -66,8 +72,15 @@ def custom_resampler(array_like):
 def min_delta(df):
     # minimal time delta for merging
 
+    if len(df.index.names) > 1:
+        df2 = df.copy()
+        print(df.index.size)
+        df2.index = df2.index.droplevel(list(range(1, df.index.size-1)))
+    else:
+        df2 = df
+
     try:
-        mindelta = df.index.to_series().diff().min()
+        mindelta = df2.index.to_series().diff().min()
     except Exception as e:
         logger.debug('Min Delta error: ' + str(e))
         mindelta = pd.Timedelta('5 seconds')
@@ -88,6 +101,41 @@ def set_window_size_and_overlap(windowsize, trim_value=2*DefaultWindowSize):
         ws_overlap = trimmed_ws - np.maximum(trimmed_ws // DefaultWindowSize, 1)
 
     return trimmed_ws, ws_overlap
+
+
+def dampen_anomaly_score(array, dampening):
+
+    if dampening is None:
+        dampening = 0.9  # gradient dampening
+
+    if dampening >= 1:
+        return array
+
+    if dampening < 0.01:
+        return array
+
+    # TODO error testing for arrays of size <= 1
+    if array.size <= 1:
+        return array
+
+    gradient = np.gradient(array)
+
+    # dampened
+    grad_damp = np.float_power(abs(gradient), dampening) * np.sign(gradient)
+
+    # reconstruct (dampened) anomaly score by discrete integration
+    integral = []
+    x = array[0]
+    for x_el in np.nditer(grad_damp):
+        x = x + x_el
+        integral.append(x)
+
+    # shift array slightly to the right to position anomaly score
+    array_damp = np.roll(np.asarray(integral), 1)
+    array_damp[0] = array_damp[1]
+
+    # normalize
+    return array_damp / dampening / 2
 
 
 # Saliency helper functions
@@ -265,7 +313,7 @@ class SpectralAnomalyScore(BaseTransformer):
                     # ets_zscore = np.maximum(ellEnv.decision_function(twoDimsignal_energy).copy(), -0.1)
                     # ets_zscore = ellEnv.decision_function(twoDimsignal_energy).copy()
                     # ets_zscore = ellEnv.score_samples(twoDimsignal_energy).copy() - ellEnv.offset_
-                    ets_zscore = abs(sp.stats.zscore(signal_energy))
+                    ets_zscore = abs(sp.stats.zscore(signal_energy)) * Spectral_normalizer
 
                     # ets_zscore = (-ellEnv.offset_) ** 0.33 - (-ets_zscore) ** 0.33
 
@@ -412,7 +460,7 @@ class KMeansAnomalyScore(BaseTransformer):
                     self.trace_append('KMeans failed with' + str(e))
                     continue
 
-                pred_score = cblofwin.decision_scores_.copy()
+                pred_score = cblofwin.decision_scores_.copy() * KMeans_normalizer
 
                 # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length
@@ -493,17 +541,34 @@ class GeneralizedAnomalyScore(BaseTransformer):
         # assume 1 per sec for now
         self.frame_rate = 1
 
+        self.dampening = 1  # dampening - dampen anomaly score
+
         self.output_item = output_item
+
+        self.normalizer = Generalized_normalizer
 
     def prepare_data(self, dfEntity):
 
         logger.debug(self.whoami + ': prepare Data')
 
         # interpolate gaps - data imputation
-        dfe = dfEntity.interpolate(method="time")
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index().set_index(index_names[0])
+        else:
+            index_names = None
+            dfe = dfEntity
+
+        try:
+            dfe = dfe.interpolate(method="time")
+        except Exception as e:
+            logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
         temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+
+        if index_names is not None:
+            dfe = dfe.reset_index().set_index(index_names)
 
         return dfe, temperature
 
@@ -566,7 +631,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
                     mcd.fit(slices)
 
                     # pred_score = NN.decision_function(slices).copy()
-                    pred_score = mcd.mahalanobis(slices).copy()
+                    pred_score = mcd.mahalanobis(slices).copy() * self.normalizer
 
                 except ValueError as ve:
 
@@ -610,6 +675,8 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
                 # kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
                 gam_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
+
+                dampen_anomaly_score(gam_scoreI, self.dampening)
 
                 dfe[self.output_item] = gam_scoreI
 
@@ -678,7 +745,10 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
     '''
     def __init__(self, input_item, windowsize, output_item):
         super().__init__(input_item, windowsize, output_item)
+
         self.whoami = 'NoData'
+        self.normalizer = 1
+
         logger.debug('NoData')
 
     def prepare_data(self, dfEntity):
@@ -746,7 +816,10 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
 
     def __init__(self, input_item, windowsize, output_item):
         super().__init__(input_item, windowsize, output_item)
+
         self.whoami = 'FFT'
+        self.normalizer = FFT_normalizer
+
         logger.debug('FFT')
 
     def feature_extract(self, temperature):
@@ -802,6 +875,81 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
         return (inputs, outputs)
 
 
+class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
+    """
+    Employs FFT and GAM on windowed time series data to compute an anomaly score from the covariance matrix
+    """
+
+    def __init__(self, input_item, windowsize, dampening, output_item):
+        super().__init__(input_item, windowsize, output_item)
+
+        self.whoami = 'FFT dampen'
+        self.dampening = dampening
+        self.normalizer = FFT_normalizer / dampening
+
+        logger.debug('FFT')
+
+    def feature_extract(self, temperature):
+
+        logger.debug(self.whoami + ': feature extract')
+
+        slices_ = skiutil.view_as_windows(
+            temperature, window_shape=(self.windowsize,), step=self.step
+        )
+        slicelist = []
+        for slice in slices_:
+            slicelist.append(fftpack.rfft(slice))
+
+        # return np.array(slicelist)
+        return np.stack(slicelist, axis=0)
+
+    def execute(self, df):
+        df_copy = super().execute(df)
+
+        msg = "FFTbasedGeneralizedAnomalyScore"
+        self.trace_append(msg)
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(
+            UISingleItem(
+                name="input_item",
+                datatype=float,
+                description="Column for feature extraction",
+            )
+        )
+
+        inputs.append(
+            UISingle(
+                name="windowsize",
+                datatype=int,
+                description="Window size for FFT feature based Generalized Anomaly analysis - default 12",
+            )
+        )
+
+        inputs.append(
+            UISingle(
+                name="dampening",
+                datatype=float,
+                description="Moderate anomaly scores (value <= 1, default 1)",
+            )
+        )
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(
+            UIFunctionOutSingle(
+                name="output_item",
+                datatype=float,
+                description="Anomaly score (FFTbasedGeneralizedAnomalyScore)",
+            )
+        )
+        return (inputs, outputs)
+
+
 class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
     """
     Employs Saliency and GAM on windowed time series data to compute an anomaly score from the covariance matrix
@@ -809,8 +957,11 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
 
     def __init__(self, input_item, windowsize, output_item):
         super().__init__(input_item, windowsize, output_item)
+
         self.whoami = 'Saliency'
         self.saliency = Saliency(windowsize, 0, 0)
+        self.normalizer = Saliency_normalizer
+
         logger.debug('Saliency')
 
     def feature_extract(self, temperature):
@@ -1016,16 +1167,24 @@ class GBMRegressor(BaseEstimatorFunction):
                                   is_output_datatype_derived=True))
         inputs.append(UISingle(name='threshold', datatype=float,
                                description=('Threshold for firing an alert. Expressed as absolute value not percent.')))
-        inputs.append(UISingle(name='n_estimators', datatype=int, description=('Max rounds of boosting')))
-        inputs.append(UISingle(name='num_leaves', datatype=int, description=('Max leaves in a boosting tree')))
-        inputs.append(UISingle(name='learning_rate', datatype=float, description=('Learning rate')))
-        inputs.append(UISingle(name='max_depth', datatype=int, description=('Cut tree to prevent overfitting')))
+        inputs.append(UISingle(name='n_estimators', datatype=int, required=False,
+                               description=('Max rounds of boosting')))
+        inputs.append(UISingle(name='num_leaves', datatype=int, required=False,
+                               description=('Max leaves in a boosting tree')))
+        inputs.append(UISingle(name='learning_rate', datatype=float, required=False,
+                               description=('Learning rate')))
+        inputs.append(UISingle(name='max_depth', datatype=int, required=False,
+                               description=('Cut tree to prevent overfitting')))
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(
             UIFunctionOutMulti(name='alerts', datatype=bool, cardinality_from='targets', is_datatype_derived=False, ))
 
         return (inputs, outputs)
+
+    @classmethod
+    def get_input_items(cls):
+        return ['features', 'targets', 'threshold']
 
 
 class SimpleAnomaly(BaseRegressor):

@@ -2038,11 +2038,12 @@ class CalcPipeline:
     A CalcPipeline executes a series of dataframe transformation stages.
     '''
 
-    def __init__(self, stages=None, entity_type=None):
+    def __init__(self, stages=None, entity_type=None, dblogging=None):
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
         self.entity_type = entity_type
         self.set_stages(stages)
         self.log_pipeline_stages()
+        self.dblogging = dblogging
         #warnings.warn("CalcPipeline is deprecated. Replaced by JobController.", DeprecationWarning)
 
     def add_expression(self, name, expression):
@@ -2096,6 +2097,8 @@ class CalcPipeline:
             if not self.entity_type._is_preload_complete:
                 msg = 'Stage %s :' % p.__class__.__name__
                 self.trace_add(msg)
+                if self.dblogging is not None:
+                    self.dblogging.update_stage_info(p.name)
                 status = p.execute(df=None, start_ts=start_ts, end_ts=end_ts, entities=entities)
                 msg = '%s completed as pre-load. ' % p.__class__.__name__
                 self.trace_add(msg)
@@ -2301,6 +2304,8 @@ class CalcPipeline:
         msg = 'Stage %s :' % name
         self.trace_add(msg=msg, df=df)
         logger.debug('Start of stage %s' % name)
+        if self.dblogging is not None:
+            self.dblogging.update_stage_info(name)
         start_time = pd.Timestamp.utcnow()
         try:
             # there are two signatures for the execute method
@@ -2578,7 +2583,7 @@ class CalcPipeline:
                         logger.info('Type is not consistent %s: df type is %s and data type is %s' % (
                             item, df_column.dtype.name, data_item['columnType']))
                         try:
-                            df[data_item['name']] = pd.to_datetime(df_column)  # try to convert to timestamp
+                            df[data_item['name']] = pd.to_datetime(df_column).astype('datetime64[ms]')  # try to convert to timestamp
                         except Exception:
                             invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
                     continue
