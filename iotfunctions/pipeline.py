@@ -2038,12 +2038,12 @@ class CalcPipeline:
     A CalcPipeline executes a series of dataframe transformation stages.
     '''
 
-    def __init__(self, stages=None, entity_type=None, dbLogHandler=None):
+    def __init__(self, stages=None, entity_type=None, dblogging=None):
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
         self.entity_type = entity_type
         self.set_stages(stages)
         self.log_pipeline_stages()
-        self.dbLogHandler = dbLogHandler
+        self.dblogging = dblogging
         #warnings.warn("CalcPipeline is deprecated. Replaced by JobController.", DeprecationWarning)
 
     def add_expression(self, name, expression):
@@ -2097,13 +2097,9 @@ class CalcPipeline:
             if not self.entity_type._is_preload_complete:
                 msg = 'Stage %s :' % p.__class__.__name__
                 self.trace_add(msg)
-                if self.dbLogHandler is not None:
-                    self.dbLogHandler.current_stage_number += 1
-                    self.dbLogHandler.update_stage_info(module='',
-                                                        function_name='',       #kohlmann add correct values
-                                                        current_stage_name=p.name,
-                                                        current_stage_number=self.dbLogHandler.current_stage_number)
-                    status = p.execute(df=None, start_ts=start_ts, end_ts=end_ts, entities=entities)
+                if self.dblogging is not None:
+                    self.dblogging.update_stage_info(p.name)
+                status = p.execute(df=None, start_ts=start_ts, end_ts=end_ts, entities=entities)
                 msg = '%s completed as pre-load. ' % p.__class__.__name__
                 self.trace_add(msg)
                 if register:
@@ -2308,6 +2304,8 @@ class CalcPipeline:
         msg = 'Stage %s :' % name
         self.trace_add(msg=msg, df=df)
         logger.debug('Start of stage %s' % name)
+        if self.dblogging is not None:
+            self.dblogging.update_stage_info(name)
         start_time = pd.Timestamp.utcnow()
         try:
             # there are two signatures for the execute method
