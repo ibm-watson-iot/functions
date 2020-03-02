@@ -40,7 +40,6 @@ logger = logging.getLogger(__name__)
 
 DATALAKE_BATCH_UPDATE_ROWS = 5000
 KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
-OPERATION_PIPELINE = 'PIPELINE'
 
 
 class PersistColumns:
@@ -94,8 +93,7 @@ class PersistColumns:
                 try:
                     tableName = source_metadata.get(DATA_ITEM_SOURCETABLE_KEY)
                 except Exception:
-                    self.logger.warning('sourceTableName invalid for derived_metric=%s' % source, exc_info=True,
-                                        extra={'operation': OPERATION_PIPELINE})
+                    self.logger.warning('sourceTableName invalid for derived_metric=%s' % source, exc_info=True)
                     continue
 
                 if tableName not in table_insert_stmt:
@@ -114,8 +112,7 @@ class PersistColumns:
 
                         self.logger.debug('derived_metrics_upsert_sql = %s' % sql)
                     except Exception:
-                        self.logger.warning('Error creating db upsert statement for sql = %s' % sql, exc_info=True,
-                                            extra={'operation': OPERATION_PIPELINE})
+                        self.logger.warning('Error creating db upsert statement for sql = %s' % sql, exc_info=True)
                         continue
 
                 value_bool = False
@@ -233,7 +230,7 @@ class PersistColumns:
                                 self.logger.debug('Records saved so far = %d' % total_saved)
                             except Exception:
                                 self.logger.warning('Error persisting derived metrics, valueList=%s' % str(valueList),
-                                                    exc_info=True, extra={'operation': OPERATION_PIPELINE})
+                                                    exc_info=True)
 
                             valueList = []
                             cnt = 0
@@ -251,7 +248,7 @@ class PersistColumns:
                         total_saved += saved
                     except Exception:
                         self.logger.warning('Error persisting derived metrics, valueList = %s' % str(valueList),
-                                            exc_info=True, extra={'operation': OPERATION_PIPELINE})
+                                            exc_info=True)
 
                 self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
 
@@ -373,19 +370,19 @@ class ProduceAlerts(object):
         if len(self.alerts_to_message_hub) > 0:
 
             filtered_alerts = []
-            alert_filter_expression = None
+            alert_filter = None
 
             # pre-filtering the data frame to be just those rows with True alert column values.
             # Iterating through the whole data frame is a slow process.
             for alert_name in self.alerts_to_message_hub:
                 if alert_name in df.columns:
-                    if alert_filter_expression is None:
-                        alert_filter_expression = alert_name + " == True"
+                    if alert_filter is None:
+                        alert_filter = (df[alert_name] == True)
                     else:
-                        alert_filter_expression = alert_filter_expression + " | " + alert_name + " == True"
+                        alert_filter = alert_filter | (df[alert_name] == True)
                     filtered_alerts.append(alert_name)
 
-            filtered_df = df.query(alert_filter_expression)
+            filtered_df = df[alert_filter]
             index_names = filtered_df.index.names
 
             # for df_row in filtered_df.itertuples():
