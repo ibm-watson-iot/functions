@@ -2336,7 +2336,7 @@ class BaseEstimatorFunction(BaseTransformer):
             model_name = self.get_model_name(target)
 
             # retrieve existing model
-            model = db.cos_load(filename=model_name, bucket=bucket, binary=True)
+            model = db.model_store.retrieve_model(model_name)
             logger.info('load model %s' % str(model))
 
             training_required, results['training_required'] = self.decide_training_required(model)
@@ -2375,12 +2375,12 @@ class BaseEstimatorFunction(BaseTransformer):
         for i, target in enumerate(self.targets):
             model_name = self.get_model_name(target)
             # retrieve existing model
-            model = db.cos_load(filename=model_name, bucket=bucket, binary=True)
+            model = db.model_store.retrieve_model(model_name)
             if model is not None:
                 models.append(model)
-                trace_dict[model_name] = 'Retrieved existing model from COS'
+                trace_dict[model_name] = 'Retrieved existing model from ModelStore'
             else:
-                trace_dict[model_name] = 'Unable to retrieve model from COS'
+                trace_dict[model_name] = 'Unable to retrieve model from ModelStore'
 
         trace = self.get_trace()
         trace.update_last_entry(**trace_dict)
@@ -2410,14 +2410,14 @@ class BaseEstimatorFunction(BaseTransformer):
 
     def delete_models(self, model_names=None):
         '''
-        Delete models stored in COS for this estimator
+        Delete models stored in ModelStore for this estimator
         '''
         if model_names is None:
             model_names = []
             for target in self.targets:
                 model_names.append(self.get_model_name(target))
         for m in model_names:
-            self._entity_type.db.cos_delete(m, bucket=self.get_bucket_name())
+            self._entity_type.db.model_store.delete_model(m)
 
     def execute(self, df):
         df = df.copy()
@@ -2572,10 +2572,10 @@ class BaseEstimatorFunction(BaseTransformer):
         if write_model:
             if self.version_model_writes:
                 version_name = '%s.version.%s' % (current_model.name, current_model.trained_date)
-                db.cos_save(persisted_object=new_model, filename=version_name, bucket=bucket, binary=True)
+                db.model_store.store_model(version_name, new_model)
                 msg = 'wrote current model as version %s' % version_name
                 logger.debug(msg)
-            db.cos_save(persisted_object=new_model, filename=new_model.name, bucket=bucket, binary=True)
+            db.model_store.store_model(new_model.name, new_model)
             msg = ' wrote new model %s ' % new_model.name
             logger.debug(msg)
 

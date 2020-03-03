@@ -5,6 +5,7 @@ import pyarrow as pa
 import pandas as pd
 import os
 import psycopg2
+import dill as pickle
 
 from iotfunctions import dbhelper
 
@@ -50,8 +51,11 @@ class DBDataCache:
                             "ENTITY_TYPE_ID BIGINT NOT NULL, " \
                             "PARQUET_NAME VARCHAR(2048) NOT NULL, " \
                             "PARQUET_FILE BLOB(2G), " \
-                            "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP) " \
-                            "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_cache_tablename)
+                            "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
+                            "CONSTRAINT %s UNIQUE(entity_type_id, parquet_name)) " \
+                            "ORGANIZE BY ROW" \
+                            % (self.quoted_schema, self.quoted_cache_tablename,
+                               dbhelper.quotingTableName('uc_%s' % self.cache_tablename, self.is_postgre_sql))
             try:
                 stmt = ibm_db.exec_immediate(self.db_connection, sql_statement)
                 ibm_db.free_result(stmt)
@@ -350,9 +354,11 @@ class DBModelStore:
                             "MODEL_NAME VARCHAR(2048) NOT NULL, " \
                             "MODEL BLOB(2G), " \
                             "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
-                            "LAST_UPDATED_BY VARCHAR(256) ) " \
+                            "LAST_UPDATED_BY VARCHAR(256), " \
+                            "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, MODEL_NAME) ) " \
                             "ORGANIZE BY ROW" \
-                            % (self.quoted_schema, self.quoted_store_tablename)
+                            % (self.quoted_schema, self.quoted_store_tablename,
+                               dbhelper.quotingTableName('uc_%s' % self.store_tablename, self.is_postgre_sql))
             try:
                 stmt = ibm_db.exec_immediate(self.db_connection, sql_statement)
                 ibm_db.free_result(stmt)
@@ -402,7 +408,14 @@ class DBModelStore:
         if not self._store_table_exists():
             self._create_store_table()
 
-    def store_model(self, model_name, model, user_name):
+    def store_model(self, model_name, model, user_name=None, serialize=True):
+
+        if serialize:
+            try:
+                model = pickle.dumps(model)
+            except Exception as ex:
+                raise Exception('Serialization of model %s that is supposed to be stored in ModelStore failed.'
+                                % model_name) from ex
 
         if not self.is_postgre_sql:
             sql_statement = "MERGE INTO %s.%s AS TARGET " \
@@ -454,7 +467,7 @@ class DBModelStore:
                     % (model_name, len(model) if model is not None else 0, self.quoted_schema,
                        self.quoted_store_tablename))
 
-    def retrieve_model(self, model_name):
+    def retrieve_model(self, model_name, deserialize=True):
 
         if not self.is_postgre_sql:
             sql_statement = "SELECT MODEL FROM %s.%s WHERE ENTITY_TYPE_ID = ? AND MODEL_NAME = ?" \
@@ -499,6 +512,14 @@ class DBModelStore:
         else:
             logger.info('Model %s does not exist in table %s.%s' % (model_name, self.quoted_schema,
                                                                     self.quoted_store_tablename))
+
+        if deserialize:
+            try:
+                model = pickle.loads(model)
+            except Exception as ex:
+                raise Exception('Deserialization of model %s that has been retrieved from ModelStore failed.'
+                                % model_name) from ex
+
         return model
 
     def delete_model(self, model_name):
