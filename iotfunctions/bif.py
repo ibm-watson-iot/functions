@@ -302,7 +302,7 @@ class AutoTest(BaseTransformer):
         db = self.get_db()
         bucket = self.get_bucket_name()
 
-        file = db.model_store.retrieve_modelcos_load(self.test_datset_name)
+        file = db.model_store.retrieve_model(self.test_datset_name)
 
     @classmethod
     def build_ui(cls):
