@@ -318,16 +318,19 @@ class ProduceAlerts(object):
 
     def __init__(self, dms, alerts=None, all_cols=None, **kwargs):
 
+        if dms is None:
+            raise RuntimeError("argument dms must be provided")
+        if alerts is None and all_cols is None:
+            raise RuntimeError("either alerts argument or all_cols arguments must be provided")
+
+        self.dms = dms
+
         try:
             self.entity_type_name = dms.logical_name
         except AttributeError:
             self.entity_type_name = dms.entity_type
 
-        if dms is None:
-            raise RuntimeError("argument dms must be provided")
-        if alerts is None and all_cols is None:
-            raise RuntimeError("either alerts argument or all_cols arguments must be provided")
-        self.dms = dms
+        self.entity_type_id = dms.entityTypeId
         self.is_postgre_sql = dms.is_postgre_sql
         self.db_connection = dms.db_connection
         self.schema = dms.schema
@@ -399,9 +402,10 @@ class ProduceAlerts(object):
 
                         if alert_name in self.alerts_to_database:
                             kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
-                            db_insert_parameter = (index_value[0], index_value[1], self.entity_type_name, alert_name,
-                                                   kpi_input.get('Severity', None), kpi_input.get('Priority', None),
-                                                   kpi_input.get('Status', None))
+                            db_insert_parameter = (
+                                index_value[0], index_value[1], self.entity_type_id, self.entity_type_name, alert_name,
+                                kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                kpi_input.get('Status', None))
                             key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
                         else:
                             key_and_msg.append((key, value))
@@ -454,8 +458,8 @@ class ProduceAlerts(object):
         logger.info("Processing %s alerts. This alert may contain duplicates, "
                     "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
         updated_key_and_msg = []
-        postgres_sql = "insert into " + self.schema + ".dm_wiot_as_alert (entity_id, timestamp, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
-        db2_sql = "insert into " + self.schema + ".DM_WIOT_AS_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
+        postgres_sql = "insert into " + self.schema + ".dm_wiot_as_alert (entity_id, timestamp, entity_type_id, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.schema + ".DM_WIOT_AS_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?, ?) "
         start_time = dt.datetime.now()
 
         for key, msg, db_params in key_and_msg_and_db_parameter:
