@@ -62,8 +62,9 @@ class Database(object):
     bif_sql = "V1000-18.sql"
 
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
-                 entity_type=None):
+                 entity_type=None, model_store=None):
 
+        self.model_store = model_store
         self.function_catalog = {}  # metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}

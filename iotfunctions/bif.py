@@ -302,7 +302,7 @@ class AutoTest(BaseTransformer):
         db = self.get_db()
         bucket = self.get_bucket_name()
 
-        file = db.cos_load(filename=self.test_datset_name, bucket=bucket, binary=False)
+        file = db.model_store.retrieve_model(self.test_datset_name)
 
     @classmethod
     def build_ui(cls):
@@ -771,10 +771,10 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
 
         if raw_dataframe is not None and raw_dataframe.empty:
             #Delete old counts if present
-            db.cos_delete(key)
+            db.model_store.delete(key)
             logger.debug('Intialize count for first run')
         
-        counts_by_entity_id = db.cos_load(key,binary=True)
+        counts_by_entity_id = db.model_store.retrieve_model(key)
         if counts_by_entity_id is None:
             counts_by_entity_id = {}
         logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))            
@@ -807,7 +807,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
         
         #Save the group counts to cos
-        db.cos_save(counts_by_entity_id,key,binary=True)
+        db.model_store.store_model(key, counts_by_entity_id)
 
         additional_values = pd.Series(np.zeros(timeseries[self.input_item].size),index=timeseries.index)
         for start  in timestamps_indexes:
@@ -879,10 +879,10 @@ class AnomalyGeneratorNoData(BaseTransformer):
 
         if raw_dataframe is not None and raw_dataframe.empty:
             #Delete old counts if present
-            db.cos_delete(key)
+            db.model_store.delete(key)
             logger.debug('Intialize count for first run')
 
-        counts_by_entity_id = db.cos_load(key,binary=True)
+        counts_by_entity_id = db.model_store.retrieve_model(key)
         if counts_by_entity_id is None:
             counts_by_entity_id = {}
         logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))
@@ -925,8 +925,8 @@ class AnomalyGeneratorNoData(BaseTransformer):
 
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
 
-        #Save the group counts to cos
-        db.cos_save(counts_by_entity_id,key,binary=True)
+        #Save the group counts to ModelStore
+        db.model_store.store_model(key, counts_by_entity_id)
 
         timeseries.set_index(df.index.names,inplace=True)
         return timeseries
@@ -992,10 +992,10 @@ class AnomalyGeneratorFlatline(BaseTransformer):
 
         if raw_dataframe is not None and raw_dataframe.empty:
             #Delete old counts if present
-            db.cos_delete(key)
+            db.model_store.delete(key)
             logger.debug('Intialize count for first run')
 
-        counts_by_entity_id = db.cos_load(key,binary=True)
+        counts_by_entity_id = db.model_store.retrieve_model(key)
         if counts_by_entity_id is None:
             counts_by_entity_id = {}
         logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))
@@ -1042,8 +1042,8 @@ class AnomalyGeneratorFlatline(BaseTransformer):
 
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
 
-        #Save the group counts to cos
-        db.cos_save(counts_by_entity_id,key,binary=True)
+        #Save the group counts to ModelStore
+        db.model_store.store_model(key, counts_by_entity_id)
 
         timeseries.set_index(df.index.names,inplace=True)
         return timeseries
@@ -1388,7 +1388,7 @@ class PythonFunction(BaseTransformer):
 
         if not self.function_code.startswith('def '):
             bucket = self.get_bucket_name()
-            fn = self._entity_type.db.cos_load(filename=self.function_code, bucket=bucket, binary=True)
+            fn = self._entity_type.db.model_store.retrieve_model(self.function_code)
             kw['source'] = 'cos'
             kw['filename'] = self.function_code
             if fn is None:
