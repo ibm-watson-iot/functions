@@ -889,8 +889,7 @@ class AnomalyGeneratorNoData(BaseTransformer):
 
             entity_grp_id = grp[0]
             df_entity_grp = grp[1]
-            logger.debug('Group id {}'.format(grp[0]))
-            logger.debug('Group Indexes {}'.format(df_entity_grp.index))
+            logger.debug('Group {} Indexes {}'.format(grp[0],df_entity_grp.index))
 
             count = 0
             width = self.width
@@ -901,25 +900,28 @@ class AnomalyGeneratorNoData(BaseTransformer):
             mark_anomaly = False
             for grp_row_index in df_entity_grp.index:
                 count += 1
-                if count%self.factor == 0:
+                
+                if width!=self.width or count%self.factor == 0:
                     #Start marking points
                     mark_anomaly = True
 
                 if mark_anomaly:
-                    timeseries.iloc[grp_row_index] = np.NaN
+                    timeseries[self.output_item].iloc[grp_row_index] = np.NaN
                     width -= 1
                     logger.debug('Anomaly Index Value{}'.format(grp_row_index))
 
                 if width==0:
                     #End marking points
                     mark_anomaly = False
+                    #Update values
                     width = self.width
+                    count = 0
 
-                counts_by_entity_id[entity_grp_id] = (count,width)
+            counts_by_entity_id[entity_grp_id] = (count,width)
 
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
 
-        #Save the group counts to ModelStore
+        #Save the group counts to db
         db.model_store.store_model(key, counts_by_entity_id)
 
         timeseries.set_index(df.index.names,inplace=True)
