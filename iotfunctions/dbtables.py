@@ -513,7 +513,7 @@ class DBModelStore:
             logger.info('Model %s does not exist in table %s.%s' % (model_name, self.quoted_schema,
                                                                     self.quoted_store_tablename))
 
-        if deserialize:
+        if model is not None and deserialize:
             try:
                 model = pickle.loads(model)
             except Exception as ex:
