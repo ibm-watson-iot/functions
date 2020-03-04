@@ -779,42 +779,36 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             counts_by_entity_id = {}
         logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))            
 
-        #Mark Anomaly timestamp indexes
+        #Mark Anomalies
         timeseries = df.reset_index()
-        timestamps_indexes = []
+        timeseries[self.output_item] = timeseries[self.input_item]
         df_grpby=timeseries.groupby('id')
         for grp in df_grpby.__iter__():
 
             entity_grp_id = grp[0]
             df_entity_grp = grp[1]
-            logger.debug('Group id {}'.format(grp[0]))
-            logger.debug('Group Indexes {}'.format(df_entity_grp.index))
-            
-            for grp_row_index in df_entity_grp.index:
-                
-                if entity_grp_id in counts_by_entity_id:
-                    #Increment count
-                    counts_by_entity_id[entity_grp_id] +=1
-                else:
-                    #Initialize count
-                    counts_by_entity_id[entity_grp_id] = 1
-                # Check if this index count will be an anomaly point
-                if counts_by_entity_id[entity_grp_id]%self.factor == 0:
-                    timestamps_indexes.append(grp_row_index)
-                    logger.debug('Anomaly Index Value{}'.format(grp_row_index))
+            logger.debug('Group {} Indexes {}'.format(grp[0],df_entity_grp.index))
 
-        logger.debug('Timestamp Indexes For Anomalies {}'.format(timestamps_indexes))
+            count = 0
+            local_std = df_entity_grp.iloc[:10][self.input_item].std()
+            if entity_grp_id in counts_by_entity_id:
+                count = counts_by_entity_id[entity_grp_id]
+
+            mark_anomaly = False
+            for grp_row_index in df_entity_grp.index:
+                count += 1
+                if count%self.factor == 0:
+                    #Mark anomaly point
+                    timeseries[self.output_item].iloc[grp_row_index] = np.random.choice([-1, 1]) * self.size * local_std
+                    logger.debug('Anomaly Index Value{}'.format(grp_row_index))
+            
+            counts_by_entity_id[entity_grp_id] = count
+
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
-        
+
         #Save the group counts to cos
         db.model_store.store_model(key, counts_by_entity_id)
 
-        additional_values = pd.Series(np.zeros(timeseries[self.input_item].size),index=timeseries.index)
-        for start  in timestamps_indexes:
-            local_std = timeseries[self.input_item].iloc[max(0, start - 10):start + 10].std()
-            additional_values.iloc[start] += np.random.choice([-1, 1]) * self.size * local_std
-        
-        timeseries[self.output_item] = additional_values + timeseries[self.input_item]
         timeseries.set_index(df.index.names,inplace=True)
         return timeseries
 
