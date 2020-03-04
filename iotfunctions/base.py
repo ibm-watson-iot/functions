@@ -2336,8 +2336,13 @@ class BaseEstimatorFunction(BaseTransformer):
             model_name = self.get_model_name(target)
 
             # retrieve existing model
-            model = db.model_store.retrieve_model(model_name)
-            logger.info('load model %s' % str(model))
+            model = None
+            try:
+                model = db.model_store.retrieve_model(model_name)
+                logger.info('load model %s' % str(model))
+            except Exception as e:
+                logger.error('Model retrieval failed with ' + str(e))
+                pass
 
             training_required, results['training_required'] = self.decide_training_required(model)
 
@@ -2594,8 +2599,16 @@ class BaseEstimatorFunction(BaseTransformer):
             df = df_train[cols].dropna()
         else:
             df = df_train
-        estimator = search.fit(X=df[features], y=df[target])
-        msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' % estimator.__class__.__name__
+
+        # catch exception when we have too few data points for training
+        try:
+            estimator = search.fit(X=df[features], y=df[target])
+            msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' % estimator.__class__.__name__
+        except ValueError as ve:
+            logger.error('Randomized searched failed with ' + str(ve))
+            msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s failed !' % estimator.__class__.__name__
+            pass
+
         logger.debug(msg)
 
         return estimator
