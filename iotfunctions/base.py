@@ -2594,8 +2594,16 @@ class BaseEstimatorFunction(BaseTransformer):
             df = df_train[cols].dropna()
         else:
             df = df_train
-        estimator = search.fit(X=df[features], y=df[target])
-        msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' % estimator.__class__.__name__
+
+        # catch exception when we have too few data points for training
+        try:
+            estimator = search.fit(X=df[features], y=df[target])
+            msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' % estimator.__class__.__name__
+        except ValueError as ve:
+            logger.error('Randomized searched failed with ' + str(ve))
+            msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s failed !' % estimator.__class__.__name__
+            pass
+
         logger.debug(msg)
 
         return estimator
