@@ -2444,9 +2444,14 @@ class BaseEstimatorFunction(BaseTransformer):
                                               features=model.features, existing_model=model, col_name=model.col_name)
             msg = 'Trained model: %s' % best_model
             logger.debug(msg)
-            best_model.test(df_test)
-            self.evaluate_and_write_model(new_model=best_model, current_model=model, db=db, bucket=bucket)
-            msg = 'Finished training model %s' % model.name
+
+            if best_model is None:
+                msg = 'Failed training models'
+            else:
+                best_model.test(df_test)
+                self.evaluate_and_write_model(new_model=best_model, current_model=model, db=db, bucket=bucket)
+                msg = 'Finished training model %s' % model.name
+
             logger.info(msg)  # predictions
         required_models = self.get_models_for_predict(db=db, bucket=bucket)
         for model in required_models:
@@ -2517,6 +2522,10 @@ class BaseEstimatorFunction(BaseTransformer):
         for counter, (name, estimator, params) in enumerate(estimators):
             estimator = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
                                                 features=features)
+            # in case of a failure to train and cross validate then try next
+            if estimator is None:
+                continue
+
             trace_msg = 'Trained model: %s' % counter
             logger.info(trace_msg)
 
@@ -2607,6 +2616,7 @@ class BaseEstimatorFunction(BaseTransformer):
         except ValueError as ve:
             logger.error('Randomized searched failed with ' + str(ve))
             msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s failed !' % estimator.__class__.__name__
+            estimator = None
             pass
 
         logger.debug(msg)
