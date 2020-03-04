@@ -771,7 +771,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
 
         if raw_dataframe is not None and raw_dataframe.empty:
             #Delete old counts if present
-            db.model_store.delete(key)
+            db.model_store.delete_model(key)
             logger.debug('Intialize count for first run')
         
         counts_by_entity_id = db.model_store.retrieve_model(key)
@@ -873,7 +873,7 @@ class AnomalyGeneratorNoData(BaseTransformer):
 
         if raw_dataframe is not None and raw_dataframe.empty:
             #Delete old counts if present
-            db.model_store.delete(key)
+            db.model_store.delete_model(key)
             logger.debug('Intialize count for first run')
 
         counts_by_entity_id = db.model_store.retrieve_model(key)
@@ -988,7 +988,7 @@ class AnomalyGeneratorFlatline(BaseTransformer):
 
         if raw_dataframe is not None and raw_dataframe.empty:
             #Delete old counts if present
-            db.model_store.delete(key)
+            db.model_store.delete_model(key)
             logger.debug('Intialize count for first run')
 
         counts_by_entity_id = db.model_store.retrieve_model(key)
