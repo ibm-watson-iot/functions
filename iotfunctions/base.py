@@ -162,7 +162,7 @@ class BaseFunction(object):
 
         # if cos credentials are not explicitly  provided use environment variable
         if self.bucket is None:
-            if not self.cos_credentials is None:
+            if self.cos_credentials is not None:
                 try:
                     self.bucket = self.cos_credentials['bucket']
                 except KeyError:
@@ -2336,8 +2336,13 @@ class BaseEstimatorFunction(BaseTransformer):
             model_name = self.get_model_name(target)
 
             # retrieve existing model
-            model = db.model_store.retrieve_model(model_name)
-            logger.info('load model %s' % str(model))
+            model = None
+            try:
+                model = db.model_store.retrieve_model(model_name)
+                logger.info('load model %s' % str(model))
+            except Exception as e:
+                logger.error('Model retrieval failed with ' + str(e))
+                pass
 
             training_required, results['training_required'] = self.decide_training_required(model)
 
@@ -2439,9 +2444,18 @@ class BaseEstimatorFunction(BaseTransformer):
                                               features=model.features, existing_model=model, col_name=model.col_name)
             msg = 'Trained model: %s' % best_model
             logger.debug(msg)
-            best_model.test(df_test)
-            self.evaluate_and_write_model(new_model=best_model, current_model=model, db=db, bucket=bucket)
-            msg = 'Finished training model %s' % model.name
+
+            if best_model is not None:
+                if best_model.estimator is None:
+                    best_model = None
+
+            if best_model is None:
+                msg = 'Failed training models'
+            else:
+                best_model.test(df_test)
+                self.evaluate_and_write_model(new_model=best_model, current_model=model, db=db, bucket=bucket)
+                msg = 'Finished training model %s' % model.name
+
             logger.info(msg)  # predictions
         required_models = self.get_models_for_predict(db=db, bucket=bucket)
         for model in required_models:
@@ -2477,6 +2491,7 @@ class BaseEstimatorFunction(BaseTransformer):
         df_train, df_test = train_test_split(df, test_size=self.test_size)
         self.log_df_info(df_train, msg='training set', include_data=False)
         self.log_df_info(df_test, msg='test set', include_data=False)
+        logger.info('Split data - training set ' + str(df_train.shape) + '  test set ' + str(df_test.shape))
         return (df_train, df_test)
 
     def find_best_model(self, df_train, df_test, target, features, existing_model, col_name):
@@ -2512,6 +2527,10 @@ class BaseEstimatorFunction(BaseTransformer):
         for counter, (name, estimator, params) in enumerate(estimators):
             estimator = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
                                                 features=features)
+            # in case of a failure to train and cross validate then try next
+            if estimator is None:
+                continue
+
             trace_msg = 'Trained model: %s' % counter
             logger.info(trace_msg)
 
@@ -2522,6 +2541,7 @@ class BaseEstimatorFunction(BaseTransformer):
                 logger.info('Estimator predict failed with ' + str(e))
                 trace_msg = 'Trained model prediction failed with ' + str(e)
                 est_score = 0
+                continue
 
             results = {'name': self.get_model_name(target_name=target),
                        'target': target, 'features': features,
@@ -2594,8 +2614,17 @@ class BaseEstimatorFunction(BaseTransformer):
             df = df_train[cols].dropna()
         else:
             df = df_train
-        estimator = search.fit(X=df[features], y=df[target])
-        msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' % estimator.__class__.__name__
+
+        # catch exception when we have too few data points for training
+        try:
+            estimator = search.fit(X=df[features], y=df[target])
+            msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' % estimator.__class__.__name__
+        except ValueError as ve:
+            logger.error('Randomized searched failed with ' + str(ve) + '   Size of training data: ' + str(df.shape))
+            msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s failed !' % estimator.__class__.__name__
+            estimator = None
+            pass
+
         logger.debug(msg)
 
         return estimator
