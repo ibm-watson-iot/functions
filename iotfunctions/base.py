@@ -162,7 +162,7 @@ class BaseFunction(object):
 
         # if cos credentials are not explicitly  provided use environment variable
         if self.bucket is None:
-            if not self.cos_credentials is None:
+            if self.cos_credentials is not None:
                 try:
                     self.bucket = self.cos_credentials['bucket']
                 except KeyError:
@@ -2491,6 +2491,7 @@ class BaseEstimatorFunction(BaseTransformer):
         df_train, df_test = train_test_split(df, test_size=self.test_size)
         self.log_df_info(df_train, msg='training set', include_data=False)
         self.log_df_info(df_test, msg='test set', include_data=False)
+        logger.info('Split data - training set ' + str(df_train.shape) + '  test set ' + str(df_test.shape))
         return (df_train, df_test)
 
     def find_best_model(self, df_train, df_test, target, features, existing_model, col_name):
@@ -2619,7 +2620,7 @@ class BaseEstimatorFunction(BaseTransformer):
             estimator = search.fit(X=df[features], y=df[target])
             msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' % estimator.__class__.__name__
         except ValueError as ve:
-            logger.error('Randomized searched failed with ' + str(ve))
+            logger.error('Randomized searched failed with ' + str(ve) + '   Size of training data: ' + str(df.shape))
             msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s failed !' % estimator.__class__.__name__
             estimator = None
             pass
