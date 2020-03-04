@@ -2536,6 +2536,7 @@ class BaseEstimatorFunction(BaseTransformer):
                 logger.info('Estimator predict failed with ' + str(e))
                 trace_msg = 'Trained model prediction failed with ' + str(e)
                 est_score = 0
+                continue
 
             results = {'name': self.get_model_name(target_name=target),
                        'target': target, 'features': features,
