@@ -2336,8 +2336,13 @@ class BaseEstimatorFunction(BaseTransformer):
             model_name = self.get_model_name(target)
 
             # retrieve existing model
-            model = db.model_store.retrieve_model(model_name)
-            logger.info('load model %s' % str(model))
+            model = None
+            try:
+                model = db.model_store.retrieve_model(model_name)
+                logger.info('load model %s' % str(model))
+            except Exception as e:
+                logger.error('Model retrieval failed with ' + str(e))
+                pass
 
             training_required, results['training_required'] = self.decide_training_required(model)
 
