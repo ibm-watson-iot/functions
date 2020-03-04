@@ -2445,6 +2445,10 @@ class BaseEstimatorFunction(BaseTransformer):
             msg = 'Trained model: %s' % best_model
             logger.debug(msg)
 
+            if best_model is not None:
+                if best_model.estimator is None:
+                    best_model = None
+
             if best_model is None:
                 msg = 'Failed training models'
             else:
