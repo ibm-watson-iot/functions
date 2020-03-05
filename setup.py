@@ -11,7 +11,7 @@ setup(
         'ibm-cos-sdk==2.1.3',
         'numpy>=1.17.3',
         'pandas>=0.24.0',
-        'scikit-learn>=0.20.3',
+        'scikit-learn==0.20.3',
         'scipy>=1.1.0',
         'requests==2.18.4',
         'urllib3==1.22',
@@ -21,7 +21,7 @@ setup(
         'lightgbm>=2.3.1',
         'nose>=1.3.7',
         'psycopg2-binary==2.8.4',
-        'pyod>=0.7.5',
+        'pyod==0.7.5',
         'scikit-image>=0.16.2',
         'sqlalchemy==1.3.10',
         'tabulate==0.8.5'
