@@ -76,11 +76,11 @@ class AggregateWithExpression(BaseSimpleAggregator):
     each data_item selected. The data item will be made available as a
     Pandas Series. Refer to the Pandas series using the local variable named
     "x". The expression must return a scalar value.
-    
+
     Example:
-        
+
     x.max() - x.min()
-    
+
     '''
 
     def __init__(self, input_items, expression, output_items):
@@ -284,10 +284,10 @@ class AlertLowValue(BaseEvent):
 
 class AutoTest(BaseTransformer):
     '''
-    Test the results of pipeline execution against a known test dataset. 
+    Test the results of pipeline execution against a known test dataset.
     The test will compare calculated values with values in the test dataset.
     Discepancies will the written to a test output file.
-    
+
     Note: This function is experimental
     '''
 
@@ -626,9 +626,9 @@ class EntityDataGenerator(BasePreload):
     Automatically load the entity input data table using new generated data.
     Time series columns defined on the entity data table will be populated
     with random data.
-    
+
     Optional parameters:
-        
+
     freq: pandas frequency string. Time series frequency.
     scd_frequency: pandas frequency string.  Dimension change frequency.
     activity_frequency: pandas frequency string. Activity frequency.
@@ -638,7 +638,7 @@ class EntityDataGenerator(BasePreload):
     data_item_sd: dict keyed by data item name. Standard deviation.
     data_item_domain: dictionary keyed by data item name. List of values.
     drop_existing: bool. Drop existing input tables and generate new for each run.
-        
+
     """
 
     is_data_generator = True
@@ -691,7 +691,7 @@ class EntityDataGenerator(BasePreload):
             self._entity_type.add_slowly_changing_dimension(key, String(255))
             self.data_item_domain[key] = values
 
-        # Add activities metadata to entity type        
+        # Add activities metadata to entity type
         for key, codes in list(self.activities.items()):
             name = '%s_%s' % (self._entity_type.name, key)
             self._entity_type.add_activity_table(name, codes)
@@ -757,13 +757,14 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
     def execute(self, df):
 
         logger.debug('Dataframe shape {}'.format(df.shape))
-        
+
         entity_type = self.get_entity_type()
         derived_metric_table_name = 'DM_'+self.get_entity_type_param('name')
         schema = entity_type._db_schema
 
-        #Store and initialize the counts by entity id 
-        db = self.get_db()
+        #Store and initialize the counts by entity id
+        # db = self.get_db()
+        db = self._entity_type.db
         query, table = db.query(derived_metric_table_name,schema,column_names='KEY',filters={'KEY':self.output_item})
         raw_dataframe = db.get_query_data(query)
         logger.debug('Check for key {} in derived metric table {}'.format(self.output_item,raw_dataframe.shape))
@@ -773,11 +774,11 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             #Delete old counts if present
             db.model_store.delete_model(key)
             logger.debug('Intialize count for first run')
-        
+
         counts_by_entity_id = db.model_store.retrieve_model(key)
         if counts_by_entity_id is None:
             counts_by_entity_id = {}
-        logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))            
+        logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))
 
         #Mark Anomalies
         timeseries = df.reset_index()
@@ -865,7 +866,8 @@ class AnomalyGeneratorNoData(BaseTransformer):
         schema = entity_type._db_schema
 
         #Store and initialize the counts by entity id
-        db = self.get_db()
+        # db = self.get_db()
+        db = self._entity_type.db
         query, table = db.query(derived_metric_table_name,schema,column_names='KEY',filters={'KEY':self.output_item})
         raw_dataframe = db.get_query_data(query)
         logger.debug('Check for key {} in derived metric table {}'.format(self.output_item,raw_dataframe.shape))
@@ -900,7 +902,7 @@ class AnomalyGeneratorNoData(BaseTransformer):
             mark_anomaly = False
             for grp_row_index in df_entity_grp.index:
                 count += 1
-                
+
                 if width!=self.width or count%self.factor == 0:
                     #Start marking points
                     mark_anomaly = True
@@ -980,7 +982,8 @@ class AnomalyGeneratorFlatline(BaseTransformer):
         schema = entity_type._db_schema
 
         #Store and initialize the counts by entity id
-        db = self.get_db()
+        # db = self.get_db()
+        db = self._entity_type.db
         query, table = db.query(derived_metric_table_name,schema,column_names='KEY',filters={'KEY':self.output_item})
         raw_dataframe = db.get_query_data(query)
         logger.debug('Check for key column {} in derived metric table {}'.format(self.output_item,raw_dataframe.shape))
@@ -1018,7 +1021,7 @@ class AnomalyGeneratorFlatline(BaseTransformer):
             mark_anomaly = False
             for grp_row_index in df_entity_grp.index:
                 count += 1
-                
+
                 if width!=self.width or count%self.factor == 0:
                     #Start marking points
                     mark_anomaly = True
@@ -1152,10 +1155,10 @@ class PythonExpression(BaseTransformer):
 class GetEntityData(BaseDataSource):
     """
     Get time series data from an entity type. Provide the table name for the entity type and
-    specify the key column to use for mapping the source entity type to the destination. 
+    specify the key column to use for mapping the source entity type to the destination.
     e.g. Add temperature sensor data to a location entity type by selecting a location_id
     as the mapping key on the source entity type
-    
+
     Note: This function is experimental
     """
 
@@ -1348,17 +1351,17 @@ class PythonFunction(BaseTransformer):
     code block. The function must be called 'f' and accept two inputs:
     df (a pandas DataFrame) and parameters (a dict that you can use
     to externalize the configuration of the function).
-    
-    The function can return a DataFrame,Series,NumpyArray or scalar value. 
-    
+
+    The function can return a DataFrame,Series,NumpyArray or scalar value.
+
     Example:
     def f(df,parameters):
         #  generate an 2-D array of random numbers
         output = np.random.normal(1,0.1,len(df.index))
         return output
-        
+
     Function source may be pasted in or retrieved from Cloud Object Storage.
-        
+
     PythonFunction is currently experimental.
     """
 
@@ -1433,7 +1436,7 @@ class PythonFunction(BaseTransformer):
 
 class RaiseError(BaseTransformer):
     """
-    Halt execution of the pipeline raising an error that will be shown. This function is 
+    Halt execution of the pipeline raising an error that will be shown. This function is
     useful for testing a pipeline that is running to completion but not delivering the expected results.
     By halting execution of the pipeline you can view useful diagnostic information in an error
     message displayed in the UI.
@@ -1680,7 +1683,7 @@ class SaveCosDataFrame(BaseTransformer):
 
 class SCDLookup(BaseSCDLookup):
     '''
-    Lookup an slowly changing dimension property from a scd lookup table containing: 
+    Lookup an slowly changing dimension property from a scd lookup table containing:
     Start_date, end_date, device_id and property. End dates are not currently used.
     Previous lookup value is assumed to be valid until the next.
     '''
@@ -1698,7 +1701,7 @@ class ShiftCalendar(BaseTransformer):
                "1": [5.5, 14],
                "2": [14, 21],
                "3": [21, 29.5]
-           },    
+           },
     '''
 
     is_custom_calendar = True
@@ -2023,9 +2026,9 @@ class IoTCosFunction(BaseTransformer):
     """
     Execute a serialized function retrieved from cloud object storage.
     Function returns a single output.
-    
+
     Function is replaced by PythonFunction
-    
+
     """
 
     is_deprecated = True
@@ -2034,7 +2037,7 @@ class IoTCosFunction(BaseTransformer):
 
         # the function name may be passed as a function object or function name (string)
         # if a string is provided, it is assumed that the function object has already been serialized to COS
-        # if a function onbject is supplied, it will be serialized to cos 
+        # if a function onbject is supplied, it will be serialized to cos
         self.input_items = input_items
         self.output_item = output_item
         super().__init__()
