@@ -359,9 +359,9 @@ class PackagingHopper(metadata.BaseCustomEntityType):
         functions.append(bif.PythonExpression(expression=('(df["dispensed_mass_predicted"]-'
                                                           ' df["dispensed_mass_actual"]).abs()'),
                                               output_name='prediction_abs_error'))
-        # alert
+        ''' alert
         functions.append(bif.AlertHighValue(input_item='prediction_abs_error', upper_threshold=3,
-                                            alert_name='anomaly_in_fill_detected', Severity='High', Status='New'))
+                                            alert_name='anomaly_in_fill_detected', Severity='High', Status='New'))'''
         # dimension columns
 
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
