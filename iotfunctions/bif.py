@@ -759,7 +759,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         logger.debug('Dataframe shape {}'.format(df.shape))
 
         entity_type = self.get_entity_type()
-        derived_metric_table_name = 'DM_'+ entity_type
+        derived_metric_table_name = 'DM_'+ entity_type.name
         schema = entity_type._db_schema
 
         #Store and initialize the counts by entity id
