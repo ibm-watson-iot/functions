@@ -1377,6 +1377,7 @@ class Database(object):
         for f in functions:
 
             if isinstance(f, type):
+
                 name = f.__name__
             else:
                 name = f.__class__.__name__
