@@ -21,8 +21,11 @@ import warnings
 import json
 import re
 import numpy as np
+import scipy as sp
 import pandas as pd
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
+from sklearn.preprocessing import StandardScaler
+# from sklearn.covariance import MinCovDet
 from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from inspect import getargspec, signature
@@ -253,9 +256,9 @@ class BaseFunction(object):
         Convert a comma delimited string to a list
         '''
         out = string
-        if not string is None and isinstance(string, str):
+        if string is not None and isinstance(string, str):
             out = [n.strip() for n in string.split(',') if len(string.strip()) > 0]
-        if not argument in self.optionalItems and check_non_empty:
+        if argument not in self.optionalItems and check_non_empty:
             if out is None or len(out) == 0:
                 raise ValueError("Required list output %s is null or empty" % argument)
         return out
@@ -313,7 +316,8 @@ class BaseFunction(object):
 
     def execute(self, df):
         """
-        AS calls the execute() method of your function to transform or aggregate data. The execute method accepts a dataframe as input and returns a dataframe as output.
+        AS calls the execute() method of your function to transform or aggregate data.
+        The execute method accepts a dataframe as input and returns a dataframe as output.
 
         If the function should be executed on all entities combined you can replace the execute method wih a custom one
         If the function should be executed by entity instance, use the base execute method. Provide a custom _calc method instead.
@@ -386,7 +390,8 @@ class BaseFunction(object):
             try:
                 metadata[a] = self.__dict__[a]
             except KeyError:
-                msg = 'Programming error. All arguments must have a corresponding instance variable of the same name. This function has no instance variable: %s' % a
+                msg = 'Programming error. All arguments must have a corresponding instance variable of the same name. \
+                       This function has no instance variable: %s' % a
                 logger.exception(msg)
                 raise
 
@@ -608,7 +613,7 @@ class BaseFunction(object):
             constants = self.constants
 
         # run the function to produce a new dataframe that contains the function outputs
-        if not df is None:
+        if df is not None:
             if new_df is None:
                 tf = df.head(self.test_rows)
                 tf = tf.copy()
@@ -625,7 +630,8 @@ class BaseFunction(object):
             test_outputs = self._inferOutputs(before_df=df, after_df=tf)
             if len(test_outputs) == 0:
                 raise ValueError(
-                    'Could not locate output columns in the test dataframe. Check the execute method of the function to ensure that it returns a dataframe with output columns that are named differently from the input columns')
+                    'Could not locate output columns in the test dataframe. Check the execute method of the function to ensure \
+                     that it returns a dataframe with output columns that are named differently from the input columns')
         else:
             raise NotImplementedError(
                 'Must supply a test dataframe for function registration. Explict metadata definition not suported')
@@ -640,16 +646,16 @@ class BaseFunction(object):
         args = (getargspec(self.__init__))[0][1:]
         for a in args:
             if a is None:
-                msg = 'Cannot infer metadata for argument %s as it was initialized with a value of None. Supply an appropriate value when initializing.' % (
-                    a)
+                msg = 'Cannot infer metadata for argument %s as it was initialized with a value of None. \
+                       Supply an appropriate value when initializing.' % (a)
                 raise ValueError(msg)
             # identify which arguments are inputs, which are outputs and which are constants
             try:
                 arg_value = eval('self.%s' % a)
             except AttributeError:
                 raise AttributeError(
-                    'Class %s has an argument %s but no corresponding property. Make sure your arguments and properties have the same name if you want to infer types.' % (
-                        self.__class__.__name__, a))
+                    'Class %s has an argument %s but no corresponding property. Make sure your arguments and properties \
+                     have the same name if you want to infer types.' % (self.__class__.__name__, a))
             is_array = False
             if isinstance(arg_value, list):
                 is_array = True
@@ -662,12 +668,12 @@ class BaseFunction(object):
             else:
                 required = True
                 min_items = 1  # set metadata from class/instance variables
-            if not self.itemDescriptions is None:
+            if self.itemDescriptions is not None:
                 try:
                     column_metadata['description'] = self.itemDescriptions[a]
                 except KeyError:
                     pass
-            if not self.itemLearnMore is None:
+            if self.itemLearnMore is not None:
                 try:
                     column_metadata['learnMore'] = self.itemLearnMore[a]
                 except KeyError:
@@ -788,7 +794,7 @@ class BaseFunction(object):
                 column_metadata['dataType'] = datatype
             else:
                 column_metadata['dataType'] = 'ARRAY'
-                if not datatype is None:
+                if datatype is not None:
                     column_metadata['dataTypeForArray'] = [datatype]
                 else:
                     column_metadata['dataTypeForArray'] = None
@@ -802,7 +808,8 @@ class BaseFunction(object):
             # constants may have explict values
             values = None
             if is_constant:
-                msg = 'Constant argument %s is has no explicit values defined for it and no values available from the get_item_values() method' % a
+                msg = 'Constant argument %s is has no explicit values defined for it and no values available \
+                       from the get_item_values() method' % a
                 column_metadata['type'] = 'CONSTANT'
                 try:
                     values = self.itemValues[a]
@@ -812,13 +819,14 @@ class BaseFunction(object):
                     except (NotImplementedError, AttributeError):
                         pass
                         if is_array:
-                            msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that accepts a comma separated list of values. To set values implement the get_item_values() method' % a
+                            msg = 'Array input %s has no predefined values. It will appear in the UI as a type-in field that \
+                                   accepts a comma separated list of values. To set values implement the get_item_values() method' % a
                             warnings.warn(msg)
                     else:
                         msg = 'Explicit values were found in the the get_item_values() method for constant argument %s ' % a
                 else:
                     msg = 'Explicit values were found in the the itemValues dict for constant argument %s ' % a
-                if not values is None:
+                if values is not None:
                     column_metadata['values'] = values
                 logger.debug(msg)
 
@@ -835,7 +843,8 @@ class BaseFunction(object):
                 array_source = self._infer_array_source(candidate_inputs=array_inputs, output_length=length)
             if array_source is None:
                 raise ValueError(
-                    'No candidate input array found to drive output array %s with length %s . Make sure input array and output array have the same length or explicity define the item_source_array. ' % (
+                    'No candidate input array found to drive output array %s with length %s . Make sure input array and output array \
+                     have the same length or explicity define the item_source_array. ' % (
                         array, length))
             else:
                 # if the output array is driven by an array of items infer data types from items
@@ -872,11 +881,11 @@ class BaseFunction(object):
         Retrieve a slowly changing dimension property as a dataframe
         '''
         (query, table) = self._entity_type.db.query(table_name, schema=self._entity_type._db_schema)
-        if not start_ts is None:
+        if start_ts is not None:
             query = query.filter(table.c.end_date >= start_ts)
-        if not end_ts is None:
+        if end_ts is not None:
             query = query.filter(table.c.start_date < end_ts)
-        if not entities is None:
+        if entities is not None:
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading scd %s from %s to %s using %s' % (table_name, start_ts, end_ts, query.statement)
         logger.debug(msg)
@@ -1026,8 +1035,8 @@ class BaseFunction(object):
                     datatype = 'TIMESTAMP'
                 else:
                     raise TypeError(
-                        'Cannot infer type of argument value %s for parm %s. Supply a string, number, boolean, datetime, dict or list containing any of these types.' % (
-                            value, parm))
+                        'Cannot infer type of argument value %s for parm %s. Supply a string, number, boolean, datetime, dict or list \
+                         containing any of these types.' % (value, parm))
             else:
                 append_msg = 'by looking at items in test dataframe'
                 try:
@@ -1043,7 +1052,7 @@ class BaseFunction(object):
                     pass
 
             found_types.append(datatype)
-            if not prev_datatype is None:
+            if prev_datatype is not None:
                 if datatype != prev_datatype:
                     multi_datatype = True
             prev_datatype = datatype
@@ -1056,7 +1065,8 @@ class BaseFunction(object):
         logger.debug(msg)
 
         if datatype is None:
-            msg = 'Cannot infer datatype for argument %s. Explicitly set the datatype as LITERAL, BOOLEAN, NUMBER or TIMESTAMP in the itemDataTypes dict' % parm
+            msg = 'Cannot infer datatype for argument %s. Explicitly set the datatype as LITERAL, BOOLEAN, NUMBER or TIMESTAMP in \
+                   the itemDataTypes dict' % parm
             logger.warning(msg)
 
         return datatype
@@ -1147,7 +1157,8 @@ class BaseFunction(object):
 
         if module == '__main__':
             raise RuntimeError(
-                'The function that you are attempting to register is not located in a package. It is located in __main__. Relocate it to an appropriate package module.')
+                'The function that you are attempting to register is not located in a package. It is located in __main__. \
+                 Relocate it to an appropriate package module.')
 
         if description is None:
             description = self.description
@@ -1184,15 +1195,17 @@ class BaseFunction(object):
             raise e
         if module_url == BaseFunction.url:
             logger.warning(
-                'The PACKAGE_URL for your module is the same as BaseFunction url. Make sure that your PACKAGE_URL points to your own package and not iotfunctions')
+                'The PACKAGE_URL for your module is the same as BaseFunction url. Make sure that your PACKAGE_URL points to \
+                 your own package and not iotfunctions')
         msg = 'Test import succeeded for function using %s with module url %s' % (exec_str, module_url)
         logger.debug(msg)
         payload = {'name': name, 'description': description, 'category': self.category, 'tags': self.tags,
                    'moduleAndTargetName': module_and_target, 'url': url, 'input': input_list, 'output': output_list,
                    'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None}
 
-        if not credentials is None:
-            msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, or omit credentials to use credentials associated with the Database object for the function'
+        if credentials is not None:
+            msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, \
+                   or omit credentials to use credentials associated with the Database object for the function'
             logger.info(msg)
             http = urllib3.PoolManager(timeout=30.0)
             encoded_payload = json.dumps(payload).encode('utf-8')
@@ -1459,7 +1472,8 @@ class BaseDataSource(BaseTransformer):
 
     def get_data(self, start_ts=None, end_ts=None, entities=None):
         '''
-        The get_data() method is used to retrieve additional time series data that will be combined with existing pipeline data during pipeline execution.
+        The get_data() method is used to retrieve additional time series data that will be
+        combined with existing pipeline data during pipeline execution.
         '''
         raise NotImplementedError('You must implement a get_data() method for any class that acts as a data source')
 
@@ -1825,7 +1839,7 @@ class BaseDBActivityMerge(BaseDataSource):
             self.add_dates = []
             self.custom_calendar_df = None
             custom_calendar = self.get_custom_calendar()
-            if not custom_calendar is None:
+            if custom_calendar is not None:
                 if len(adf.index) > 0:
                     start_date = adf[self._start_date].min()
                     end_date = adf[self._end_date].max()
@@ -1917,7 +1931,6 @@ class BaseDBActivityMerge(BaseDataSource):
             cdf = self.rename_cols(cdf, self.additional_items, self.additional_output_names)
 
         return cdf
-
 
     def make_start_dates_unique(self, af):
 
@@ -2119,11 +2132,11 @@ class BaseDBActivityMerge(BaseDataSource):
 
         (query, table) = self._entity_type.db.query(table_name, schema=self._entity_type._db_schema)
         query = query.filter(table.c.activity == activity_code)
-        if not start_ts is None:
+        if start_ts is not None:
             query = query.filter(table.c.end_date >= start_ts)
-        if not end_ts is None:
+        if end_ts is not None:
             query = query.filter(table.c.start_date < end_ts)
-        if not entities is None:
+        if entities is not None:
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading activity %s from %s to %s using %s' % (activity_code, start_ts, end_ts, query.statement)
         logger.debug(msg)
@@ -2166,7 +2179,8 @@ class BaseSCDLookup(BaseTransformer):
         try:
             scd_property = [x for x in resource_df.columns if x not in system_cols][0]
         except:
-            msg = 'Error looking up scd_property from table %s. Make sure that table name is an scd with start_data, end_date, deviceid and a property name' % self.table_name
+            msg = 'Error looking up scd_property from table %s. Make sure that table name is an scd with start_data, \
+                   end_date, deviceid and a property name' % self.table_name
             logger.exception(msg)
             raise
 
@@ -2284,11 +2298,17 @@ class BaseEstimatorFunction(BaseTransformer):
     parameter_tuning_iterations = 3
     drop_nulls = True
     delete_existing_models = False
+
     # cross_validation
     cv = None  # (default)
     eval_metric = None
+
     # Test Train split
-    test_size = 0.2
+    test_size = 0.2  # Use 20 % of the data for testing
+
+    # Correlation check
+    correlation_threshold = 0.5  # only train when feature and target data are sufficiently correlated - spearman rank
+
     # Model evaluation
     stop_auto_improve_at = 0.85
     acceptable_score_for_model_acceptance = -10
@@ -2319,7 +2339,7 @@ class BaseEstimatorFunction(BaseTransformer):
         stage = PipelineExpression(name=name, expression=expression, entity_type=self.get_entity_type())
         self.add_preprocessor(stage)
 
-    def get_models_for_training(self, db, df, bucket=None):
+    def get_models_for_training(self, db, df, bucket=None, entity_name=None):
         '''
         Get a list of models that require training
         '''
@@ -2333,7 +2353,7 @@ class BaseEstimatorFunction(BaseTransformer):
             trace_message = 'predicting target %s' % target
             logger.info(trace_message)
             features = self.make_feature_list(features=self.features, df=df, unprocessed_targets=unprocessed_targets)
-            model_name = self.get_model_name(target)
+            model_name = self.get_model_name(target, suffix=entity_name)
 
             # retrieve existing model
             model = None
@@ -2369,7 +2389,7 @@ class BaseEstimatorFunction(BaseTransformer):
         Display model metdata
         '''
 
-    def get_models_for_predict(self, db, bucket=None):
+    def get_models_for_predict(self, db, bucket=None, entity_name=None):
         '''
         Get a list of models
         '''
@@ -2378,7 +2398,7 @@ class BaseEstimatorFunction(BaseTransformer):
         models = []
         trace_dict = {}
         for i, target in enumerate(self.targets):
-            model_name = self.get_model_name(target)
+            model_name = self.get_model_name(target, suffix=entity_name)
             # retrieve existing model
             model = db.model_store.retrieve_model(model_name)
             if model is not None:
@@ -2413,35 +2433,57 @@ class BaseEstimatorFunction(BaseTransformer):
         else:
             return False, 'Automatic model training is disabled using the auto_train = False'
 
-    def delete_models(self, model_names=None):
+    def delete_models(self, model_names=None, entity_name=None):
         '''
         Delete models stored in ModelStore for this estimator
         '''
         if model_names is None:
             model_names = []
             for target in self.targets:
-                model_names.append(self.get_model_name(target))
+                model_names.append(self.get_model_name(target, entity_name))
+
+        logger.info('Model names to delete: ' + str(model_names))
+
         for m in model_names:
             self._entity_type.db.model_store.delete_model(m)
 
     def execute(self, df):
+        return self._execute(df)
+
+    def _execute(self, df, entity_name=None):
         df = df.copy()
         db = self._entity_type.db
         bucket = self.get_bucket_name()
+
         # transform incoming data using any preprocessors
         # include whatever preprocessing stages are required by implementing a set_preprocessors method
         if self.delete_existing_models:
-            self.delete_models(model_names=None)
-        required_models = self.get_models_for_training(db=db, df=df, bucket=bucket)
+            self.delete_models(model_names=None, entity_name=entity_name)
+
+        required_models = self.get_models_for_training(db=db, df=df, bucket=bucket, entity_name=entity_name)
+
+        rho_max = 0
         if len(required_models) > 0:
             df = self.execute_preprocessing(df)
+            if self.correlation_threshold > 0:
+                rho_max = self.correlation_analysis(df)
             df_train, df_test = self.execute_train_test_split(df)
+
         # training
+        if rho_max < self.correlation_threshold:
+            # no models for training - doesn't make any sense according to threshold and correlation
+            required_models = []
+            msg = 'Correlation between features and targets is not high enough for training: \
+                   correlation %s, threshold %s' % (str(rho_max), str(self.correlation_threshold))
+            logger.warning(msg)
+            self.trace_append(msg)
+
         for model in required_models:
             msg = 'Prepare to train model %s' % model
             logger.info(msg)
             best_model = self.find_best_model(df_train=df_train, df_test=df_test, target=model.target,
-                                              features=model.features, existing_model=model, col_name=model.col_name)
+                                              features=model.features, existing_model=model, col_name=model.col_name,
+                                              entity_name=entity_name)
             msg = 'Trained model: %s' % best_model
             logger.debug(msg)
 
@@ -2457,7 +2499,8 @@ class BaseEstimatorFunction(BaseTransformer):
                 msg = 'Finished training model %s' % model.name
 
             logger.info(msg)  # predictions
-        required_models = self.get_models_for_predict(db=db, bucket=bucket)
+
+        required_models = self.get_models_for_predict(db=db, bucket=bucket, entity_name=entity_name)
         for model in required_models:
             if model is not None:
                 df[model.col_name] = model.predict(df)
@@ -2482,6 +2525,27 @@ class BaseEstimatorFunction(BaseTransformer):
         logger.debug(msg)
         return df
 
+    def correlation_analysis(self, df):
+        '''
+        Perform MCD (>2 dim) or spearman (== 2 dim)
+        '''
+        scalef = StandardScaler().fit_transform(df[self.features]).copy()
+        scalet = StandardScaler().fit_transform(df[self.targets]).copy()
+
+        rho = 0.0
+        try:
+            for f in range(scalef.shape[-1]):
+                for t in range(scalet.shape[-1]):
+                    rho_, _ = sp.stats.spearmanr(scalef[:, f], scalet[:, t])
+                    if not np.isnan(rho) and rho_ > rho:
+                        rho = rho_
+        except Exception as e:
+            logger.error('Correlation check failed with ' + str(e))
+            pass
+
+        logger.info('Correlation ' + str(rho))
+        return rho
+
     def execute_train_test_split(self, df):
 
         '''
@@ -2494,7 +2558,7 @@ class BaseEstimatorFunction(BaseTransformer):
         logger.info('Split data - training set ' + str(df_train.shape) + '  test set ' + str(df_test.shape))
         return (df_train, df_test)
 
-    def find_best_model(self, df_train, df_test, target, features, existing_model, col_name):
+    def find_best_model(self, df_train, df_test, target, features, existing_model, col_name, entity_name=None):
 
         '''
 
@@ -2531,7 +2595,7 @@ class BaseEstimatorFunction(BaseTransformer):
             if estimator is None:
                 continue
 
-            trace_msg = 'Trained model: %s' % counter
+            trace_msg = 'Trained model no: %s' % counter
             logger.info(trace_msg)
 
             try:
@@ -2543,7 +2607,7 @@ class BaseEstimatorFunction(BaseTransformer):
                 est_score = 0
                 continue
 
-            results = {'name': self.get_model_name(target_name=target),
+            results = {'name': self.get_model_name(target_name=target, suffix=entity_name),
                        'target': target, 'features': features,
                        'params': estimator.best_params_, 'eval_metric_name': metric_name,
                        'eval_metric_train': est_score,
@@ -2587,7 +2651,8 @@ class BaseEstimatorFunction(BaseTransformer):
             elif not self.greater_is_better and new_model.eval_metric_test < self.acceptable_score_for_model_acceptance:
                 write_model = True
             else:
-                msg = 'Training process did not create a model that passed the acceptance critera. Model evaluaton result was %s' % new_model.eval_metric_test
+                msg = 'Training process did not create a model that passed the acceptance critera. \
+                       Model evaluaton result was %s' % new_model.eval_metric_test
                 logger.debug(msg)
         if write_model:
             if self.version_model_writes:
@@ -2621,7 +2686,8 @@ class BaseEstimatorFunction(BaseTransformer):
             msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s' % estimator.__class__.__name__
         except ValueError as ve:
             logger.error('Randomized searched failed with ' + str(ve) + '   Size of training data: ' + str(df.shape))
-            msg = 'Used randomize search cross validation to find best hyper parameters for estimator %s failed !' % estimator.__class__.__name__
+            msg = 'Used randomize search cross validation to find best hyper \
+                   parameters for estimator %s failed !' % estimator.__class__.__name__
             estimator = None
             pass
 

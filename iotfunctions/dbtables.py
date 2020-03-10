@@ -327,6 +327,61 @@ class DBDataCache:
                     % (self.quoted_schema, self.quoted_cache_tablename, self.entity_type_id))
 
 
+class FileModelStore:
+
+    STORE_TABLENAME = 'KPI_MODEL_STORE'
+
+    def __init__(self):
+        logger.info('Init FileModelStore')
+
+    def store_model(self, model_name, model, user_name=None, serialize=True):
+
+        if serialize:
+            try:
+                model = pickle.dumps(model)
+            except Exception as ex:
+                raise Exception('Serialization of model %s that is supposed to be stored in ModelStore failed.'
+                                % model_name) from ex
+
+        filename = self.STORE_TABLENAME + model_name
+        f = open(filename, "wb")
+        f.write(model)
+        f.close()
+
+    def retrieve_model(self, model_name, deserialize=True):
+
+        filename = self.STORE_TABLENAME + model_name
+
+        model = None
+
+        if os.path.exists(filename):
+            f = open(filename, "rb")
+            model = f.read(model)
+            f.close()
+
+        if model is not None:
+            logger.info('Model %s of size %d bytes has been retrieved from filesystem'
+                        % (model_name, len(model) if model is not None else 0))
+        else:
+            logger.info('Model %s does not exist in filesystem' % (model_name))
+
+        if model is not None and deserialize:
+            try:
+                model = pickle.loads(model)
+            except Exception as ex:
+                raise Exception('Deserialization of model %s that has been retrieved from ModelStore failed.'
+                                % model_name) from ex
+
+        return model
+
+    def delete_model(self, model_name):
+
+        filename = self.STORE_TABLENAME + model_name
+        if os.path.exists(filename):
+            os.remove(filename)
+
+        logger.info('Model %s has been deleted from filesystem' % (model_name))
+
 class DBModelStore:
 
     STORE_TABLENAME = 'KPI_MODEL_STORE'
