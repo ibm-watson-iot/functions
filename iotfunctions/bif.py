@@ -818,7 +818,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
                   a1.shape, '\n', a1[0].shape, '\n', b.shape)
 
             # use 'local' standard deviation if it exceeds 1 to make sure we're generating an anomaly
-            stdvec = max(np.std(a1, axis=1), 1) * self.size
+            stdvec = np.maximum(np.std(a1, axis=1), np.ones(a.size - a.size % self.factor)) * self.size
             a1[0] = np.multiply(a1[0], np.multiply(b, stdvec))
 
             # np.copyto(a,a1)
