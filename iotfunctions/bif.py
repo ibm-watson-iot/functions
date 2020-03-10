@@ -812,10 +812,10 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
                 continue
 
             a1 = a[:(a.size - a.size % self.factor)]
-            a = np.reshape(a1, (-1, self.factor)).T
+            a1 = np.reshape(a1, (-1, self.factor)).T
             b = np.random.choice([-1, 1], a1.shape[1])
             print(self.factor, '\n', dfe[self.output_item].values.shape, '\n',
-                  a.shape, '\n', a[0].shape, '\n', b.shape)
+                  a1.shape, '\n', a1[0].shape, '\n', b.shape)
             a1[0] = np.multiply(a1[0], b * self.size * 3453)  # local_std)
             np.copyto(a,a1)
             idx = pd.IndexSlice
