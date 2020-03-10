@@ -807,7 +807,11 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         for entity in entities:
             dfe = df_copy.loc[[entity]]
             a = dfe[self.output_item].values # reference to make life easier
-            a1 = a[:a.size % self.factor]
+            if a.size < self.factor:
+                logger.info('Entity ' + entity + ' has not enough values to inject an extreme value anomaly')
+                continue
+
+            a1 = a[:(a.size - a.size % self.factor)]
             a = np.reshape(a1, (-1, self.factor)).T
             b = np.random.choice([-1, 1], a1.shape[1])
             print(self.factor, '\n', dfe[self.output_item].values.shape, '\n',
