@@ -817,9 +817,9 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             print(self.factor, '\n', dfe[self.output_item].values.shape, '\n',
                   a1.shape, '\n', a1[0].shape, '\n', b.shape)
             a1[0] = np.multiply(a1[0], b * self.size * 3453)  # local_std)
-            np.copyto(a,a1)
+            # np.copyto(a,a1)
             idx = pd.IndexSlice
-            df_copy.loc[idx[entity, :], self.output_item] = a.T.flatten()
+            df_copy.loc[idx[entity, :(a.size - a.size % self.factor)], self.output_item] = a1.T.flatten()
 
         # df_grpby = timeseries.groupby('id')
         df_grpby = timeseries.groupby(entity_id)
