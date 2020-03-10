@@ -789,7 +789,12 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             db.model_store.delete_model(key)
             logger.debug('Intialize count for first run')
 
-        counts_by_entity_id = db.model_store.retrieve_model(key)
+        counts_by_entity_id = None
+        try:
+            counts_by_entity_id = db.model_store.retrieve_model(key)
+        except Exception as e2:
+            logger.error('Counts by entity id not yet initialized - error: ' + str(e2))
+            pass
 
         if counts_by_entity_id is None:
             counts_by_entity_id = {}
@@ -844,7 +849,11 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
 
         # save the group counts to db
-        db.model_store.store_model(key, counts_by_entity_id)
+        try:
+            db.model_store.store_model(key, counts_by_entity_id)
+        except Exception as e3:
+            logger.error('Counts by entity id cannot be stored - error: ' + str(e3))
+            pass
 
         # timeseries.set_index(df.index.names, inplace=True)
         # return timeseries
