@@ -806,11 +806,14 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         entities = np.unique(df_copy.index.levels[0])
         for entity in entities:
             dfe = df_copy.loc[[entity]]
-            a = np.reshape(dfe[self.output_item].values, (-1, self.factor)).T
-            b = np.random.choice([-1, 1], a.shape[1])
+            a = dfe[self.output_item].values # reference to make life easier
+            a1 = a[:a.size % self.factor]
+            a = np.reshape(a1, (-1, self.factor)).T
+            b = np.random.choice([-1, 1], a1.shape[1])
             print(self.factor, '\n', dfe[self.output_item].values.shape, '\n',
                   a.shape, '\n', a[0].shape, '\n', b.shape)
-            a[0] = np.multiply(a[0], b * self.size * 3453)  # local_std)
+            a1[0] = np.multiply(a1[0], b * self.size * 3453)  # local_std)
+            np.copyto(a,a1)
             idx = pd.IndexSlice
             df_copy.loc[idx[entity, :], self.output_item] = a.T.flatten()
 
