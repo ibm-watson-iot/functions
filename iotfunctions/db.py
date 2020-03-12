@@ -1788,7 +1788,10 @@ class Database(object):
         table = self.get_table(table_name, schema)
         dim = None
         if dimension is not None:
-            dim = self.get_table(table_name=dimension, schema=schema)
+            try: # tolerate the case where the dimension table might not yet have been created
+                dim = self.get_table(table_name=dimension, schema=schema)
+            except (KeyError):
+                dim = None
 
         if column_names is None:
             if dim is None:
