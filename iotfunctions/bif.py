@@ -770,7 +770,6 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         schema = entity_type._db_schema
 
         # store and initialize the counts by entity id
-        # db = self.get_db()
         db = self._entity_type.db
 
         raw_dataframe = None
@@ -787,7 +786,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         if raw_dataframe is not None and raw_dataframe.empty:
             # delete old counts if present
             db.model_store.delete_model(key)
-            logger.debug('Intialize count for first run')
+            logger.debug('Reintialize count')
 
         counts_by_entity_id = None
         try:
@@ -800,51 +799,53 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             counts_by_entity_id = {}
         logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))
 
-        # mark Anomalies
-        entity_id = df.index.names[0]
-        print(entity_id)
         timeseries = df.reset_index()
         timeseries[self.output_item] = timeseries[self.input_item]
-
-        df_copy = df.copy()
-        df_copy[self.output_item] = df_copy[self.input_item]
-        entities = np.unique(df_copy.index.levels[0])
-        for entity in entities:
-            dfe = df_copy.loc[[entity]]
-            a = dfe[self.output_item].values  # reference to make life easier
-            if a.size < self.factor:
-                logger.info('Entity ' + entity + ' has not enough values to inject an extreme value anomaly')
-                continue
-
-            a1 = a[:(a.size - a.size % self.factor)]
-            a1 = np.reshape(a1, (-1, self.factor)).T
-            b = np.random.choice([-1, 1], a1.shape[1])
-            print(self.factor, '\n', dfe[self.output_item].values.shape, '\n',
-                  a1.shape, '\n', a1[0].shape, '\n', b.shape)
-
-            # use 'local' standard deviation if it exceeds 1 to make sure we're generating an anomaly
-            stdvec = np.maximum(np.std(a1, axis=0), np.ones(a1[0].size)) * self.size
-            a1[0] = np.multiply(a1[0], np.multiply(b, stdvec))
-
-            # np.copyto(a,a1)
-            a[:(a.size - a.size % self.factor)] = a1.T.flatten()
-            idx = pd.IndexSlice
-            df_copy.loc[idx[entity, :], self.output_item] = a
-
-        # df_grpby = timeseries.groupby('id')
-        df_grpby = timeseries.groupby(entity_id)
+        df_grpby = timeseries.groupby('id')
         for grp in df_grpby.__iter__():
 
             entity_grp_id = grp[0]
             df_entity_grp = grp[1]
-            logger.debug('Group {} Indexes {}'.format(grp[0], df_entity_grp.index))
 
+            #Initialize group counts
             count = 0
-            # local_std = df_entity_grp.iloc[:10][self.input_item].std()
             if entity_grp_id in counts_by_entity_id:
                 count = counts_by_entity_id[entity_grp_id]
 
-            counts_by_entity_id[entity_grp_id] = count + len(df_entity_grp.index) % self.factor
+            #Start index based on counts and factor
+            if count == 0 or count%self.factor == 0:
+                strt_idx = 0
+            else:
+                strt_idx = self.factor - count%self.factor
+
+            #Update group counts for storage
+            count += actual.size
+            counts_by_entity_id[entity_grp_id] = count
+
+            #Prepare numpy array for marking anomalies
+            actual = df_entity_grp[output_col].values
+            a = actual[strt_idx:]
+            # Create NaN padding for reshaping
+            nan_arr = np.repeat(np.nan, self.factor - a.size % self.factor)
+            # Prepare numpy array to reshape
+            a_reshape_arr = np.append(a,nan_arr)
+            # Final numpy array to be transformed
+            a1 = np.reshape(a_reshape_arr, (-1, self.factor)).T
+            # Calculate 'local' standard deviation if it exceeds 1 to generate anomalies
+            std = np.std(a1, axis=0)
+            stdvec = np.maximum(np.where(np.isnan(std),1,std), np.ones(a1[0].size))
+            # Mark Extreme anomalies
+            a1[0] = np.multiply(a1[0],
+                        np.multiply(np.random.choice([-1,1], a1.shape[1]),
+                                    stdvec * self.size))
+            # Flattening back to 1D array
+            a2 = a1.T.flatten()
+            # Removing NaN padding
+            a2 = a2[~np.isnan(a2)]
+            # Adding the missing elements to create final array
+            final = np.append(actual[:strt_idx],a2)
+            # Set values in the original dataframe
+            timeseries.loc[df_entity_grp.index, self.output_item] = final
 
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
 
@@ -855,9 +856,8 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             logger.error('Counts by entity id cannot be stored - error: ' + str(e3))
             pass
 
-        # timeseries.set_index(df.index.names, inplace=True)
-        # return timeseries
-        return df_copy
+        timeseries.set_index(df.index.names, inplace=True)
+        return timeseries
 
     @classmethod
     def build_ui(cls):
