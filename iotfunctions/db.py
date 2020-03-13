@@ -2070,6 +2070,8 @@ class Database(object):
             elif time_grain == 'year':
                 group_by_cols[timestamp] = func.date_trunc('year', col_object).label(timestamp)
             else:
+                print('-----shraddha debug-----')
+                print(time_grain)
                 pandas_aggregate = time_grain
 
         for g in groupby:
