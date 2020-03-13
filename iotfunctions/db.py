@@ -1253,7 +1253,7 @@ class Database(object):
         timestamp: str
             Name of timestamp column in the table. Required for time filters.
         time_grain: str
-            Time grain for aggregation may be day,month,year or a pandas frequency string
+            Time grain for aggregation may be day,hour,week,month,year or a pandas frequency string
         start_ts: datetime
             Retrieve data from this date
         end_ts: datetime
