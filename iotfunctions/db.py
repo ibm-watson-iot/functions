@@ -2063,6 +2063,8 @@ class Database(object):
                                                                          timestamp)
             elif time_grain == 'day':
                 group_by_cols[timestamp] = func.date(col_object).label(timestamp)
+            elif time_grain == 'hour':
+                group_by_cols[timestamp] = func.date_trunc('hour', col_object).label(timestamp)
             elif time_grain == 'week':
                 group_by_cols[timestamp] = func.date_trunc('week', col_object).label(timestamp)
             elif time_grain == 'month':
