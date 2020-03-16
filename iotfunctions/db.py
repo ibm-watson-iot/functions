@@ -1788,7 +1788,10 @@ class Database(object):
         table = self.get_table(table_name, schema)
         dim = None
         if dimension is not None:
-            dim = self.get_table(table_name=dimension, schema=schema)
+            try: # tolerate the case where the dimension table might not yet have been created
+                dim = self.get_table(table_name=dimension, schema=schema)
+            except (KeyError):
+                dim = None
 
         if column_names is None:
             if dim is None:
@@ -2060,6 +2063,8 @@ class Database(object):
                                                                          timestamp)
             elif time_grain == 'day':
                 group_by_cols[timestamp] = func.date(col_object).label(timestamp)
+            elif time_grain == 'hour':
+                group_by_cols[timestamp] = func.date_trunc('hour', col_object).label(timestamp)
             elif time_grain == 'week':
                 group_by_cols[timestamp] = func.date_trunc('week', col_object).label(timestamp)
             elif time_grain == 'month':

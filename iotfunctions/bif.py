@@ -766,7 +766,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         logger.debug('Dataframe shape {}'.format(df.shape))
 
         entity_type = self.get_entity_type()
-        derived_metric_table_name = 'DM_'+ entity_type.logical_name
+        derived_metric_table_name = 'DM_' + entity_type.logical_name
         schema = entity_type._db_schema
 
         # store and initialize the counts by entity id
@@ -789,7 +789,12 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             db.model_store.delete_model(key)
             logger.debug('Intialize count for first run')
 
-        counts_by_entity_id = db.model_store.retrieve_model(key)
+        counts_by_entity_id = None
+        try:
+            counts_by_entity_id = db.model_store.retrieve_model(key)
+        except Exception as e2:
+            logger.error('Counts by entity id not yet initialized - error: ' + str(e2))
+            pass
 
         if counts_by_entity_id is None:
             counts_by_entity_id = {}
@@ -806,7 +811,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         entities = np.unique(df_copy.index.levels[0])
         for entity in entities:
             dfe = df_copy.loc[[entity]]
-            a = dfe[self.output_item].values # reference to make life easier
+            a = dfe[self.output_item].values  # reference to make life easier
             if a.size < self.factor:
                 logger.info('Entity ' + entity + ' has not enough values to inject an extreme value anomaly')
                 continue
@@ -816,7 +821,11 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             b = np.random.choice([-1, 1], a1.shape[1])
             print(self.factor, '\n', dfe[self.output_item].values.shape, '\n',
                   a1.shape, '\n', a1[0].shape, '\n', b.shape)
-            a1[0] = np.multiply(a1[0], b * self.size * 3453)  # local_std)
+
+            # use 'local' standard deviation if it exceeds 1 to make sure we're generating an anomaly
+            stdvec = np.maximum(np.std(a1, axis=0), np.ones(a1[0].size)) * self.size
+            a1[0] = np.multiply(a1[0], np.multiply(b, stdvec))
+
             # np.copyto(a,a1)
             a[:(a.size - a.size % self.factor)] = a1.T.flatten()
             idx = pd.IndexSlice
@@ -831,7 +840,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             logger.debug('Group {} Indexes {}'.format(grp[0], df_entity_grp.index))
 
             count = 0
-            local_std = df_entity_grp.iloc[:10][self.input_item].std()
+            # local_std = df_entity_grp.iloc[:10][self.input_item].std()
             if entity_grp_id in counts_by_entity_id:
                 count = counts_by_entity_id[entity_grp_id]
 
@@ -840,7 +849,11 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
 
         # save the group counts to db
-        db.model_store.store_model(key, counts_by_entity_id)
+        try:
+            db.model_store.store_model(key, counts_by_entity_id)
+        except Exception as e3:
+            logger.error('Counts by entity id cannot be stored - error: ' + str(e3))
+            pass
 
         # timeseries.set_index(df.index.names, inplace=True)
         # return timeseries
