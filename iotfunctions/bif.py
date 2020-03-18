@@ -818,13 +818,14 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             else:
                 strt_idx = self.factor - count%self.factor
 
-            #Update group counts for storage
-            count += actual.size
-            counts_by_entity_id[entity_grp_id] = count
-
-            #Prepare numpy array for marking anomalies
+            # Prepare numpy array for marking anomalies
             actual = df_entity_grp[output_col].values
             a = actual[strt_idx:]
+            
+            # Update group counts for storage
+            count += actual.size
+            counts_by_entity_id[entity_grp_id] = count
+            
             # Create NaN padding for reshaping
             nan_arr = np.repeat(np.nan, self.factor - a.size % self.factor)
             # Prepare numpy array to reshape
