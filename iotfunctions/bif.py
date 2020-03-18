@@ -819,7 +819,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
                 strt_idx = self.factor - count%self.factor
 
             # Prepare numpy array for marking anomalies
-            actual = df_entity_grp[output_col].values
+            actual = df_entity_grp[self.output_item].values
             a = actual[strt_idx:]
             
             # Update group counts for storage
