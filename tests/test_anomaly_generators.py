@@ -22,14 +22,14 @@ def test_anomaly_generators():
     print('Read Anomaly Sample data in')
     df_i = pd.read_csv('./AzureAnomalysample.csv', index_col=False, parse_dates=['timestamp'])
 
-    df_i['entity'] = 'MyRoom'
+    df_i['id'] = 'MyRoom'
     df_i[Temperature] = df_i['value'] + 20
     df_i = df_i.drop(columns=['value'])
     df_i['evt_timestamp'] = df_i['timestamp']
 
     # and sort it by timestamp
     df_i = df_i.sort_values(by='timestamp')
-    df_i = df_i.set_index(['entity', 'timestamp']).dropna()
+    df_i = df_i.set_index(['id', 'timestamp']).dropna()
 
     print('Add columns with NaNs')
     addl = np.arange(0, 5, 0.00125)

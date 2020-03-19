@@ -333,7 +333,8 @@ class ProduceAlerts(object):
         self.entity_type_id = dms.entityTypeId
         self.is_postgre_sql = dms.is_postgre_sql
         self.db_connection = dms.db_connection
-        self.schema = dms.schema
+        self.quotedSchema = dbhelper.quotingSchemaName(dms.schema, self.is_postgre_sql)
+        self.quotedTableName = dbhelper.quotingTableName('dm_wiot_as_alert', self.is_postgre_sql)
         self.alert_to_kpi_input_dict = dict()
         self.alerts_to_message_hub = []
         self.alerts_to_database = []
@@ -388,22 +389,22 @@ class ProduceAlerts(object):
             filtered_df = df[alert_filter]
             index_names = filtered_df.index.names
 
-            # for df_row in filtered_df.itertuples():
-            for index_value, row in filtered_df.iterrows():
-                for alert_name in filtered_alerts:
-                    # derived_value = getattr(payload, alert)
+            name_index_map = { name: (index + 1) for index, name in enumerate(filtered_df.columns)}
+            for df_row in filtered_df.itertuples(index=True, name=None):
 
-                    if row[alert_name]:
+                for alert_name in filtered_alerts:
+
+                    if df_row[name_index_map[alert_name]]:
                         # publish alert format
                         # key: <tenant-id>|<entity-type-name>|<alert-name>
                         # value: json document containing all metrics at the same time / same device / same grain
                         key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
-                        value = self.get_json_values(index_names, index_value, row)
+                        value = self.get_json_values(index_names, filtered_df.columns, df_row)
 
                         if alert_name in self.alerts_to_database:
                             kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
                             db_insert_parameter = (
-                                index_value[0], index_value[1], self.entity_type_id, self.entity_type_name, alert_name,
+                                df_row[0][0], df_row[0][1], self.entity_type_id, self.entity_type_name, alert_name,
                                 kpi_input.get('Severity', None), kpi_input.get('Priority', None),
                                 kpi_input.get('Status', None))
                             key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
@@ -419,7 +420,7 @@ class ProduceAlerts(object):
                 key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
             except Exception as ex:
                 # TODO:: Remove the exception once you create dm_wiot_as_alert table for all the tenant.
-                self.logger.warning('Inserting data into alert table failed: %s' % str(ex))
+                logger.warning('Inserting data into alert table failed: %s' % str(ex))
 
         if len(key_and_msg) > 0 or len(key_and_msg_updated) > 0:
             # TODO:: Duplicate alert issue is still exist.
@@ -438,57 +439,84 @@ class ProduceAlerts(object):
     def _serialize_converter(self, object):
         if isinstance(object, dt.datetime):
             return object.__str__()
+        else:
+            raise TypeError('Do not know how to convert object of class %s to JSON' % object.__class__.__name__)
 
     '''
     This function creates a json string which consist of dataframe row records and index key, value .
     '''
 
-    def get_json_values(self, index_names, index_values, row):
+    def get_json_values(self, index_names, col_names, row):
 
         index_json = {}
-        for index_name, index_value in zip(index_names, index_values):
+        for index_name, index_value in zip(index_names, row[0]):
             index_json[index_name] = index_value
 
-        value = row.to_json()
-        updated_value = json.loads(value)
-        updated_value["index"] = index_json
-        return json.dumps(updated_value, default=self._serialize_converter)
+        values = {}
+        for col_name, value in zip(col_names, row[1:]):
+            values[col_name] = value
+        values["index"] = index_json
+        return json.dumps(values, default=self._serialize_converter)
 
     def insert_data_into_alert_table(self, key_and_msg_and_db_parameter=[]):
         logger.info("Processing %s alerts. This alert may contain duplicates, "
                     "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
         updated_key_and_msg = []
-        postgres_sql = "insert into " + self.schema + ".dm_wiot_as_alert (entity_id, timestamp, entity_type_id, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s, %s)"
-        db2_sql = "insert into " + self.schema + ".DM_WIOT_AS_ALERT (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?, ?) "
+        postgres_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + \
+                       " (entity_id, timestamp, entity_type_id, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + \
+                  " (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?, ?) "
+
+        total_count = 0
+        count = 0
         start_time = dt.datetime.now()
 
-        for key, msg, db_params in key_and_msg_and_db_parameter:
-            try:
-                if self.is_postgre_sql:
+        if self.is_postgre_sql:
+            for key, msg, db_params in key_and_msg_and_db_parameter:
+                count += 1
+                try:
                     dbhelper.execute_postgre_sql_query(self.db_connection, sql=postgres_sql, params=db_params)
-                else:
-                    stmt = ibm_db.prepare(self.db_connection, db2_sql)
-                    for i, param in enumerate(iterable=db_params, start=1):
-                        ibm_db.bind_param(stmt, i, param)
+                    updated_key_and_msg.append((key, msg))
+                except Exception as ex:
+                    if ex.pgcode != '23505':
+                        raise ex
 
-                    ibm_db.execute(stmt)
+                if count == 500:
+                    total_count += count
+                    count = 0
+                    logger.info('Alerts that have been processed so far: %d' % total_count)
+        else:
+            try:
+                stmt = ibm_db.prepare(self.db_connection, db2_sql)
 
-                updated_key_and_msg.append((key, msg))
+                try:
+                    for key, msg, db_params in key_and_msg_and_db_parameter:
+                        count += 1
+                        for i, param in enumerate(iterable=db_params, start=1):
+                            ibm_db.bind_param(stmt, i, param)
+
+                        try:
+                            ibm_db.execute(stmt)
+                            updated_key_and_msg.append((key, msg))
+                        except Exception as ex:
+                            if "SQLSTATE=23505" not in ex.args[0]:
+                                raise Exception('Inserting alert %s into table %s.%s failed.' % (
+                                    str(db_params), self.quotedSchema, self.quotedTableName)) from ex
+
+                        if count == 500:
+                            total_count += count
+                            count = 0
+                            logger.info('Alerts that have been processed so far: %d' % total_count)
+                finally:
+                    ibm_db.free_result(stmt)
 
             except Exception as ex:
-                if self.is_postgre_sql:
-                    if ex.pgcode == '23505':
-                        continue
-                else:
-                    if "SQLSTATE=23505" in ex.args[0]:
-                        continue
+                raise Exception('Inserting alerts into table %s.%s failed.' % (
+                    self.quotedSchema, self.quotedTableName)) from ex
 
-                raise ex
-
-        end_time = dt.datetime.now()
-        logger.info("Total alerts produced to database = %d " % len(updated_key_and_msg))
-        logger.info(
-            "Total time taken to insert the alert to database = %s seconds." % (end_time - start_time).total_seconds())
+        logger.info('%d new alerts out of %d processed alerts have been inserted into table %s.%s in %d seconds.' % (
+            len(updated_key_and_msg), len(key_and_msg_and_db_parameter), self.quotedSchema, self.quotedTableName,
+            (dt.datetime.now() - start_time).total_seconds()))
 
         return updated_key_and_msg
 
