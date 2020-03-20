@@ -759,6 +759,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         self.output_item = output_item
         self.factor = int(factor)
         self.size = int(size)
+        self.count = None   # allow to set count != 0 for unit testing
         super().__init__()
 
     def execute(self, df):
@@ -792,6 +793,7 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
         try:
             counts_by_entity_id = db.model_store.retrieve_model(key)
         except Exception as e2:
+            counts_by_entity_id = self.count
             logger.error('Counts by entity id not yet initialized - error: ' + str(e2))
             pass
 
@@ -821,11 +823,11 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             # Prepare numpy array for marking anomalies
             actual = df_entity_grp[self.output_item].values
             a = actual[strt_idx:]
-            
+
             # Update group counts for storage
             count += actual.size
             counts_by_entity_id[entity_grp_id] = count
-            
+
             # Create NaN padding for reshaping
             nan_arr = np.repeat(np.nan, self.factor - a.size % self.factor)
             # Prepare numpy array to reshape
