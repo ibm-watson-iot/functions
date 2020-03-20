@@ -224,8 +224,9 @@ class AlertHighValue(BaseEvent):
 
     def execute(self, df):
         df = df.copy()
+        logger.debug('Initial Input Item df {}'.format(df[self.input_item]))
         df[self.alert_name] = np.where(df[self.input_item] >= self.upper_threshold, True, None)
-
+        logger.debug('Final AlertHighValue df {}'.format(df[self.alert_name]))
         return df
 
     @classmethod
@@ -265,7 +266,6 @@ class AlertLowValue(BaseEvent):
         # c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item] <= self.lower_threshold, True, None)
-
         return df
 
     @classmethod
