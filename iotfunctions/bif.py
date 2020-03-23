@@ -809,20 +809,24 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             entity_grp_id = grp[0]
             df_entity_grp = grp[1]
 
-            #Initialize group counts
+            # Initialize group counts
             count = 0
             if entity_grp_id in counts_by_entity_id:
                 count = counts_by_entity_id[entity_grp_id]
 
-            #Start index based on counts and factor
-            if count == 0 or count%self.factor == 0:
+            # Start index based on counts and factor
+            if count == 0 or count % self.factor == 0:
                 strt_idx = 0
             else:
-                strt_idx = self.factor - count%self.factor
+                strt_idx = self.factor - count % self.factor
 
             # Prepare numpy array for marking anomalies
             actual = df_entity_grp[self.output_item].values
             a = actual[strt_idx:]
+
+            if a.size < self.factor:
+                logger.info('Not enough new data points to generate more anomalies')
+                continue   # try next time with more data points
 
             # Update group counts for storage
             count += actual.size
@@ -831,24 +835,28 @@ class AnomalyGeneratorExtremeValue(BaseTransformer):
             # Create NaN padding for reshaping
             nan_arr = np.repeat(np.nan, self.factor - a.size % self.factor)
             # Prepare numpy array to reshape
-            a_reshape_arr = np.append(a,nan_arr)
+            a_reshape_arr = np.append(a, nan_arr)
             # Final numpy array to be transformed
             a1 = np.reshape(a_reshape_arr, (-1, self.factor)).T
+
             # Calculate 'local' standard deviation if it exceeds 1 to generate anomalies
             std = np.std(a1, axis=0)
-            stdvec = np.maximum(np.where(np.isnan(std),1,std), np.ones(a1[0].size))
+            stdvec = np.maximum(np.where(np.isnan(std), 1, std), np.ones(a1[0].size))
             # Mark Extreme anomalies
-            a1[0] = np.multiply(a1[0],
-                        np.multiply(np.random.choice([-1,1], a1.shape[1]),
-                                    stdvec * self.size))
+            a1[0] = np.multiply(a1[0], np.multiply(np.random.choice([-1, 1], a1.shape[1]), stdvec * self.size))
             # Flattening back to 1D array
+
             a2 = a1.T.flatten()
             # Removing NaN padding
             a2 = a2[~np.isnan(a2)]
             # Adding the missing elements to create final array
-            final = np.append(actual[:strt_idx],a2)
+            final = np.append(actual[:strt_idx], a2)
             # Set values in the original dataframe
-            timeseries.loc[df_entity_grp.index, self.output_item] = final
+            try:
+                timeseries.loc[df_entity_grp.index, self.output_item] = final
+            except Exception as ee:
+                logger.error('Could not set anomaly because of ' + str(ee))
+                pass
 
         logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
 
