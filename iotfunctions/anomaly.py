@@ -195,11 +195,31 @@ class Saliency(object):
         return spectral_residual
 
 
-class SpectralAnomalyScore2(BaseTransformer):
+def merge_score(dfEntity, dfEntityOrig, column_name, score, mindelta):
+    '''
+    Fit interpolated score to original entity slice of the full dataframe
+    '''
+
+    # equip score with time values
+    dfEntity[column_name] = score
+
+    # merge
+    dfEntityOrig = pd.merge_asof(dfEntityOrig, dfEntity[column_name],
+                                 left_index=True, right_index=True, direction='nearest', tolerance=mindelta)
+
+    if column_name + '_y' in dfEntityOrig:
+        merged_score = dfEntityOrig[column_name + '_y'].to_numpy()
+    else:
+        merged_score = dfEntityOrig[column_name].to_numpy()
+
+    return merged_score
+
+
+class SpectralAnomalyScore(BaseTransformer):
     '''
     Employs spectral analysis to extract features from the time series data and to compute zscore from it
     '''
-    def __init__(self, input_item, windowsize, output_item, signal_energy, inv_zscore):
+    def __init__(self, input_item, windowsize, output_item):
         super().__init__()
         logger.debug(input_item)
         self.input_item = input_item
@@ -211,8 +231,35 @@ class SpectralAnomalyScore2(BaseTransformer):
         self.frame_rate = 1
 
         self.output_item = output_item
-        self.signal_energy = signal_energy
-        self.inv_zscore = inv_zscore
+
+        self.inv_zscore = None
+
+        self.whoami = 'Spectral'
+
+    def prepare_data(self, dfEntity):
+
+        logger.debug(self.whoami + ': prepare Data')
+
+        # interpolate gaps - data imputation
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index().set_index(index_names[0])
+        else:
+            index_names = None
+            dfe = dfEntity
+
+        try:
+            dfe = dfe.interpolate(method="time")
+        except Exception as e:
+            logger.error('Prepare data error: ' + str(e))
+
+        # one dimensional time series - named temperature for catchyness
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+
+        if index_names is not None:
+            dfe = dfe.reset_index().set_index(index_names)
+
+        return dfe, temperature
 
     def execute(self, df):
 
@@ -240,12 +287,12 @@ class SpectralAnomalyScore2(BaseTransformer):
 
             logger.debug('Timedelta:' + str(mindelta))
 
-            #  interpolate gaps - data imputation
-            # Size = dfe[[self.input_item]].fillna(0).to_numpy().size
-            dfe = dfe.interpolate(method='time')
-
             # one dimensional time series - named temperature for catchyness
             temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+
+            # interpolate gaps - data imputation by default
+            #   for missing data detection we look at the timestamp gradient instead
+            dfe, temperature = self.prepare_data(dfe)
 
             logger.debug('Module Spectral, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
                          ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
@@ -258,8 +305,8 @@ class SpectralAnomalyScore2(BaseTransformer):
                 logger.debug(str(temperature.size) + str(self.windowsize))
 
                 dfe[self.output_item] = 0.00001
-                dfe[self.signal_energy] = 0.00001
-                dfe[self.inv_zscore] = 0.00001
+                if self.inv_zscore is not None:
+                    dfe[self.inv_zscore] = 0.00001
 
                 try:
                     # Fourier transform:
@@ -297,21 +344,21 @@ class SpectralAnomalyScore2(BaseTransformer):
 
                     dfe[self.output_item] = abs(linear_interpolate(np.arange(0, temperature.size, 1)))
 
-                    linear_interpol_signal = sp.interpolate.interp1d(
-                        time_series_temperature, signal_energy, kind='linear', fill_value='extrapolate')
+                    if self.inv_zscore is not None:
+                        linear_interpol_inv_zscore = sp.interpolate.interp1d(
+                            time_series_temperature, inv_zscore, kind='linear', fill_value='extrapolate')
 
-                    dfe[self.signal_energy] = abs(linear_interpol_signal(np.arange(0, temperature.size, 1)))
-
-                    linear_interpol_inv_zscore = sp.interpolate.interp1d(
-                        time_series_temperature, inv_zscore, kind='linear', fill_value='extrapolate')
-
-                    dfe[self.inv_zscore] = abs(linear_interpol_inv_zscore(np.arange(0, temperature.size, 1)))
+                        dfe[self.inv_zscore] = abs(linear_interpol_inv_zscore(np.arange(0, temperature.size, 1)))
 
                 except Exception as e:
                     logger.error('Spectral failed with ' + str(e))
 
                 # absolute zscore > 3 ---> anomaly
-                dfe_orig = pd.merge_asof(dfe_orig, dfe[[self.output_item, self.signal_energy, self.inv_zscore]],
+                if self.inv_zscore is not None:
+                    col_list = [self.output_item, self.inv_zscore]
+                else:
+                    col_list = [self.output_item]
+                dfe_orig = pd.merge_asof(dfe_orig, dfe[col_list],
                                          left_index=True, right_index=True, direction='nearest', tolerance=mindelta)
 
                 print(dfe_orig.head(3))
@@ -323,216 +370,22 @@ class SpectralAnomalyScore2(BaseTransformer):
                 else:
                     zScoreII = dfe_orig[self.input_item].to_numpy()
 
-                if self.signal_energy+'_y' in dfe_orig:
-                    signalII = dfe_orig[self.signal_energy+'_y'].to_numpy()
-                else:
-                    signalII = dfe_orig[self.signal_energy].to_numpy()
-
-                if self.inv_zscore+'_y' in dfe_orig:
-                    inv_zscoreII = dfe_orig[self.inv_zscore+'_y'].to_numpy()
-                else:
-                    inv_zscoreII = dfe_orig[self.inv_zscore].to_numpy()
-
-                idx = pd.IndexSlice
-                df_copy.loc[idx[entity, :], self.output_item] = zScoreII
-                df_copy.loc[idx[entity, :], self.signal_energy] = signalII
-                df_copy.loc[idx[entity, :], self.inv_zscore] = inv_zscoreII
-
-        msg = 'SpectralAnomalyScore2'
-        self.trace_append(msg)
-
-        return (df_copy)
-
-    @classmethod
-    def build_ui(cls):
-
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Column for feature extraction'
-                                              ))
-
-        inputs.append(UISingle(
-                name='windowsize',
-                datatype=int,
-                description='Window size for spectral analysis - default 12'
-                                              ))
-
-        # define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Spectral anomaly score (z-Score)'
-                ))
-        outputs.append(UIFunctionOutSingle(
-                name='signal_energy',
-                datatype=float,
-                description='Signal energy'
-                ))
-        outputs.append(UIFunctionOutSingle(
-                name='inv_zscore',
-                datatype=float,
-                description='zScore of inverted signal energy'
-                ))
-        return (inputs, outputs)
-
-
-class SpectralAnomalyScore(BaseTransformer):
-    '''
-    Employs spectral analysis to extract features from the time series data and to compute zscore from it
-    '''
-    def __init__(self, input_item, windowsize, output_item):
-        super().__init__()
-        logger.debug(input_item)
-        self.input_item = input_item
-
-        # use 12 by default
-        self.windowsize, self.windowoverlap = set_window_size_and_overlap(windowsize)
-
-        # assume 1 per sec for now
-        self.frame_rate = 1
-
-        self.output_item = output_item
-
-    def execute(self, df):
-
-        df_copy = df.copy()
-        entities = np.unique(df.index.levels[0])
-        logger.debug(str(entities))
-
-        df_copy[self.output_item] = 0
-        # df_copy.sort_index()   # NoOp
-
-        for entity in entities:
-            # per entity - copy for later inplace operations
-            dfe = df_copy.loc[[entity]].dropna(how='all')
-            dfe_orig = df_copy.loc[[entity]].copy()
-
-            # get rid of entityid part of the index
-            # do it inplace as we copied the data before
-            dfe.reset_index(level=[0], inplace=True)
-            dfe.sort_index(inplace=True)
-            dfe_orig.reset_index(level=[0], inplace=True)
-            dfe_orig.sort_index(inplace=True)
-
-            # minimal time delta for merging
-            mindelta = min_delta(dfe_orig)
-
-            logger.debug('Timedelta:' + str(mindelta))
-
-            #  interpolate gaps - data imputation
-            # Size = dfe[[self.input_item]].fillna(0).to_numpy().size
-            dfe = dfe.interpolate(method='time')
-
-            # one dimensional time series - named temperature for catchyness
-            temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
-
-            logger.debug('Module Spectral, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
-                         ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
-                         ', Overlap: ' + str(self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
-
-            if temperature.size <= self.windowsize:
-                logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
-                # df_copy.loc[[entity]] = 0.0001
-                dfe[self.output_item] = 0.0001
-            else:
-                logger.debug(str(temperature.size) + str(self.windowsize))
-
-                dfe[self.output_item] = 0.0007
-                try:
-                    # Fourier transform:
-                    #   frequency, time, spectral density
-                    frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
-                        temperature, fs=self.frame_rate, window='hanning',
-                        nperseg=self.windowsize, noverlap=self.windowoverlap,
-                        detrend=False, scaling='spectrum')
-
-                    # cut off freqencies too low to fit into the window
-                    frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
-                    frequency_temperature = frequency_temperature * frequency_temperatureb
-                    frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
-
-                    highfrequency_temperature = frequency_temperature.copy()
-                    lowfrequency_temperature = frequency_temperature.copy()
-                    highfrequency_temperature[highfrequency_temperature <= FrequencySplit] = 0
-                    lowfrequency_temperature[lowfrequency_temperature > FrequencySplit] = 0
-
-                    # Compute energy = frequency * spectral density over time in decibel
-                    # lowsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
-                    #                             lowfrequency_temperature)) + SmallEnergy)
-                    # highsignal_energy = np.log10(np.maximum(SmallEnergy, np.dot(spectral_density_temperature.T,
-                    #                              highfrequency_temperature)) + SmallEnergy)
-
-                    signal_energy = np.dot(spectral_density_temperature.T, frequency_temperature)
-                    lowsignal_energy = np.dot(spectral_density_temperature.T, lowfrequency_temperature)
-                    highsignal_energy = np.dot(spectral_density_temperature.T, highfrequency_temperature)
-
-                    signal_energy[signal_energy < 0] = 0
-                    lowsignal_energy[lowsignal_energy < 0] = 0
-                    highsignal_energy[highsignal_energy < 0] = 0
-
-                    # compute the elliptic envelope to exploit Minimum Covariance Determinant estimates
-                    #    standardizing
-
-                    signal_energy = (signal_energy - signal_energy.mean())
-                    lowsignal_energy = (lowsignal_energy - lowsignal_energy.mean())
-                    highsignal_energy = (highsignal_energy - highsignal_energy.mean())
-
-                    twoDimsignal_energy = np.vstack((lowsignal_energy, highsignal_energy)).T
-                    logger.debug('lowsignal_energy: ' + str(lowsignal_energy.shape) + ', highsignal_energy:' +
-                                 str(highsignal_energy.shape) + 'input' + str(twoDimsignal_energy.shape))
-
-                    # inliers have a score of 1, outliers -1, and 0 indicates an issue with the data
-                    dfe[self.output_item] = 0.0002
-                    # ellEnv = EllipticEnvelope(random_state=0)
-
-                    # dfe[self.output_item] = 0.0003
-                    # ellEnv.fit(twoDimsignal_energy)
-
-                    # compute distance to elliptic envelope
-                    # dfe[self.output_item] = 0.0004
-
-                    # ets_zscore = np.maximum(ellEnv.decision_function(twoDimsignal_energy).copy(), -0.1)
-                    # ets_zscore = ellEnv.decision_function(twoDimsignal_energy).copy()
-                    # ets_zscore = ellEnv.score_samples(twoDimsignal_energy).copy() - ellEnv.offset_
-                    ets_zscore = abs(sp.stats.zscore(signal_energy)) * Spectral_normalizer
-
-                    # ets_zscore = (-ellEnv.offset_) ** 0.33 - (-ets_zscore) ** 0.33
-
-                    logger.debug('Spectral z-score max: ' + str(ets_zscore.max()))
-
-                    # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
-                    #   extend it to cover the full original length
-                    dfe[self.output_item] = 0.0005
-                    linear_interpolate = sp.interpolate.interp1d(
-                        time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
-
-                    dfe[self.output_item] = 0.0006
-                    zscoreI = linear_interpolate(np.arange(0, temperature.size, 1))
-
-                    dfe[self.output_item] = zscoreI
-
-                except Exception as e:
-                    logger.error('Spectral failed with ' + str(e))
-
-                # absolute zscore > 3 ---> anomaly
-                dfe_orig = pd.merge_asof(dfe_orig, dfe[self.output_item],
-                                         left_index=True, right_index=True, direction='nearest', tolerance=mindelta)
-
-                if self.output_item+'_y' in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item+'_y'].to_numpy()
-                elif self.output_item in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item].to_numpy()
-                else:
-                    zScoreII = dfe_orig[self.input_item].to_numpy()
+                if self.inv_zscore is not None:
+                    if self.inv_zscore+'_y' in dfe_orig:
+                        inv_zscoreII = dfe_orig[self.inv_zscore+'_y'].to_numpy()
+                    else:
+                        inv_zscoreII = dfe_orig[self.inv_zscore].to_numpy()
 
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity, :], self.output_item] = zScoreII
 
-        msg = 'SpectralAnomalyScore'
+                if self.inv_zscore is not None:
+                    df_copy.loc[idx[entity, :], self.inv_zscore] = inv_zscoreII
+
+        if self.inv_zscore is not None:
+            msg = 'SpectralAnomalyScoreExt'
+        else:
+            msg = 'SpectralAnomalyScore'
         self.trace_append(msg)
 
         return (df_copy)
@@ -564,6 +417,52 @@ class SpectralAnomalyScore(BaseTransformer):
         return (inputs, outputs)
 
 
+class SpectralAnomalyScoreExt(SpectralAnomalyScore):
+    '''
+    Employs spectral analysis to extract features from the time series data and to compute zscore from it
+    '''
+    def __init__(self, input_item, windowsize, output_item, inv_zscore):
+        super().__init__(input_item, windowsize, output_item)
+        logger.debug(input_item)
+
+        self.inv_zscore = inv_zscore
+
+    def execute(self, df):
+
+        return super().execute(df)
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(
+                name='input_item',
+                datatype=float,
+                description='Column for feature extraction'
+                                              ))
+
+        inputs.append(UISingle(
+                name='windowsize',
+                datatype=int,
+                description='Window size for spectral analysis - default 12'
+                                              ))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(
+                name='output_item',
+                datatype=float,
+                description='Spectral anomaly score (z-Score)'
+                ))
+        outputs.append(UIFunctionOutSingle(
+                name='inv_zscore',
+                datatype=float,
+                description='zScore of inverted signal energy'
+                ))
+        return (inputs, outputs)
+
+
 class KMeansAnomalyScore(BaseTransformer):
     '''
     Employs kmeans on windowed time series data and to compute
@@ -584,6 +483,33 @@ class KMeansAnomalyScore(BaseTransformer):
         self.frame_rate = 1
 
         self.output_item = output_item
+
+        self.whoami = 'KMeans'
+
+    def prepare_data(self, dfEntity):
+
+        logger.debug(self.whoami + ': prepare Data')
+
+        # interpolate gaps - data imputation
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index().set_index(index_names[0])
+        else:
+            index_names = None
+            dfe = dfEntity
+
+        try:
+            dfe = dfe.interpolate(method="time")
+        except Exception as e:
+            logger.error('Prepare data error: ' + str(e))
+
+        # one dimensional time series - named temperature for catchyness
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+
+        if index_names is not None:
+            dfe = dfe.reset_index().set_index(index_names)
+
+        return dfe, temperature
 
     def execute(self, df):
 
@@ -611,12 +537,9 @@ class KMeansAnomalyScore(BaseTransformer):
 
             logger.debug('Timedelta:' + str(mindelta))
 
-            #  interpolate gaps - data imputation
-            # Size = dfe[[self.input_item]].fillna(0).to_numpy().size
-            dfe = dfe.interpolate(method='time')
-
-            # one dimensional time series - named temperature for catchyness
-            temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+            # interpolate gaps - data imputation by default
+            #   for missing data detection we look at the timestamp gradient instead
+            dfe, temperature = self.prepare_data(dfe)
 
             logger.debug('Module KMeans, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
                          ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
@@ -658,18 +581,7 @@ class KMeansAnomalyScore(BaseTransformer):
 
                 kmeans_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
 
-                dfe[self.output_item] = kmeans_scoreI
-
-                # absolute kmeans_score > 1000 ---> anomaly
-                dfe_orig = pd.merge_asof(dfe_orig, dfe[self.output_item],
-                                         left_index=True, right_index=True, direction='nearest', tolerance=mindelta)
-
-                if self.output_item+'_y' in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item+'_y'].to_numpy()
-                elif self.output_item in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item].to_numpy()
-                else:
-                    zScoreII = dfe_orig[self.input_item].to_numpy()
+                zScoreII = merge_score(dfe, dfe_orig, self.output_item, kmeans_scoreI, mindelta)
 
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity, :], self.output_item] = zScoreII
@@ -1210,9 +1122,9 @@ class AlertExpressionWithFilter(BaseEvent):
         self.dimension_name = dimension_name
         self.dimension_value = dimension_value
         self.expression = expression
+        self.pulse_trigger = None
         self.alert_name = alert_name
-        logger.info('AlertExpressionWithFilter  dim: ' + dimension_name + '  exp: ' + expression + '  alert: ' +
-                    alert_name)
+        logger.info('AlertExpressionWithFilter  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' + str(alert_name))
         super().__init__()
 
     def _calc(self, df):
@@ -1244,9 +1156,24 @@ class AlertExpressionWithFilter(BaseEvent):
 
         try:
             evl = eval(expr)
-            n1 = np.where(evl, True, False)
-            n2 = np.where(df[self.dimension_name] == self.dimension_value, True, False)
-            np_res = np.logical_and(n1, n2)
+            n1 = np.where(evl, 1, 0)
+            if self.dimension_name is None or self.dimension_value is None or \
+               len(self.dimension_name) == 0 or len(self.dimension_value) == 0:
+                n2 = n1
+                np_res = n1
+            else:
+                n2 = np.where(df[self.dimension_name] == self.dimension_value, 1, 0)
+                np_res = np.multiply(n1, n2)
+
+            if self.pulse_trigger:
+                # walk through all subsequences starting with the longest
+                # and replace all True with True, False, False, ...
+                for i in range(n1.size, 2, -1):
+                    for j in range(0, i-1):
+                        if np.all(n1[j:i]):
+                            n1[j+1:i] = np.zeros(i-j-1, dtype=bool)
+                            n1[j] = i-j  # keep track of sequence length
+
             logger.info('AlertExpressionWithFilter  shapes ' + str(n1.shape) + ' ' + str(n2.shape) + ' ' +
                         str(np_res.shape) + '  results\n - ' + str(n1) + '\n - ' + str(n2) + '\n - ' + str(np_res))
             df[self.alert_name] = np_res
@@ -1274,6 +1201,49 @@ class AlertExpressionWithFilter(BaseEvent):
                                    description="Define alert expression using pandas systax. \
                                                 Example: df['inlet_temperature']>50. ${pressure} will be substituted \
                                                 with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
+        return (inputs, outputs)
+
+
+class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
+    '''
+    Create alerts that are triggered when data values the expression is True
+    '''
+
+    def __init__(self, expression, dimension_name, dimension_value, pulse_trigger, alert_name, **kwargs):
+        super().__init__(expression, dimension_name, dimension_value, alert_name, **kwargs)
+        self.pulse_trigger = pulse_trigger
+        logger.info('AlertExpressionWithFilterExt  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' +
+                    str(alert_name) + '  pulsed: ' + str(pulse_trigger))
+
+    def _calc(self, df):
+        '''
+        unused
+        '''
+        return df
+
+    def execute(self, df):
+        df = super().execute(df)
+        logger.info('AlertExpressionWithFilterExt  generated columns: ' + str(df.columns))
+        return df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name='dimension_name', datatype=str))
+        inputs.append(UISingle(name='dimension_value', datatype=str,
+                               description='Dimension Filter Value'))
+        inputs.append(UIExpression(name='expression',
+                                   description="Define alert expression using pandas systax. \
+                                                Example: df['inlet_temperature']>50. ${pressure} will be substituted \
+                                                with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
+        inputs.append(UISingleItem(name='pulse_trigger',
+                                   description="If true only generate alerts on crossing the threshold",
+                                   datatype=bool))
 
         # define arguments that behave as function outputs
         outputs = []
