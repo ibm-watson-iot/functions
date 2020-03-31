@@ -21,7 +21,11 @@ import scipy as sp
 from scipy import signal, fftpack
 # from scipy.stats import energy_distance
 from sklearn import metrics
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.covariance import MinCovDet
+from sklearn import ensemble
+from sklearn import linear_model
 
 #   for KMeans
 #  import skimage as ski
@@ -41,6 +45,7 @@ from .base import (BaseTransformer, BaseRegressor, BaseEvent, BaseEstimatorFunct
 from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIExpression)
 
+
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 _IS_PREINSTALLED = True
@@ -49,7 +54,8 @@ FrequencySplit = 0.3
 DefaultWindowSize = 12
 SmallEnergy = 1e-20
 
-KMeans_normalizer = 100 / 1.3
+# KMeans_normalizer = 100 / 1.3
+KMeans_normalizer = 1
 Spectral_normalizer = 100 / 2.8
 FFT_normalizer = 1
 Saliency_normalizer = 1
@@ -74,8 +80,7 @@ def min_delta(df):
 
     if len(df.index.names) > 1:
         df2 = df.copy()
-        print(df.index.size)
-        df2.index = df2.index.droplevel(list(range(1, df.index.size-1)))
+        df2.index = df2.index.droplevel(list(range(1, df.index.nlevels)))
     else:
         df2 = df
 
@@ -87,7 +92,8 @@ def min_delta(df):
 
     if mindelta == dt.timedelta(seconds=0) or pd.isnull(mindelta):
         mindelta = pd.Timedelta('5 seconds')
-    return mindelta
+
+    return mindelta, df2
 
 
 def set_window_size_and_overlap(windowsize, trim_value=2*DefaultWindowSize):
@@ -114,7 +120,7 @@ def dampen_anomaly_score(array, dampening):
     if dampening < 0.01:
         return array
 
-    # TODO error testing for arrays of size <= 1
+    # ToDo error testing for arrays of size <= 1
     if array.size <= 1:
         return array
 
@@ -240,7 +246,7 @@ class SpectralAnomalyScore(BaseTransformer):
 
         logger.debug(self.whoami + ': prepare Data')
 
-        # interpolate gaps - data imputation
+        # operate on simple timestamp index
         if len(dfEntity.index.names) > 1:
             index_names = dfEntity.index.names
             dfe = dfEntity.reset_index().set_index(index_names[0])
@@ -248,6 +254,7 @@ class SpectralAnomalyScore(BaseTransformer):
             index_names = None
             dfe = dfEntity
 
+        # interpolate gaps - data imputation
         try:
             dfe = dfe.interpolate(method="time")
         except Exception as e:
@@ -255,9 +262,6 @@ class SpectralAnomalyScore(BaseTransformer):
 
         # one dimensional time series - named temperature for catchyness
         temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
-
-        if index_names is not None:
-            dfe = dfe.reset_index().set_index(index_names)
 
         return dfe, temperature
 
@@ -283,9 +287,9 @@ class SpectralAnomalyScore(BaseTransformer):
             dfe_orig.sort_index(inplace=True)
 
             # minimal time delta for merging
-            mindelta = min_delta(dfe_orig)
+            mindelta, dfe_orig = min_delta(dfe_orig)
 
-            logger.debug('Timedelta:' + str(mindelta))
+            logger.debug('Timedelta:' + str(mindelta) + ' Index: ' + str(dfe_orig.index))
 
             # one dimensional time series - named temperature for catchyness
             temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
@@ -308,6 +312,8 @@ class SpectralAnomalyScore(BaseTransformer):
                 if self.inv_zscore is not None:
                     dfe[self.inv_zscore] = 0.00001
 
+                zScoreII = None
+                inv_zScoreII = None
                 try:
                     # Fourier transform:
                     #   frequency, time, spectral density
@@ -342,45 +348,24 @@ class SpectralAnomalyScore(BaseTransformer):
                     linear_interpolate = sp.interpolate.interp1d(
                         time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
 
-                    dfe[self.output_item] = abs(linear_interpolate(np.arange(0, temperature.size, 1)))
+                    zScoreII = merge_score(dfe, dfe_orig, self.output_item,
+                                           abs(linear_interpolate(np.arange(0, temperature.size, 1))), mindelta)
 
                     if self.inv_zscore is not None:
                         linear_interpol_inv_zscore = sp.interpolate.interp1d(
                             time_series_temperature, inv_zscore, kind='linear', fill_value='extrapolate')
 
-                        dfe[self.inv_zscore] = abs(linear_interpol_inv_zscore(np.arange(0, temperature.size, 1)))
+                        inv_zScoreII = merge_score(dfe, dfe_orig, self.inv_zscore,
+                                                   abs(linear_interpol_inv_zscore(np.arange(0, temperature.size, 1))), mindelta)
 
                 except Exception as e:
                     logger.error('Spectral failed with ' + str(e))
-
-                # absolute zscore > 3 ---> anomaly
-                if self.inv_zscore is not None:
-                    col_list = [self.output_item, self.inv_zscore]
-                else:
-                    col_list = [self.output_item]
-                dfe_orig = pd.merge_asof(dfe_orig, dfe[col_list],
-                                         left_index=True, right_index=True, direction='nearest', tolerance=mindelta)
-
-                print(dfe_orig.head(3))
-
-                if self.output_item+'_y' in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item+'_y'].to_numpy()
-                elif self.output_item in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item].to_numpy()
-                else:
-                    zScoreII = dfe_orig[self.input_item].to_numpy()
-
-                if self.inv_zscore is not None:
-                    if self.inv_zscore+'_y' in dfe_orig:
-                        inv_zscoreII = dfe_orig[self.inv_zscore+'_y'].to_numpy()
-                    else:
-                        inv_zscoreII = dfe_orig[self.inv_zscore].to_numpy()
 
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity, :], self.output_item] = zScoreII
 
                 if self.inv_zscore is not None:
-                    df_copy.loc[idx[entity, :], self.inv_zscore] = inv_zscoreII
+                    df_copy.loc[idx[entity, :], self.inv_zscore] = inv_zScoreII
 
         if self.inv_zscore is not None:
             msg = 'SpectralAnomalyScoreExt'
@@ -490,7 +475,7 @@ class KMeansAnomalyScore(BaseTransformer):
 
         logger.debug(self.whoami + ': prepare Data')
 
-        # interpolate gaps - data imputation
+        # operate on simple timestamp index
         if len(dfEntity.index.names) > 1:
             index_names = dfEntity.index.names
             dfe = dfEntity.reset_index().set_index(index_names[0])
@@ -498,6 +483,7 @@ class KMeansAnomalyScore(BaseTransformer):
             index_names = None
             dfe = dfEntity
 
+        # interpolate gaps - data imputation
         try:
             dfe = dfe.interpolate(method="time")
         except Exception as e:
@@ -505,9 +491,6 @@ class KMeansAnomalyScore(BaseTransformer):
 
         # one dimensional time series - named temperature for catchyness
         temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
-
-        if index_names is not None:
-            dfe = dfe.reset_index().set_index(index_names)
 
         return dfe, temperature
 
@@ -533,7 +516,7 @@ class KMeansAnomalyScore(BaseTransformer):
             dfe_orig.sort_index(inplace=True)
 
             # minimal time delta for merging
-            mindelta = min_delta(dfe_orig)
+            mindelta, dfe_orig = min_delta(dfe_orig)
 
             logger.debug('Timedelta:' + str(mindelta))
 
@@ -579,9 +562,8 @@ class KMeansAnomalyScore(BaseTransformer):
                 linear_interpolateK = sp.interpolate.interp1d(
                     time_series_temperature, pred_score, kind='linear', fill_value='extrapolate')
 
-                kmeans_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
-
-                zScoreII = merge_score(dfe, dfe_orig, self.output_item, kmeans_scoreI, mindelta)
+                zScoreII = merge_score(dfe, dfe_orig, self.output_item,
+                                       linear_interpolateK(np.arange(0, temperature.size, 1)), mindelta)
 
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity, :], self.output_item] = zScoreII
@@ -648,7 +630,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
         logger.debug(self.whoami + ': prepare Data')
 
-        # interpolate gaps - data imputation
+        # operate on simple timestamp index
         if len(dfEntity.index.names) > 1:
             index_names = dfEntity.index.names
             dfe = dfEntity.reset_index().set_index(index_names[0])
@@ -656,6 +638,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
             index_names = None
             dfe = dfEntity
 
+        # interpolate gaps - data imputation
         try:
             dfe = dfe.interpolate(method="time")
         except Exception as e:
@@ -663,9 +646,6 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
         # one dimensional time series - named temperature for catchyness
         temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
-
-        if index_names is not None:
-            dfe = dfe.reset_index().set_index(index_names)
 
         return dfe, temperature
 
@@ -700,7 +680,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
             dfe_orig.sort_index(inplace=True)
 
             # minimal time delta for merging
-            mindelta = min_delta(dfe_orig)
+            mindelta, dfe_orig = min_delta(dfe_orig)
 
             # interpolate gaps - data imputation by default
             #   for missing data detection we look at the timestamp gradient instead
@@ -775,26 +755,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
                 dampen_anomaly_score(gam_scoreI, self.dampening)
 
-                dfe[self.output_item] = gam_scoreI
-
-                # absolute kmeans_score > 1000 ---> anomaly
-
-                dfe_orig = pd.merge_asof(
-                    dfe_orig,
-                    dfe[self.output_item],
-                    left_index=True,
-                    right_index=True,
-                    direction="nearest",
-                    tolerance=mindelta,
-                )
-
-                if self.output_item + "_y" in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item + "_y"].to_numpy()
-                elif self.output_item in dfe_orig:
-                    zScoreII = dfe_orig[self.output_item].to_numpy()
-                else:
-                    print(dfe_orig.head(2))
-                    zScoreII = dfe_orig[self.input_item].to_numpy()
+                zScoreII = merge_score(dfe, dfe_orig, self.output_item, gam_scoreI, mindelta)
 
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity, :], self.output_item] = zScoreII
@@ -851,6 +812,14 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
     def prepare_data(self, dfEntity):
 
         logger.debug(self.whoami + ': prepare Data')
+
+        # operate on simple timestamp index
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index().set_index(index_names[0])
+        else:
+            index_names = None
+            dfe = dfEntity
 
         # count the timedelta in seconds between two events
         timeSeq = (dfEntity.index.values - dfEntity.index[0].to_datetime64()) / np.timedelta64(1, 's')
@@ -1122,7 +1091,7 @@ class AlertExpressionWithFilter(BaseEvent):
         self.dimension_name = dimension_name
         self.dimension_value = dimension_value
         self.expression = expression
-        self.pulse_trigger = None
+        self.pulse_trigger = False
         self.alert_name = alert_name
         logger.info('AlertExpressionWithFilter  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' + str(alert_name))
         super().__init__()
@@ -1215,7 +1184,8 @@ class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
 
     def __init__(self, expression, dimension_name, dimension_value, pulse_trigger, alert_name, **kwargs):
         super().__init__(expression, dimension_name, dimension_value, alert_name, **kwargs)
-        self.pulse_trigger = pulse_trigger
+        if pulse_trigger is None:
+            self.pulse_trigger = True
         logger.info('AlertExpressionWithFilterExt  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' +
                     str(alert_name) + '  pulsed: ' + str(pulse_trigger))
 
@@ -1241,9 +1211,9 @@ class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
                                    description="Define alert expression using pandas systax. \
                                                 Example: df['inlet_temperature']>50. ${pressure} will be substituted \
                                                 with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
-        inputs.append(UISingleItem(name='pulse_trigger',
-                                   description="If true only generate alerts on crossing the threshold",
-                                   datatype=bool))
+        inputs.append(UISingle(name='pulse_trigger',
+                               description="If true only generate alerts on crossing the threshold",
+                               datatype=bool))
 
         # define arguments that behave as function outputs
         outputs = []
@@ -1265,28 +1235,35 @@ class GBMRegressor(BaseEstimatorFunction):
     estimators_per_execution = 1
     num_rounds_per_estimator = 1
 
+    def GBMPipeline(self):
+        steps = [('scaler', StandardScaler()), ('gbm', lightgbm.LGBMRegressor())]
+        return Pipeline(steps)
+
     def set_estimators(self):
         # gradient_boosted
-        self.estimators['light_gradient_boosted_regressor'] = (lightgbm.LGBMRegressor, self.params)
-        logger.info('GBMRegressor start search for best model')
+        # self.estimators['light_gradient_boosted_regressor'] = (lightgbm.LGBMRegressor, self.params)
+        self.estimators['light_gradient_boosted_regressor'] = (self.GBMPipeline, self.params)
+        logger.info('GBMRegressor start searching for best model')
 
     def __init__(self, features, targets, predictions=None,
                  n_estimators=None, num_leaves=None, learning_rate=None, max_depth=None):
         super().__init__(features=features, targets=targets, predictions=predictions)
         self.experiments_per_execution = 1
         self.auto_train = False
+
         # if n_estimators is not None or num_leaves is not None or learning_rate is not None or max_depth is not None:
         if n_estimators is not None or num_leaves is not None or learning_rate is not None:
-            self.params = {'n_estimators': [n_estimators],
-                           'num_leaves': [num_leaves],
-                           'learning_rate': [learning_rate],
-                           'max_depth': [max_depth],
-                           'verbosity': [2]}
+            self.params = {'gbm__n_estimators': [n_estimators],
+                           'gbm__num_leaves': [num_leaves],
+                           'gbm__learning_rate': [learning_rate],
+                           'gbm__max_depth': [max_depth],
+                           'gbm__verbosity': [2]}
         else:
-            self.params = {'n_estimators': [500],
-                           'num_leaves': [50],
-                           'learning_rate': [0.001],
-                           'verbosity': [2]}
+            self.params = {'gbm__n_estimators': [500],
+                           'gbm__num_leaves': [50],
+                           'gbm__learning_rate': [0.001],
+                           'gbm__verbosity': [2]}
+
         self.stop_auto_improve_at = -2
 
     def execute(self, df):
@@ -1337,6 +1314,93 @@ class GBMRegressor(BaseEstimatorFunction):
     @classmethod
     def get_input_items(cls):
         return ['features', 'targets']
+
+
+class SimpleRegressor(BaseEstimatorFunction):
+
+    '''
+    Regressor based on stochastic gradient descent and gradient boosting method as provided by sklearn
+    '''
+    eval_metric = staticmethod(metrics.r2_score)
+
+    # class variables
+    train_if_no_model = True
+    estimators_per_execution = 3
+    num_rounds_per_estimator = 3
+
+    def GBRPipeline(self):
+        steps = [('scaler', StandardScaler()), ('gbr', ensemble.GradientBoostingRegressor)]
+        return Pipeline(steps)
+
+    def SGDPipeline(self):
+        steps = [('scaler', StandardScaler()), ('sgd', linear_model.SGDRegressor)]
+        return Pipeline(steps)
+
+    def set_estimators(self):
+        # gradient_boosted
+        params = {'gbr__n_estimators': [100, 250, 500, 1000],
+                  'gbr__max_depth': [2, 4, 10],
+                  'gbr__min_samples_split': [2, 5, 9],
+                  'gbr__learning_rate': [0.01, 0.02, 0.05],
+                  'gbr__loss': ['ls']}
+        # self.estimators['gradient_boosted_regressor'] = (ensemble.GradientBoostingRegressor, params)
+        self.estimators['gradient_boosted_regressor'] = (self.GBRPipeline, params)
+
+        # sgd
+        params = {'sgd__max_iter': [250, 1000, 5000, 10000],
+                  'sgd__tol': [0.001, 0.002, 0.005]}
+        # self.estimators['sgd_regressor'] = (linear_model.SGDRegressor, params)
+        self.estimators['sgd_regressor'] = (self.SGDPipeline, params)
+        logger.info('SimpleRegressor start searching for best model')
+
+    def __init__(self, features, targets, predictions=None,
+                 n_estimators=None, num_leaves=None, learning_rate=None, max_depth=None):
+        super().__init__(features=features, targets=targets, predictions=predictions)
+
+        self.experiments_per_execution = 1
+        self.auto_train = True
+
+        # self.stop_auto_improve_at = -2
+
+    def execute(self, df):
+
+        df_copy = df.copy()
+        entities = np.unique(df_copy.index.levels[0])
+        logger.debug(str(entities))
+
+        missing_cols = [x for x in self.predictions if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        for entity in entities:
+            # try:
+                dfe = super()._execute(df_copy.loc[[entity]], entity)
+                print(df_copy.columns)
+                # for c in self.predictions:
+                df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+                # df_copy = df_copy.loc[[entity]] = dfe
+                print(df_copy.columns)
+            # except Exception as e:
+                # logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
+                # continue
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+        return (inputs, [])
+
+        # define arguments that behave as function outputs
+        outputs = []
+        return (inputs, outputs)
+
+    # @classmethod
+    # def get_input_items(cls):
+    #     return ['features', 'targets']
 
 
 class SimpleAnomaly(BaseRegressor):
@@ -1390,27 +1454,3 @@ class SimpleAnomaly(BaseRegressor):
             UIFunctionOutMulti(name='alerts', datatype=bool, cardinality_from='targets', is_datatype_derived=False, ))
 
         return (inputs, outputs)
-
-
-class SimpleRegressor(BaseRegressor):
-    '''
-    Sample function that predicts the value of a continuous target variable using the selected list of features.
-    This function is intended to demonstrate the basic workflow of training, evaluating, deploying
-    using a model.
-    '''
-    # class variables
-    train_if_no_model = True
-    estimators_per_execution = 3
-    num_rounds_per_estimator = 3
-
-    def __init__(self, features, targets, predictions=None):
-        super().__init__(features=features, targets=targets, predictions=predictions)
-
-    @classmethod
-    def build_ui(cls):
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
-        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
-                                  is_output_datatype_derived=True))
-        return (inputs, [])
