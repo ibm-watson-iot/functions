@@ -68,4 +68,5 @@ def test_anomaly_generators():
 
     pass
 
+# uncomment to run from CLI
 # test_anomaly_generators()
