@@ -207,6 +207,7 @@ def merge_score(dfEntity, dfEntityOrig, column_name, score, mindelta):
     '''
 
     # equip score with time values
+    score[score < 0] = 0
     dfEntity[column_name] = score
 
     # merge
