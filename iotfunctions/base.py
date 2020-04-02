@@ -1411,7 +1411,7 @@ class BaseDataSource(BaseTransformer):
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
         if self.merge_method == 'outer':
             #new_df is expected to be indexed on id and timestamp
-            df = df.join(new_df,how='outer',sort=True,on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp],rsuffix ='_new_')
+            df = df.merge(new_df, how='outer', sort=True, on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp], suffixes=('', '_new_'))
             df = self._coallesce_columns(df=df,cols=overlapping_columns)
         elif self.merge_method == 'nearest': 
             overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_type._entity_id,self._entity_type._timestamp]]
@@ -1584,7 +1584,7 @@ class BaseDatabaseLookup(BaseTransformer):
         if len(self.output_items) > len(df_sql.columns):
             raise RuntimeError('length of names (%d) is larger than the length of query result (%d)' % (len(self.output_items), len(df_sql)))
 
-        df = df.join(df_sql,on= self.lookup_keys, how='left')
+        df = df.join(df_sql, on=self.lookup_keys, how='left')
         
         df = self.rename_cols(df,input_names = self.lookup_items,output_names=self.output_items)
 
