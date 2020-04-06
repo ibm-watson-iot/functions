@@ -696,6 +696,7 @@ class Database(object):
             if isinstance(table_name, str):
                 kwargs = {'schema': schema}
                 try:
+                    logger.info('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
                     table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
                     table.indexes = set()
                 except NoSuchTableError:
