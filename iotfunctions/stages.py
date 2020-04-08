@@ -389,7 +389,7 @@ class ProduceAlerts(object):
             filtered_df = df[alert_filter]
             index_names = filtered_df.index.names
 
-            name_index_map = { name: (index + 1) for index, name in enumerate(filtered_df.columns)}
+            name_index_map = {name: (index + 1) for index, name in enumerate(filtered_df.columns)}
             for df_row in filtered_df.itertuples(index=True, name=None):
 
                 for alert_name in filtered_alerts:
@@ -462,10 +462,8 @@ class ProduceAlerts(object):
         logger.info("Processing %s alerts. This alert may contain duplicates, "
                     "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
         updated_key_and_msg = []
-        postgres_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + \
-                       " (entity_id, timestamp, entity_type_id, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s, %s)"
-        db2_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + \
-                  " (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?, ?) "
+        postgres_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (entity_id, timestamp, entity_type_id, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?, ?) "
 
         total_count = 0
         count = 0
@@ -511,8 +509,8 @@ class ProduceAlerts(object):
                     ibm_db.free_result(stmt)
 
             except Exception as ex:
-                raise Exception('Inserting alerts into table %s.%s failed.' % (
-                    self.quotedSchema, self.quotedTableName)) from ex
+                raise Exception(
+                    'Inserting alerts into table %s.%s failed.' % (self.quotedSchema, self.quotedTableName)) from ex
 
         logger.info('%d new alerts out of %d processed alerts have been inserted into table %s.%s in %d seconds.' % (
             len(updated_key_and_msg), len(key_and_msg_and_db_parameter), self.quotedSchema, self.quotedTableName,

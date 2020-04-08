@@ -2043,8 +2043,7 @@ class CalcPipeline:
         self.entity_type = entity_type
         self.set_stages(stages)
         self.log_pipeline_stages()
-        self.dblogging = dblogging
-        #warnings.warn("CalcPipeline is deprecated. Replaced by JobController.", DeprecationWarning)
+        self.dblogging = dblogging  # warnings.warn("CalcPipeline is deprecated. Replaced by JobController.", DeprecationWarning)
 
     def add_expression(self, name, expression):
         '''
@@ -2335,7 +2334,8 @@ class CalcPipeline:
             self.trace_add('The function %s failed to execute. ' % name, created_by=stage)
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
 
-        logger.debug('End of stage %s, execution time = %s s' % (name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
+        logger.debug(
+            'End of stage %s, execution time = %s s' % (name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
 
         # validate that stage has not violated any pipeline processing rules
         try:
@@ -2583,7 +2583,8 @@ class CalcPipeline:
                         logger.info('Type is not consistent %s: df type is %s and data type is %s' % (
                             item, df_column.dtype.name, data_item['columnType']))
                         try:
-                            df[data_item['name']] = pd.to_datetime(df_column).astype('datetime64[ms]')  # try to convert to timestamp
+                            df[data_item['name']] = pd.to_datetime(df_column).astype(
+                                'datetime64[ms]')  # try to convert to timestamp
                         except Exception:
                             invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
                     continue
