@@ -82,7 +82,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
 
     '''
 
-    def __init__(self, input_items, expression, output_items):
+    def __init__(self, input_items, expression=None, output_items=None):
         super().__init__()
 
         self.input_items = input_items
@@ -854,7 +854,8 @@ class GetEntityData(BaseDataSource):
         inputs = []
         inputs.append(UISingle(name='source_entity_type_name', datatype=str,
                                description="Enter the name of the entity type that you would like to retrieve data from"))
-        inputs.append(UISingle(name='key_map_column', datatype=str, description="Enter the name of the column on the source entity type that represents the map \
+        inputs.append(UISingle(name='key_map_column', datatype=str,
+                               description="Enter the name of the column on the source entity type that represents the map \
                                             to the device id of this entity type"))
         inputs.append(UIMulti(name='input_items', datatype=str,
                               description="Comma separated list of data item names to retrieve from the source entity type",
@@ -890,7 +891,8 @@ class EntityId(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='data_items', datatype=None, required=False, description='Choose one or more data items. If data items are defined, \
+        inputs.append(UIMultiItem(name='data_items', datatype=None, required=False,
+                      description='Choose one or more data items. If data items are defined, \
                                                entity id will only be shown if these data items are not null'))
         # define arguments that behave as function outputs
         outputs = []
@@ -1658,7 +1660,8 @@ class IoTCalcSettings(BaseMetadataProvider):
                                description='By default, data retrieved is from the designated input table. Use this setting to disable.', ))
         inputs.append(
             UISingle(name='checkpoint_by_entity', datatype=bool, required=False, description='By default a single '))
-        inputs.append(UISingle(name='pre_aggregate_time_grain', datatype=str, required=False, description='By default, data is retrieved at the input grain. Use this setting to preaggregate \
+        inputs.append(UISingle(name='pre_aggregate_time_grain', datatype=str, required=False,
+                               description='By default, data is retrieved at the input grain. Use this setting to preaggregate \
                                             data and reduce the volumne of data retrieved',
                                values=['1min', '5min', '15min', '30min', '1H', '2H', '4H', '8H', '12H', 'day', 'week',
                                        'month', 'year']))
