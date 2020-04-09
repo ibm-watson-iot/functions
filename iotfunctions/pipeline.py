@@ -284,9 +284,10 @@ class CalcPipeline:
             df[pl] = True
         for s in stages:
             if df.empty:
-                self.logger.info('No data retrieved from all sources. Exiting pipeline execution')        
+                self.logger.info('No data retrieved from all sources. Pipeline execution is skipped for this grain.')
+                df = None
                 break
-                #skip this stage of it is not a secondary source             
+
             df = self._execute_stage(stage=s,
                                 df = df,
                                 start_ts = start_ts,
@@ -298,7 +299,8 @@ class CalcPipeline:
                                 abort_on_fail = True)
         if is_initial_transform:
             try:
-                self.entity_type.write_unmatched_members(df)
+                if df is not None:
+                    self.entity_type.write_unmatched_members(df)
             except Exception as e:
                 msg = 'Error while writing unmatched members to dimension. See log.' 
                 self.trace_append(msg,created_by = self)
