@@ -48,7 +48,7 @@ _IS_PREINSTALLED = True
 class AnomalyGenerator(BaseTransformer):
 
     def __init__(self):
-        self.count = None   # allow to set count != 0 for unit testing
+        self.count = None  # allow to set count != 0 for unit testing
         self.key = None
         self.factor = 1
         self.width = 0
@@ -56,12 +56,13 @@ class AnomalyGenerator(BaseTransformer):
         self.counts_by_entity_id = None
         super().__init__()
 
-    def injectAnomaly(self, input_array, offset=None, remainder=None, flatline=None,
-                      entity_name='', filler=None, anomaly_extreme=None):
+    def injectAnomaly(self, input_array, offset=None, remainder=None, flatline=None, entity_name='', filler=None,
+                      anomaly_extreme=None):
 
         output_array = input_array.copy()
-        logger.debug('InjectAnomaly: <<<entity ' + entity_name + ', Size: ' + str(input_array.size) + ', Offset: ' +
-                     str(offset) + ', Remainder: ' + str(remainder) + ', Flatline: ' + str(flatline))
+        logger.debug(
+            'InjectAnomaly: <<<entity ' + entity_name + ', Size: ' + str(input_array.size) + ', Offset: ' + str(
+                offset) + ', Remainder: ' + str(remainder) + ', Flatline: ' + str(flatline))
 
         # start with part before the first anomaly
         if not anomaly_extreme:
@@ -75,8 +76,9 @@ class AnomalyGenerator(BaseTransformer):
         if input_array.size < offset:
             logger.info('Not enough new data points to generate more anomalies - ' + str(input_array.shape))
             offset -= input_array.size
-            logger.debug('InjectAnomaly: >>>entity ' + entity_name + ', Size: ' + str(input_array.size) + ', Offset: ' +
-                         str(offset) + ', Remainder: ' + str(remainder) + ', Flatline: ' + str(flatline))
+            logger.debug(
+                'InjectAnomaly: >>>entity ' + entity_name + ', Size: ' + str(input_array.size) + ', Offset: ' + str(
+                    offset) + ', Remainder: ' + str(remainder) + ', Flatline: ' + str(flatline))
             return offset, remainder, flatline, output_array
 
         # now treat the longer part of the array first (starting from offset)
@@ -86,16 +88,16 @@ class AnomalyGenerator(BaseTransformer):
 
         if a.size >= self.factor:
             lim_size = a.size - a.size % self.factor
-            logger.debug('InjectAnomaly:  Main:   entity ' + entity_name + ', a-Size: ' + str(a.size) + ', Lim: ' +
-                         str(lim_size) + ', Factor: ' + str(self.factor))
+            logger.debug('InjectAnomaly:  Main:   entity ' + entity_name + ', a-Size: ' + str(a.size) + ', Lim: ' + str(
+                lim_size) + ', Factor: ' + str(self.factor))
             a_reshape_arr = a[:lim_size].copy()
 
             # Final numpy array to be transformed into 2d array
             try:
                 a1 = np.reshape(a_reshape_arr, (-1, self.factor)).T
             except Exception as e:
-                logger.error('InjectAnomaly: reshape failed with ' + str(e) + ' ' + str(input_array.shape) + ',' +
-                             str(lim_size) + ',' + str(offset))
+                logger.error('InjectAnomaly: reshape failed with ' + str(e) + ' ' + str(input_array.shape) + ',' + str(
+                    lim_size) + ',' + str(offset))
 
             if anomaly_extreme:
                 # Calculate 'local' standard deviation if it exceeds 1 to generate anomalies
@@ -112,7 +114,7 @@ class AnomalyGenerator(BaseTransformer):
                         a1[i] = a1[0]
 
             # Flattening back to 1D array
-            output_array[offset:lim_size+offset] = a1.T.flatten()
+            output_array[offset:lim_size + offset] = a1.T.flatten()
             idx = lim_size + offset
 
         # handle the rest of the array
@@ -136,8 +138,9 @@ class AnomalyGenerator(BaseTransformer):
 
         offset = input_array.size - idx
 
-        logger.debug('InjectAnomaly: >>>entity ' + entity_name + ', Size: ' + str(input_array.size) + ', Offset: ' +
-                     str(offset) + ', Remainder: ' + str(remainder) + ', Flatline: ' + str(flatline))
+        logger.debug(
+            'InjectAnomaly: >>>entity ' + entity_name + ', Size: ' + str(input_array.size) + ', Offset: ' + str(
+                offset) + ', Remainder: ' + str(remainder) + ', Flatline: ' + str(flatline))
 
         return offset, remainder, flatline, output_array
 
@@ -156,7 +159,8 @@ class AnomalyGenerator(BaseTransformer):
         raw_dataframe = None
 
         try:
-            query, table = db.query(derived_metric_table_name, schema, column_names='KEY', filters={'KEY': self.output_item})
+            query, table = db.query(derived_metric_table_name, schema, column_names='KEY',
+                                    filters={'KEY': self.output_item})
             raw_dataframe = db.get_query_data(query)
             self.key = '_'.join([derived_metric_table_name, self.output_item])
             logger.debug('Check for key {} in derived metric table {}'.format(self.output_item, raw_dataframe.shape))
@@ -217,7 +221,7 @@ class AnomalyGeneratorExtremeValue(AnomalyGenerator):
         self.output_item = output_item
         self.factor = int(factor)
         self.size = int(size)
-        self.count = None   # allow to set count != 0 for unit testing
+        self.count = None  # allow to set count != 0 for unit testing
 
     def execute(self, df):
 
@@ -244,8 +248,9 @@ class AnomalyGeneratorExtremeValue(AnomalyGenerator):
 
             # Prepare numpy array for marking anomalies
             actual = df_entity_grp[self.output_item].values
-            offset, remainder, flatline, output_array = self.injectAnomaly(actual, offset=offset, remainder=remainder, flatline=flatline,
-                                                                 entity_name=entity_grp_id, anomaly_extreme=True)
+            offset, remainder, flatline, output_array = self.injectAnomaly(actual, offset=offset, remainder=remainder,
+                                                                           flatline=flatline, entity_name=entity_grp_id,
+                                                                           anomaly_extreme=True)
 
             # Update group counts for storage
             self.counts_by_entity_id[entity_grp_id] = (offset, remainder, flatline)
@@ -271,32 +276,17 @@ class AnomalyGeneratorExtremeValue(AnomalyGenerator):
     @classmethod
     def build_ui(cls):
         inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Item to base anomaly on'
-                                              ))
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Item to base anomaly on'))
 
-        inputs.append(UISingle(
-                name='factor',
-                datatype=int,
-                description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
-                default=5
-                                              ))
+        inputs.append(UISingle(name='factor', datatype=int,
+            description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints', default=5))
 
-        inputs.append(UISingle(
-                name='size',
-                datatype=int,
-                description='Size of extreme anomalies to be created. e.g. 10 will create 10x size extreme \
-                             anomaly compared to the normal variance', default=10
-                                              ))
+        inputs.append(UISingle(name='size', datatype=int, description='Size of extreme anomalies to be created. e.g. 10 will create 10x size extreme \
+                             anomaly compared to the normal variance', default=10))
 
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Generated Item With Extreme anomalies'
-                ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float,
+            description='Generated Item With Extreme anomalies'))
         return (inputs, outputs)
 
 
@@ -311,7 +301,7 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
         self.output_item = output_item
         self.width = int(width)
         self.factor = int(factor)
-        self.count = None   # allow to set count != 0 for unit testing
+        self.count = None  # allow to set count != 0 for unit testing
 
     def execute(self, df):
 
@@ -337,8 +327,9 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
 
             # Prepare numpy array for marking anomalies
             actual = df_entity_grp[self.output_item].values
-            offset, remainder, flatline, output_array = self.injectAnomaly(actual, offset=offset, remainder=remainder, flatline=flatline,
-                                                                 entity_name=entity_grp_id, filler=np.nan, anomaly_extreme=False)
+            offset, remainder, flatline, output_array = self.injectAnomaly(actual, offset=offset, remainder=remainder,
+                                                                           flatline=flatline, entity_name=entity_grp_id,
+                                                                           filler=np.nan, anomaly_extreme=False)
 
             self.counts_by_entity_id[entity_grp_id] = (offset, remainder, flatline)
 
@@ -362,32 +353,16 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
     @classmethod
     def build_ui(cls):
         inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Item to base anomaly on'
-                                              ))
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Item to base anomaly on'))
 
-        inputs.append(UISingle(
-                name='factor',
-                datatype=int,
-                description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
-                default=10
-                                              ))
+        inputs.append(UISingle(name='factor', datatype=int,
+            description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints', default=10))
 
-        inputs.append(UISingle(
-                name='width',
-                datatype=int,
-                description='Width of the anomaly created',
-                default=5
-                                              ))
+        inputs.append(UISingle(name='width', datatype=int, description='Width of the anomaly created', default=5))
 
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Generated Item With NoData anomalies'
-                ))
+        outputs.append(
+            UIFunctionOutSingle(name='output_item', datatype=float, description='Generated Item With NoData anomalies'))
         return (inputs, outputs)
 
 
@@ -402,7 +377,7 @@ class AnomalyGeneratorFlatline(AnomalyGenerator):
         self.output_item = output_item
         self.width = int(width)
         self.factor = int(factor)
-        self.count = None   # allow to set count != 0 for unit testing
+        self.count = None  # allow to set count != 0 for unit testing
 
     def execute(self, df):
 
@@ -429,8 +404,9 @@ class AnomalyGeneratorFlatline(AnomalyGenerator):
 
             # Prepare numpy array for marking anomalies
             actual = df_entity_grp[self.output_item].values
-            remainder, offset, flatline, output_array = self.injectAnomaly(actual, offset=offset, remainder=remainder, flatline=flatline,
-                                                                 entity_name=entity_grp_id, filler=None, anomaly_extreme=False)
+            remainder, offset, flatline, output_array = self.injectAnomaly(actual, offset=offset, remainder=remainder,
+                                                                           flatline=flatline, entity_name=entity_grp_id,
+                                                                           filler=None, anomaly_extreme=False)
 
             # Update group counts for storage
             self.counts_by_entity_id[entity_grp_id] = (offset, remainder, flatline)
@@ -455,30 +431,14 @@ class AnomalyGeneratorFlatline(AnomalyGenerator):
     @classmethod
     def build_ui(cls):
         inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Item to base anomaly on'
-                                              ))
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Item to base anomaly on'))
 
-        inputs.append(UISingle(
-                name='factor',
-                datatype=int,
-                description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
-                default=10
-                                              ))
+        inputs.append(UISingle(name='factor', datatype=int,
+            description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints', default=10))
 
-        inputs.append(UISingle(
-                name='width',
-                datatype=int,
-                description='Width of the anomaly created',
-                default=5
-                                              ))
+        inputs.append(UISingle(name='width', datatype=int, description='Width of the anomaly created', default=5))
 
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Generated Item With Flatline anomalies'
-                ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float,
+            description='Generated Item With Flatline anomalies'))
         return (inputs, outputs)

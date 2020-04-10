@@ -45,7 +45,6 @@ from .base import (BaseTransformer, BaseRegressor, BaseEvent, BaseEstimatorFunct
 from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIExpression)
 
-
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 _IS_PREINSTALLED = True
@@ -96,7 +95,7 @@ def min_delta(df):
     return mindelta, df2
 
 
-def set_window_size_and_overlap(windowsize, trim_value=2*DefaultWindowSize):
+def set_window_size_and_overlap(windowsize, trim_value=2 * DefaultWindowSize):
     # make sure it is positive and not too large
     trimmed_ws = np.minimum(np.maximum(windowsize, 1), trim_value)
 
@@ -110,7 +109,6 @@ def set_window_size_and_overlap(windowsize, trim_value=2*DefaultWindowSize):
 
 
 def dampen_anomaly_score(array, dampening):
-
     if dampening is None:
         dampening = 0.9  # gradient dampening
 
@@ -211,8 +209,8 @@ def merge_score(dfEntity, dfEntityOrig, column_name, score, mindelta):
     dfEntity[column_name] = score
 
     # merge
-    dfEntityOrig = pd.merge_asof(dfEntityOrig, dfEntity[column_name],
-                                 left_index=True, right_index=True, direction='nearest', tolerance=mindelta)
+    dfEntityOrig = pd.merge_asof(dfEntityOrig, dfEntity[column_name], left_index=True, right_index=True,
+                                 direction='nearest', tolerance=mindelta)
 
     if column_name + '_y' in dfEntityOrig:
         merged_score = dfEntityOrig[column_name + '_y'].to_numpy()
@@ -226,6 +224,7 @@ class SpectralAnomalyScore(BaseTransformer):
     '''
     Employs spectral analysis to extract features from the time series data and to compute zscore from it
     '''
+
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
         logger.debug(input_item)
@@ -262,7 +261,7 @@ class SpectralAnomalyScore(BaseTransformer):
             logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1, )
 
         return dfe, temperature
 
@@ -293,15 +292,16 @@ class SpectralAnomalyScore(BaseTransformer):
             logger.debug('Timedelta:' + str(mindelta) + ' Index: ' + str(dfe_orig.index))
 
             # one dimensional time series - named temperature for catchyness
-            temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+            temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1, )
 
             # interpolate gaps - data imputation by default
             #   for missing data detection we look at the timestamp gradient instead
             dfe, temperature = self.prepare_data(dfe)
 
-            logger.debug('Module Spectral, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
-                         ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
-                         ', Overlap: ' + str(self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
+            logger.debug(
+                'Module Spectral, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) + ', Windowsize: ' + str(
+                    self.windowsize) + ', Output: ' + str(self.output_item) + ', Overlap: ' + str(
+                    self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
 
             if temperature.size <= self.windowsize:
                 logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
@@ -319,12 +319,11 @@ class SpectralAnomalyScore(BaseTransformer):
                     # Fourier transform:
                     #   frequency, time, spectral density
                     frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
-                        temperature, fs=self.frame_rate, window='hanning',
-                        nperseg=self.windowsize, noverlap=self.windowoverlap,
-                        detrend='l', scaling='spectrum')
+                        temperature, fs=self.frame_rate, window='hanning', nperseg=self.windowsize,
+                        noverlap=self.windowoverlap, detrend='l', scaling='spectrum')
 
                     # cut off freqencies too low to fit into the window
-                    frequency_temperatureb = (frequency_temperature > 2/self.windowsize).astype(int)
+                    frequency_temperatureb = (frequency_temperature > 2 / self.windowsize).astype(int)
                     frequency_temperature = frequency_temperature * frequency_temperatureb
                     frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
 
@@ -340,24 +339,26 @@ class SpectralAnomalyScore(BaseTransformer):
                     ets_zscore = abs(sp.stats.zscore(signal_energy)) * Spectral_normalizer
                     inv_zscore = abs(sp.stats.zscore(inv_signal_energy))
 
-                    logger.debug('Spectral z-score max: ' + str(ets_zscore.max()) +
-                                 ',   Spectral inv z-score max: ' + str(inv_zscore.max()))
+                    logger.debug(
+                        'Spectral z-score max: ' + str(ets_zscore.max()) + ',   Spectral inv z-score max: ' + str(
+                            inv_zscore.max()))
 
                     # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
                     #   extend it to cover the full original length
                     dfe[self.output_item] = 0.0005
-                    linear_interpolate = sp.interpolate.interp1d(
-                        time_series_temperature, ets_zscore, kind='linear', fill_value='extrapolate')
+                    linear_interpolate = sp.interpolate.interp1d(time_series_temperature, ets_zscore, kind='linear',
+                        fill_value='extrapolate')
 
                     zScoreII = merge_score(dfe, dfe_orig, self.output_item,
                                            abs(linear_interpolate(np.arange(0, temperature.size, 1))), mindelta)
 
                     if self.inv_zscore is not None:
-                        linear_interpol_inv_zscore = sp.interpolate.interp1d(
-                            time_series_temperature, inv_zscore, kind='linear', fill_value='extrapolate')
+                        linear_interpol_inv_zscore = sp.interpolate.interp1d(time_series_temperature, inv_zscore,
+                            kind='linear', fill_value='extrapolate')
 
                         inv_zScoreII = merge_score(dfe, dfe_orig, self.inv_zscore,
-                                                   abs(linear_interpol_inv_zscore(np.arange(0, temperature.size, 1))), mindelta)
+                                                   abs(linear_interpol_inv_zscore(np.arange(0, temperature.size, 1))),
+                                                   mindelta)
 
                 except Exception as e:
                     logger.error('Spectral failed with ' + str(e))
@@ -381,25 +382,15 @@ class SpectralAnomalyScore(BaseTransformer):
 
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Column for feature extraction'
-                                              ))
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Column for feature extraction'))
 
-        inputs.append(UISingle(
-                name='windowsize',
-                datatype=int,
-                description='Window size for spectral analysis - default 12'
-                                              ))
+        inputs.append(
+            UISingle(name='windowsize', datatype=int, description='Window size for spectral analysis - default 12'))
 
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Spectral anomaly score (elliptic envelope)'
-                ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float,
+            description='Spectral anomaly score (elliptic envelope)'))
         return (inputs, outputs)
 
 
@@ -407,6 +398,7 @@ class SpectralAnomalyScoreExt(SpectralAnomalyScore):
     '''
     Employs spectral analysis to extract features from the time series data and to compute zscore from it
     '''
+
     def __init__(self, input_item, windowsize, output_item, inv_zscore):
         super().__init__(input_item, windowsize, output_item)
         logger.debug(input_item)
@@ -414,38 +406,23 @@ class SpectralAnomalyScoreExt(SpectralAnomalyScore):
         self.inv_zscore = inv_zscore
 
     def execute(self, df):
-
         return super().execute(df)
 
     @classmethod
     def build_ui(cls):
-
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Column for feature extraction'
-                                              ))
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Column for feature extraction'))
 
-        inputs.append(UISingle(
-                name='windowsize',
-                datatype=int,
-                description='Window size for spectral analysis - default 12'
-                                              ))
+        inputs.append(
+            UISingle(name='windowsize', datatype=int, description='Window size for spectral analysis - default 12'))
 
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Spectral anomaly score (z-Score)'
-                ))
-        outputs.append(UIFunctionOutSingle(
-                name='inv_zscore',
-                datatype=float,
-                description='zScore of inverted signal energy'
-                ))
+        outputs.append(
+            UIFunctionOutSingle(name='output_item', datatype=float, description='Spectral anomaly score (z-Score)'))
+        outputs.append(
+            UIFunctionOutSingle(name='inv_zscore', datatype=float, description='zScore of inverted signal energy'))
         return (inputs, outputs)
 
 
@@ -454,6 +431,7 @@ class KMeansAnomalyScore(BaseTransformer):
     Employs kmeans on windowed time series data and to compute
      an anomaly score from proximity to centroid's center points
     '''
+
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
         logger.debug(input_item)
@@ -491,7 +469,7 @@ class KMeansAnomalyScore(BaseTransformer):
             logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1, )
 
         return dfe, temperature
 
@@ -525,9 +503,10 @@ class KMeansAnomalyScore(BaseTransformer):
             #   for missing data detection we look at the timestamp gradient instead
             dfe, temperature = self.prepare_data(dfe)
 
-            logger.debug('Module KMeans, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
-                         ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
-                         ', Overlap: ' + str(self.step) + ', Inputsize: ' + str(temperature.size))
+            logger.debug(
+                'Module KMeans, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) + ', Windowsize: ' + str(
+                    self.windowsize) + ', Output: ' + str(self.output_item) + ', Overlap: ' + str(
+                    self.step) + ', Inputsize: ' + str(temperature.size))
 
             if temperature.size > self.windowsize:
                 logger.debug(str(temperature.size) + ',' + str(self.windowsize))
@@ -556,12 +535,11 @@ class KMeansAnomalyScore(BaseTransformer):
 
                 # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length
-                time_series_temperature = np.linspace(
-                     self.windowsize//2, temperature.size - self.windowsize//2 + 1,
-                     temperature.size - self.windowsize + 1)
+                time_series_temperature = np.linspace(self.windowsize // 2, temperature.size - self.windowsize // 2 + 1,
+                                                      temperature.size - self.windowsize + 1)
 
-                linear_interpolateK = sp.interpolate.interp1d(
-                    time_series_temperature, pred_score, kind='linear', fill_value='extrapolate')
+                linear_interpolateK = sp.interpolate.interp1d(time_series_temperature, pred_score, kind='linear',
+                    fill_value='extrapolate')
 
                 zScoreII = merge_score(dfe, dfe_orig, self.output_item,
                                        linear_interpolateK(np.arange(0, temperature.size, 1)), mindelta)
@@ -577,25 +555,14 @@ class KMeansAnomalyScore(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Column for feature extraction'
-                                              ))
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Column for feature extraction'))
 
-        inputs.append(UISingle(
-                name='windowsize',
-                datatype=int,
-                description='Window size for spectral analysis - default 12'
-                                              ))
+        inputs.append(
+            UISingle(name='windowsize', datatype=int, description='Window size for spectral analysis - default 12'))
 
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Anomaly score (kmeans)'
-                ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='Anomaly score (kmeans)'))
         return (inputs, outputs)
 
 
@@ -646,7 +613,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
             logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1, )
 
         return dfe, temperature
 
@@ -654,9 +621,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
         logger.debug(self.whoami + ': feature extract')
 
-        slices = skiutil.view_as_windows(
-            temperature, window_shape=(self.windowsize,), step=self.step
-        )
+        slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
         return slices
 
     def execute(self, df):
@@ -687,9 +652,9 @@ class GeneralizedAnomalyScore(BaseTransformer):
             #   for missing data detection we look at the timestamp gradient instead
             dfe, temperature = self.prepare_data(dfe)
 
-            logger.debug('Module GeneralizedAnomaly, Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
-                         ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
-                         ', Overlap: ' + str(self.step) + ', Inputsize: ' + str(temperature.size))
+            logger.debug('Module GeneralizedAnomaly, Entity: ' + str(entity) + ', Input: ' + str(
+                self.input_item) + ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(
+                self.output_item) + ', Overlap: ' + str(self.step) + ', Inputsize: ' + str(temperature.size))
 
             if temperature.size > self.windowsize:
                 logger.debug(str(temperature.size) + "," + str(self.windowsize))
@@ -713,12 +678,10 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
                 except ValueError as ve:
 
-                    logger.info(
-                        self.whoami + " GeneralizedAnomalyScore: Entity: "
-                        + str(entity) + ", Input: " + str(self.input_item) + ", WindowSize: "
-                        + str(self.windowsize) + ", Output: " + str(self.output_item) + ", Step: "
-                        + str(self.step) + ", InputSize: " + str(slices.shape)
-                        + " failed in the fitting step with \"" + str(ve) + "\" - scoring zero")
+                    logger.info(self.whoami + " GeneralizedAnomalyScore: Entity: " + str(entity) + ", Input: " + str(
+                        self.input_item) + ", WindowSize: " + str(self.windowsize) + ", Output: " + str(
+                        self.output_item) + ", Step: " + str(self.step) + ", InputSize: " + str(
+                        slices.shape) + " failed in the fitting step with \"" + str(ve) + "\" - scoring zero")
 
                     pred_score = np.zeros(slices.shape[0])
                     pass
@@ -726,30 +689,24 @@ class GeneralizedAnomalyScore(BaseTransformer):
                 except Exception as e:
 
                     dfe[self.output_item] = 0
-                    logger.error(
-                        self.whoami + " GeneralizedAnomalyScore: Entity: "
-                        + str(entity) + ", Input: " + str(self.input_item) + ", WindowSize: "
-                        + str(self.windowsize) + ", Output: " + str(self.output_item) + ", Step: "
-                        + str(self.step) + ", InputSize: " + str(slices.shape)
-                        + " failed in the fitting step with " + str(e))
+                    logger.error(self.whoami + " GeneralizedAnomalyScore: Entity: " + str(entity) + ", Input: " + str(
+                        self.input_item) + ", WindowSize: " + str(self.windowsize) + ", Output: " + str(
+                        self.output_item) + ", Step: " + str(self.step) + ", InputSize: " + str(
+                        slices.shape) + " failed in the fitting step with " + str(e))
                     continue
 
                 # will break if pred_score is None
                 # length of timesTS, ETS and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length
-                timesTS = np.linspace(
-                    self.windowsize // 2,
-                    temperature.size - self.windowsize // 2 + 1,
-                    temperature.size - self.windowsize + 1,
-                )
+                timesTS = np.linspace(self.windowsize // 2, temperature.size - self.windowsize // 2 + 1,
+                                      temperature.size - self.windowsize + 1, )
 
-                logger.debug(self.whoami + '   Entity: ' + str(entity) + ', result shape: ' + str(timesTS.shape) +
-                             ' score shape: ' + str(pred_score.shape))
+                logger.debug(self.whoami + '   Entity: ' + str(entity) + ', result shape: ' + str(
+                    timesTS.shape) + ' score shape: ' + str(pred_score.shape))
 
                 # timesI = np.linspace(0, Size - 1, Size)
-                linear_interpolateK = sp.interpolate.interp1d(
-                    timesTS, pred_score, kind="linear", fill_value="extrapolate"
-                )
+                linear_interpolateK = sp.interpolate.interp1d(timesTS, pred_score, kind="linear",
+                    fill_value="extrapolate")
 
                 # kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
                 gam_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
@@ -769,31 +726,15 @@ class GeneralizedAnomalyScore(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(
-            UISingleItem(
-                name="input_item",
-                datatype=float,
-                description="Column for feature extraction",
-            )
-        )
+        inputs.append(UISingleItem(name="input_item", datatype=float, description="Column for feature extraction", ))
 
-        inputs.append(
-            UISingle(
-                name="windowsize",
-                datatype=int,
-                description="Window size for Generalized Anomaly analysis - default 12",
-            )
-        )
+        inputs.append(UISingle(name="windowsize", datatype=int,
+            description="Window size for Generalized Anomaly analysis - default 12", ))
 
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(
-            UIFunctionOutSingle(
-                name="output_item",
-                datatype=float,
-                description="Anomaly score (GeneralizedAnomaly)",
-            )
-        )
+            UIFunctionOutSingle(name="output_item", datatype=float, description="Anomaly score (GeneralizedAnomaly)", ))
         return (inputs, outputs)
 
 
@@ -802,6 +743,7 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
     Employs generalized anomaly analysis to extract features from the
       gaps in time series data and to compute the elliptic envelope from it
     '''
+
     def __init__(self, input_item, windowsize, output_item):
         super().__init__(input_item, windowsize, output_item)
 
@@ -837,7 +779,7 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
             logger.info("NoData Gradient failed with " + str(pe))
             dfe[[self.input_item]] = 0
             temperature = dfe[[self.input_item]].values
-            temperature[0] = 10**10
+            temperature[0] = 10 ** 10
             pass
 
         return dfe, temperature
@@ -854,25 +796,14 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
 
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Column for feature extraction'
-                                              ))
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Column for feature extraction'))
 
-        inputs.append(UISingle(
-                name='windowsize',
-                datatype=int,
-                description='Window size for no data spectral analysis - default 12'
-                                              ))
+        inputs.append(UISingle(name='windowsize', datatype=int,
+            description='Window size for no data spectral analysis - default 12'))
 
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='No data anomaly score'
-                ))
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='No data anomaly score'))
         return (inputs, outputs)
 
 
@@ -890,12 +821,9 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
         logger.debug('FFT')
 
     def feature_extract(self, temperature):
-
         logger.debug(self.whoami + ': feature extract')
 
-        slices_ = skiutil.view_as_windows(
-            temperature, window_shape=(self.windowsize,), step=self.step
-        )
+        slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
         slicelist = []
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
@@ -914,31 +842,15 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(
-            UISingleItem(
-                name="input_item",
-                datatype=float,
-                description="Column for feature extraction",
-            )
-        )
+        inputs.append(UISingleItem(name="input_item", datatype=float, description="Column for feature extraction", ))
 
-        inputs.append(
-            UISingle(
-                name="windowsize",
-                datatype=int,
-                description="Window size for FFT feature based Generalized Anomaly analysis - default 12",
-            )
-        )
+        inputs.append(UISingle(name="windowsize", datatype=int,
+            description="Window size for FFT feature based Generalized Anomaly analysis - default 12", ))
 
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(
-            UIFunctionOutSingle(
-                name="output_item",
-                datatype=float,
-                description="Anomaly score (FFTbasedGeneralizedAnomalyScore)",
-            )
-        )
+        outputs.append(UIFunctionOutSingle(name="output_item", datatype=float,
+            description="Anomaly score (FFTbasedGeneralizedAnomalyScore)", ))
         return (inputs, outputs)
 
 
@@ -957,12 +869,9 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
         logger.debug('FFT')
 
     def feature_extract(self, temperature):
-
         logger.debug(self.whoami + ': feature extract')
 
-        slices_ = skiutil.view_as_windows(
-            temperature, window_shape=(self.windowsize,), step=self.step
-        )
+        slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
         slicelist = []
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
@@ -981,39 +890,18 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(
-            UISingleItem(
-                name="input_item",
-                datatype=float,
-                description="Column for feature extraction",
-            )
-        )
+        inputs.append(UISingleItem(name="input_item", datatype=float, description="Column for feature extraction", ))
+
+        inputs.append(UISingle(name="windowsize", datatype=int,
+            description="Window size for FFT feature based Generalized Anomaly analysis - default 12", ))
 
         inputs.append(
-            UISingle(
-                name="windowsize",
-                datatype=int,
-                description="Window size for FFT feature based Generalized Anomaly analysis - default 12",
-            )
-        )
-
-        inputs.append(
-            UISingle(
-                name="dampening",
-                datatype=float,
-                description="Moderate anomaly scores (value <= 1, default 1)",
-            )
-        )
+            UISingle(name="dampening", datatype=float, description="Moderate anomaly scores (value <= 1, default 1)", ))
 
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(
-            UIFunctionOutSingle(
-                name="output_item",
-                datatype=float,
-                description="Anomaly score (FFTbasedGeneralizedAnomalyScore)",
-            )
-        )
+        outputs.append(UIFunctionOutSingle(name="output_item", datatype=float,
+            description="Anomaly score (FFTbasedGeneralizedAnomalyScore)", ))
         return (inputs, outputs)
 
 
@@ -1032,14 +920,11 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
         logger.debug('Saliency')
 
     def feature_extract(self, temperature):
-
         logger.debug(self.whoami + ': feature extract')
 
         temperature_saliency = self.saliency.transform_spectral_residual(temperature)
 
-        slices = skiutil.view_as_windows(
-            temperature_saliency, window_shape=(self.windowsize,), step=self.step
-        )
+        slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
         return slices
 
     def execute(self, df):
@@ -1053,32 +938,17 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(
-            UISingleItem(
-                name="input_item",
-                datatype=float,
-                description="Column for feature extraction",
-            )
-        )
+        inputs.append(UISingleItem(name="input_item", datatype=float, description="Column for feature extraction", ))
 
-        inputs.append(
-            UISingle(
-                name="windowsize",
-                datatype=int,
-                description="Window size for Saliency feature based Generalized Anomaly analysis - default 12",
-            )
-        )
+        inputs.append(UISingle(name="windowsize", datatype=int,
+            description="Window size for Saliency feature based Generalized Anomaly analysis - default 12", ))
 
         # define arguments that behave as function outputs
         outputs = []
-        outputs.append(
-            UIFunctionOutSingle(
-                name="output_item",
-                datatype=float,
-                description="Anomaly score (FFTbasedGeneralizedAnomalyScore)",
-            )
-        )
+        outputs.append(UIFunctionOutSingle(name="output_item", datatype=float,
+            description="Anomaly score (FFTbasedGeneralizedAnomalyScore)", ))
         return (inputs, outputs)
+
 
 #######################################################################################
 
@@ -1094,7 +964,9 @@ class AlertExpressionWithFilter(BaseEvent):
         self.expression = expression
         self.pulse_trigger = False
         self.alert_name = alert_name
-        logger.info('AlertExpressionWithFilter  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' + str(alert_name))
+        logger.info(
+            'AlertExpressionWithFilter  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' + str(
+                alert_name))
         super().__init__()
 
     def _calc(self, df):
@@ -1127,8 +999,8 @@ class AlertExpressionWithFilter(BaseEvent):
         try:
             evl = eval(expr)
             n1 = np.where(evl, 1, 0)
-            if self.dimension_name is None or self.dimension_value is None or \
-               len(self.dimension_name) == 0 or len(self.dimension_value) == 0:
+            if self.dimension_name is None or self.dimension_value is None or len(self.dimension_name) == 0 or len(
+                self.dimension_value) == 0:
                 n2 = n1
                 np_res = n1
             else:
@@ -1139,13 +1011,13 @@ class AlertExpressionWithFilter(BaseEvent):
                 # walk through all subsequences starting with the longest
                 # and replace all True with True, False, False, ...
                 for i in range(n1.size, 2, -1):
-                    for j in range(0, i-1):
+                    for j in range(0, i - 1):
                         if np.all(n1[j:i]):
-                            n1[j+1:i] = np.zeros(i-j-1, dtype=bool)
-                            n1[j] = i-j  # keep track of sequence length
+                            n1[j + 1:i] = np.zeros(i - j - 1, dtype=bool)
+                            n1[j] = i - j  # keep track of sequence length
 
-            logger.info('AlertExpressionWithFilter  shapes ' + str(n1.shape) + ' ' + str(n2.shape) + ' ' +
-                        str(np_res.shape) + '  results\n - ' + str(n1) + '\n - ' + str(n2) + '\n - ' + str(np_res))
+            logger.info('AlertExpressionWithFilter  shapes ' + str(n1.shape) + ' ' + str(n2.shape) + ' ' + str(
+                np_res.shape) + '  results\n - ' + str(n1) + '\n - ' + str(n2) + '\n - ' + str(np_res))
             df[self.alert_name] = np_res
 
         except Exception as e:
@@ -1165,10 +1037,8 @@ class AlertExpressionWithFilter(BaseEvent):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(name='dimension_name', datatype=str))
-        inputs.append(UISingle(name='dimension_value', datatype=str,
-                               description='Dimension Filter Value'))
-        inputs.append(UIExpression(name='expression',
-                                   description="Define alert expression using pandas systax. \
+        inputs.append(UISingle(name='dimension_value', datatype=str, description='Dimension Filter Value'))
+        inputs.append(UIExpression(name='expression', description="Define alert expression using pandas systax. \
                                                 Example: df['inlet_temperature']>50. ${pressure} will be substituted \
                                                 with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
 
@@ -1187,8 +1057,8 @@ class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
         super().__init__(expression, dimension_name, dimension_value, alert_name, **kwargs)
         if pulse_trigger is None:
             self.pulse_trigger = True
-        logger.info('AlertExpressionWithFilterExt  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' +
-                    str(alert_name) + '  pulsed: ' + str(pulse_trigger))
+        logger.info('AlertExpressionWithFilterExt  dim: ' + str(dimension_name) + '  exp: ' + str(
+            expression) + '  alert: ' + str(alert_name) + '  pulsed: ' + str(pulse_trigger))
 
     def _calc(self, df):
         '''
@@ -1206,26 +1076,24 @@ class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(name='dimension_name', datatype=str))
-        inputs.append(UISingle(name='dimension_value', datatype=str,
-                               description='Dimension Filter Value'))
-        inputs.append(UIExpression(name='expression',
-                                   description="Define alert expression using pandas systax. \
+        inputs.append(UISingle(name='dimension_value', datatype=str, description='Dimension Filter Value'))
+        inputs.append(UIExpression(name='expression', description="Define alert expression using pandas systax. \
                                                 Example: df['inlet_temperature']>50. ${pressure} will be substituted \
                                                 with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
-        inputs.append(UISingle(name='pulse_trigger',
-                               description="If true only generate alerts on crossing the threshold",
-                               datatype=bool))
+        inputs.append(
+            UISingle(name='pulse_trigger', description="If true only generate alerts on crossing the threshold",
+                     datatype=bool))
 
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
         return (inputs, outputs)
 
+
 #######################################################################################
 
 
 class GBMRegressor(BaseEstimatorFunction):
-
     '''
     Regressor based on gradient boosting method as provided by lightGBM
     '''
@@ -1246,23 +1114,18 @@ class GBMRegressor(BaseEstimatorFunction):
         self.estimators['light_gradient_boosted_regressor'] = (self.GBMPipeline, self.params)
         logger.info('GBMRegressor start searching for best model')
 
-    def __init__(self, features, targets, predictions=None,
-                 n_estimators=None, num_leaves=None, learning_rate=None, max_depth=None):
+    def __init__(self, features, targets, predictions=None, n_estimators=None, num_leaves=None, learning_rate=None,
+                 max_depth=None):
         super().__init__(features=features, targets=targets, predictions=predictions)
         self.experiments_per_execution = 1
         self.auto_train = False
 
         # if n_estimators is not None or num_leaves is not None or learning_rate is not None or max_depth is not None:
         if n_estimators is not None or num_leaves is not None or learning_rate is not None:
-            self.params = {'gbm__n_estimators': [n_estimators],
-                           'gbm__num_leaves': [num_leaves],
-                           'gbm__learning_rate': [learning_rate],
-                           'gbm__max_depth': [max_depth],
-                           'gbm__verbosity': [2]}
+            self.params = {'gbm__n_estimators': [n_estimators], 'gbm__num_leaves': [num_leaves],
+                           'gbm__learning_rate': [learning_rate], 'gbm__max_depth': [max_depth], 'gbm__verbosity': [2]}
         else:
-            self.params = {'gbm__n_estimators': [500],
-                           'gbm__num_leaves': [50],
-                           'gbm__learning_rate': [0.001],
+            self.params = {'gbm__n_estimators': [500], 'gbm__num_leaves': [50], 'gbm__learning_rate': [0.001],
                            'gbm__verbosity': [2]}
 
         self.stop_auto_improve_at = -2
@@ -1282,15 +1145,15 @@ class GBMRegressor(BaseEstimatorFunction):
             # dfe = df_copy.loc[[entity]].dropna(how='all')
             # dfe = df_copy.loc[[entity]].copy()
             # try:
-                dfe = super()._execute(df_copy.loc[[entity]], entity)
-                print(df_copy.columns)
-                # for c in self.predictions:
-                df_copy.loc[entity, self.predictions] = dfe[self.predictions]
-                # df_copy = df_copy.loc[[entity]] = dfe
-                print(df_copy.columns)
-            # except Exception as e:
-                # logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
-                # continue
+            dfe = super()._execute(df_copy.loc[[entity]], entity)
+            print(df_copy.columns)
+            # for c in self.predictions:
+            df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+            # df_copy = df_copy.loc[[entity]] = dfe
+            print(df_copy.columns)
+        # except Exception as e:
+        # logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
+        # continue
         return df_copy
 
     @classmethod
@@ -1300,14 +1163,13 @@ class GBMRegressor(BaseEstimatorFunction):
         inputs.append(UIMultiItem(name='features', datatype=float, required=True))
         inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
                                   is_output_datatype_derived=True))
-        inputs.append(UISingle(name='n_estimators', datatype=int, required=False,
-                               description=('Max rounds of boosting')))
-        inputs.append(UISingle(name='num_leaves', datatype=int, required=False,
-                               description=('Max leaves in a boosting tree')))
-        inputs.append(UISingle(name='learning_rate', datatype=float, required=False,
-                               description=('Learning rate')))
-        inputs.append(UISingle(name='max_depth', datatype=int, required=False,
-                               description=('Cut tree to prevent overfitting')))
+        inputs.append(
+            UISingle(name='n_estimators', datatype=int, required=False, description=('Max rounds of boosting')))
+        inputs.append(
+            UISingle(name='num_leaves', datatype=int, required=False, description=('Max leaves in a boosting tree')))
+        inputs.append(UISingle(name='learning_rate', datatype=float, required=False, description=('Learning rate')))
+        inputs.append(
+            UISingle(name='max_depth', datatype=int, required=False, description=('Cut tree to prevent overfitting')))
         # define arguments that behave as function outputs
         outputs = []
         return (inputs, outputs)
@@ -1318,7 +1180,6 @@ class GBMRegressor(BaseEstimatorFunction):
 
 
 class SimpleRegressor(BaseEstimatorFunction):
-
     '''
     Regressor based on stochastic gradient descent and gradient boosting method as provided by sklearn
     '''
@@ -1339,23 +1200,19 @@ class SimpleRegressor(BaseEstimatorFunction):
 
     def set_estimators(self):
         # gradient_boosted
-        params = {'gbr__n_estimators': [100, 250, 500, 1000],
-                  'gbr__max_depth': [2, 4, 10],
-                  'gbr__min_samples_split': [2, 5, 9],
-                  'gbr__learning_rate': [0.01, 0.02, 0.05],
-                  'gbr__loss': ['ls']}
+        params = {'gbr__n_estimators': [100, 250, 500, 1000], 'gbr__max_depth': [2, 4, 10],
+                  'gbr__min_samples_split': [2, 5, 9], 'gbr__learning_rate': [0.01, 0.02, 0.05], 'gbr__loss': ['ls']}
         # self.estimators['gradient_boosted_regressor'] = (ensemble.GradientBoostingRegressor, params)
         self.estimators['gradient_boosted_regressor'] = (self.GBRPipeline, params)
 
         # sgd
-        params = {'sgd__max_iter': [250, 1000, 5000, 10000],
-                  'sgd__tol': [0.001, 0.002, 0.005]}
+        params = {'sgd__max_iter': [250, 1000, 5000, 10000], 'sgd__tol': [0.001, 0.002, 0.005]}
         # self.estimators['sgd_regressor'] = (linear_model.SGDRegressor, params)
         self.estimators['sgd_regressor'] = (self.SGDPipeline, params)
         logger.info('SimpleRegressor start searching for best model')
 
-    def __init__(self, features, targets, predictions=None,
-                 n_estimators=None, num_leaves=None, learning_rate=None, max_depth=None):
+    def __init__(self, features, targets, predictions=None, n_estimators=None, num_leaves=None, learning_rate=None,
+                 max_depth=None):
         super().__init__(features=features, targets=targets, predictions=predictions)
 
         self.experiments_per_execution = 1
@@ -1375,15 +1232,15 @@ class SimpleRegressor(BaseEstimatorFunction):
 
         for entity in entities:
             # try:
-                dfe = super()._execute(df_copy.loc[[entity]], entity)
-                print(df_copy.columns)
-                # for c in self.predictions:
-                df_copy.loc[entity, self.predictions] = dfe[self.predictions]
-                # df_copy = df_copy.loc[[entity]] = dfe
-                print(df_copy.columns)
-            # except Exception as e:
-                # logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
-                # continue
+            dfe = super()._execute(df_copy.loc[[entity]], entity)
+            print(df_copy.columns)
+            # for c in self.predictions:
+            df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+            # df_copy = df_copy.loc[[entity]] = dfe
+            print(df_copy.columns)
+        # except Exception as e:
+        # logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
+        # continue
         return df_copy
 
     @classmethod
@@ -1399,9 +1256,7 @@ class SimpleRegressor(BaseEstimatorFunction):
         outputs = []
         return (inputs, outputs)
 
-    # @classmethod
-    # def get_input_items(cls):
-    #     return ['features', 'targets']
+    # @classmethod  # def get_input_items(cls):  #     return ['features', 'targets']
 
 
 class SimpleAnomaly(BaseRegressor):

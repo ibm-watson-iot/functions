@@ -82,7 +82,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
 
     '''
 
-    def __init__(self, input_items, expression, output_items):
+    def __init__(self, input_items, expression=None, output_items=None):
         super().__init__()
 
         self.input_items = input_items
@@ -892,7 +892,7 @@ class EntityId(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMultiItem(name='data_items', datatype=None, required=False,
-                                  description='Choose one or more data items. If data items are defined, \
+                      description='Choose one or more data items. If data items are defined, \
                                                entity id will only be shown if these data items are not null'))
         # define arguments that behave as function outputs
         outputs = []
@@ -930,8 +930,7 @@ class IfThenElse(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIExpression(name='conditional_expression',
-                                   description="expression that returns a True/False value, \
+        inputs.append(UIExpression(name='conditional_expression', description="expression that returns a True/False value, \
                                                 eg. if df['temp']>50 then df['temp'] else None"))
         inputs.append(UIExpression(name='true_expression', description="expression when true, eg. df['temp']"))
         inputs.append(UIExpression(name='false_expression', description='expression when false, eg. None'))

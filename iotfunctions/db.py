@@ -376,8 +376,13 @@ class Database(object):
         metadata = None
 
         if entity_metadata is None:
-            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
-                                         object_name_2='')
+
+            if entity_type is not None:
+                metadata = self.http_request(object_type='entityType', object_name=entity_type, request='GET',
+                                             payload={}, object_name_2='')
+            else:
+                metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
+                                             object_name_2='')
             if metadata is not None:
                 try:
                     metadata = json.loads(metadata)
@@ -1808,7 +1813,7 @@ class Database(object):
         table = self.get_table(table_name, schema)
         dim = None
         if dimension is not None:
-            try: # tolerate the case where the dimension table might not yet have been created
+            try:  # tolerate the case where the dimension table might not yet have been created
                 dim = self.get_table(table_name=dimension, schema=schema)
             except (KeyError):
                 dim = None
@@ -2655,6 +2660,7 @@ class Database(object):
             self.commit()
             logger.info('Wrote data to table %s ' % table_name)
         return 1
+
 
 class BaseTable(object):
     is_table = True
