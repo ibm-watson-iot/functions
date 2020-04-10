@@ -194,7 +194,7 @@ class Database(object):
         self.credentials['as'] = {'host': as_api_host, 'api_key': as_api_key, 'api_token': as_api_token}
 
         try:
-            icp_variable = self.get_env_value("isICP")
+            icp_variable = os.environ.get("isICP")
             icp_flag = icp_variable is not None and icp_variable.lower() == "true"
             if icp_flag:
                 as_rest_meta_host = os.environ.get('REST_METADATA_URL')
