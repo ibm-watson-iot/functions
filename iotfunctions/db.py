@@ -194,19 +194,26 @@ class Database(object):
         self.credentials['as'] = {'host': as_api_host, 'api_key': as_api_key, 'api_token': as_api_token}
 
         try:
-            as_rest_meta_host = os.environ.get('REST_METADATA_URL')
-            as_rest_kpi_host = os.environ.get('REST_KPI_URL')
+            icp_variable = self.get_env_value("isICP")
+            icp_flag = icp_variable is not None and icp_variable.lower() == "true"
+            if icp_flag:
+                as_rest_meta_host = os.environ.get('REST_METADATA_URL')
+                as_rest_kpi_host = os.environ.get('REST_KPI_URL')
 
-            if as_rest_meta_host is not None and as_rest_meta_host.startswith('https://'):
-                as_rest_meta_host = as_rest_meta_host[8:]
+                if as_rest_meta_host is not None and as_rest_meta_host.startswith('https://'):
+                    as_rest_meta_host = as_rest_meta_host[8:]
 
-            if as_rest_kpi_host is not None and as_rest_kpi_host.startswith('https://'):
-                as_rest_kpi_host = as_rest_kpi_host[8:]
+                if as_rest_kpi_host is not None and as_rest_kpi_host.startswith('https://'):
+                    as_rest_kpi_host = as_rest_kpi_host[8:]
+            else:
+                as_rest_meta_host = as_api_host
+                as_rest_kpi_host = as_api_host
         except KeyError:
             as_rest_meta_host = as_api_host
             as_rest_kpi_host = as_api_host
             msg = 'Unable to locate META AND KPI URL.. using base API URL'
             logger.warning(msg)
+
         self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host}
 
         self.tenant_id = self.credentials['tenant_id']
