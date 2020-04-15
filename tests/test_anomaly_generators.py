@@ -46,13 +46,14 @@ def test_anomaly_generators():
     evg._entity_type = et
     df_i = evg.execute(df=df_i)
 
-    print('Run Extreme Value Generator 2nd time')
-    evg = AnomalyGeneratorExtremeValue('Test2', 5, 3, 'Results2')
+    print('Run Extreme Value Generator 2nd time with count 3')
+    evg = AnomalyGeneratorExtremeValue('Test2', 5, 7, 'Results2')
+    evg.count = {'MyRoom': 3}
     et = evg._build_entity_type(columns=[Column('Test2', Float())])
     evg._entity_type = et
     df_i = evg.execute(df=df_i)
 
-    print(df_i.head(7))
+    print(df_i.head(15))
 
     print('Compare Scores')
 
@@ -67,4 +68,5 @@ def test_anomaly_generators():
 
     pass
 
+# uncomment to run from CLI
 # test_anomaly_generators()

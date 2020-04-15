@@ -629,8 +629,7 @@ class BaseFunction(object):
                     'The execute method of a custom function must return a pandas DataFrame object not %s' % tf)
             test_outputs = self._inferOutputs(before_df=df, after_df=tf)
             if len(test_outputs) == 0:
-                raise ValueError(
-                    'Could not locate output columns in the test dataframe. Check the execute method of the function to ensure \
+                raise ValueError('Could not locate output columns in the test dataframe. Check the execute method of the function to ensure \
                      that it returns a dataframe with output columns that are named differently from the input columns')
         else:
             raise NotImplementedError(
@@ -653,8 +652,7 @@ class BaseFunction(object):
             try:
                 arg_value = eval('self.%s' % a)
             except AttributeError:
-                raise AttributeError(
-                    'Class %s has an argument %s but no corresponding property. Make sure your arguments and properties \
+                raise AttributeError('Class %s has an argument %s but no corresponding property. Make sure your arguments and properties \
                      have the same name if you want to infer types.' % (self.__class__.__name__, a))
             is_array = False
             if isinstance(arg_value, list):
@@ -842,10 +840,8 @@ class BaseFunction(object):
             except KeyError:
                 array_source = self._infer_array_source(candidate_inputs=array_inputs, output_length=length)
             if array_source is None:
-                raise ValueError(
-                    'No candidate input array found to drive output array %s with length %s . Make sure input array and output array \
-                     have the same length or explicity define the item_source_array. ' % (
-                        array, length))
+                raise ValueError('No candidate input array found to drive output array %s with length %s . Make sure input array and output array \
+                     have the same length or explicity define the item_source_array. ' % (array, length))
             else:
                 # if the output array is driven by an array of items infer data types from items
                 if metadata_inputs[array_source]['type'] == 'DATA_ITEM' and self.array_output_datatype_from_input:
@@ -1034,8 +1030,7 @@ class BaseFunction(object):
                 elif isinstance(value, dt.datetime):
                     datatype = 'TIMESTAMP'
                 else:
-                    raise TypeError(
-                        'Cannot infer type of argument value %s for parm %s. Supply a string, number, boolean, datetime, dict or list \
+                    raise TypeError('Cannot infer type of argument value %s for parm %s. Supply a string, number, boolean, datetime, dict or list \
                          containing any of these types.' % (value, parm))
             else:
                 append_msg = 'by looking at items in test dataframe'
@@ -1156,8 +1151,7 @@ class BaseFunction(object):
             module = self.__class__.__module__
 
         if module == '__main__':
-            raise RuntimeError(
-                'The function that you are attempting to register is not located in a package. It is located in __main__. \
+            raise RuntimeError('The function that you are attempting to register is not located in a package. It is located in __main__. \
                  Relocate it to an appropriate package module.')
 
         if description is None:
@@ -1194,8 +1188,7 @@ class BaseFunction(object):
             logger.exception('Error importing package. It has no PACKAGE_URL module variable')
             raise e
         if module_url == BaseFunction.url:
-            logger.warning(
-                'The PACKAGE_URL for your module is the same as BaseFunction url. Make sure that your PACKAGE_URL points to \
+            logger.warning('The PACKAGE_URL for your module is the same as BaseFunction url. Make sure that your PACKAGE_URL points to \
                  your own package and not iotfunctions')
         msg = 'Test import succeeded for function using %s with module url %s' % (exec_str, module_url)
         logger.debug(msg)
@@ -1812,10 +1805,9 @@ class BaseDBActivityMerge(BaseDataSource):
                 af = pd.read_sql_query(sql, con=self._entity_type.db.connection, parse_dates=parse_dates)
                 af = af.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
             except:
-                logger.warning(
-                    'Function attempted to retrieve data for a merge operation using custom sql. There was '
-                    'a problem with this retrieval operation. Confirm that the sql is valid and contains '
-                    'column aliases for start_date,end_date and device_id')
+                logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was '
+                               'a problem with this retrieval operation. Confirm that the sql is valid and contains '
+                               'column aliases for start_date,end_date and device_id')
                 logger.warning(sql)
                 raise
 
@@ -2167,7 +2159,8 @@ class BaseSCDLookup(BaseTransformer):
 
     def execute(self, df, start_ts=None, end_ts=None, entities=None):
 
-        msg = 'Starting scd lookup of %s from table %s for time interval [%s, %s]. ' % (self.output_item, self.table_name, start_ts, end_ts)
+        msg = 'Starting scd lookup of %s from table %s for time interval [%s, %s]. ' % (
+        self.output_item, self.table_name, start_ts, end_ts)
         msg = self.log_df_info(df, msg)
         self.trace_append(msg)
 
@@ -2607,11 +2600,10 @@ class BaseEstimatorFunction(BaseTransformer):
                 est_score = 0
                 continue
 
-            results = {'name': self.get_model_name(target_name=target, suffix=entity_name),
-                       'target': target, 'features': features,
-                       'params': estimator.best_params_, 'eval_metric_name': metric_name,
-                       'eval_metric_train': est_score,
-                       'estimator_name': name, 'shelf_life_days': self.shelf_life_days, 'col_name': col_name}
+            results = {'name': self.get_model_name(target_name=target, suffix=entity_name), 'target': target,
+                       'features': features, 'params': estimator.best_params_, 'eval_metric_name': metric_name,
+                       'eval_metric_train': est_score, 'estimator_name': name, 'shelf_life_days': self.shelf_life_days,
+                       'col_name': col_name}
 
             model = Model(estimator=estimator, **results)
             results['eval_metric_test'] = model.test(df_test)

@@ -193,6 +193,29 @@ class Database(object):
 
         self.credentials['as'] = {'host': as_api_host, 'api_key': as_api_key, 'api_token': as_api_token}
 
+        try:
+            icp_variable = os.environ.get("isICP")
+            icp_flag = icp_variable is not None and icp_variable.lower() == "true"
+            if icp_flag:
+                as_rest_meta_host = os.environ.get('REST_METADATA_URL')
+                as_rest_kpi_host = os.environ.get('REST_KPI_URL')
+
+                if as_rest_meta_host is not None and as_rest_meta_host.startswith('https://'):
+                    as_rest_meta_host = as_rest_meta_host[8:]
+
+                if as_rest_kpi_host is not None and as_rest_kpi_host.startswith('https://'):
+                    as_rest_kpi_host = as_rest_kpi_host[8:]
+            else:
+                as_rest_meta_host = as_api_host
+                as_rest_kpi_host = as_api_host
+        except KeyError:
+            as_rest_meta_host = as_api_host
+            as_rest_kpi_host = as_api_host
+            msg = 'Unable to locate META AND KPI URL.. using base API URL'
+            logger.warning(msg)
+
+        self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host}
+
         self.tenant_id = self.credentials['tenant_id']
 
         # Retrieve connection string. Look at dict 'credentials' first. Then at environment variable. Fall-back
@@ -360,8 +383,13 @@ class Database(object):
         metadata = None
 
         if entity_metadata is None:
-            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
-                                         object_name_2='')
+
+            if entity_type is not None:
+                metadata = self.http_request(object_type='entityType', object_name=entity_type, request='GET',
+                                             payload={}, object_name_2='')
+            else:
+                metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
+                                             object_name_2='')
             if metadata is not None:
                 try:
                     metadata = json.loads(metadata)
@@ -696,6 +724,7 @@ class Database(object):
             if isinstance(table_name, str):
                 kwargs = {'schema': schema}
                 try:
+                    logger.info('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
                     table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
                     table.indexes = set()
                 except NoSuchTableError:
@@ -813,55 +842,58 @@ class Database(object):
             raise ValueError(msg)
 
         base_url = 'https://%s/api' % (self.credentials['as']['host'])
+        base_meta_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_meta_host'])
+        base_kpi_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_kpi_host'])
+
         self.url = {}
         self.url[('allFunctions', 'GET')] = '/'.join(
-            [base_url, 'catalog', 'v1', self.tenant_id, 'function?customFunctionsOnly=false'])
+            [base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function?customFunctionsOnly=false'])
 
         self.url[('constants', 'GET')] = '/'.join(
-            [base_url, 'constants', 'v1', '%s?entityType=%s' % (self.tenant_id, object_name)])
-        self.url[('constants', 'PUT')] = '/'.join([base_url, 'constants', 'v1'])
-        self.url[('constants', 'POST')] = '/'.join([base_url, 'constants', 'v1'])
+            [base_kpi_url, 'constants', 'v1', '%s?entityType=%s' % (self.tenant_id, object_name)])
+        self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1'])
+        self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1'])
 
-        self.url[('defaultConstants', 'GET')] = '/'.join([base_url, 'constants', 'v1', self.tenant_id])
-        self.url[('defaultConstants', 'POST')] = '/'.join([base_url, 'constants', 'v1', self.tenant_id])
-        self.url[('defaultConstants', 'PUT')] = '/'.join([base_url, 'constants', 'v1', self.tenant_id])
-        self.url[('defaultConstants', 'DELETE')] = '/'.join([base_url, 'constants', 'v1', self.tenant_id])
+        self.url[('defaultConstants', 'GET')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        self.url[('defaultConstants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        self.url[('defaultConstants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        self.url[('defaultConstants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
 
         self.url[('dataItem', 'PUT')] = '/'.join(
-            [base_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
+            [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
-        self.url[('allEntityTypes', 'GET')] = '/'.join([base_url, 'meta', 'v1', self.tenant_id, 'entityType'])
-        self.url[('entityType', 'POST')] = '/'.join([base_url, 'meta', 'v1', self.tenant_id, object_type])
-        self.url[('entityType', 'GET')] = '/'.join([base_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
+        self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
+        self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type])
+        self.url[('entityType', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
         self.url[('engineInput', 'GET')] = '/'.join(
-            [base_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
 
-        self.url[('function', 'GET')] = '/'.join([base_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
+        self.url[('function', 'GET')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
         self.url[('function', 'DELETE')] = '/'.join(
-            [base_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
-        self.url[('function', 'PUT')] = '/'.join([base_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
+            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
+        self.url[('function', 'PUT')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
 
         self.url[('granularitySet', 'POST')] = '/'.join(
-            [base_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+            [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
         self.url[('granularitySet', 'DELETE')] = '/'.join(
-            [base_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
+            [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
         self.url[('granularitySet', 'GET')] = '/'.join(
-            [base_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+            [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
 
         self.url[('kpiFunctions', 'POST')] = '/'.join(
-            [base_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, 'import'])
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, 'import'])
 
         self.url[('kpiFunction', 'POST')] = '/'.join(
-            [base_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
         self.url[('kpiFunction', 'DELETE')] = '/'.join(
-            [base_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
         self.url[('kpiFunction', 'GET')] = '/'.join(
-            [base_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
         self.url[('kpiFunction', 'PUT')] = '/'.join(
-            [base_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
-        self.url['usage', 'POST'] = '/'.join([base_url, 'kpiusage', 'v1', self.tenant_id, 'function', 'usage'])
+        self.url['usage', 'POST'] = '/'.join([base_kpi_url, 'kpiusage', 'v1', self.tenant_id, 'function', 'usage'])
 
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
@@ -1788,7 +1820,7 @@ class Database(object):
         table = self.get_table(table_name, schema)
         dim = None
         if dimension is not None:
-            try: # tolerate the case where the dimension table might not yet have been created
+            try:  # tolerate the case where the dimension table might not yet have been created
                 dim = self.get_table(table_name=dimension, schema=schema)
             except (KeyError):
                 dim = None
@@ -2635,6 +2667,7 @@ class Database(object):
             self.commit()
             logger.info('Wrote data to table %s ' % table_name)
         return 1
+
 
 class BaseTable(object):
     is_table = True

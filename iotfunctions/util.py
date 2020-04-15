@@ -762,7 +762,7 @@ class MessageHub:
         end_time = dt.datetime.now()
         logger.info("Total alerts produced to message hub = %d " % len(key_and_msg))
         logger.info("Total time taken to produce the alert to message hub = %s seconds." % (
-                    end_time - start_time).total_seconds())
+                end_time - start_time).total_seconds())
 
     def produce(self, topic, msg, key=None, producer=None, callback=_delivery_report):
         if topic is None or len(topic) == 0 or msg is None:

@@ -29,7 +29,7 @@ from .pipeline import (CalcPipeline, DropNull, JobController, JobLogNull, Trace,
 from .util import (MemoryOptimizer, build_grouper, categorize_args, reset_df_index)
 from .stages import (DataReader, DataWriter, DataWriterFile)
 from .exceptions import StageException
-import iotfunctions as iotf
+import iotfunctions
 
 logger = logging.getLogger(__name__)
 
@@ -220,14 +220,14 @@ class EntityType(object):
 
     def __init__(self, name, db, *args, **kwargs):
 
-        logger.debug('Initializing new entity type using iotfunctions %s', iotf.__version__)
+        logger.debug('Initializing new entity type using iotfunctions %s', iotfunctions.__version__)
 
         try:
+            self.logical_name = kwargs.get('logical_name', None)
             if self.logical_name is None:
                 self.logical_name = name
         except AttributeError:
             self.logical_name = name
-
 
         if db == None:
             name = 'None'

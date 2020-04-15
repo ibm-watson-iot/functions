@@ -82,7 +82,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
 
     '''
 
-    def __init__(self, input_items, expression, output_items):
+    def __init__(self, input_items, expression=None, output_items=None):
         super().__init__()
 
         self.input_items = input_items
@@ -224,8 +224,9 @@ class AlertHighValue(BaseEvent):
 
     def execute(self, df):
         df = df.copy()
+        logger.debug('Initial Input Item df {}'.format(df[self.input_item]))
         df[self.alert_name] = np.where(df[self.input_item] >= self.upper_threshold, True, None)
-
+        logger.debug('Final AlertHighValue df {}'.format(df[self.alert_name]))
         return df
 
     @classmethod
@@ -265,7 +266,6 @@ class AlertLowValue(BaseEvent):
         # c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.alert_name] = np.where(df[self.input_item] <= self.lower_threshold, True, None)
-
         return df
 
     @classmethod
@@ -742,392 +742,6 @@ class EntityDataGenerator(BasePreload):
         return (inputs, outputs)
 
 
-class BookKeeper():
-
-    def __init__(self):
-        self.expiry_data = dt.datetime.utcnow() + 1
-        self.count = dt.datetime.utcnow() + 1
-
-
-class AnomalyGeneratorExtremeValue(BaseTransformer):
-    '''
-    This function generates extreme anomaly.
-    '''
-
-    def __init__(self, input_item, factor, size, output_item):
-        self.input_item = input_item
-        self.output_item = output_item
-        self.factor = int(factor)
-        self.size = int(size)
-        super().__init__()
-
-    def execute(self, df):
-
-        logger.debug('Dataframe shape {}'.format(df.shape))
-
-        entity_type = self.get_entity_type()
-        derived_metric_table_name = 'DM_' + entity_type.logical_name
-        schema = entity_type._db_schema
-
-        # store and initialize the counts by entity id
-        db = self._entity_type.db
-
-        raw_dataframe = None
-        try:
-            query, table = db.query(derived_metric_table_name, schema, column_names='KEY', filters={'KEY': self.output_item})
-            raw_dataframe = db.get_query_data(query)
-            key = '_'.join([derived_metric_table_name, self.output_item])
-            logger.debug('Check for key {} in derived metric table {}'.format(self.output_item, raw_dataframe.shape))
-        except Exception as e:
-            logger.error('Checking for derived metric table %s failed with %s.' % (str(self.output_item), str(e)))
-            key = str(derived_metric_table_name) + str(self.output_item)
-            pass
-
-        if raw_dataframe is not None and raw_dataframe.empty:
-            # delete old counts if present
-            db.model_store.delete_model(key)
-            logger.debug('Reintialize count')
-
-        counts_by_entity_id = None
-        try:
-            counts_by_entity_id = db.model_store.retrieve_model(key)
-        except Exception as e2:
-            logger.error('Counts by entity id not yet initialized - error: ' + str(e2))
-            pass
-
-        if counts_by_entity_id is None:
-            counts_by_entity_id = {}
-        logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))
-
-        timeseries = df.reset_index()
-        timeseries[self.output_item] = timeseries[self.input_item]
-        df_grpby = timeseries.groupby('id')
-        for grp in df_grpby.__iter__():
-
-            entity_grp_id = grp[0]
-            df_entity_grp = grp[1]
-
-            #Initialize group counts
-            count = 0
-            if entity_grp_id in counts_by_entity_id:
-                count = counts_by_entity_id[entity_grp_id]
-
-            #Start index based on counts and factor
-            if count == 0 or count%self.factor == 0:
-                strt_idx = 0
-            else:
-                strt_idx = self.factor - count%self.factor
-
-            # Prepare numpy array for marking anomalies
-            actual = df_entity_grp[self.output_item].values
-            a = actual[strt_idx:]
-            
-            # Update group counts for storage
-            count += actual.size
-            counts_by_entity_id[entity_grp_id] = count
-            
-            # Create NaN padding for reshaping
-            nan_arr = np.repeat(np.nan, self.factor - a.size % self.factor)
-            # Prepare numpy array to reshape
-            a_reshape_arr = np.append(a,nan_arr)
-            # Final numpy array to be transformed
-            a1 = np.reshape(a_reshape_arr, (-1, self.factor)).T
-            # Calculate 'local' standard deviation if it exceeds 1 to generate anomalies
-            std = np.std(a1, axis=0)
-            stdvec = np.maximum(np.where(np.isnan(std),1,std), np.ones(a1[0].size))
-            # Mark Extreme anomalies
-            a1[0] = np.multiply(a1[0],
-                        np.multiply(np.random.choice([-1,1], a1.shape[1]),
-                                    stdvec * self.size))
-            # Flattening back to 1D array
-            a2 = a1.T.flatten()
-            # Removing NaN padding
-            a2 = a2[~np.isnan(a2)]
-            # Adding the missing elements to create final array
-            final = np.append(actual[:strt_idx],a2)
-            # Set values in the original dataframe
-            timeseries.loc[df_entity_grp.index, self.output_item] = final
-
-        logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
-
-        # save the group counts to db
-        try:
-            db.model_store.store_model(key, counts_by_entity_id)
-        except Exception as e3:
-            logger.error('Counts by entity id cannot be stored - error: ' + str(e3))
-            pass
-
-        timeseries.set_index(df.index.names, inplace=True)
-        return timeseries
-
-    @classmethod
-    def build_ui(cls):
-        inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Item to base anomaly on'
-                                              ))
-
-        inputs.append(UISingle(
-                name='factor',
-                datatype=int,
-                description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
-                default=5
-                                              ))
-
-        inputs.append(UISingle(
-                name='size',
-                datatype=int,
-                description='Size of extreme anomalies to be created. e.g. 10 will create 10x size extreme \
-                             anomaly compared to the normal variance', default=10
-                                              ))
-
-        outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Generated Item With Extreme anomalies'
-                ))
-        return (inputs, outputs)
-
-
-class AnomalyGeneratorNoData(BaseTransformer):
-    '''
-    This function generates nodata anomaly.
-    '''
-
-    def __init__(self, input_item, width, factor, output_item):
-        self.input_item = input_item
-        self.output_item = output_item
-        self.width = int(width)
-        self.factor = int(factor)
-        super().__init__()
-
-    def execute(self, df):
-
-        logger.debug('Dataframe shape {}'.format(df.shape))
-
-        entity_type = self.get_entity_type()
-        derived_metric_table_name = 'DM_'+entity_type.logical_name
-        schema = entity_type._db_schema
-
-        # store and initialize the counts by entity id
-        # db = self.get_db()
-        db = self._entity_type.db
-        query, table = db.query(derived_metric_table_name, schema, column_names='KEY', filters={'KEY': self.output_item})
-        raw_dataframe = db.get_query_data(query)
-        logger.debug('Check for key {} in derived metric table {}'.format(self.output_item, raw_dataframe.shape))
-        key = '_'.join([derived_metric_table_name, self.output_item])
-
-        if raw_dataframe is not None and raw_dataframe.empty:
-            # delete old counts if present
-            db.model_store.delete_model(key)
-            logger.debug('Intialize count for first run')
-
-        counts_by_entity_id = db.model_store.retrieve_model(key)
-        if counts_by_entity_id is None:
-            counts_by_entity_id = {}
-        logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))
-
-        # mark Anomalies
-        timeseries = df.reset_index()
-        timeseries[self.output_item] = timeseries[self.input_item]
-        df_grpby = timeseries.groupby('id')
-        for grp in df_grpby.__iter__():
-
-            entity_grp_id = grp[0]
-            df_entity_grp = grp[1]
-            logger.debug('Group {} Indexes {}'.format(grp[0], df_entity_grp.index))
-
-            count = 0
-            width = self.width
-            if entity_grp_id in counts_by_entity_id:
-                count = counts_by_entity_id[entity_grp_id][0]
-                width = counts_by_entity_id[entity_grp_id][1]
-
-            mark_anomaly = False
-            for grp_row_index in df_entity_grp.index:
-                count += 1
-
-                if width != self.width or count % self.factor == 0:
-                    # start marking points
-                    mark_anomaly = True
-
-                if mark_anomaly:
-                    timeseries[self.output_item].iloc[grp_row_index] = np.NaN
-                    width -= 1
-                    logger.debug('Anomaly Index Value{}'.format(grp_row_index))
-
-                if width == 0:
-                    # end marking points
-                    mark_anomaly = False
-                    # update values
-                    width = self.width
-                    count = 0
-
-            counts_by_entity_id[entity_grp_id] = (count, width)
-
-        logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
-
-        # save the group counts to db
-        db.model_store.store_model(key, counts_by_entity_id)
-
-        timeseries.set_index(df.index.names, inplace=True)
-        return timeseries
-
-    @classmethod
-    def build_ui(cls):
-        inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Item to base anomaly on'
-                                              ))
-
-        inputs.append(UISingle(
-                name='factor',
-                datatype=int,
-                description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
-                default=10
-                                              ))
-
-        inputs.append(UISingle(
-                name='width',
-                datatype=int,
-                description='Width of the anomaly created',
-                default=5
-                                              ))
-
-        outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Generated Item With NoData anomalies'
-                ))
-        return (inputs, outputs)
-
-
-class AnomalyGeneratorFlatline(BaseTransformer):
-    '''
-    This function generates flatline anomaly.
-    '''
-
-    def __init__(self, input_item, width, factor, output_item):
-        self.input_item = input_item
-        self.output_item = output_item
-        self.width = int(width)
-        self.factor = int(factor)
-        super().__init__()
-
-    def execute(self, df):
-
-        logger.debug('Dataframe shape {}'.format(df.shape))
-
-        entity_type = self.get_entity_type()
-        derived_metric_table_name = 'DM_'+entity_type.logical_name
-        schema = entity_type._db_schema
-
-        # store and initialize the counts by entity id
-        # db = self.get_db()
-        db = self._entity_type.db
-        query, table = db.query(derived_metric_table_name, schema, column_names='KEY', filters={'KEY': self.output_item})
-        raw_dataframe = db.get_query_data(query)
-        logger.debug('Check for key column {} in derived metric table {}'.format(self.output_item, raw_dataframe.shape))
-        key = '_'.join([derived_metric_table_name, self.output_item])
-
-        if raw_dataframe is not None and raw_dataframe.empty:
-            # delete old counts if present
-            db.model_store.delete_model(key)
-            logger.debug('Intialize count for first run')
-
-        counts_by_entity_id = db.model_store.retrieve_model(key)
-        if counts_by_entity_id is None:
-            counts_by_entity_id = {}
-        logger.debug('Initial Grp Counts {}'.format(counts_by_entity_id))
-
-        # mark Anomalies
-        timeseries = df.reset_index()
-        timeseries[self.output_item] = timeseries[self.input_item]
-        df_grpby = timeseries.groupby('id')
-        for grp in df_grpby.__iter__():
-
-            entity_grp_id = grp[0]
-            df_entity_grp = grp[1]
-            logger.debug('Group {} Indexes {}'.format(grp[0], df_entity_grp.index))
-
-            count = 0
-            width = self.width
-            local_mean = df_entity_grp.iloc[:10][self.input_item].mean()
-            if entity_grp_id in counts_by_entity_id:
-                count = counts_by_entity_id[entity_grp_id][0]
-                width = counts_by_entity_id[entity_grp_id][1]
-                if count != 0:
-                    local_mean = counts_by_entity_id[entity_grp_id][2]
-
-            mark_anomaly = False
-            for grp_row_index in df_entity_grp.index:
-                count += 1
-
-                if width != self.width or count % self.factor == 0:
-                    # start marking points
-                    mark_anomaly = True
-
-                if mark_anomaly:
-                    timeseries[self.output_item].iloc[grp_row_index] = local_mean
-                    width -= 1
-                    logger.debug('Anomaly Index Value{}'.format(grp_row_index))
-
-                if width == 0:
-                    # end marking points
-                    mark_anomaly = False
-                    # update values
-                    width = self.width
-                    count = 0
-                    local_mean = df_entity_grp.iloc[:10][self.input_item].mean()
-
-            counts_by_entity_id[entity_grp_id] = (count, width, local_mean)
-
-        logger.debug('Final Grp Counts {}'.format(counts_by_entity_id))
-
-        # save the group counts to db
-        db.model_store.store_model(key, counts_by_entity_id)
-
-        timeseries.set_index(df.index.names, inplace=True)
-        return timeseries
-
-    @classmethod
-    def build_ui(cls):
-        inputs = []
-        inputs.append(UISingleItem(
-                name='input_item',
-                datatype=float,
-                description='Item to base anomaly on'
-                                              ))
-
-        inputs.append(UISingle(
-                name='factor',
-                datatype=int,
-                description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
-                default=10
-                                              ))
-
-        inputs.append(UISingle(
-                name='width',
-                datatype=int,
-                description='Width of the anomaly created',
-                default=5
-                                              ))
-
-        outputs = []
-        outputs.append(UIFunctionOutSingle(
-                name='output_item',
-                datatype=float,
-                description='Generated Item With Flatline anomalies'
-                ))
-        return (inputs, outputs)
-
-
 class EntityFilter(BaseMetadataProvider):
     '''
     Filter data retrieval queries to retrieve only data for the entity ids
@@ -1278,7 +892,7 @@ class EntityId(BaseTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMultiItem(name='data_items', datatype=None, required=False,
-                                  description='Choose one or more data items. If data items are defined, \
+                      description='Choose one or more data items. If data items are defined, \
                                                entity id will only be shown if these data items are not null'))
         # define arguments that behave as function outputs
         outputs = []
@@ -1316,8 +930,7 @@ class IfThenElse(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIExpression(name='conditional_expression',
-                                   description="expression that returns a True/False value, \
+        inputs.append(UIExpression(name='conditional_expression', description="expression that returns a True/False value, \
                                                 eg. if df['temp']>50 then df['temp'] else None"))
         inputs.append(UIExpression(name='true_expression', description="expression when true, eg. df['temp']"))
         inputs.append(UIExpression(name='false_expression', description='expression when false, eg. None'))

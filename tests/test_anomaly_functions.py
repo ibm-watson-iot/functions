@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
@@ -15,7 +14,6 @@ spectral = 'TemperatureSpectralScore'
 sal = 'SaliencyAnomalyScore'
 gen = 'TemperatureGeneralizedScore'
 
-
 def test_anomaly_scores():
 
     # Run on the good pump first
@@ -30,6 +28,9 @@ def test_anomaly_scores():
     # and sort it by timestamp
     df_i = df_i.sort_values(by='timestamp')
     df_i = df_i.set_index(['entity', 'timestamp']).dropna()
+
+    for i in range(0, df_i.index.nlevels):
+        print(str(df_i.index.get_level_values(i)))
 
     #####
 
@@ -62,14 +63,7 @@ def test_anomaly_scores():
     # df_comp.to_csv('AzureAnomalysampleOutput.csv')
     df_o = pd.read_csv('AzureAnomalysampleOutput.csv')
 
-    #print('Compare Scores - Linf')
-
-    comp = {spectral: np.max(abs(df_comp[spectral].values - df_o[spectral].values)),
-            fft: np.max(abs(df_comp[fft].values - df_o[fft].values)),
-            sal: np.max(abs(df_comp[sal].values - df_o[sal].values)),
-            kmeans: np.max(abs(df_comp[kmeans].values - df_o[kmeans].values))}
-
-    #print(comp)
+    # print('Compare Scores - Linf')
 
     print('Compare Scores R2-score')
 
@@ -85,7 +79,50 @@ def test_anomaly_scores():
     assert_true(comp2[sal] > 0.9)
     # assert_true(comp2[kmeans] > 0.9)
 
+    df_agg = df_i.copy()
+
+    # add frequency to time
+    df_agg = df_agg.reset_index().set_index(['timestamp']).asfreq(freq='T')
+    df_agg['site'] = 'Munich'
+    df_agg = df_agg.reset_index().set_index(['entity', 'timestamp', 'site']).dropna()
+
+    print('Compute Spectral Anomaly Score')
+    spsi = SpectralAnomalyScore(Temperature, 12, spectral)
+    et = spsi._build_entity_type(columns=[Column(Temperature, Float())])
+    spsi._entity_type = et
+    df_agg = spsi.execute(df=df_agg)
+
+    print('Compute K-Means Anomaly Score')
+    kmi = KMeansAnomalyScore(Temperature, 12, kmeans)
+    et = kmi._build_entity_type(columns=[Column(Temperature, Float())])
+    kmi._entity_type = et
+    df_agg = kmi.execute(df=df_agg)
+
+    print('Compute Saliency Anomaly Score')
+    sali = SaliencybasedGeneralizedAnomalyScore(Temperature, 12, sal)
+    et = sali._build_entity_type(columns=[Column(Temperature, Float())])
+    sali._entity_type = et
+    df_agg = sali.execute(df=df_agg)
+
+    print('Compute FFT Anomaly Score')
+    ffti = FFTbasedGeneralizedAnomalyScore(Temperature, 12, fft)
+    et = ffti._build_entity_type(columns=[Column(Temperature, Float())])
+    ffti._entity_type = et
+    df_agg = ffti.execute(df=df_agg)
+
+    print(df_agg.describe())
+
+    comp3 = {spectral: r2_score(df_o[spectral].values, df_agg[spectral].values),
+             fft: r2_score(df_o[fft].values, df_agg[fft].values),
+             sal: r2_score(df_o[sal].values, df_agg[sal].values),
+             kmeans: r2_score(df_o[kmeans].values, df_agg[kmeans].values)}
+
+    print(comp3)
+
+    print("Executed Anomaly functions on aggregation data")
+
     pass
+
 
 # uncomment to run from the command line
 # test_anomaly_scores()
