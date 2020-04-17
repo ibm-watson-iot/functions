@@ -223,6 +223,7 @@ class EntityType(object):
         logger.debug('Initializing new entity type using iotfunctions %s', iotfunctions.__version__)
 
         try:
+            self.logical_name = kwargs.get('logical_name', None)
             if self.logical_name is None:
                 self.logical_name = name
         except AttributeError:

@@ -20,6 +20,7 @@ import pandas as pd
 import random
 import string
 import logging
+import logging.config
 import errno
 import sys
 import json
@@ -58,6 +59,16 @@ MH_PASSWORD = os.environ.get('MH_PASSWORD')
 MH_BROKERS_SASL = os.environ.get('MH_BROKERS_SASL')
 MH_DEFAULT_ALERT_TOPIC = os.environ.get('MH_DEFAULT_ALERT_TOPIC')
 MH_CLIENT_ID = 'as-pipeline-alerts-producer'
+
+
+def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
+    logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
+        'simple': {'format': '%(asctime)s [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
+                   'datefmt': '%Y-%m-%d %I:%M:%S %p'}}, 'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'simple', 'stream': 'ext://sys.stdout'},
+        'file': {'class': 'logging.FileHandler', 'filename': 'main.log', 'mode': 'w', 'formatter': 'simple'}},
+                               'loggers': {'analytics_service': {'level': log_level}},
+                               'root': {'level': root_log_level, 'handlers': ['console', 'file']}})
 
 
 def adjust_probabilities(p_list):
