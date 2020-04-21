@@ -4,14 +4,15 @@ import sys
 import getopt
 import logging
 import json
-from iotfunctions import estimator
 from iotfunctions.db import Database
 from iotfunctions.enginelog import EngineLogging
-#from iotfunctions.anomaly import GBMRegressor
-from mmfunctions.anomaly import GBMRegressor
+from iotfunctions.anomaly import GBMRegressor
+# from mmfunctions.anomaly import GBMRegressor
+from iotfunctions.dbtables import DBModelStore
 from iotfunctions import pipeline as pp
 
 import datetime as dt
+import ibm_db
 
 with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
@@ -70,12 +71,12 @@ def main(argv):
         sys.exit(3)
 
     # endTime == None means now
-    if endTime == None:
+    if endTime is None:
         endTimeV = 0
     else:
         endTimeV = eval(endTime)
 
-    if startTime == None:
+    if startTime is None:
         print('startTime is missing, please specify relative to endTime (3 means 3 days before endTime)')
         print(helpString)
         sys.exit(4)
@@ -86,17 +87,27 @@ def main(argv):
     db = Database(credentials=credentials)
     print(db)
 
+    # establish a native connection to db2 to store the model
+    DB2ConnString = 'DATABASE=' + credentials['db2']['databaseName'] + \
+                    ';HOSTNAME=' + credentials['db2']['host'] + \
+                    ';PORT=' + str(credentials['db2']['port']) + \
+                    ';PROTOCOL=TCPIP;UID=' + credentials['db2']['username'] + \
+                    ';PWD=' + credentials['db2']['password']
+
+    db_connection = ibm_db.connect(DB2ConnString, '', '')
+    print(db_connection)
+
+    model_store = DBModelStore(credentials['tenantId'], entityType, credentials['db2']['username'], db_connection, 'db2')
+    db.model_store = model_store
+
     meta = db.get_entity_type(entityType)
 
-    logger.info('Connected to database')
+    logger.info('Connected to database - SQL alchemy and native')
 
     gbm = GBMRegressor(features=[featureC], targets=[targetC], threshold=2, predictions=[predictC])
-                       #max_depth=20, num_leaves=40, n_estimators=4000, learning_rate=0.00001)
+    # max_depth=20, num_leaves=40, n_estimators=4000, learning_rate=0.00001)
 
     gbm.delete_existing_models = True
-
-    #gbm_fndef = db.load_catalog(function_list=['GBMRegressor'])
-    #print (gbm_fndef)
 
     meta._functions = [gbm]
 
