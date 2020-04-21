@@ -330,10 +330,10 @@ class ProduceAlerts(object):
         except AttributeError:
             self.entity_type_name = dms.entity_type
 
-        self.entity_type_id = dms.entityTypeId
+        self.entity_type_id = dms.entity_type_id
         self.is_postgre_sql = dms.is_postgre_sql
         self.db_connection = dms.db_connection
-        self.quotedSchema = dbhelper.quotingSchemaName(dms.schema, self.is_postgre_sql)
+        self.quotedSchema = dbhelper.quotingSchemaName(dms.default_db_schema, self.is_postgre_sql)
         self.quotedTableName = dbhelper.quotingTableName('dm_wiot_as_alert', self.is_postgre_sql)
         self.alert_to_kpi_input_dict = dict()
         self.alerts_to_message_hub = []
