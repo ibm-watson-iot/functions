@@ -155,8 +155,8 @@ class AlertOutOfRange(BaseEvent):
     Fire alert when metric exceeds an upper threshold or drops below a lower_theshold. Specify at least one threshold.
     """
 
-    def __init__(self, input_item, lower_threshold=None, upper_threshold=None, output_alert_upper='output_alert_upper',
-                 output_alert_lower='output_alert_lower', **kwargs):
+    def __init__(self, input_item, lower_threshold=None, upper_threshold=None, output_alert_upper=None,
+                 output_alert_lower=None, **kwargs):
 
         self.input_item = input_item
         if lower_threshold is not None:
@@ -165,8 +165,17 @@ class AlertOutOfRange(BaseEvent):
         if upper_threshold is not None:
             upper_threshold = float(upper_threshold)
         self.upper_threshold = upper_threshold
-        self.output_alert_lower = output_alert_lower
-        self.output_alert_upper = output_alert_upper
+
+        if output_alert_lower is None:
+            self.output_alert_lower = 'output_alert_lower'
+        else:
+            self.output_alert_lower = output_alert_lower
+
+        if output_alert_upper is None:
+            self.output_alert_upper = 'output_alert_upper'
+        else:
+            self.output_alert_upper = output_alert_upper
+
         super().__init__()
 
     def _calc(self, df):
@@ -211,10 +220,14 @@ class AlertHighValue(BaseEvent):
     Fire alert when metric exceeds an upper threshold'.
     """
 
-    def __init__(self, input_item, upper_threshold=None, alert_name='alert_name', **kwargs):
+    def __init__(self, input_item, upper_threshold=None, alert_name=None, **kwargs):
         self.input_item = input_item
         self.upper_threshold = float(upper_threshold)
-        self.alert_name = alert_name
+        if alert_name is None:
+            self.alert_name = 'alert_name'
+        else:
+            self.alert_name = alert_name
+
         super().__init__()
 
     def _calc(self, df):
@@ -250,10 +263,14 @@ class AlertLowValue(BaseEvent):
     Fire alert when metric goes below a threshold'.
     """
 
-    def __init__(self, input_item, lower_threshold=None, alert_name='alert_name', **kwargs):
+    def __init__(self, input_item, lower_threshold=None, alert_name=None, **kwargs):
         self.input_item = input_item
         self.lower_threshold = float(lower_threshold)
-        self.alert_name = alert_name
+        if alert_name is None:
+            self.alert_name = 'alert_name'
+        else:
+            self.alert_name = alert_name
+
         super().__init__()
 
     def _calc(self, df):
@@ -290,12 +307,15 @@ class AutoTest(BaseTransformer):
     Note: This function is experimental
     '''
 
-    def __init__(self, test_datset_name, columns_to_test, result_col='test_result'):
+    def __init__(self, test_datset_name, columns_to_test, result_col=None):
         super().__init__()
 
         self.test_datset_name = test_datset_name
         self.columns_to_test = columns_to_test
-        self.result_col = result_col
+        if result_col is None:
+            self.result_col = 'test_result'
+        else:
+            self.result_col = result_col
 
     def execute(self, df):
         db = self.get_db()
@@ -326,10 +346,13 @@ class Coalesce(BaseTransformer):
     Return first non-null value from a list of data items.
     """
 
-    def __init__(self, data_items, output_item='output_item'):
+    def __init__(self, data_items, output_item=None):
         super().__init__()
         self.data_items = data_items
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'output_item'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         df[self.output_item] = df[self.data_items].bfill(axis=1).iloc[:, 0]
@@ -353,10 +376,14 @@ class CoalesceDimension(BaseTransformer):
     Return first non-null value from a list of data items.
     """
 
-    def __init__(self, data_items, output_item='output_item'):
+    def __init__(self, data_items, output_item=None):
         super().__init__()
         self.data_items = data_items
-        self.output_item = output_item
+
+        if output_item is None:
+            self.output_item = 'output_item'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         df[self.output_item] = df[self.data_items].bfill(axis=1).iloc[:, 0]
@@ -424,12 +451,15 @@ class DateDifference(BaseTransformer):
     Calculate the difference between two date data items in days,ie: ie date_2 - date_1
     """
 
-    def __init__(self, date_1, date_2, num_days='num_days'):
+    def __init__(self, date_1, date_2, num_days=None):
 
         super().__init__()
         self.date_1 = date_1
         self.date_2 = date_2
-        self.num_days = num_days
+        if num_days is None:
+            self.num_days = 'num_days'
+        else:
+            self.num_days = num_days
 
     def execute(self, df):
 
@@ -475,12 +505,15 @@ class DateDifferenceConstant(BaseTransformer):
     ie: ie constant_date - date_1
     """
 
-    def __init__(self, date_1, date_constant, num_days='num_days'):
+    def __init__(self, date_1, date_constant, num_days=None):
 
         super().__init__()
         self.date_1 = date_1
         self.date_constant = date_constant
-        self.num_days = num_days
+        if num_days is None:
+            self.num_days = 'num_days'
+        else:
+            self.num_days = num_days
 
     def execute(self, df):
 
@@ -560,10 +593,13 @@ class DeleteInputData(BasePreload):
     Delete data from time series input table for entity type
     '''
 
-    def __init__(self, dummy_items, older_than_days, output_item='output_item'):
+    def __init__(self, dummy_items, older_than_days, output_item=None):
         super().__init__(dummy_items=dummy_items)
         self.older_than_days = older_than_days
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'output_item'
+        else:
+            self.output_item = output_item
 
     def execute(self, df=None, start_ts=None, end_ts=None, entities=None):
         entity_type = self.get_entity_type()
@@ -596,7 +632,11 @@ class DropNull(BaseMetadataProvider):
     Drop any row that has all null metrics
     '''
 
-    def __init__(self, exclude_items, drop_all_null_rows=True, output_item='drop_nulls'):
+    def __init__(self, exclude_items, drop_all_null_rows=True, output_item=None):
+
+        if output_item is None:
+            output_item = 'drop_nulls'
+
         kw = {'_custom_exclude_col_from_auto_drop_nulls': exclude_items, '_drop_all_null_rows': drop_all_null_rows}
         super().__init__(dummy_items=exclude_items, output_item=output_item, **kw)
         self.exclude_items = exclude_items
@@ -656,7 +696,10 @@ class EntityDataGenerator(BasePreload):
 
     # ids of entities to generate. Change the value of the range() function to change the number of entities
 
-    def __init__(self, ids=None, output_item='entity_data_generator', parameters=None, **kw):
+    def __init__(self, ids=None, output_item=None, parameters=None, **kw):
+
+        if output_item is None:
+            output_item = 'entity_data_generator'
 
         if parameters is None:
             parameters = {}
@@ -748,7 +791,11 @@ class EntityFilter(BaseMetadataProvider):
     included in the filter
     '''
 
-    def __init__(self, entity_list, output_item='is_filter_set'):
+    def __init__(self, entity_list, output_item=None):
+
+        if output_item is None:
+            output_item = 'is_filter_set'
+
         dummy_items = ['deviceid']
         kwargs = {'_entity_filter_list': entity_list}
         super().__init__(dummy_items, output_item=output_item, **kwargs)
@@ -871,11 +918,14 @@ class EntityId(BaseTransformer):
     id when one or more data items are populated, else deliver a null value.
     """
 
-    def __init__(self, data_items=None, output_item='entity_id'):
+    def __init__(self, data_items=None, output_item=None):
 
         super().__init__()
         self.data_items = data_items
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'entity_id'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
 
@@ -912,12 +962,16 @@ class IfThenElse(BaseTransformer):
     false expression: 0
     """
 
-    def __init__(self, conditional_expression, true_expression, false_expression, output_item='output_item'):
+    def __init__(self, conditional_expression, true_expression, false_expression, output_item=None):
         super().__init__()
         self.conditional_expression = self.parse_expression(conditional_expression)
         self.true_expression = self.parse_expression(true_expression)
         self.false_expression = self.parse_expression(false_expression)
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'output_item'
+        else:
+            self.output_item = output_item
+
 
     def execute(self, df):
         # c = self._entity_type.get_attributes_dict()
@@ -1104,11 +1158,14 @@ class RaiseError(BaseTransformer):
     message displayed in the UI.
     """
 
-    def __init__(self, halt_after, abort_execution=True, output_item='pipeline_exception'):
+    def __init__(self, halt_after, abort_execution=True, output_item=None):
         super().__init__()
         self.halt_after = halt_after
         self.abort_execution = abort_execution
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'pipeline_exception'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         msg = self.log_df_info(df, 'Prior to raising error')
@@ -1169,11 +1226,14 @@ class RandomUniform(BaseTransformer):
     Generate a uniformally distributed random number.
     """
 
-    def __init__(self, min_value, max_value, output_item='output_item'):
+    def __init__(self, min_value, max_value, output_item=None):
         super().__init__()
         self.min_value = min_value
         self.max_value = max_value
-        self.output_item = output_item
+        if output_item is None:
+            self. output_item='output_item'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         df[self.output_item] = np.random.uniform(self.min_value, self.max_value, len(df.index))
@@ -1197,11 +1257,14 @@ class RandomNormal(BaseTransformer):
     Generate a normally distributed random number.
     """
 
-    def __init__(self, mean, standard_deviation, output_item='output_item'):
+    def __init__(self, mean, standard_deviation, output_item=None):
         super().__init__()
         self.mean = mean
         self.standard_deviation = standard_deviation
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'output_item'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         df[self.output_item] = np.random.normal(self.mean, self.standard_deviation, len(df.index))
@@ -1253,11 +1316,14 @@ class RandomChoiceString(BaseTransformer):
     Generate random categorical values.
     """
 
-    def __init__(self, domain_of_values, probabilities=None, output_item='output_item'):
+    def __init__(self, domain_of_values, probabilities=None, output_item=None):
         super().__init__()
         self.domain_of_values = domain_of_values
         self.probabilities = adjust_probabilities(probabilities)
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'output_item'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         df[self.output_item] = np.random.choice(a=self.domain_of_values, p=self.probabilities, size=len(df.index))
@@ -1283,11 +1349,14 @@ class RandomDiscreteNumeric(BaseTransformer):
     Generate random discrete numeric values.
     """
 
-    def __init__(self, discrete_values, probabilities=None, output_item='output_item'):
+    def __init__(self, discrete_values, probabilities=None, output_item=None):
         super().__init__()
         self.discrete_values = discrete_values
         self.probabilities = adjust_probabilities(probabilities)
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item='output_item'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         df[self.output_item] = np.random.choice(a=self.discrete_values, p=self.probabilities, size=len(df.index))
@@ -1312,12 +1381,20 @@ class SaveCosDataFrame(BaseTransformer):
     Serialize dataframe to COS
     """
 
-    def __init__(self, filename='job_output_df', columns=None, output_item='save_df_result'):
+    def __init__(self, filename=None, columns=None, output_item=None):
 
         super().__init__()
-        self.filename = filename
+        if filename is None:
+            self.filename = 'job_output_df'
+        else:
+            self.filename = filename
+
         self.columns = columns
-        self.output_item = output_item
+
+        if output_item is None:
+            self.output_item = 'save_df_result'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
 
@@ -1370,15 +1447,34 @@ class ShiftCalendar(BaseTransformer):
     is_custom_calendar = True
     auto_conform_index = True
 
-    def __init__(self, shift_definition=None, period_start_date='shift_start_date', period_end_date='shift_end_date',
-                 shift_day='shift_day', shift_id='shift_id'):
+    def __init__(self, shift_definition=None, period_start_date=None, period_end_date=None,
+                 shift_day=None, shift_id=None):
+
         if shift_definition is None:
-            shift_definition = {"1": [5.5, 14], "2": [14, 21], "3": [21, 29.5]}
-        self.shift_definition = shift_definition
-        self.period_start_date = period_start_date
-        self.period_end_date = period_end_date
-        self.shift_day = shift_day
-        self.shift_id = shift_id
+            self.shift_definition = {"1": [5.5, 14], "2": [14, 21], "3": [21, 29.5]}
+        else:
+            self.shift_definition = shift_definition
+
+        if period_start_date is None:
+            self.period_start_date = 'shift_start_date'
+        else:
+            self.period_start_date = period_start_date
+
+        if period_end_date is None:
+            self.period_end_date = 'shift_end_date'
+        else:
+            self.period_end_date = period_end_date
+
+        if shift_day is None:
+            self.shift_day = 'shift_day'
+        else:
+            self.shift_day = shift_day
+
+        if shift_id is None:
+            self.shift_id = 'shift_id'
+        else:
+            self.shift_id = shift_id
+
         super().__init__()
 
     def get_data(self, start_date, end_date):
@@ -1464,11 +1560,19 @@ class Sleep(BaseTransformer):
     Wait for the designated number of seconds
     """
 
-    def __init__(self, sleep_after, sleep_duration_seconds=30, output_item='sleep_status'):
+    def __init__(self, sleep_after, sleep_duration_seconds=None, output_item=None):
         super().__init__()
         self.sleep_after = sleep_after
-        self.sleep_duration_seconds = sleep_duration_seconds
-        self.output_item = output_item
+
+        if sleep_duration_seconds is None:
+            self.sleep_duration_seconds = 30
+        else:
+            self.sleep_duration_seconds = sleep_duration_seconds
+
+        if output_item is None:
+            self.output_item  = 'sleep_status'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         msg = 'Sleep duration: %s. ' % self.sleep_duration_seconds
@@ -1496,11 +1600,14 @@ class TraceConstants(BaseTransformer):
     Write the values of available constants to the trace
     """
 
-    def __init__(self, dummy_items, output_item='trace_written'):
+    def __init__(self, dummy_items, output_item=None):
         super().__init__()
 
         self.dummy_items = dummy_items
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'trace_written'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         c = self._entity_type.get_attributes_dict()
@@ -1527,10 +1634,13 @@ class TimestampCol(BaseTransformer):
     Deliver a data item containing the timestamp
     """
 
-    def __init__(self, dummy_items=None, output_item='timestamp_col'):
+    def __init__(self, dummy_items=None, output_item=None):
         super().__init__()
         self.dummy_items = dummy_items
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'timestamp_col'
+        else:
+            self.output_item = output_item
 
     def execute(self, df):
         ds_1 = self.get_timestamp_series(df)
@@ -1590,9 +1700,12 @@ class IoTEntityDataGenerator(BasePreload):
 
     is_deprecated = True
 
-    def __init__(self, ids=None, output_item='entity_data_generator'):
+    def __init__(self, ids=None, output_item=None):
         self.ids = ids
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'entity_data_generator'
+        else:
+            self.output_item = output_item
 
     def get_replacement(self):
         new = EntityDataGenerator(ids=self.ids, output_item=self.output_item)
@@ -1610,9 +1723,15 @@ class IoTCalcSettings(BaseMetadataProvider):
 
     is_deprecated = True
 
-    def __init__(self, checkpoint_by_entity=False, pre_aggregate_time_grain=None, auto_read_from_ts_table=True,
+    def __init__(self, checkpoint_by_entity=False, pre_aggregate_time_grain=None, auto_read_from_ts_table=None,
                  sum_items=None, mean_items=None, min_items=None, max_items=None, count_items=None, sum_outputs=None,
-                 mean_outputs=None, min_outputs=None, max_outputs=None, count_outputs=None, output_item='output_item'):
+                 mean_outputs=None, min_outputs=None, max_outputs=None, count_outputs=None, output_item=None):
+
+        if auto_read_from_ts_table is None:
+            auto_read_from_ts_table = True
+
+        if output_item is None:
+            output_item = 'output_item'
 
         # metadata for pre-aggregation:
         # pandas aggregate dict containing a list of aggregates for each item
@@ -1698,13 +1817,16 @@ class IoTCosFunction(BaseTransformer):
 
     is_deprecated = True
 
-    def __init__(self, function_name, input_items, output_item='output_item', parameters=None):
+    def __init__(self, function_name, input_items, output_item=None, parameters=None):
 
         # the function name may be passed as a function object or function name (string)
         # if a string is provided, it is assumed that the function object has already been serialized to COS
         # if a function onbject is supplied, it will be serialized to cos
         self.input_items = input_items
-        self.output_item = output_item
+        if output_item is None:
+            self.output_item = 'output_item'
+        else:
+            self.output_item = output_item
         super().__init__()
         # get the cos bucket
         # if function object, serialize and get name
