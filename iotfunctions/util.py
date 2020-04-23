@@ -93,16 +93,16 @@ def adjust_probabilities(p_list):
 def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calendar_keys=None, ):
     '''
     Build a pandas grouper from columns and frequecy metadata.
-    
+
     Parameters
     -----------
-    
+
     freq : str
     pandas frequency string
-    
+
     timestamp: str
     name of timestamp column to group by
-    
+
     entity_id: str
     column name for the entity_id if entity id is included in group by
     e.g. device_id
@@ -114,7 +114,7 @@ def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calen
     custom_calendar_keys: list of strs
     column names for the custom calendar keys to be included in group by
     e.g. ['shift']
-    
+
     '''
 
     grouper = []
@@ -135,12 +135,12 @@ def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calen
 def categorize_args(categories, catch_all, *args):
     '''
     Separate objects passed as arguments into a dictionary of categories
-    
+
     members of categories are identified by a bool property or by
     being instances of a class
-    
+
     example:
-    
+
     categories = [('constant','is_ui_control',None),
                   ('granularity','is_granularity',None),
                   ('function','is_function',None),
@@ -256,7 +256,7 @@ def reset_df_index(df, auto_index_name='_auto_index_'):
 def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_aggregate='last'):
     '''
     Resample a dataframe to a new time grain / dimensional grain
-    
+
     Parameters:
     -----------
     df: Pandas dataframe
@@ -269,11 +269,11 @@ def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_a
         Pandas aggregate dictionary
     default_aggregate: str
         Default aggregation function to apply for anything not specified in agg
-    
+
     Returns
     -------
     Pandas dataframe
-    
+
     '''
     if dimensions is None:
         dimensions = []
@@ -958,26 +958,29 @@ class Trace(object):
         '''
         Write trace to COS
         '''
+        try:
+            save_to_file = self.parent.save_trace_to_file
+        except AttributeError:
+            save_to_file = self.save_trace_to_file
 
+        trace = None
         if len(self.data) == 0:
-            trace = None
             logger.debug('Trace is empty. Nothing to save.')
+        else:
+            trace = str(self.as_json())
+
+        if trace is not None and save_to_file:
+            with open('%s.json' % self.name, 'w') as fp:
+                fp.write(trace)
+            logger.debug('wrote trace to file %s.json' % self.name)
         else:
             if self.db is None:
                 logger.warning('Cannot save trace. No db object supplied')
                 trace = None
             else:
-                trace = str(self.as_json())
+                # trace = str(self.as_json())
                 self.db.cos_save(persisted_object=trace, filename=self.cos_path, binary=False, serialize=False)
                 logger.debug('Saved trace to cos %s', self.cos_path)
-        try:
-            save_to_file = self.parent.save_trace_to_file
-        except AttributeError:
-            save_to_file = self.save_trace_to_file
-        if trace is not None and save_to_file:
-            with open('%s.json' % self.name, 'w') as fp:
-                fp.write(trace)
-            logger.debug('wrote trace to file %s.json' % self.name)
 
         return trace
 
