@@ -12,7 +12,6 @@
 The Built In Functions module contains preinstalled functions
 '''
 
-import re
 import datetime as dt
 import numpy as np
 import scipy as sp
@@ -20,6 +19,7 @@ import scipy as sp
 #  for Spectral Analysis
 from scipy import signal, fftpack
 # from scipy.stats import energy_distance
+from sklearn.utils import check_X_y
 from sklearn import metrics
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -35,15 +35,14 @@ from pyod.models.cblof import CBLOF
 # for gradient boosting
 import lightgbm
 
-# import re
 import pandas as pd
 import logging
 # import warnings
 # import json
 # from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
-from .base import (BaseTransformer, BaseRegressor, BaseEvent, BaseEstimatorFunction)
+from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction)
 from .bif import (AlertHighValue)
-from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIExpression)
+from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -223,7 +222,11 @@ def merge_score(dfEntity, dfEntityOrig, column_name, score, mindelta):
 
 class SpectralAnomalyScore(BaseTransformer):
     '''
-    Employs spectral analysis to extract features from the time series data and to compute zscore from it
+    An unsupervised anomaly detection function.
+     Applies a spectral analysis clustering techniqueto extract features from time series data and to create z scores.
+     Moves a sliding window across the data signal and applies the anomalymodelto each window.
+     The window size is typically set to 12 data points.
+     Try several anomaly detectors on your data and use the one that fits your data best.
     '''
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
@@ -383,13 +386,13 @@ class SpectralAnomalyScore(BaseTransformer):
         inputs.append(UISingleItem(
                 name='input_item',
                 datatype=float,
-                description='Column for feature extraction'
+                description='Data item to analyze'
                                               ))
 
         inputs.append(UISingle(
                 name='windowsize',
                 datatype=int,
-                description='Window size for spectral analysis - default 12'
+                description='Size of each sliding window in data points. Typically set to 12.'
                                               ))
 
         # define arguments that behave as function outputs
@@ -397,14 +400,18 @@ class SpectralAnomalyScore(BaseTransformer):
         outputs.append(UIFunctionOutSingle(
                 name='output_item',
                 datatype=float,
-                description='Spectral anomaly score (elliptic envelope)'
+                description='Spectral anomaly score (z-score)'
                 ))
         return (inputs, outputs)
 
 
 class SpectralAnomalyScoreExt(SpectralAnomalyScore):
     '''
-    Employs spectral analysis to extract features from the time series data and to compute zscore from it
+    An unsupervised anomaly detection function.
+     Applies a spectral analysis clustering techniqueto extract features from time series data and to create z scores.
+     Moves a sliding window across the data signal and applies the anomalymodelto each window.
+     The window size is typically set to 12 data points.
+     Try several anomaly detectors on your data and use the one that fits your data best.
     '''
     def __init__(self, input_item, windowsize, output_item, inv_zscore):
         super().__init__(input_item, windowsize, output_item)
@@ -424,13 +431,13 @@ class SpectralAnomalyScoreExt(SpectralAnomalyScore):
         inputs.append(UISingleItem(
                 name='input_item',
                 datatype=float,
-                description='Column for feature extraction'
+                description='Data item to analyze'
                                               ))
 
         inputs.append(UISingle(
                 name='windowsize',
                 datatype=int,
-                description='Window size for spectral analysis - default 12'
+                description='Size of each sliding window in data points. Typically set to 12.'
                                               ))
 
         # define arguments that behave as function outputs
@@ -438,20 +445,23 @@ class SpectralAnomalyScoreExt(SpectralAnomalyScore):
         outputs.append(UIFunctionOutSingle(
                 name='output_item',
                 datatype=float,
-                description='Spectral anomaly score (z-Score)'
+                description='Spectral anomaly score (z-score)'
                 ))
         outputs.append(UIFunctionOutSingle(
                 name='inv_zscore',
                 datatype=float,
-                description='zScore of inverted signal energy'
+                description='z-score of inverted signal energy - detects unusually low activity'
                 ))
         return (inputs, outputs)
 
 
 class KMeansAnomalyScore(BaseTransformer):
     '''
-    Employs kmeans on windowed time series data and to compute
-     an anomaly score from proximity to centroid's center points
+    An unsupervised anomaly detection function.
+     Applies a k-means analysis clustering technique to time series data.
+     Moves a sliding window across the data signal and applies the anomaly model to each window.
+     The window size is typically set to 12 data points.
+     Try several anomaly models on your data and use the one that fits your databest.
     '''
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
@@ -579,13 +589,13 @@ class KMeansAnomalyScore(BaseTransformer):
         inputs.append(UISingleItem(
                 name='input_item',
                 datatype=float,
-                description='Column for feature extraction'
+                description='Data item to analyze'
                                               ))
 
         inputs.append(UISingle(
                 name='windowsize',
                 datatype=int,
-                description='Window size for spectral analysis - default 12'
+                description='Size of each sliding window in data points. Typically set to 12.'
                                               ))
 
         # define arguments that behave as function outputs
@@ -600,9 +610,12 @@ class KMeansAnomalyScore(BaseTransformer):
 
 class GeneralizedAnomalyScore(BaseTransformer):
     """
-    Employs GAM on windowed time series data to compute an anomaly score from the covariance matrix
+    An unsupervised anomaly detection function.
+     Applies the Minimum Covariance Determinant (FastMCD) technique to detect outliers.
+     Moves a sliding window across the data signal and applies the anomaly model to each window.
+     The window size is typically set to 12 data points.
+     Try several anomaly detectors on your data and use the one that fits your data best.
     """
-
     def __init__(self, input_item, windowsize, output_item):
         super().__init__()
         logger.debug(input_item)
@@ -772,7 +785,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
             UISingleItem(
                 name="input_item",
                 datatype=float,
-                description="Column for feature extraction",
+                description="Data item to analyze",
             )
         )
 
@@ -780,7 +793,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
             UISingle(
                 name="windowsize",
                 datatype=int,
-                description="Window size for Generalized Anomaly analysis - default 12",
+                description="Size of each sliding window in data points. Typically set to 12."
             )
         )
 
@@ -798,8 +811,10 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
 class NoDataAnomalyScore(GeneralizedAnomalyScore):
     '''
-    Employs generalized anomaly analysis to extract features from the
-      gaps in time series data and to compute the elliptic envelope from it
+    An unsupervised anomaly detection function.
+     Uses FastMCD to find gaps in data.
+     The function moves a sliding window across the data signal and applies the anomaly model to each window.
+     The window size is typically set to 12 data points.
     '''
     def __init__(self, input_item, windowsize, output_item):
         super().__init__(input_item, windowsize, output_item)
@@ -856,13 +871,13 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
         inputs.append(UISingleItem(
                 name='input_item',
                 datatype=float,
-                description='Column for feature extraction'
+                description='Data item to analyze'
                                               ))
 
         inputs.append(UISingle(
                 name='windowsize',
                 datatype=int,
-                description='Window size for no data spectral analysis - default 12'
+                description='Size of each sliding window in data points. Typically set to 12.'
                                               ))
 
         # define arguments that behave as function outputs
@@ -877,7 +892,12 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
 
 class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
     """
-    Employs FFT and GAM on windowed time series data to compute an anomaly score from the covariance matrix
+    An unsupervised and robust anomaly detection function.
+     Extracts temporal features from time series data using Fast Fourier Transforms.
+     Applies the GeneralizedAnomalyScore to the features to detect outliers.
+     Moves a sliding window across the data signal and applies the anomaly models to each window.
+     The window size is typically set to 12 data points.
+     Try several anomaly detectors on your data and use the one that best fits your data.
     """
 
     def __init__(self, input_item, windowsize, output_item):
@@ -917,7 +937,7 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
             UISingleItem(
                 name="input_item",
                 datatype=float,
-                description="Column for feature extraction",
+                description="Data item to analyze",
             )
         )
 
@@ -925,7 +945,7 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
             UISingle(
                 name="windowsize",
                 datatype=int,
-                description="Window size for FFT feature based Generalized Anomaly analysis - default 12",
+                description="Size of each sliding window in data points. Typically set to 12."
             )
         )
 
@@ -943,7 +963,12 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
 
 class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
     """
-    Employs FFT and GAM on windowed time series data to compute an anomaly score from the covariance matrix
+    An unsupervised and robust anomaly detection function.
+     Extracts temporal features from time series data using Fast Fourier Transforms.
+     Applies the GeneralizedAnomalyScore to the features to detect outliers.
+     Moves a sliding window across the data signal and applies the anomaly models to each window.
+     The window size is typically set to 12 data points.
+     Try several anomaly detectors on your data and use the one that best fits your data.
     """
 
     def __init__(self, input_item, windowsize, dampening, output_item):
@@ -984,7 +1009,7 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
             UISingleItem(
                 name="input_item",
                 datatype=float,
-                description="Column for feature extraction",
+                description="Data item to analyze",
             )
         )
 
@@ -992,7 +1017,7 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
             UISingle(
                 name="windowsize",
                 datatype=int,
-                description="Window size for FFT feature based Generalized Anomaly analysis - default 12",
+                description="Size of each sliding window in data points. Typically set to 12."
             )
         )
 
@@ -1000,7 +1025,7 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
             UISingle(
                 name="dampening",
                 datatype=float,
-                description="Moderate anomaly scores (value <= 1, default 1)",
+                description="Moderate the anomaly score. Use a value <=1. Typically set to 1."
             )
         )
 
@@ -1018,7 +1043,13 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
 
 class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
     """
-    Employs Saliency and GAM on windowed time series data to compute an anomaly score from the covariance matrix
+    An unsupervised anomaly detection function.
+     Based on salient region detection models,
+         it uses fast fourier transform to reconstruct a signal using the salient features of a the signal.
+     It applies GeneralizedAnomalyScore to the reconstructed signal.
+     The function moves a sliding window across the data signal and applies its analysis to each window.
+     The window size is typically set to 12 data points.
+     Try several anomaly detectors on your data and use the one that fits your data.
     """
 
     def __init__(self, input_item, windowsize, output_item):
@@ -1056,7 +1087,7 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
             UISingleItem(
                 name="input_item",
                 datatype=float,
-                description="Column for feature extraction",
+                description="Data item to analyze"
             )
         )
 
@@ -1064,7 +1095,7 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
             UISingle(
                 name="windowsize",
                 datatype=int,
-                description="Window size for Saliency feature based Generalized Anomaly analysis - default 12",
+                description="Size of each sliding window in data points. Typically set to 12.",
             )
         )
 
@@ -1074,150 +1105,9 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
             UIFunctionOutSingle(
                 name="output_item",
                 datatype=float,
-                description="Anomaly score (FFTbasedGeneralizedAnomalyScore)",
+                description="Anomaly score (SaliencybasedGeneralizedAnomalyScore)",
             )
         )
-        return (inputs, outputs)
-
-#######################################################################################
-
-
-class AlertExpressionWithFilter(BaseEvent):
-    '''
-    Create alerts that are triggered when data values the expression is True
-    '''
-
-    def __init__(self, expression, dimension_name, dimension_value, alert_name, **kwargs):
-        self.dimension_name = dimension_name
-        self.dimension_value = dimension_value
-        self.expression = expression
-        self.pulse_trigger = False
-        self.alert_name = alert_name
-        logger.info('AlertExpressionWithFilter  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' + str(alert_name))
-        super().__init__()
-
-    def _calc(self, df):
-        '''
-        unused
-        '''
-        return df
-
-    def execute(self, df):
-        # c = self._entity_type.get_attributes_dict()
-        df = df.copy()
-        logger.info('AlertExpressionWithFilter  exp: ' + self.expression + '  input: ' + str(df.columns))
-
-        expr = self.expression
-
-        # if '${}' in expr:
-        #    expr = expr.replace("${}", "df['" + self.dimension_name + "']")
-
-        if '${' in expr:
-            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expr)
-            msg = 'Expression converted to %s. ' % expr
-        else:
-            msg = 'Expression (%s). ' % expr
-
-        self.trace_append(msg)
-
-        expr = str(expr)
-        logger.info('AlertExpressionWithFilter  - after regexp: ' + expr)
-
-        try:
-            evl = eval(expr)
-            n1 = np.where(evl, 1, 0)
-            if self.dimension_name is None or self.dimension_value is None or \
-               len(self.dimension_name) == 0 or len(self.dimension_value) == 0:
-                n2 = n1
-                np_res = n1
-            else:
-                n2 = np.where(df[self.dimension_name] == self.dimension_value, 1, 0)
-                np_res = np.multiply(n1, n2)
-
-            if self.pulse_trigger:
-                # walk through all subsequences starting with the longest
-                # and replace all True with True, False, False, ...
-                for i in range(n1.size, 2, -1):
-                    for j in range(0, i-1):
-                        if np.all(n1[j:i]):
-                            n1[j+1:i] = np.zeros(i-j-1, dtype=bool)
-                            n1[j] = i-j  # keep track of sequence length
-
-            logger.info('AlertExpressionWithFilter  shapes ' + str(n1.shape) + ' ' + str(n2.shape) + ' ' +
-                        str(np_res.shape) + '  results\n - ' + str(n1) + '\n - ' + str(n2) + '\n - ' + str(np_res))
-            df[self.alert_name] = np_res
-
-        except Exception as e:
-            logger.info('AlertExpressionWithFilter  eval for ' + expr + ' failed with ' + str(e))
-            df[self.alert_name] = None
-            pass
-
-        return df
-
-    def get_input_items(self):
-        items = set(self.dimension_name)
-        items = items | self.get_expression_items(self.expression)
-        return items
-
-    @classmethod
-    def build_ui(cls):
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingleItem(name='dimension_name', datatype=str))
-        inputs.append(UISingle(name='dimension_value', datatype=str,
-                               description='Dimension Filter Value'))
-        inputs.append(UIExpression(name='expression',
-                                   description="Define alert expression using pandas systax. \
-                                                Example: df['inlet_temperature']>50. ${pressure} will be substituted \
-                                                with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
-
-        # define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
-        return (inputs, outputs)
-
-
-class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
-    '''
-    Create alerts that are triggered when data values the expression is True
-    '''
-
-    def __init__(self, expression, dimension_name, dimension_value, pulse_trigger, alert_name, **kwargs):
-        super().__init__(expression, dimension_name, dimension_value, alert_name, **kwargs)
-        if pulse_trigger is None:
-            self.pulse_trigger = True
-        logger.info('AlertExpressionWithFilterExt  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' +
-                    str(alert_name) + '  pulsed: ' + str(pulse_trigger))
-
-    def _calc(self, df):
-        '''
-        unused
-        '''
-        return df
-
-    def execute(self, df):
-        df = super().execute(df)
-        logger.info('AlertExpressionWithFilterExt  generated columns: ' + str(df.columns))
-        return df
-
-    @classmethod
-    def build_ui(cls):
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingleItem(name='dimension_name', datatype=str))
-        inputs.append(UISingle(name='dimension_value', datatype=str,
-                               description='Dimension Filter Value'))
-        inputs.append(UIExpression(name='expression',
-                                   description="Define alert expression using pandas systax. \
-                                                Example: df['inlet_temperature']>50. ${pressure} will be substituted \
-                                                with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
-        inputs.append(UISingle(name='pulse_trigger',
-                               description="If true only generate alerts on crossing the threshold",
-                               datatype=bool))
-
-        # define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
         return (inputs, outputs)
 
 #######################################################################################
@@ -1312,9 +1202,9 @@ class GBMRegressor(BaseEstimatorFunction):
         outputs = []
         return (inputs, outputs)
 
-    @classmethod
-    def get_input_items(cls):
-        return {'features', 'targets'}
+    # @classmethod
+    # def get_input_items(cls):
+    #     return {'features', 'targets'}
 
 
 class SimpleRegressor(BaseEstimatorFunction):
@@ -1383,16 +1273,18 @@ class SimpleRegressor(BaseEstimatorFunction):
             df_copy[m] = None
 
         for entity in entities:
-            # try:
+            try:
+                check_X_y(df_copy.loc[[entity]][self.features].values)
                 dfe = super()._execute(df_copy.loc[[entity]], entity)
                 print(df_copy.columns)
                 # for c in self.predictions:
                 df_copy.loc[entity, self.predictions] = dfe[self.predictions]
                 # df_copy = df_copy.loc[[entity]] = dfe
                 print(df_copy.columns)
-            # except Exception as e:
-                # logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
-                # continue
+            except Exception as e:
+                logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
+                df_copy.loc[entity, self.predictions] = 0
+                pass
         return df_copy
 
     @classmethod
@@ -1415,9 +1307,9 @@ class SimpleRegressor(BaseEstimatorFunction):
 
 class SimpleAnomaly(BaseRegressor):
     '''
-    Sample function uses a regression model to predict the value of one or more output
-    variables. It compares the actual value to the prediction and generates an alert
-    when the difference between the actual and predicted value is outside of a threshold.
+    A supervised anomaly detection function.
+     Uses a regression model to predict the value of target data items based on dependent data items or features.
+     Then, it compares the actual value to the predicted valueand generates an alert when the difference falls outside of a threshold.
     '''
 
     # class variables
