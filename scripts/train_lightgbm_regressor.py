@@ -10,13 +10,18 @@ from iotfunctions.anomaly import GBMRegressor
 # from mmfunctions.anomaly import GBMRegressor
 from iotfunctions.dbtables import DBModelStore
 from iotfunctions import pipeline as pp
-from sqlalchemy import Column, Float
 
 import datetime as dt
 import ibm_db
 
 with open('credentials_as_dev.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
+
+DB2ConnString = 'DATABASE=' + credentials['db2']['databaseName'] + \
+                ';HOSTNAME=' + credentials['db2']['host'] + \
+                ';PORT=' + str(credentials['db2']['port']) + \
+                ';PROTOCOL=TCPIP;UID=' + credentials['db2']['username'] + \
+                ';PWD=' + credentials['db2']['password']
 
 EngineLogging.configure_console_logging(logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -71,13 +76,6 @@ def get_options(argv):
     print('StartTime "', startTime)
     print('EndTime "', endTime)
 
-    return
-
-
-def main(argv):
-    global db, db_connection, entityType, featureC, targetC, predictC, metric, startTime, endTime, startTimeV, endTimeV, helpString
-    get_options(argv)
-
     if entityType == '':
         print('entityType name is missing')
         print(helpString)
@@ -86,30 +84,31 @@ def main(argv):
     if metric != '':
         print('ditch feature, target and predicted values and get it from definition - this is the safest way')
 
+    if startTime is None:
+        print('startTime is missing, please specify relative to endTime (3 means 3 days before endTime)')
+        print(helpString)
+        sys.exit(4)
+
+    return
+
+
+def main(argv):
+    global db, db_connection, entityType, featureC, targetC, predictC, metric, startTime, endTime, startTimeV, endTimeV, helpString
+    get_options(argv)
+
     # endTime == None means now
     if endTime is None:
         endTimeV = 0
     else:
         endTimeV = eval(endTime)
 
-    if startTime is None:
-        print('startTime is missing, please specify relative to endTime (3 means 3 days before endTime)')
-        print(helpString)
-        sys.exit(4)
-    else:
-        startTimeV = eval(startTime) + endTimeV
+    startTimeV = eval(startTime) + endTimeV
 
     # db_schema = None
     db = Database(credentials=credentials)
     print(db)
 
     # establish a native connection to db2 to store the model
-    DB2ConnString = 'DATABASE=' + credentials['db2']['databaseName'] + \
-                    ';HOSTNAME=' + credentials['db2']['host'] + \
-                    ';PORT=' + str(credentials['db2']['port']) + \
-                    ';PROTOCOL=TCPIP;UID=' + credentials['db2']['username'] + \
-                    ';PWD=' + credentials['db2']['password']
-
     db_connection = ibm_db.connect(DB2ConnString, '', '')
     print(db_connection)
 
@@ -124,9 +123,9 @@ def main(argv):
     meta = None
     try:
         meta = db.get_entity_type(entityType)
-        print(meta)
-    except Exception:
-        logger.error('Failed to retrieve information about entityType ' + str(entityType) + ' from the database')
+        print('Entity is ', meta)
+    except Exception as e:
+        logger.error('Failed to retrieve information about entityType ' + str(entityType) + ' from the database because of ' + str(e))
 
     # make sure the results of the python expression is saved to the derived metrics table
     if metric == '':
@@ -158,27 +157,30 @@ def main(argv):
         except Exception:
             pass
 
-    gbm = GBMRegressor(features=[featureC], targets=[targetC], predictions=[predictC])
-
-    # max_depth=20, num_leaves=40, n_estimators=4000, learning_rate=0.00001)
+    print('Feature ', featureC, 'targets ', targetC)
+    gbm = GBMRegressor(features=[featureC], targets=[targetC], predictions=[predictC],
+                       max_depth=20, num_leaves=40, n_estimators=4000, learning_rate=0.001)
+    setattr(gbm, 'n_estimators', 4000)
+    setattr(gbm, 'max_depth', 20)
+    setattr(gbm, 'num_leaves', 40)
+    setattr(gbm, 'learning_rate', 0.001)
 
     gbm.delete_existing_models = True
+
+    logger.info('Created Regressor')
 
     jobsettings = {'db': db,
                    '_production_mode': False,
                    '_start_ts_override': (dt.datetime.utcnow() - dt.timedelta(days=startTimeV)),
                    '_end_ts_override': (dt.datetime.utcnow() - dt.timedelta(days=endTimeV)),
-                   '_db_schema': 'BLUADMIN',
+                   '_db_schema': credentials['db2']['username'],
                    'save_trace_to_file': True}
 
     if meta is not None:
         meta._functions = [gbm]
     else:
-        meta = gbm._build_entity_type(columns = [Column(featureC, Float()), # Column('accel_power_1',Float()),
-                                                 Column(predictC, Float())], **jobsettings)
-        gbm._entity_type = meta
-
-    logger.info('Created Regressor')
+        logger.error('No valid entity')
+        return
 
     logger.info('Instantiated training job')
 
@@ -193,6 +195,6 @@ def main(argv):
 if __name__ == "__main__":
     main(sys.argv[1:])
     if db_connection is not None:
-        db_connection.disconnect()
+        ibm_db.close(db_connection)
     if db is not None:
         db.close()
