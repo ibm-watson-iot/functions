@@ -373,7 +373,8 @@ def getCosTransferAgent(credentials):
         return S3Transfer(cos)
     else:
         raise ValueError(
-            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
+            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed.\
+             You make use HMAC credentials and the CosClient instead.')
 
 
 def get_index_names(df):
@@ -527,7 +528,8 @@ class CosClient:
         # signed_headers = 'host;x-amz-content-sha256;x-amz-date'
 
         standardized_request = (
-                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' + standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
+                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' +
+                standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
 
         # logging.debug('standardized_request=\n%s' % standardized_request)
 
@@ -547,7 +549,8 @@ class CosClient:
 
         # assemble all elements into the 'authorization' header
         v4auth_header = (
-                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
+                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' +
+                credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
 
         # logging.debug('v4auth_header=\n%s' % v4auth_header)
 
@@ -659,7 +662,7 @@ class MemoryOptimizer:
                 df_converted = df_int.apply(pd.to_numeric, downcast='unsigned')
                 for col in df_converted.columns:
                     df_new[col] = df_converted[col]
-        except:
+        except Exception:
             logger.warning('Not able to downcast Integer')
             return df_new
 
@@ -677,7 +680,7 @@ class MemoryOptimizer:
                 df_converted = df_float.apply(pd.to_numeric, downcast=precison)
                 for col in df_converted.columns:
                     df_new[col] = df_converted[col]
-        except:
+        except Exception:
             logger.warning('Not able to downcast Float types')
             return df_new
 
@@ -714,7 +717,7 @@ class MemoryOptimizer:
         try:
             for col in lst_columns:
                 df_new.loc[:, col] = df_new[col].astype('category')
-        except:
+        except Exception:
             logger.warning('Not able to downcast String to category')
             return df
 
@@ -969,18 +972,18 @@ class Trace(object):
         else:
             trace = str(self.as_json())
 
-        if trace is not None and save_to_file:
-            with open('%s.json' % self.name, 'w') as fp:
-                fp.write(trace)
-            logger.debug('wrote trace to file %s.json' % self.name)
-        else:
-            if self.db is None:
-                logger.warning('Cannot save trace. No db object supplied')
-                trace = None
+        if trace is not None:
+            if save_to_file:
+                with open('%s.json' % self.name, 'w') as fp:
+                    fp.write(trace)
+                logger.debug('wrote trace to file %s.json' % self.name)
             else:
-                # trace = str(self.as_json())
-                self.db.cos_save(persisted_object=trace, filename=self.cos_path, binary=False, serialize=False)
-                logger.debug('Saved trace to cos %s', self.cos_path)
+                if self.db is None:
+                    logger.warning('Cannot save trace. No db object supplied')
+                    trace = None
+                else:
+                    self.db.cos_save(persisted_object=trace, filename=self.cos_path, binary=False, serialize=False)
+                    logger.debug('Saved trace to cos %s', self.cos_path)
 
         return trace
 
@@ -989,7 +992,7 @@ class Trace(object):
         Stop autosave thead
         '''
         self.auto_save = None
-        if not self.stop_event is None:
+        if self.stop_event is not None:
             self.stop_event.set()
         if self.auto_save_thread is not None:
             self.auto_save_thread.join()
@@ -1077,7 +1080,7 @@ class Trace(object):
                 if stack_trace is not None:
                     log_method(stack_trace)
         except TypeError:
-            msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' % text
+            # msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' % text
             logger.warning(text)
             if exception_type is not None:
                 logger.warning(exception_type)
