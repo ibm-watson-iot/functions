@@ -20,6 +20,7 @@ import pandas as pd
 import random
 import string
 import logging
+import logging.config
 import errno
 import sys
 import json
@@ -60,6 +61,16 @@ MH_DEFAULT_ALERT_TOPIC = os.environ.get('MH_DEFAULT_ALERT_TOPIC')
 MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 
 
+def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
+    logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
+        'simple': {'format': '%(asctime)s [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
+                   'datefmt': '%Y-%m-%d %I:%M:%S %p'}}, 'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'simple', 'stream': 'ext://sys.stdout'},
+        'file': {'class': 'logging.FileHandler', 'filename': 'main.log', 'mode': 'w', 'formatter': 'simple'}},
+                               'loggers': {'analytics_service': {'level': log_level}},
+                               'root': {'level': root_log_level, 'handlers': ['console', 'file']}})
+
+
 def adjust_probabilities(p_list):
     '''
     Adjust a list of probabilties to ensure that they sum to 1
@@ -82,16 +93,16 @@ def adjust_probabilities(p_list):
 def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calendar_keys=None, ):
     '''
     Build a pandas grouper from columns and frequecy metadata.
-    
+
     Parameters
     -----------
-    
+
     freq : str
     pandas frequency string
-    
+
     timestamp: str
     name of timestamp column to group by
-    
+
     entity_id: str
     column name for the entity_id if entity id is included in group by
     e.g. device_id
@@ -103,7 +114,7 @@ def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calen
     custom_calendar_keys: list of strs
     column names for the custom calendar keys to be included in group by
     e.g. ['shift']
-    
+
     '''
 
     grouper = []
@@ -124,12 +135,12 @@ def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calen
 def categorize_args(categories, catch_all, *args):
     '''
     Separate objects passed as arguments into a dictionary of categories
-    
+
     members of categories are identified by a bool property or by
     being instances of a class
-    
+
     example:
-    
+
     categories = [('constant','is_ui_control',None),
                   ('granularity','is_granularity',None),
                   ('function','is_function',None),
@@ -245,7 +256,7 @@ def reset_df_index(df, auto_index_name='_auto_index_'):
 def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_aggregate='last'):
     '''
     Resample a dataframe to a new time grain / dimensional grain
-    
+
     Parameters:
     -----------
     df: Pandas dataframe
@@ -258,11 +269,11 @@ def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_a
         Pandas aggregate dictionary
     default_aggregate: str
         Default aggregation function to apply for anything not specified in agg
-    
+
     Returns
     -------
     Pandas dataframe
-    
+
     '''
     if dimensions is None:
         dimensions = []
@@ -362,7 +373,8 @@ def getCosTransferAgent(credentials):
         return S3Transfer(cos)
     else:
         raise ValueError(
-            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed. You make use HMAC credentials and the CosClient instead.')
+            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed.\
+             You make use HMAC credentials and the CosClient instead.')
 
 
 def get_index_names(df):
@@ -516,7 +528,8 @@ class CosClient:
         # signed_headers = 'host;x-amz-content-sha256;x-amz-date'
 
         standardized_request = (
-                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' + standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
+                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' +
+                standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
 
         # logging.debug('standardized_request=\n%s' % standardized_request)
 
@@ -536,7 +549,8 @@ class CosClient:
 
         # assemble all elements into the 'authorization' header
         v4auth_header = (
-                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
+                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' +
+                credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
 
         # logging.debug('v4auth_header=\n%s' % v4auth_header)
 
@@ -648,7 +662,7 @@ class MemoryOptimizer:
                 df_converted = df_int.apply(pd.to_numeric, downcast='unsigned')
                 for col in df_converted.columns:
                     df_new[col] = df_converted[col]
-        except:
+        except Exception:
             logger.warning('Not able to downcast Integer')
             return df_new
 
@@ -666,7 +680,7 @@ class MemoryOptimizer:
                 df_converted = df_float.apply(pd.to_numeric, downcast=precison)
                 for col in df_converted.columns:
                     df_new[col] = df_converted[col]
-        except:
+        except Exception:
             logger.warning('Not able to downcast Float types')
             return df_new
 
@@ -703,7 +717,7 @@ class MemoryOptimizer:
         try:
             for col in lst_columns:
                 df_new.loc[:, col] = df_new[col].astype('category')
-        except:
+        except Exception:
             logger.warning('Not able to downcast String to category')
             return df
 
@@ -947,26 +961,29 @@ class Trace(object):
         '''
         Write trace to COS
         '''
-
-        if len(self.data) == 0:
-            trace = None
-            logger.debug('Trace is empty. Nothing to save.')
-        else:
-            if self.db is None:
-                logger.warning('Cannot save trace. No db object supplied')
-                trace = None
-            else:
-                trace = str(self.as_json())
-                self.db.cos_save(persisted_object=trace, filename=self.cos_path, binary=False, serialize=False)
-                logger.debug('Saved trace to cos %s', self.cos_path)
         try:
             save_to_file = self.parent.save_trace_to_file
         except AttributeError:
             save_to_file = self.save_trace_to_file
-        if trace is not None and save_to_file:
-            with open('%s.json' % self.name, 'w') as fp:
-                fp.write(trace)
-            logger.debug('wrote trace to file %s.json' % self.name)
+
+        trace = None
+        if len(self.data) == 0:
+            logger.debug('Trace is empty. Nothing to save.')
+        else:
+            trace = str(self.as_json())
+
+        if trace is not None:
+            if save_to_file:
+                with open('%s.json' % self.name, 'w') as fp:
+                    fp.write(trace)
+                logger.debug('wrote trace to file %s.json' % self.name)
+            else:
+                if self.db is None:
+                    logger.warning('Cannot save trace. No db object supplied')
+                    trace = None
+                else:
+                    self.db.cos_save(persisted_object=trace, filename=self.cos_path, binary=False, serialize=False)
+                    logger.debug('Saved trace to cos %s', self.cos_path)
 
         return trace
 
@@ -975,7 +992,7 @@ class Trace(object):
         Stop autosave thead
         '''
         self.auto_save = None
-        if not self.stop_event is None:
+        if self.stop_event is not None:
             self.stop_event.set()
         if self.auto_save_thread is not None:
             self.auto_save_thread.join()
@@ -1063,7 +1080,7 @@ class Trace(object):
                 if stack_trace is not None:
                     log_method(stack_trace)
         except TypeError:
-            msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' % text
+            # msg = 'A write to the trace called an invalid logging method. Logging as warning: %s' % text
             logger.warning(text)
             if exception_type is not None:
                 logger.warning(exception_type)
