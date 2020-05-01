@@ -1811,6 +1811,13 @@ class BaseDBActivityMerge(BaseDataSource):
                 logger.warning(sql)
                 raise
 
+            # Make sure no new data point lies before start_ts (the beginning of backtrack). If a data point lies
+            # before backtrack window move this data point to the boundary as a corrective action to prevent
+            # calculations of aggregations outside of backtrack
+            if start_ts is not None:
+                start_date_col = af[self._start_date]
+                af[self._start_date] = start_date_col.where((start_date_col >= start_ts), start_ts)
+
             unique_af = self.make_start_dates_unique(af)
 
             unique_af[self._activity] = activity
