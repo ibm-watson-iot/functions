@@ -1411,8 +1411,21 @@ class BaseDataSource(BaseTransformer):
         overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
         if self.merge_method == 'outer':
             #new_df is expected to be indexed on id and timestamp
-            df = df.merge(new_df, how='outer', sort=True, on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp], suffixes=('', '_new_'))
-            df = self._coallesce_columns(df=df,cols=overlapping_columns)
+
+            if not new_df.empty:
+                df = df.merge(new_df, how='outer', sort=True, on=[self._entity_type._df_index_entity_id,self._entity_type._timestamp], suffixes=('', '_new_'))
+                df = self._coallesce_columns(df=df,cols=overlapping_columns)
+            else:
+                # it's possible index 'id' in new_df has flipped from type 'object' to type 'float' in a set_index()
+                # operation if new_df is empty. Merge operation then fails with a type mismatch error on 'id'. We
+                # circumvent this situation by creating the new columns in df manually.
+                new_columns = list(set(new_df.columns) - set(overlapping_columns))
+                new_column_type_mapping = {}
+                for col_name in new_columns:
+                    df[col_name] = None
+                    new_column_type_mapping[col_name] = new_df.dtypes[col_name]
+                df.astype(new_column_type_mapping, copy=False)
+
         elif self.merge_method == 'nearest': 
             overlapping_columns = [x for x in overlapping_columns if x not in [self._entity_type._entity_id,self._entity_type._timestamp]]
             try:
