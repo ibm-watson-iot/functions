@@ -416,13 +416,9 @@ class ProduceAlerts(object):
             return df
 
         if len(key_and_msg_and_db_parameter) > 0:
-            try:
-                key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
-            except Exception as ex:
-                # TODO:: Remove the exception once you create dm_wiot_as_alert table for all the tenant.
-                logger.warning('Inserting data into alert table failed: %s' % str(ex))
+            key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
 
-        if len(key_and_msg) > 0 or len(key_and_msg_updated) > 0:
+        if not self.dms.is_icp and (len(key_and_msg) > 0 or len(key_and_msg_updated) > 0):
             # TODO:: Duplicate alert issue is still exist.
             key_and_msg_merged = []
             key_and_msg_merged.extend(key_and_msg)
