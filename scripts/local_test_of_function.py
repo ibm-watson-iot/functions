@@ -18,7 +18,7 @@ Place your credentials in a separate file that you don't check into the repo.
 
 '''
 
-with open('credentials_as_dev.json', encoding='utf-8') as F:
+with open('credentials_as.json', encoding='utf-8') as F:
     credentials = json.loads(F.read())
 db_schema = None
 db = Database(credentials=credentials)
@@ -38,16 +38,12 @@ By default test results are written to a file named df_test_entity_for_<function
 This file will be written to the working directory.
 
 '''
+from customagg.functions import HelloWorldAggregator
 
-from custom.functions import HelloWorld
-fn = HelloWorld(
-        name = 'AS_Tester',
-        greeting_col = 'greeting')
-fn.execute_local_test(db=db,db_schema=db_schema)
+fn = HelloWorldAggregator(
+        source = ['speed'],
+        expression = '${GROUP}.max()'
+        )
 
-'''
-Register function so that you can see it in the UI
-'''
-
-db.register_functions([HelloWorld])
-
+df = fn.execute_local_test(db=db, db_schema=db_schema,to_csv=False)
+print(df)
