@@ -228,9 +228,9 @@ class PersistColumns:
 
                                 total_saved += saved
                                 self.logger.debug('Records saved so far = %d' % total_saved)
-                            except Exception:
-                                self.logger.warning('Error persisting derived metrics, valueList=%s' % str(valueList),
-                                                    exc_info=True)
+                            except Exception as ex:
+                                raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
+                                    len(valueList), str(valueList))) from ex
 
                             valueList = []
                             cnt = 0
@@ -246,9 +246,9 @@ class PersistColumns:
                             saved = res if res is not None else ibm_db.num_rows(stmt)
 
                         total_saved += saved
-                    except Exception:
-                        self.logger.warning('Error persisting derived metrics, valueList = %s' % str(valueList),
-                                            exc_info=True)
+                    except Exception as ex:
+                        raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
+                            len(valueList), str(valueList))) from ex
 
                 self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
 
