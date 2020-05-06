@@ -67,6 +67,8 @@ GTAGS
 *.zip
 
 .pytest_cache
+env/
+*.irx
 
 # Python files #
 ################

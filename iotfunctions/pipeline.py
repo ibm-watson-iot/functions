@@ -2269,13 +2269,16 @@ class CalcPipeline:
             df[pl] = True
         for s in stages:
             if df.empty:
-                self.logger.info('No data retrieved from all sources. Exiting pipeline execution')
-                break  # skip this stage of it is not a secondary source
+                self.logger.info('No data retrieved from all sources. Pipeline execution is skipped for this grain.')
+                df = None
+                break
+
             df = self._execute_stage(stage=s, df=df, start_ts=start_ts, end_ts=end_ts, entities=entities,
                                      register=register, to_csv=to_csv, dropna=dropna, abort_on_fail=True)
         if is_initial_transform:
             try:
-                self.entity_type.write_unmatched_members(df)
+                if df is not None:
+                    self.entity_type.write_unmatched_members(df)
             except Exception as e:
                 msg = 'Error while writing unmatched members to dimension. %s' % e
                 self.trace_add(msg, created_by=self,

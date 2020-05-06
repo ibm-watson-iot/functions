@@ -64,17 +64,17 @@ def check_table_exist(db_connection, db_type, schema_name, unqualified_table_nam
 
 def get_table_layout(db_connection, db_type, schema_name, table_name):
     if db_type == 'postgresql':
-        columnList = list()
-        dblayout = dict()
+        column_list = list()
+        db_layout = dict()
         results = get_postgre_sql_information_schema(db_connection, schema_name, table_name)
         if len(results) != 0:
             for row in results:
-                colName = row[2].upper()  # COLUMN_NAME
-                colType = POSTGRE_SQL_TO_DB2_DATA_TYPE.get(row[3], row[3].upper())  # COLUMN_TYPE
-                colSize = row[4]  # COLUMN_LENGTH
-                dblayout[colName] = (colType, colSize)
-                columnList.append('(\'%s\', \'%s\', \'%s\')' % (colName, colType, colSize))
-        return (dblayout, columnList)
+                col_name = row[2].upper()  # COLUMN_NAME
+                col_type = POSTGRE_SQL_TO_DB2_DATA_TYPE.get(row[3], row[3].upper())  # COLUMN_TYPE
+                col_size = row[4]  # COLUMN_LENGTH
+                db_layout[col_name] = (col_type, col_size)
+                column_list.append('(\'%s\', \'%s\', \'%s\')' % (col_name, col_type, col_size))
+        return (db_layout, column_list)
 
 
 def get_postgre_sql_information_schema(db_connection, schema_name, table_name):

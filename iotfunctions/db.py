@@ -202,9 +202,13 @@ class Database(object):
 
                 if as_rest_meta_host is not None and as_rest_meta_host.startswith('https://'):
                     as_rest_meta_host = as_rest_meta_host[8:]
+                else:
+                    as_rest_meta_host = as_api_host
 
                 if as_rest_kpi_host is not None and as_rest_kpi_host.startswith('https://'):
                     as_rest_kpi_host = as_rest_kpi_host[8:]
+                else:
+                    as_rest_meta_host = as_api_host
             else:
                 as_rest_meta_host = as_api_host
                 as_rest_kpi_host = as_api_host
@@ -864,15 +868,18 @@ class Database(object):
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
         self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
-        self.url[('entityType', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
+        self.url[('entityType', 'GET')] = '/'.join(
+            [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
         self.url[('engineInput', 'GET')] = '/'.join(
             [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
 
-        self.url[('function', 'GET')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
+        self.url[('function', 'GET')] = '/'.join(
+            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
         self.url[('function', 'DELETE')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
-        self.url[('function', 'PUT')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
+        self.url[('function', 'PUT')] = '/'.join(
+            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
 
         self.url[('granularitySet', 'POST')] = '/'.join(
             [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
