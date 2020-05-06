@@ -863,7 +863,7 @@ class Database(object):
             [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
-        self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type])
+        self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
         self.url[('entityType', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
         self.url[('engineInput', 'GET')] = '/'.join(
