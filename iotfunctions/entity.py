@@ -134,7 +134,6 @@ class SampleBlankEntity(metadata.BaseCustomEntityType):
                          generate_days=generate_days, drop_existing=drop_existing, description=description,
                          db_schema=db_schema)
 
-
 class Boiler(metadata.BaseCustomEntityType):
     '''
     This sample shows simulated time series data for an industrial boiler.
@@ -184,13 +183,12 @@ class Boiler(metadata.BaseCustomEntityType):
 
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
-                             Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
+                             Column('devicetype', String(50)), Column('evt_timestamp_dim', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, output_items_extended_metadata={},
                          generate_days=generate_days, drop_existing=drop_existing, description=description,
                          db_schema=db_schema)
-
 
 class BuildingWorkstation(metadata.BaseCustomEntityType):
     '''
@@ -239,7 +237,6 @@ class BuildingWorkstation(metadata.BaseCustomEntityType):
                          functions=functions, dimension_columns=dimension_columns,
                          output_items_extended_metadata=output_items_extended_metadata, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
-
 
 class Robot(metadata.BaseCustomEntityType):
     '''
@@ -319,13 +316,12 @@ class Robot(metadata.BaseCustomEntityType):
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
                              Column('load_rating', Float()), Column('axes', Float()), Column('stats_acc', Float()),
-                             Column('devicetype', String(50)), Column('evt_timestamp', DateTime)]
+                             Column('devicetype', String(50)), Column('evt_timestamp_dim', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns,
                          output_items_extended_metadata=output_items_extended_metadata, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
-
 
 class PackagingHopper(metadata.BaseCustomEntityType):
     '''
@@ -366,12 +362,11 @@ class PackagingHopper(metadata.BaseCustomEntityType):
 
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
                              Column('plant', String(50)), Column('line', String(50)), Column('devicetype', String(50)),
-                             Column('evt_timestamp', DateTime)]
+                             Column('evt_timestamp_dim', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
-
 
 class SourdoughLeavening(metadata.BaseCustomEntityType):
     '''
@@ -412,12 +407,11 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
         # dimension columns
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
                              Column('plant', String(50)), Column('line', String(50)), Column('devicetype', String(50)),
-                             Column('evt_timestamp', DateTime)]
+                             Column('evt_timestamp_dim', DateTime)]
 
         super().__init__(name=name, db=db, constants=constants, granularities=granularities, columns=columns,
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
-
 
 class TestBed(metadata.BaseCustomEntityType):
     '''
