@@ -251,6 +251,9 @@ class Database(object):
                         connection_string += 'SECURITY=ssl;'
                         if os.path.exists('/secrets/truststore/db2_certificate.pem'):
                             connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                        else:
+                            if os.path.exists('db2_certificate.pem'):
+                                connection_string += ';SSLServerCertificate=' + 'db2_certificate.pem' + ";"
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
