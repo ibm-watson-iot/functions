@@ -403,10 +403,9 @@ class ProduceAlerts(object):
 
                         if alert_name in self.alerts_to_database:
                             kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
-                            db_insert_parameter = (
-                                df_row[0][0], df_row[0][1], self.entity_type_id, self.entity_type_name, alert_name,
-                                kpi_input.get('Severity', None), kpi_input.get('Priority', None),
-                                kpi_input.get('Status', None))
+                            db_insert_parameter = (df_row[0][0], df_row[0][1], self.entity_type_id, alert_name,
+                                                   kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                                   kpi_input.get('Status', None))
                             key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
                         else:
                             key_and_msg.append((key, value))
@@ -458,8 +457,8 @@ class ProduceAlerts(object):
         logger.info("Processing %s alerts. This alert may contain duplicates, "
                     "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
         updated_key_and_msg = []
-        postgres_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (entity_id, timestamp, entity_type_id, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s, %s)"
-        db2_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?, ?) "
+        postgres_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (entity_id, timestamp, entity_type_id, data_item_name, severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, DATA_ITEM_NAME, SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
 
         total_count = 0
         count = 0
