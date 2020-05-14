@@ -249,13 +249,12 @@ class Database(object):
                 if 'security' in self.credentials['db2']:
                     if self.credentials['db2']['security']:
                         connection_string += 'SECURITY=ssl;'
-                        if os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                            connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
-                        else:
-                            cwd = os.getcwd()
-                            logger.info('Current working directory => %s' % cwd)
-                            if os.path.exists('db2_certificate.pem'):
-                                connection_string += ';SSLServerCertificate=' + 'db2_certificate.pem' + ";"
+                        cwd = os.getcwd()
+                        logger.info('Current working directory db => %s' % cwd)
+                        filename = cwd + "/db2_certificate.pem";
+                        logger.info('file name db => %s' % filename)
+                        if os.path.exists(filename):
+                            connection_string += ';SSLServerCertificate=' + filename + ";"
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
