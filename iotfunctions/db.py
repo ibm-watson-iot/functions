@@ -252,6 +252,8 @@ class Database(object):
                         if os.path.exists('/secrets/truststore/db2_certificate.pem'):
                             connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
                         else:
+                            cwd = os.getcwd()
+                            logger.info('Current working directory => %s' % cwd)
                             if os.path.exists('db2_certificate.pem'):
                                 connection_string += ';SSLServerCertificate=' + 'db2_certificate.pem' + ";"
             except KeyError as ex:
