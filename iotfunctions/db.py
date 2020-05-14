@@ -293,6 +293,12 @@ class Database(object):
                             ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
                         if 'SECURITY' in ev:
                             connection_string += 'SECURITY=%s;' % ev['SECURITY']
+                            cwd = os.getcwd()
+                            logger.info('Current working directory db => %s' % cwd)
+                            filename = cwd + "/db2_certificate.pem";
+                            logger.info('file name db => %s' % filename)
+                            if os.path.exists(filename):
+                                connection_string += ';SSLServerCertificate=' + filename + ";"
                         self.credentials['db2'] = {"username": ev['UID'], "password": ev['PWD'],
                                                    "database": ev['DATABASE'], "port": ev['PORT'],
                                                    "host": ev['HOSTNAME']}
