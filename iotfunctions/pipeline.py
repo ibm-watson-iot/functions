@@ -2639,6 +2639,7 @@ class PipelineExpression(object):
         self.entity_type = entity_type
 
     def execute(self, df):
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         self.infer_inputs(df)
         if '${' in self.expression:
