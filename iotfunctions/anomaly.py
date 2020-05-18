@@ -42,7 +42,7 @@ import logging
 # from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction)
 from .bif import (AlertHighValue)
-from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
+from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -463,7 +463,13 @@ class KMeansAnomalyScore(BaseTransformer):
      The window size is typically set to 12 data points.
      Try several anomaly models on your data and use the one that fits your databest.
     '''
-    def __init__(self, input_item, windowsize, output_item):
+    def __init__(self, entity_list, input_item, windowsize, output_item):
+
+        #adding entity filters
+        if entity_list:
+            kwargs = {'_entity_filter_list': entity_list}
+            self._metadata_params = kwargs
+
         super().__init__()
         logger.debug(input_item)
         self.input_item = input_item
@@ -586,12 +592,16 @@ class KMeansAnomalyScore(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
+        inputs.append(UIMulti(
+                name='entity_list',
+                datatype=str,
+                description='comma separated list of entity ids'
+                                              ))
         inputs.append(UISingleItem(
                 name='input_item',
                 datatype=float,
                 description='Data item to analyze'
                                               ))
-
         inputs.append(UISingle(
                 name='windowsize',
                 datatype=int,
