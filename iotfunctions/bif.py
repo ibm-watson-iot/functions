@@ -122,7 +122,7 @@ class AlertExpression(BaseEvent):
         return df
 
     def execute(self, df):
-        # c = self._entity_type.get_attributes_dict()
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
@@ -167,7 +167,7 @@ class AlertExpressionWithFilter(BaseEvent):
 
     # evaluate alerts by entity
     def _calc(self, df):
-        # c = self._entity_type.get_attributes_dict()
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         logger.info('AlertExpressionWithFilter  exp: ' + self.expression + '  input: ' + str(df.columns))
 
@@ -576,7 +576,7 @@ class ConditionalItems(BaseTransformer):
         self.output_items = output_items
 
     def execute(self, df):
-        # c = self._entity_type.get_attributes_dict()
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         result = eval(self.conditional_expression)
         for i, o in enumerate(self.conditional_items):
@@ -990,7 +990,7 @@ class PythonExpression(BaseTransformer):
         self.outputs = ['output_name']
 
     def execute(self, df):
-        # c = self._entity_type.get_attributes_dict()
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         requested = list(self.get_input_items())
         msg = self.expression + ' .'
@@ -1131,7 +1131,7 @@ class IfThenElse(BaseTransformer):
             self.output_item = output_item
 
     def execute(self, df):
-        # c = self._entity_type.get_attributes_dict()
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         df[self.output_item] = np.where(eval(self.conditional_expression), eval(self.true_expression),
                                         eval(self.false_expression))
