@@ -2715,7 +2715,8 @@ class BaseTable(object):
             self.name = name.lower()
         self.table = Table(self.name, self.database.metadata, *args, **kw)
         self.id_col = Column(self._entity_id.lower(), String(50))
-        self.table.create(checkfirst=True)
+        # Should be created using the create method available -> self.db.create()
+        #self.table.create(checkfirst=True)
 
     def create(self):
         self.table.create(checkfirst=True)

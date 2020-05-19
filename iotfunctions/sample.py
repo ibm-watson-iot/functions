@@ -725,6 +725,7 @@ class SamplePreLoad(BasePreload):
         data = {'status': True, SystemLogTable._timestamp: dt.datetime.utcnow()}
         df = pd.DataFrame(data=data, index=[0])
         table = SystemLogTable(self.table_name, self._entity_type.db, Column('status', String(50)))
+        table.create()
         table.insert(df)
         return True
 
