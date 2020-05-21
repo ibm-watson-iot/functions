@@ -164,7 +164,7 @@ class DBDataCache:
                 sql_statement = statement1 + " values (%s, %s, %s, current_timestamp) " + statement3
 
                 try:
-                   dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement,
+                    dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement,
                                                        (self.entity_type_id, cache_filename, psycopg2.Binary(blob)))
                 except Exception as ex:
                     raise Exception('Storing cache under name %s failed with sql statement "%s"' % (
