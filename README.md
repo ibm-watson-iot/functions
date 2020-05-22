@@ -25,14 +25,24 @@ pip install git+git://github.com/ibm-watson-iot/functions.git@production --upgra
 ```
 
 To install in IBM Watson Studio from another Jupyter notebook:
-```
+
+```~~~bash
 !pip install git+git://github.com/ibm-watson-iot/functions.git@production --upgrade
 ```
 
 Test for sucessful install:
-```
+
+```~~~python3
 import iotfunctions as fn
 print(fn.__version__) 
+```
+
+### Testing locally
+
+```~~~bash
+python3 -m venv env
+source env/bin/activate
+pip3 install .
 ```
 
 ### Changelog

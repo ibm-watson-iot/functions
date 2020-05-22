@@ -249,6 +249,14 @@ class Database(object):
                 if 'security' in self.credentials['db2']:
                     if self.credentials['db2']['security']:
                         connection_string += 'SECURITY=ssl;'
+                        if os.path.exists('/secrets/truststore/db2_certificate.pem'):
+                            connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                        else:
+                            cwd1 = os.getcwd()
+                            filename1 = cwd1 + "/db2_certificate.pem;"
+                            logger.info('file name db => %s' % filename1)
+                            if os.path.exists(filename1):
+                                connection_string += ';SSLServerCertificate=' + filename1 + ";"
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
@@ -287,6 +295,10 @@ class Database(object):
                             ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
                         if 'SECURITY' in ev:
                             connection_string += 'SECURITY=%s;' % ev['SECURITY']
+                            cwd = os.getcwd()
+                            filename = cwd + "/db2_certificate.pem";
+                            if os.path.exists(filename):
+                                connection_string += ';SSLServerCertificate=' + filename + ";"
                         self.credentials['db2'] = {"username": ev['UID'], "password": ev['PWD'],
                                                    "database": ev['DATABASE'], "port": ev['PORT'],
                                                    "host": ev['HOSTNAME']}
@@ -867,7 +879,7 @@ class Database(object):
             [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
-        self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type])
+        self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
         self.url[('entityType', 'GET')] = '/'.join(
             [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
@@ -1292,7 +1304,7 @@ class Database(object):
         timestamp: str
             Name of timestamp column in the table. Required for time filters.
         time_grain: str
-            Time grain for aggregation may be day,month,year or a pandas frequency string
+            Time grain for aggregation may be day,hour,week,month,year or a pandas frequency string
         start_ts: datetime
             Retrieve data from this date
         end_ts: datetime
@@ -1911,6 +1923,11 @@ class Database(object):
                     col_obj = table.c[column.upper()]
                 except KeyError:
                     raise KeyError
+
+        # cast NULLTYPE to boolean
+        if self.get_as_datatype(col_obj) == 'BOOLEAN':
+            col_obj = col_obj.cast(Boolean)
+
         return col_obj
 
     def missing_columns(self, required_cols, table_cols):
@@ -2715,7 +2732,8 @@ class BaseTable(object):
             self.name = name.lower()
         self.table = Table(self.name, self.database.metadata, *args, **kw)
         self.id_col = Column(self._entity_id.lower(), String(50))
-        self.table.create(checkfirst=True)
+        # Should be created using the create method available -> self.db.create()
+        #self.table.create(checkfirst=True)
 
     def create(self):
         self.table.create(checkfirst=True)

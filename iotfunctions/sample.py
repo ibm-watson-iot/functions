@@ -13,6 +13,7 @@ import logging
 import warnings
 import numpy as np
 import pandas as pd
+import re
 import json
 from sqlalchemy import (Table, Column, Integer, SmallInteger, String, DateTime)
 
@@ -21,7 +22,7 @@ from pandas.api.types import (is_string_dtype, is_numeric_dtype, is_bool_dtype, 
 from iotfunctions.db import SystemLogTable
 from iotfunctions.metadata import EntityType
 from iotfunctions.automation import TimeSeriesGenerator
-from iotfunctions.base import (BaseTransformer, BaseDataSource, BaseEvent, BaseFilter, BaseAggregator,
+from iotfunctions.base import (BaseTransformer, BaseDataSource, BaseEvent, BaseFilter, BaseAggregator,BaseSimpleAggregator,
                                BaseDatabaseLookup, BaseDBActivityMerge, BaseSCDLookup, BaseMetadataProvider,
                                BasePreload)
 from iotfunctions import ui
@@ -724,6 +725,7 @@ class SamplePreLoad(BasePreload):
         data = {'status': True, SystemLogTable._timestamp: dt.datetime.utcnow()}
         df = pd.DataFrame(data=data, index=[0])
         table = SystemLogTable(self.table_name, self._entity_type.db, Column('status', String(50)))
+        table.create()
         table.insert(df)
         return True
 
@@ -831,3 +833,31 @@ class WriteDataFrame(BaseTransformer):
         df = df.copy()
         df[self.output_status] = self.write_frame(df=df[self.input_items])
         return df
+
+class HelloWorldAggregator(BaseSimpleAggregator):
+    '''
+    The docstring of the function will show as the function description in the UI.
+    '''
+
+    def __init__(self, source=None, expression=None):
+        if expression is None or not isinstance(expression, str):
+            raise RuntimeError("argument expression must be provided and must be a string")
+
+        self.input_items = source
+        self.expression = expression
+
+    def execute(self, group):
+        return eval(re.sub(r"\$\{GROUP\}", r"group", self.expression))
+
+    @classmethod
+    def build_ui(cls):
+        inputs = []
+        inputs.append(ui.UIMultiItem(name='source', datatype=None, description=('Choose the data items'
+                                                                            ' that you would like to'
+                                                                                  ' aggregate'),
+                                  output_item='name', is_output_datatype_derived=True))
+
+        inputs.append(ui.UIExpression(name='expression', description='Use ${GROUP} to reference the current grain.'
+                                                    'All Pandas Series methods can be used on the grain.'
+                                                    'For example, ${GROUP}.max() - ${GROUP}.min().'))
+        return (inputs, [])

@@ -307,7 +307,7 @@ class EntityType(object):
                 if self.auto_create_table:
                     ts = db_module.TimeSeriesTable(self.name, self.db, *cols, **kwargs)
                     self.table = ts.table
-                    self.db.create()
+                    #self.db.create()
                     msg = 'Create table %s' % self.name
                     logger.info(msg)
                 else:
@@ -1729,8 +1729,9 @@ class EntityType(object):
         except KeyError:
             dim = db_module.Dimension(self._dimension_table_name, self.db, *args, **kw)
             self._dimension_table = dim.table
-            dim.create()
-            msg = 'Created dimension table %s' % self._dimension_table_name
+            #dim.create()
+            #msg = 'Created dimension table %s' % self._dimension_table_name
+            msg = 'Dimension table not created'
             logger.debug(msg)
 
     def publish_kpis(self, raise_error=True):
@@ -1793,6 +1794,18 @@ class EntityType(object):
 
         return msg
 
+    def create_sample_data(self, drop_existing, generate_days, generate_entities=None):
+        if generate_days > 0:
+            # classify stages is adds entity metdata to the stages
+            # need to run it before executing any stage
+            self.classify_stages()
+            generators = [x for x in self._functions if x.is_data_generator]
+            start = dt.datetime.utcnow() - dt.timedelta(days=generate_days)
+            for g in generators:
+                logger.debug(('Running generator %s with start date %s.'
+                              ' Drop existing %s'), g.__class__.__name__, start, drop_existing)
+                g.execute(df=None, start_ts=start, entities=generate_entities)
+
     def register(self, publish_kpis=False, raise_error=False):
         '''
         Register entity type so that it appears in the UI. Create a table for input data.
@@ -1830,22 +1843,22 @@ class EntityType(object):
         for (table_obj, column_name, col_type) in cols:
             msg = 'found %s column %s' % (col_type, column_name)
             logger.debug(msg)
-            if column_name not in self.get_excluded_cols():
-                data_type = table_obj.c[column_name].type
-                if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
-                    data_type = 'NUMBER'
-                elif db_module.DB2_DOUBLE is not None and isinstance(data_type, db_module.DB2_DOUBLE):
-                    data_type = 'NUMBER'
-                elif isinstance(data_type, (VARCHAR, String)):
-                    data_type = 'LITERAL'
-                elif isinstance(data_type, (TIMESTAMP, DateTime)):
-                    data_type = 'TIMESTAMP'
-                else:
-                    data_type = str(data_type)
-                    logger.warning('Unknown datatype %s for column %s' % (data_type, column_name))
-                columns.append(
-                    {'name': column_name, 'type': col_type, 'columnName': column_name, 'columnType': data_type,
-                     'tags': None, 'transient': False})
+            #if column_name not in self.get_excluded_cols():
+            data_type = table_obj.c[column_name].type
+            if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
+                data_type = 'NUMBER'
+            elif db_module.DB2_DOUBLE is not None and isinstance(data_type, db_module.DB2_DOUBLE):
+                data_type = 'NUMBER'
+            elif isinstance(data_type, (VARCHAR, String)):
+                data_type = 'LITERAL'
+            elif isinstance(data_type, (TIMESTAMP, DateTime)):
+                data_type = 'TIMESTAMP'
+            else:
+                data_type = str(data_type)
+                logger.warning('Unknown datatype %s for column %s' % (data_type, column_name))
+            columns.append(
+                {'name': column_name, 'type': col_type, 'columnName': column_name, 'columnType': data_type,
+                 'tags': None, 'transient': False})
         table['dataItemDto'] = columns
         if self._db_schema is not None:
             table['schemaName'] = self._db_schema
@@ -2281,17 +2294,6 @@ class BaseCustomEntityType(EntityType):
 
         self.make_dimension(None,  # auto build name
                             *self._dimension_columns)
-
-        if generate_days > 0:
-            # classify stages is adds entity metdata to the stages
-            # need to run it before executing any stage
-            self.classify_stages()
-            generators = [x for x in self._functions if x.is_data_generator]
-            start = dt.datetime.utcnow() - dt.timedelta(days=generate_days)
-            for g in generators:
-                logger.debug(('Running generator %s with start date %s.'
-                              ' Drop existing %s'), g.__class__.__name__, start, drop_existing)
-                g.execute(df=None, start_ts=start, entities=generate_entities)
 
     def publish_kpis(self, raise_error=True):
 

@@ -228,9 +228,9 @@ class PersistColumns:
 
                                 total_saved += saved
                                 self.logger.debug('Records saved so far = %d' % total_saved)
-                            except Exception:
-                                self.logger.warning('Error persisting derived metrics, valueList=%s' % str(valueList),
-                                                    exc_info=True)
+                            except Exception as ex:
+                                raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
+                                    len(valueList), str(valueList))) from ex
 
                             valueList = []
                             cnt = 0
@@ -246,9 +246,9 @@ class PersistColumns:
                             saved = res if res is not None else ibm_db.num_rows(stmt)
 
                         total_saved += saved
-                    except Exception:
-                        self.logger.warning('Error persisting derived metrics, valueList = %s' % str(valueList),
-                                            exc_info=True)
+                    except Exception as ex:
+                        raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
+                            len(valueList), str(valueList))) from ex
 
                 self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
 
@@ -403,10 +403,9 @@ class ProduceAlerts(object):
 
                         if alert_name in self.alerts_to_database:
                             kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
-                            db_insert_parameter = (
-                                df_row[0][0], df_row[0][1], self.entity_type_id, self.entity_type_name, alert_name,
-                                kpi_input.get('Severity', None), kpi_input.get('Priority', None),
-                                kpi_input.get('Status', None))
+                            db_insert_parameter = (df_row[0][0], df_row[0][1], self.entity_type_id, alert_name,
+                                                   kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                                   kpi_input.get('Status', None))
                             key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
                         else:
                             key_and_msg.append((key, value))
@@ -416,13 +415,9 @@ class ProduceAlerts(object):
             return df
 
         if len(key_and_msg_and_db_parameter) > 0:
-            try:
-                key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
-            except Exception as ex:
-                # TODO:: Remove the exception once you create dm_wiot_as_alert table for all the tenant.
-                logger.warning('Inserting data into alert table failed: %s' % str(ex))
+            key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
 
-        if len(key_and_msg) > 0 or len(key_and_msg_updated) > 0:
+        if not self.dms.is_icp and (len(key_and_msg) > 0 or len(key_and_msg_updated) > 0):
             # TODO:: Duplicate alert issue is still exist.
             key_and_msg_merged = []
             key_and_msg_merged.extend(key_and_msg)
@@ -462,8 +457,8 @@ class ProduceAlerts(object):
         logger.info("Processing %s alerts. This alert may contain duplicates, "
                     "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
         updated_key_and_msg = []
-        postgres_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (entity_id, timestamp, entity_type_id, entity_type_name, data_item_name,  severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s, %s)"
-        db2_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, ENTITY_TYPE_NAME, DATA_ITEM_NAME,  SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?, ?) "
+        postgres_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (entity_id, timestamp, entity_type_id, data_item_name, severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, DATA_ITEM_NAME, SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
 
         total_count = 0
         count = 0

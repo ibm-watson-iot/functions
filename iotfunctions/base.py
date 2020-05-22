@@ -1289,7 +1289,7 @@ class BaseFunction(object):
 
         df = et.generate_data(days=generate_days, columns=et.local_columns)
         df = et.index_df(df)
-        df = self.execute(df=df)
+        df = self.execute(df)
         if to_csv:
             filename = 'df_%s.csv' % et.name
             df.to_csv(filename)
