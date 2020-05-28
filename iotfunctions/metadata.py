@@ -307,7 +307,7 @@ class EntityType(object):
                 if self.auto_create_table:
                     ts = db_module.TimeSeriesTable(self.name, self.db, *cols, **kwargs)
                     self.table = ts.table
-                    #self.db.create()
+                    # self.db.create()
                     msg = 'Create table %s' % self.name
                     logger.info(msg)
                 else:
@@ -751,7 +751,7 @@ class EntityType(object):
         objects. Stages are classified by timing of execution, ie: preload,
         get_data, transform, aggregate
         '''
-
+        logger.debug('Classifying stages by timing of execution, ie: preload, get_data, transform, aggregate')
         stage_metadata = dict()
         active_granularities = set()
 
@@ -1729,8 +1729,8 @@ class EntityType(object):
         except KeyError:
             dim = db_module.Dimension(self._dimension_table_name, self.db, *args, **kw)
             self._dimension_table = dim.table
-            #dim.create()
-            #msg = 'Created dimension table %s' % self._dimension_table_name
+            # dim.create()
+            # msg = 'Created dimension table %s' % self._dimension_table_name
             msg = 'Dimension table not created'
             logger.debug(msg)
 
@@ -1794,7 +1794,8 @@ class EntityType(object):
 
         return msg
 
-    def create_sample_data(self, drop_existing, generate_days, generate_entities=None):
+    def create_sample_data(self, drop_existing, generate_days, generate_entities=None,
+                           populate_dm_wiot_entity_list=False):
         if generate_days > 0:
             # classify stages is adds entity metdata to the stages
             # need to run it before executing any stage
@@ -1805,6 +1806,29 @@ class EntityType(object):
                 logger.debug(('Running generator %s with start date %s.'
                               ' Drop existing %s'), g.__class__.__name__, start, drop_existing)
                 g.execute(df=None, start_ts=start, entities=generate_entities)
+
+            if populate_dm_wiot_entity_list:
+                self.populate_entity_list_table()
+
+    def populate_entity_list_table(self):
+        entity_list_table_name = 'dm_wiot_entity_list'
+        try:
+            if self.db.db_type == 'db2':
+                entity_list_table_name = entity_list_table_name.upper()
+            else:
+                entity_list_table_name = entity_list_table_name.lower()
+
+            entities = [str(self._start_entity_id + x) for x in list(range(self._auto_entity_count))]
+
+            self.db.start_session()
+            table = self.db.get_table(entity_list_table_name, self._db_schema)
+            for entity_id in entities:
+                stmt = table.insert().values({'entity_type_id': self._entity_type_id, 'entity_id': entity_id})
+                self.db.connection.execute(stmt)
+            self.db.commit()
+
+        except Exception:
+            logger.debug('Error populating dm_wiot_entity_list table.')
 
     def register(self, publish_kpis=False, raise_error=False):
         '''
@@ -1843,7 +1867,7 @@ class EntityType(object):
         for (table_obj, column_name, col_type) in cols:
             msg = 'found %s column %s' % (col_type, column_name)
             logger.debug(msg)
-            #if column_name not in self.get_excluded_cols():
+            # if column_name not in self.get_excluded_cols():
             data_type = table_obj.c[column_name].type
             if isinstance(data_type, (FLOAT, Float, INTEGER, Integer)):
                 data_type = 'NUMBER'
@@ -1856,9 +1880,8 @@ class EntityType(object):
             else:
                 data_type = str(data_type)
                 logger.warning('Unknown datatype %s for column %s' % (data_type, column_name))
-            columns.append(
-                {'name': column_name, 'type': col_type, 'columnName': column_name, 'columnType': data_type,
-                 'tags': None, 'transient': False})
+            columns.append({'name': column_name, 'type': col_type, 'columnName': column_name, 'columnType': data_type,
+                            'tags': None, 'transient': False})
         table['dataItemDto'] = columns
         if self._db_schema is not None:
             table['schemaName'] = self._db_schema

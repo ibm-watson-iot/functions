@@ -909,11 +909,6 @@ class EntityDataGenerator(BasePreload):
                                              data_item_mean=self.data_item_mean, data_item_sd=self.data_item_sd,
                                              data_item_domain=self.data_item_domain, drop_existing=self.drop_existing)
 
-        kw = {'rows_generated': len(df.index), 'start_ts': start_ts, 'seconds': seconds}
-
-        trace = self.get_trace()
-        trace.update_last_entry(df=df, **kw)
-
         self.usage_ = len(df.index)
 
         return True
