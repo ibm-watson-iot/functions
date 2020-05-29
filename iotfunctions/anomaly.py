@@ -472,9 +472,10 @@ class KMeansAnomalyScore(BaseTransformer):
      The window size is typically set to 12 data points.
      Try several anomaly models on your data and use the one that fits your databest.
     '''
-    def __init__(self, input_item, windowsize, output_item):
+    def __init__(self, entity_list, input_item, windowsize, output_item):
         super().__init__()
         logger.debug(input_item)
+        self.entity_list = entity_list
         self.input_item = input_item
 
         # use 12 by default
@@ -516,10 +517,14 @@ class KMeansAnomalyScore(BaseTransformer):
     def execute(self, df):
 
         df_copy = df.copy()
-        entities = np.unique(df_copy.index.levels[0])
+        if self.entity_list:
+            entities = self.entity_list
+        else:
+            entities = np.unique(df_copy.index.levels[0])
+
         logger.debug(str(entities))
 
-        df_copy[self.output_item] = 0
+        df_copy[self.output_item] = np.nan
 
         # check data type
         if df_copy[self.input_item].dtype != np.float64:
@@ -607,6 +612,13 @@ class KMeansAnomalyScore(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
+        inputs.append(ui.UIMulti(
+                name='entity_list',
+                datatype=str,
+                description='comma separated list of entity ids',
+                required=False
+                ))
+
         inputs.append(UISingleItem(
                 name='input_item',
                 datatype=float,
