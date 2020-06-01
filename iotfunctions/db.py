@@ -257,6 +257,11 @@ class Database(object):
                             logger.info('file name db => %s' % filename1)
                             if os.path.exists(filename1):
                                 connection_string += ';SSLServerCertificate=' + filename1 + ";"
+                            else:
+                                db_certificate_file = os.environ.get('DB_CERTIFICATE_FILE')
+                                if db_certificate_file is not None:
+                                    if os.path.exists(db_certificate_file):
+                                        connection_string += ';SSLServerCertificate=' + db_certificate_file + ";"
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
