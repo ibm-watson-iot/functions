@@ -42,7 +42,7 @@ import logging
 # from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
-from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
+from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -472,10 +472,9 @@ class KMeansAnomalyScore(BaseTransformer):
      The window size is typically set to 12 data points.
      Try several anomaly models on your data and use the one that fits your databest.
     '''
-    def __init__(self, entity_list, input_item, windowsize, output_item):
+    def __init__(self, input_item, windowsize, output_item, entity_list=None):
         super().__init__()
         logger.debug(input_item)
-        self.entity_list = entity_list
         self.input_item = input_item
 
         # use 12 by default
@@ -490,6 +489,8 @@ class KMeansAnomalyScore(BaseTransformer):
         self.output_item = output_item
 
         self.whoami = 'KMeans'
+
+        self.entity_list = entity_list
 
     def prepare_data(self, dfEntity):
 
@@ -517,12 +518,16 @@ class KMeansAnomalyScore(BaseTransformer):
     def execute(self, df):
 
         df_copy = df.copy()
+        unique_entities = np.unique(df_copy.index.levels[0])
+        entities = []
         if self.entity_list:
-            entities = self.entity_list
+            for entity in self.entity_list:
+                if entity in unique_entities:
+                    entities.append(entity)
         else:
-            entities = np.unique(df_copy.index.levels[0])
+            entities = unique_entities
 
-        logger.debug(str(entities))
+        logger.debug('Entities to be processed {}'.format(str(entities)))
 
         df_copy[self.output_item] = np.nan
 
@@ -612,7 +617,7 @@ class KMeansAnomalyScore(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(ui.UIMulti(
+        inputs.append(UIMulti(
                 name='entity_list',
                 datatype=str,
                 description='comma separated list of entity ids',
