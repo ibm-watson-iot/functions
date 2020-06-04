@@ -518,14 +518,9 @@ class KMeansAnomalyScore(BaseTransformer):
     def execute(self, df):
 
         df_copy = df.copy()
-        unique_entities = np.unique(df_copy.index.levels[0])
-        entities = []
+        entities = np.unique(df_copy.index.levels[0])
         if self.entity_list:
-            for entity in self.entity_list:
-                if entity in unique_entities:
-                    entities.append(entity)
-        else:
-            entities = unique_entities
+            entities = np.intersect1d(entities, self.entity_list)
 
         logger.debug('Entities to be processed {}'.format(str(entities)))
 
@@ -573,7 +568,7 @@ class KMeansAnomalyScore(BaseTransformer):
 
                 n_cluster = np.minimum(n_cluster, slices.shape[0] // 2)
 
-                logger.debug('KMeans parms, Clusters: ' + str(n_cluster) + ', Slices: ' + str(slices.shape))
+                logger.debug('KMeans params, Clusters: ' + str(n_cluster) + ', Slices: ' + str(slices.shape))
 
                 cblofwin = CBLOF(n_clusters=n_cluster, n_jobs=-1)
                 try:
