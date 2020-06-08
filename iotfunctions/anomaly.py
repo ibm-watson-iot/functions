@@ -42,7 +42,7 @@ import logging
 # from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
-from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
+from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIExpression)
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -472,7 +472,7 @@ class KMeansAnomalyScore(BaseTransformer):
      The window size is typically set to 12 data points.
      Try several anomaly models on your data and use the one that fits your databest.
     '''
-    def __init__(self, input_item, windowsize, output_item, entity_list=None):
+    def __init__(self, input_item, windowsize, output_item, expression=None):
         super().__init__()
         logger.debug(input_item)
         self.input_item = input_item
@@ -490,7 +490,7 @@ class KMeansAnomalyScore(BaseTransformer):
 
         self.whoami = 'KMeans'
 
-        self.entity_list = entity_list
+        self.expression = expression
 
     def prepare_data(self, dfEntity):
 
@@ -518,21 +518,39 @@ class KMeansAnomalyScore(BaseTransformer):
     def execute(self, df):
 
         df_copy = df.copy()
-        entities = np.unique(df_copy.index.levels[0])
-        if self.entity_list:
-            entities = np.intersect1d(entities, self.entity_list)
 
-        logger.debug('Entities to be processed {}'.format(str(entities)))
+        logger.info('Expression exp: ' + self.expression + '  input: ' + str(self.input_item))
+        expr = self.expression
+        if '${' in expr:
+            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expr)
+            msg = 'Expression converted to %s. ' % expr
+        else:
+            msg = 'Expression (%s). ' % expr
+
+        self.trace_append(msg)
+
+        expr = str(expr)
+        logger.info('Expression - after regexp: ' + expr)
+
+        try:
+            mask = eval(expr)
+            entities = df_copy.loc[mask].index.unique(level=0)
+        except Exception as e:
+            logger.info('Expression eval for ' + expr + ' failed with ' + str(e))
 
         df_copy[self.output_item] = np.nan
 
         # check data type
         if df_copy[self.input_item].dtype != np.float64:
             return (df_copy)
+        logger.debug('Entities to be processed {}'.format(str(entities)))
 
         for entity in entities:
             # per entity - copy for later inplace operations
-            dfe = df_copy.loc[[entity]].dropna(how='all')
+            entity_expr = "(" + "df['deviceid'] ==" + entity + ")"
+            entity_mask = eval(expr + '&' + entity_expr)
+            logger.debug('Entity mask to be processed {}'.format(expr + '&' + entity_expr))
+            dfe = df_copy.loc[entity_mask].dropna(how='all')
             dfe_orig = df_copy.loc[[entity]].copy()
 
             # get rid of entityid part of the index
@@ -602,7 +620,7 @@ class KMeansAnomalyScore(BaseTransformer):
                 # np.savetxt('kmeans2.csv', zScoreII)
 
                 idx = pd.IndexSlice
-                df_copy.loc[idx[entity, :], self.output_item] = zScoreII
+                df_copy.loc[entity_mask, self.output_item] = zScoreII
 
         msg = 'KMeansAnomalyScore'
         self.trace_append(msg)
@@ -612,12 +630,6 @@ class KMeansAnomalyScore(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMulti(
-                name='entity_list',
-                datatype=str,
-                description='comma separated list of entity ids',
-                required=False
-                ))
 
         inputs.append(UISingleItem(
                 name='input_item',
@@ -631,6 +643,13 @@ class KMeansAnomalyScore(BaseTransformer):
                 description='Size of each sliding window in data points. Typically set to 12.'
                                               ))
 
+        inputs.append(UIExpression(
+                name='expression',
+                description="Define alert expression using pandas systax. \
+                             Example: df['inlet_temperature']>50. ${pressure} \
+                             will be substituted with df['pressure'] before \
+                             evaluation, ${} with df[<dimension_name>]")
+                )
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(
