@@ -339,7 +339,7 @@ class Database(object):
             logger.info(msg)
             logger.warning(sqlite_warnung_msg)
 
-        logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
+        # logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
 
         self.http = urllib3.PoolManager(timeout=30.0)
         try:
