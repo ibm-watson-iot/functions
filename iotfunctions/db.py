@@ -1924,10 +1924,6 @@ class Database(object):
                 except KeyError:
                     raise KeyError
 
-        # cast NULLTYPE to boolean
-        if self.get_as_datatype(col_obj) == 'BOOLEAN':
-            col_obj = col_obj.cast(Boolean)
-
         return col_obj
 
     def missing_columns(self, required_cols, table_cols):
