@@ -534,7 +534,7 @@ class KMeansAnomalyScore(BaseTransformer):
 
         try:
             mask = eval(expr)
-            entities = df_copy.loc[mask].index.unique(level=0)
+            entities = df_copy[mask].index.unique(level=0)
         except Exception as e:
             logger.info('Expression eval for ' + expr + ' failed with ' + str(e))
 
@@ -548,9 +548,9 @@ class KMeansAnomalyScore(BaseTransformer):
         for entity in entities:
             # per entity - copy for later inplace operations
             entity_expr = "(" + "df['deviceid'] ==" + entity + ")"
-            entity_mask = eval(expr + '&' + entity_expr)
+            entity_mask = mask & eval(entity_expr)
             logger.debug('Entity mask to be processed {}'.format(expr + '&' + entity_expr))
-            dfe = df_copy.loc[entity_mask].dropna(how='all')
+            dfe = df_copy[entity_mask].dropna(how='all')
             dfe_orig = df_copy.loc[[entity]].copy()
 
             # get rid of entityid part of the index
@@ -645,11 +645,11 @@ class KMeansAnomalyScore(BaseTransformer):
 
         inputs.append(UIExpression(
                 name='expression',
-                description="Define alert expression using pandas systax. \
-                             Example: df['inlet_temperature']>50. ${pressure} \
-                             will be substituted with df['pressure'] before \
-                             evaluation, ${} with df[<dimension_name>]")
-                )
+                description="Define filter expression using pandas systax \
+                             e.g.: df['pressure']>50 or syntax ${pressure}. \
+                             ${pressure} will be substituted with df['pressure'] \
+                             before evaluation"
+                                              ))
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(
