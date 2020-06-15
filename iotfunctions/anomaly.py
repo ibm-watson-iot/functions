@@ -519,6 +519,10 @@ class KMeansAnomalyScore(BaseTransformer):
 
         df_copy = df.copy()
 
+        # check data type
+        if df_copy[self.input_item].dtype != np.float64:
+            return (df_copy)
+
         logger.info('Expression exp: ' + self.expression + '  input: ' + str(self.input_item))
         expr = self.expression
         if '${' in expr:
@@ -529,20 +533,20 @@ class KMeansAnomalyScore(BaseTransformer):
 
         self.trace_append(msg)
 
-        expr = str(expr)
         logger.info('Expression - after regexp: ' + expr)
 
         try:
-            mask = eval(expr)
+            if expr is not None:
+                mask = eval(str(expr))
+            else:
+                mask = np.full(len(df_copy) , True)
             entities = df_copy[mask].index.unique(level=0)
         except Exception as e:
             logger.info('Expression eval for ' + expr + ' failed with ' + str(e))
 
-        df_copy[self.output_item] = np.nan
+        if self.output_item is not in df_copy.columns:
+            df_copy[self.output_item] = np.nan
 
-        # check data type
-        if df_copy[self.input_item].dtype != np.float64:
-            return (df_copy)
         logger.debug('Entities to be processed {}'.format(str(entities)))
 
         for entity in entities:
