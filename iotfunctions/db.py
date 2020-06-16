@@ -405,12 +405,8 @@ class Database(object):
 
         if entity_metadata is None:
 
-            if entity_type is not None:
-                metadata = self.http_request(object_type='entityType', object_name=entity_type, request='GET',
-                                             payload={}, object_name_2='')
-            else:
-                metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
-                                             object_name_2='')
+            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
+                                         object_name_2='')
             if metadata is not None:
                 try:
                     metadata = json.loads(metadata)
@@ -884,7 +880,8 @@ class Database(object):
             [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
-        self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
+        self.url[('entityType', 'POST')] = '/'.join(
+            [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
         self.url[('entityType', 'GET')] = '/'.join(
             [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
@@ -2732,9 +2729,8 @@ class BaseTable(object):
         else:
             self.name = name.lower()
         self.table = Table(self.name, self.database.metadata, *args, **kw)
-        self.id_col = Column(self._entity_id.lower(), String(50))
-        # Should be created using the create method available -> self.db.create()
-        #self.table.create(checkfirst=True)
+        self.id_col = Column(self._entity_id.lower(), String(
+            50))  # Should be created using the create method available -> self.db.create()  # self.table.create(checkfirst=True)
 
     def create(self):
         self.table.create(checkfirst=True)
