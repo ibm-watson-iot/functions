@@ -15,6 +15,7 @@ The Built In Functions module contains preinstalled functions
 import datetime as dt
 import numpy as np
 import scipy as sp
+import re
 
 #  for Spectral Analysis
 from scipy import signal, fftpack
