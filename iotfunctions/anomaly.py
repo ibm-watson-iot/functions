@@ -544,7 +544,7 @@ class KMeansAnomalyScore(BaseTransformer):
         except Exception as e:
             logger.info('Expression eval for ' + expr + ' failed with ' + str(e))
 
-        if self.output_item is not in df_copy.columns:
+        if self.output_item not in df_copy.columns:
             df_copy[self.output_item] = np.nan
 
         logger.debug('Entities to be processed {}'.format(str(entities)))
@@ -649,7 +649,7 @@ class KMeansAnomalyScore(BaseTransformer):
 
         inputs.append(UIExpression(
                 name='expression',
-                description="Define filter expression using pandas systax \
+                description="Define filter expression using pandas syntax \
                              e.g.: df['pressure']>50 or syntax ${pressure}. \
                              ${pressure} will be substituted with df['pressure'] \
                              before evaluation"
