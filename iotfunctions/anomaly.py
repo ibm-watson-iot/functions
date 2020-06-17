@@ -552,9 +552,7 @@ class KMeansAnomalyScore(BaseTransformer):
 
         for entity in entities:
             # per entity - copy for later inplace operations
-            entity_expr = "(" + "df['deviceid'] ==" + entity + ")"
-            entity_mask = mask & eval(entity_expr)
-            logger.debug('Entity mask to be processed {}'.format(expr + '&' + entity_expr))
+            entity_mask = df_copy.index.isin([entity], level=0) & mask
             dfe = df_copy[entity_mask].dropna(how='all')
             dfe_orig = df_copy.loc[[entity]].copy()
 
