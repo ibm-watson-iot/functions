@@ -554,7 +554,7 @@ class KMeansAnomalyScore(BaseTransformer):
             entity_mask = df_copy.index.isin([entity], level=0) & mask
             logger.debug('Entity mask {}'.format(entity_mask))
             dfe = df_copy[entity_mask].dropna(how='all')
-            dfe_orig = df_copy.loc[[entity_mask]].copy()
+            dfe_orig = df_copy[entity_mask].copy()
 
             # get rid of entityid part of the index
             # do it inplace as we copied the data before
