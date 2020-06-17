@@ -528,13 +528,12 @@ class KMeansAnomalyScore(BaseTransformer):
         expr = self.expression
         if '${' in expr:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expr)
+            logger.info('Expression - after regexp: ' + expr)
             msg = 'Expression converted to %s. ' % expr
         else:
             msg = 'Expression (%s). ' % expr
 
         self.trace_append(msg)
-
-        logger.info('Expression - after regexp: ' + expr)
 
         try:
             if expr is not None:
