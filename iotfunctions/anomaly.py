@@ -524,7 +524,7 @@ class KMeansAnomalyScore(BaseTransformer):
         if df_copy[self.input_item].dtype != np.float64:
             return (df_copy)
 
-        logger.info('Expression exp: ' + self.expression + '  input: ' + str(self.input_item))
+        logger.info('Expression exp: ' + str(self.expression) + '  input: ' + str(self.input_item))
         expr = self.expression
         if '${' in expr:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expr)
