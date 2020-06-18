@@ -1878,7 +1878,7 @@ class Database(object):
         query = self.session.query(*query_args)
 
         if dim is not None:
-            query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
+            query = query.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
 
         if not start_ts is None:
             if timestamp_col is None:
