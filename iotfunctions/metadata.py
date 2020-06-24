@@ -2523,6 +2523,12 @@ class Model(object):
         logger.info(msg)
         return self.estimator
 
+    def transform(self, df):
+        result = self.estimator.transform(df[self.features])
+        msg = 'transformed using model %s' % (self.name)
+        logger.info(msg)
+        return result
+
     def predict(self, df):
         result = self.estimator.predict(df[self.features])
         msg = 'predicted using model %s' % (self.name)
