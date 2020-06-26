@@ -1068,7 +1068,7 @@ class EntityType(object):
         params = {'data_writer': DataWriterFile, 'keep_alive_duration': None, 'save_trace_to_file': True,
                   'default_backtrack': 'checkpoint', 'trace_df_changes': True, '_abort_on_fail': True,
                   'job_log_class': JobLogNull, '_auto_save_trace': None, '_start_ts_override': start_ts,
-                  '_end_ts_override': end_ts, '_entity_filter_list': entities}
+                  '_end_ts_override': end_ts, '_entity_filter_list': entities, '_production_mode': False}
 
         kw = {**params, **kw}
 

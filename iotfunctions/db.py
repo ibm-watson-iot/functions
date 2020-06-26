@@ -246,22 +246,21 @@ class Database(object):
                     self.credentials['db2']['username'], self.credentials['db2']['password'],
                     self.credentials['db2']['host'], self.credentials['db2']['port'],
                     self.credentials['db2']['databaseName'])
-                if 'security' in self.credentials['db2']:
-                    if self.credentials['db2']['security']:
-                        connection_string += 'SECURITY=ssl;'
-                        if os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                            connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                if 'security' in self.credentials['db2'] or self.credentials['db2']['port'] == 50001:
+                    connection_string += 'SECURITY=ssl;'
+                    if os.path.exists('/secrets/truststore/db2_certificate.pem'):
+                        connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                    else:
+                        cwd1 = os.getcwd()
+                        filename1 = cwd1 + "/db2_certificate.pem;"
+                        logger.info('file name db => %s' % filename1)
+                        if os.path.exists(filename1):
+                            connection_string += ';SSLServerCertificate=' + filename1 + ";"
                         else:
-                            cwd1 = os.getcwd()
-                            filename1 = cwd1 + "/db2_certificate.pem;"
-                            logger.info('file name db => %s' % filename1)
-                            if os.path.exists(filename1):
-                                connection_string += ';SSLServerCertificate=' + filename1 + ";"
-                            else:
-                                db_certificate_file = os.environ.get('DB_CERTIFICATE_FILE')
-                                if db_certificate_file is not None:
-                                    if os.path.exists(db_certificate_file):
-                                        connection_string += ';SSLServerCertificate=' + db_certificate_file + ";"
+                            db_certificate_file = os.environ.get('DB_CERTIFICATE_FILE')
+                            if db_certificate_file is not None:
+                                if os.path.exists(db_certificate_file):
+                                    connection_string += ';SSLServerCertificate=' + db_certificate_file + ";"
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
