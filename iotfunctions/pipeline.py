@@ -22,6 +22,7 @@ import numpy as np
 import time
 import traceback
 import warnings
+import inspect
 
 from .enginelog import EngineLogging
 from .util import log_df_info, freq_to_timedelta, Trace
@@ -2293,49 +2294,26 @@ class CalcPipeline:
             name = stage.name
         except AttributeError:
             name = stage.__class__.__name__
-        # check to see if incoming data has a conformed index, conform if needed
-        try:
-            pass  # kohlmann df = stage.conform_index(df=df)
-        except AttributeError:
-            pass
-        except KeyError as e:
-            msg = 'KeyError while conforming index prior to execution of function %s. ' % name
-            self.trace_add(msg, created_by=stage, df=df)
-            self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
 
         msg = 'Stage %s :' % name
         self.trace_add(msg=msg, df=df)
         logger.debug('Start of stage %s' % name)
+
         if self.dblogging is not None:
             self.dblogging.update_stage_info(name)
+
         start_time = pd.Timestamp.utcnow()
         try:
-            # there are two signatures for the execute method
-            try:
+
+            contains_extended_args = self._contains_extended_arguments(stage.execute)
+
+            if contains_extended_args:
                 newdf = stage.execute(df=df, start_ts=start_ts, end_ts=end_ts, entities=entities)
-            except TypeError:
+            else:
                 newdf = stage.execute(df=df)
-        except AttributeError as e:
-            self.trace_add('The function %s makes a reference to an object property that does not exist. ' % name,
-                           created_by=stage)
-            self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
-        except SyntaxError as e:
-            self.trace_add(
-                'The function %s contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct. ' % name,
-                created_by=stage)
-            self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
-        except (ValueError, TypeError) as e:
-            self.trace_add('The function %s is operating on data that has an unexpected value or data type. ' % name,
-                           created_by=stage)
-            self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
-        except NameError as e:
-            self.trace_add(
-                'The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' % name,
-                created_by=stage)
-            self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
+
         except BaseException as e:
-            self.trace_add('The function %s failed to execute. ' % name, created_by=stage)
-            self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stageName=name)
+            self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
         logger.debug(
             'End of stage %s, execution time = %s s' % (name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
@@ -2362,6 +2340,16 @@ class CalcPipeline:
         msg = 'Completed stage %s. ' % name
         self.trace_add(msg, created_by=stage, df=newdf)
         return newdf
+
+    def _contains_extended_arguments(self, function, extended_argument=['start_ts', 'end_ts', 'entities']):
+
+        # there are two signatures for the execute method
+        inspect_args, inspect_varargs, inspect_varkw, inspect_defaults, inspect_kwonlyargs, inspect_kwonlydefaults, inspect_ann = inspect.getfullargspec(
+            function)
+
+        contains_extended_arguments = set(extended_argument).issubset(set(inspect_args))
+
+        return contains_extended_arguments
 
     def get_custom_calendar(self):
         '''

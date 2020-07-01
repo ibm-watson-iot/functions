@@ -260,7 +260,7 @@ class EntityType(object):
         if self._granularities_dict is None:
             self._granularities_dict = {}
 
-            # additional params set from kwargs
+        # additional params set from kwargs
         self.set_params(**kwargs)
 
         # Start a trace to record activity on the entity type
@@ -1068,7 +1068,7 @@ class EntityType(object):
         params = {'data_writer': DataWriterFile, 'keep_alive_duration': None, 'save_trace_to_file': True,
                   'default_backtrack': 'checkpoint', 'trace_df_changes': True, '_abort_on_fail': True,
                   'job_log_class': JobLogNull, '_auto_save_trace': None, '_start_ts_override': start_ts,
-                  '_end_ts_override': end_ts, '_entity_filter_list': entities}
+                  '_end_ts_override': end_ts, '_entity_filter_list': entities, '_production_mode': False}
 
         kw = {**params, **kw}
 
@@ -1777,18 +1777,23 @@ class EntityType(object):
 
         return response
 
-    def raise_error(self, exception, msg='', abort_on_fail=False, stageName=None):
+    def raise_error(self, exception, msg=None, abort_on_fail=False, stage_name=None):
         '''
         Raise an exception. Append a message and the current trace to the stacktrace.
         '''
-        msg = ('Execution of function %s failed due to %s'
-               ' Error message: %s '
-               ' Stack trace : %s '
-               ' Execution trace : %s' % (
-                   stageName, exception.__class__.__name__, msg, traceback.format_exc(), str(self._trace)))
+
+        err_info = {'AttributeError': 'The function %s makes reference to an object property that does not exist.',
+                    'SyntaxError': 'The function %s contains a syntax error. If the function includes a type-in expression, make sure this is correct.',
+                    'ValueError': 'The function %s is operating on a data that has an unexpected value for its data type.',
+                    'TypeError': 'The function %s is operating on a data that has an unexpected data type.',
+                    'KeyError': 'The function %s is refering to a dictionary key or dataframe column name that doesnt exist.',
+                    'NameError': 'The function %s is refering to an object that doesnt exist. If refering to data items in a pandas dataframe, ensure that you quote them, e.g. df["temperature"].', }
+
+        if msg is None:
+            msg = err_info.get(exception.__class__.__name__, 'The function %s failed to execute.') % stage_name
 
         if abort_on_fail:
-            raise StageException(msg, stageName)
+            raise StageException(error_message=msg, stage_name=stage_name, exception=exception)
         else:
             logger.warning(msg)
 
@@ -2522,6 +2527,12 @@ class Model(object):
         msg = 'trained model %s with evaluation metric value %s' % (self.name, self.eval_metric_train)
         logger.info(msg)
         return self.estimator
+
+    def transform(self, df):
+        result = self.estimator.transform(df[self.features])
+        msg = 'transformed using model %s' % (self.name)
+        logger.info(msg)
+        return result
 
     def predict(self, df):
         result = self.estimator.predict(df[self.features])
