@@ -1276,6 +1276,8 @@ class Database(object):
         q, table = self.query(table_name, schema=schema, column_names=columns, column_aliases=columns,
                               timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
+        logger.debug('query statement:')
+        logger.debug(q)
         df = pd.read_sql_query(sql=q.statement, con=self.connection, parse_dates=parse_dates)
         if parse_dates is not None:
             df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
