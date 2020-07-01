@@ -1741,6 +1741,7 @@ class Database(object):
                         query = self.subquery_join(query, filter_query, *keys, **project)
                         logger.debug(query)
                     # execute
+                    logger.debug('query statement: %s', query.statement)
                     df_result = pd.read_sql_query(query, con=self.connection)
 
                     if pandas_aggregate is not None:
@@ -1913,6 +1914,8 @@ class Database(object):
                 logger.debug('Ignored query filter on %s with no members', d)
             else:
                 query = query.filter(col_obj.in_(members[0]))
+
+        logger.debug('query statement: %s', query)
 
         return (query, table)
 
@@ -2159,7 +2162,7 @@ class Database(object):
             subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
-                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
@@ -2422,7 +2425,7 @@ class Database(object):
             subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
-                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
