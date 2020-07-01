@@ -15,11 +15,11 @@ with open('credentials_as_dev.json', encoding='utf-8') as F:
 db = Database(credentials=credentials)
 db_schema = None  # set if you are not using the default
 
-table_name = 'mike_test_building'
+entity_name = 'herle_boiler1'
 
-e1 = entity.BuildingWorkstation(name=table_name, db=db, drop_existing=True, generate_days=25)
+e1 = entity.Boiler(name=entity_name, db=db, drop_existing=True, generate_days=25)
 e1.register(raise_error=True)
-df = db.read_table(table_name=table_name, schema=db_schema)
+df = db.read_table(table_name=entity_name, schema=db_schema)
 print(df.head())
 
 e1.exec_local_pipeline()

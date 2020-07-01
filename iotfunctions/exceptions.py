@@ -35,3 +35,10 @@ class DataWriterException(Exception):
     def __init__(self, msg):
         logger.error(msg)
         super().__init__(msg)
+
+
+class ApplicationException(Exception):
+
+    def __init__(self, msg):
+        logger.error(msg)
+        super().__init__(msg)
