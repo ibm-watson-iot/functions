@@ -2312,26 +2312,8 @@ class CalcPipeline:
             else:
                 newdf = stage.execute(df=df)
 
-        except AttributeError as e:
-            error_message = 'The function %s makes a reference to an object property that does not exist. ' % name
-            self.trace_add(error_message, created_by=stage)
-            self.entity_type.raise_error(exception=e, msg=error_message, abort_on_fail=abort_on_fail, stageName=name)
-        except SyntaxError as e:
-            error_message = 'The function %s contains a syntax error. If the function configuration includes a type-in expression, make sure that this expression is correct. ' % name
-            self.trace_add(error_message, created_by=stage)
-            self.entity_type.raise_error(exception=e, msg=error_message, abort_on_fail=abort_on_fail, stageName=name)
-        except (ValueError, TypeError) as e:
-            error_message = 'The function %s is operating on data that has an unexpected value or data type. ' % name
-            self.trace_add(error_message, created_by=stage)
-            self.entity_type.raise_error(exception=e, msg=error_message, abort_on_fail=abort_on_fail, stageName=name)
-        except NameError as e:
-            error_message = 'The function %s referred to an object that does not exist. You may be referring to data items in pandas expressions, ensure that you refer to them by name, ie: as a quoted string. ' % name
-            self.trace_add(error_message, created_by=stage)
-            self.entity_type.raise_error(exception=e, msg=error_message, abort_on_fail=abort_on_fail, stageName=name)
         except BaseException as e:
-            error_message = 'The function %s failed to execute. ' % name
-            self.trace_add(error_message, created_by=stage)
-            self.entity_type.raise_error(exception=e, msg=error_message, abort_on_fail=abort_on_fail, stageName=name)
+            self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
         logger.debug(
             'End of stage %s, execution time = %s s' % (name, (pd.Timestamp.utcnow() - start_time).total_seconds()))

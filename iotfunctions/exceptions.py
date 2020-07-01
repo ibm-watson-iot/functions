@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +21,15 @@ class MergeException(Exception):
 
 
 class StageException(Exception):
-    EXTENSION_DICT = 'extensionDict'
-    STAGENAME = 'stageName'
-    STAGEINFO = 'stageInfo'
 
-    def __init__(self, msg, stageName=None, stageInfo=None):
-        super().__init__(msg)
-        setattr(self, StageException.EXTENSION_DICT,
-                {StageException.STAGENAME: stageName, StageException.STAGEINFO: stageInfo})
+    def __init__(self, error_message, stage_name=None, stage_info=None, exception=None):
+        super().__init__(error_message)
+        stack_trace = traceback.format_exc()
+        traceback.print_exc()
+
+        setattr(self, 'exception_details',
+                {'stage_name': stage_name, 'stage_info': stage_info, "exception_type": exception.__class__.__name__,
+                 "stack_trace": stack_trace})
 
 
 class DataWriterException(Exception):
