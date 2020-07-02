@@ -444,8 +444,11 @@ class ProduceAlerts(object):
     def get_json_values(self, index_names, col_names, row):
 
         index_json = {}
-        for index_name, index_value in zip(index_names, row[0]):
-            index_json[index_name] = index_value
+        if len(index_names) == 1:
+            index_json[index_names[0]] = row[0]
+        else:
+            for index_name, index_value in zip(index_names, row[0]):
+                index_json[index_name] = index_value
 
         values = {}
         for col_name, value in zip(col_names, row[1:]):
