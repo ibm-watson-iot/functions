@@ -1734,7 +1734,7 @@ class Database(object):
                         query = self.subquery_join(query, filter_query, *keys, **project)
                         logger.debug(query)
                     # execute
-                    logger.debug('query statement: %s', query.statement)
+                    logger.debug('query statement: %s', query)
                     df_result = pd.read_sql_query(query, con=self.connection)
 
                     if pandas_aggregate is not None:
