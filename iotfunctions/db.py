@@ -27,10 +27,14 @@ from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy import __version__ as sqlalchemy_version_string
+import psycopg2
+import ibm_db
+import ibm_db_dbi
 from .util import CosClient, resample, reset_df_index
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
+from . import dbtables
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -62,7 +66,7 @@ class Database(object):
     bif_sql = "V1000-18.sql"
 
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
-                 entity_type=None, model_store=None):
+                 entity_type=None, entity_type_id=None, model_store=None):
 
         self.model_store = model_store
         self.function_catalog = {}  # metadata for functions in catalog
@@ -226,98 +230,137 @@ class Database(object):
         # is sqlite for testing purposes
         connection_string_from_env = os.environ.get('DB_CONNECTION_STRING')
         db_type_from_env = os.environ.get('DB_TYPE')
-        connection_kwargs = {}
-        sqlite_warnung_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
+        db_certificate_file_from_env = os.environ.get('DB_CERTIFICATE_FILE')
+
+        sqlalchemy_connection_kwargs = {}
+        sqlite_warning_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
 
         if 'sqlite' in self.credentials:
             filename = credentials['sqlite']
             if filename is not None and len(filename) > 0:
-                connection_string = 'sqlite:///%s' % (credentials['sqlite'])
-                self.db_type = 'sqlite'
-                self.write_chunk_size = 100
-                logger.warning(sqlite_warnung_msg)
+                sqlalchemy_connection_string = 'sqlite:///%s' % (credentials['sqlite'])
+                native_connection_string = None
             else:
                 msg = 'The credentials for sqlite is just a filename. The given filename is an empty string.'
                 raise ValueError(msg)
 
+            self.db_type = 'sqlite'
+            self.write_chunk_size = 100
+            logger.warning(sqlite_warning_msg)
+
         elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
             try:
-                connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
                     self.credentials['db2']['username'], self.credentials['db2']['password'],
                     self.credentials['db2']['host'], self.credentials['db2']['port'],
                     self.credentials['db2']['databaseName'])
+
+                native_connection_string = 'DATABASE=%s;HOSTNAME=%s;PORT=%s;PROTOCOL=TCPIP;UID=%s;PWD=%s;' % (
+                    self.credentials['db2']['databaseName'], self.credentials['db2']['host'],
+                    self.credentials['db2']['port'], self.credentials['db2']['username'],
+                    self.credentials['db2']['password'],)
+
+                security_extension = ''
                 if 'security' in self.credentials['db2'] or self.credentials['db2']['port'] == 50001:
-                    connection_string += 'SECURITY=ssl;'
+                    security_extension += 'SECURITY=ssl;'
                     if os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                        connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                        security_extension += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
                     else:
                         cwd1 = os.getcwd()
                         filename1 = cwd1 + "/db2_certificate.pem;"
                         logger.info('file name db => %s' % filename1)
                         if os.path.exists(filename1):
-                            connection_string += ';SSLServerCertificate=' + filename1 + ";"
+                            security_extension += ';SSLServerCertificate=' + filename1 + ";"
                         else:
-                            db_certificate_file = os.environ.get('DB_CERTIFICATE_FILE')
-                            if db_certificate_file is not None:
-                                if os.path.exists(db_certificate_file):
-                                    connection_string += ';SSLServerCertificate=' + db_certificate_file + ";"
+                            if db_certificate_file_from_env is not None:
+                                if os.path.exists(db_certificate_file_from_env):
+                                    security_extension += ';SSLServerCertificate=' + db_certificate_file_from_env + ";"
+
+                sqlalchemy_connection_string += security_extension
+                native_connection_string += security_extension
+
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
 
             self.db_type = 'db2'
-            connection_kwargs['pool_size'] = 1
+            sqlalchemy_connection_kwargs['pool_size'] = 1
 
         elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
             try:
-                connection_string = 'postgresql+psycopg2://%s:%s@%s:%s/%s' % (
+                native_connection_string = '%s:%s@%s:%s/%s' % (
                     self.credentials['postgresql']['username'], self.credentials['postgresql']['password'],
                     self.credentials['postgresql']['host'], self.credentials['postgresql']['port'],
                     self.credentials['postgresql']['databaseName'])
-                self.db_type = 'postgresql'
+
+                sqlalchemy_connection_string = 'postgresql+psycopg2://' + native_connection_string
+
             except KeyError as ex:
                 msg = 'The credentials for PostgreSql are incomplete. ' \
                       'You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
 
+            self.db_type = 'postgresql'
+
         elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
             if db_type_from_env is not None and len(db_type_from_env) > 0:
-                logger.debug('Found database type in os variables: %s' % db_type_from_env)
+                logger.debug('Found database type in os variable DB_TYPE: %s' % db_type_from_env)
                 db_type_from_env = db_type_from_env.upper()
                 if db_type_from_env == 'DB2':
                     if connection_string_from_env.endswith(';'):
                         connection_string_from_env = connection_string_from_env[:-1]
                     try:
                         ev = dict(item.split("=") for item in connection_string_from_env.split(";"))
-                        connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                        sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
                             ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+
+                        native_connection_string = connection_string_from_env + ';'
+
                         if 'SECURITY' in ev:
-                            connection_string += 'SECURITY=%s;' % ev['SECURITY']
-                            cwd = os.getcwd()
-                            filename = cwd + "/db2_certificate.pem";
-                            if os.path.exists(filename):
-                                connection_string += ';SSLServerCertificate=' + filename + ";"
+                            sqlalchemy_connection_string += 'SECURITY=%s;' % ev['SECURITY']
+
+                            if 'SSLSERVERCERTIFICATE' in ev:
+                                sqlalchemy_connection_string += 'SSLServerCertificate=' \
+                                                                + ev['SSLSERVERCERTIFICATE'] + ";"
+                            else:
+                                cwd = os.getcwd()
+                                filename = cwd + "/db2_certificate.pem";
+                                if os.path.exists(filename):
+                                    tmp_string = 'SSLServerCertificate=' + filename + ";"
+                                    sqlalchemy_connection_string += tmp_string
+                                    native_connection_string += tmp_string
+                                elif db_certificate_file_from_env is not None:
+                                    logger.debug('Found certificate filename in os variable DB_CERTIFICATE_FILE: %s' %
+                                                 db_certificate_file_from_env)
+                                    if os.path.exists(db_certificate_file_from_env):
+                                        tmp_string = 'SSLServerCertificate=' + db_certificate_file_from_env + ";"
+                                        sqlalchemy_connection_string += tmp_string
+                                        native_connection_string += tmp_string
+
                         self.credentials['db2'] = {"username": ev['UID'], "password": ev['PWD'],
-                                                   "database": ev['DATABASE'], "port": ev['PORT'],
+                                                   "databaseName": ev['DATABASE'], "port": ev['PORT'],
                                                    "host": ev['HOSTNAME']}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for DB2 is '
                                          'DATABASE=xxx;HOSTNAME=xxx;PORT=xxx;UID=xxx;PWD=xxx[;SECURITY=xxx]' % connection_string_from_env)
                     self.db_type = 'db2'
+
                 elif db_type_from_env == 'POSTGRESQL':
-                    connection_string = 'postgresql+psycopg2://' + connection_string_from_env
+                    sqlalchemy_connection_string = 'postgresql+psycopg2://' + connection_string_from_env
+                    native_connection_string = connection_string_from_env
                     try:
                         # Split connection string according to user:password@hostname:port/database
                         first, last = connection_string_from_env.split("@")
                         uid, pwd = first.split(":", 1)
                         hostname_port, database = last.split("/", 1)
                         hostname, port = hostname_port.split(":", 1)
-                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "database": database,
+                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "databaseName": database,
                                                           "port": port, "host": hostname}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for POSTGRESQL is '
                                          'user:password@hostname:port/database' % connection_string_from_env)
                     self.db_type = 'postgresql'
+
                 else:
                     raise ValueError(
                         'The database type \'%s\' is unknown. Supported types are DB2 and POSTGRESQL' % db_type_from_env)
@@ -325,14 +368,13 @@ class Database(object):
                 raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
                                  'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
-            connection_string = 'sqlite:///sqldb.db'
+            sqlalchemy_connection_string = 'sqlite:///sqldb.db'
+            native_connection_string = None
             self.write_chunk_size = 100
             self.db_type = 'sqlite'
             msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db.'
             logger.info(msg)
-            logger.warning(sqlite_warnung_msg)
-
-        # logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
+            logger.warning(sqlite_warning_msg)
 
         self.http = urllib3.PoolManager(timeout=30.0)
         try:
@@ -369,16 +411,17 @@ class Database(object):
                     break
 
             if meets_requirement:
-                dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
-                                  'executemany_values_page_size': 1000}
+                sqlalchemy_dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
+                                             'executemany_values_page_size': 1000}
             else:
                 # 'use_batch_mode=True' is about 20 % slower than 'execute_many_mode=values'
-                dialect_kwargs = {'use_batch_mode': True}
+                sqlalchemy_dialect_kwargs = {'use_batch_mode': True}
         else:
-            dialect_kwargs = {}
+            sqlalchemy_dialect_kwargs = {}
 
-        connection_kwargs = {**dialect_kwargs, **connection_kwargs}
-        self.connection = create_engine(connection_string, echo=echo, **connection_kwargs)
+        # Establish database connection via sqlalchemy
+        sqlalchemy_connection_kwargs = {**sqlalchemy_dialect_kwargs, **sqlalchemy_connection_kwargs}
+        self.connection = create_engine(sqlalchemy_connection_string, echo=echo, **sqlalchemy_connection_kwargs)
 
         self.Session = sessionmaker(bind=self.connection)
 
@@ -390,11 +433,27 @@ class Database(object):
         else:
             self.session = None
         self.metadata = MetaData(self.connection)
-        logger.debug('Db connection established')
+        logger.debug('Database connection via SqlAlchemy established.')
+
+        # Establish native database connection (for DB2 and PostgreSQL only)
+        if self.db_type == 'db2':
+            self.native_connection = ibm_db.connect(native_connection_string, '', '')
+            self.native_connection_dbi = ibm_db_dbi.Connection(self.native_connection)
+            logger.debug('Native database connection to DB2 established.')
+
+        elif self.db_type == 'postgresql':
+            cred = self.credentials['postgresql']
+            self.native_connection = psycopg2.connect(user=cred['username'], password=cred['password'],
+                                                      host=cred['host'], port=cred['port'],
+                                                      database=cred['databaseName'])
+            self.native_connection_dbi = self.native_connection
+            logger.debug('Native database connection to PostgreSQL established.')
+        else:
+            self.native_connection = None
+            self.native_connection_dbi = None
 
         # cache entity types
         self.entity_type_metadata = {}
-        metadata = None
 
         if entity_metadata is None:
 
@@ -413,6 +472,33 @@ class Database(object):
         else:
             metadata = entity_metadata
             self.entity_type_metadata[entity_type] = metadata
+
+        # Figure out entity_type, entity_type_id and schema
+        self.entity_type_id = None
+        self.entity_type = None
+        self.schema = None
+        if entity_type is not None:
+            self.entity_type = entity_type
+
+            metadata = self.entity_type_metadata.get(entity_type)
+            if metadata is not None:
+                self.entity_type_id = metadata.get('entityTypeId')
+                self.schema = metadata.get('schemaName')
+
+        elif entity_type_id is not None:
+            self.entity_type_id = entity_type_id
+
+            for name, metadata in self.entity_type_metadata.items():
+                if metadata.get('entityTypeId') == entity_type_id:
+                    self.entity_type = name
+                    self.schema = metadata.get('schemaName')
+                    break
+
+        # Create DBModelStore if it was not handed in
+        if self.model_store is None and self.db_type in ['db2', 'postgresql'] \
+                and self.entity_type_id is not None and self.schema is not None:
+            self.model_store = dbtables.DBModelStore(self.tenant_id, self.entity_type_id, self.schema,
+                                                     self.native_connection, self.db_type)
 
     def _aggregate_item(self, table, column_name, aggregate, alias_column=None, dimension_table=None,
                         timestamp_col=None):
