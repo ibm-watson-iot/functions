@@ -303,12 +303,6 @@ class Database(object):
             self.db_type = 'postgresql'
 
         elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
-            logger.debug('Found connection string in os variable DB_CONNECTION_STRING: %s' % connection_string_from_env)
-            # ##############################
-            # kohlmann: Temporary fix until db_type is enabled in cronjob by API code
-            if db_type_from_env is None:
-                db_type_from_env = 'DB2'
-            # ########## ####################
             if db_type_from_env is not None and len(db_type_from_env) > 0:
                 logger.debug('Found database type in os variable DB_TYPE: %s' % db_type_from_env)
                 db_type_from_env = db_type_from_env.upper()
@@ -1368,6 +1362,8 @@ class Database(object):
         q, table = self.query(table_name, schema=schema, column_names=columns, column_aliases=columns,
                               timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
+        logger.debug('query statement:')
+        logger.debug(q)
         df = pd.read_sql_query(sql=q.statement, con=self.connection, parse_dates=parse_dates)
         if parse_dates is not None:
             df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
@@ -1824,6 +1820,7 @@ class Database(object):
                         query = self.subquery_join(query, filter_query, *keys, **project)
                         logger.debug(query)
                     # execute
+                    logger.debug('query statement: %s', query.statement)
                     df_result = pd.read_sql_query(query, con=self.connection)
 
                     if pandas_aggregate is not None:
@@ -1996,6 +1993,8 @@ class Database(object):
                 logger.debug('Ignored query filter on %s with no members', d)
             else:
                 query = query.filter(col_obj.in_(members[0]))
+
+        logger.debug('query statement: %s', query)
 
         return (query, table)
 
@@ -2242,7 +2241,7 @@ class Database(object):
             subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
-                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
@@ -2505,7 +2504,7 @@ class Database(object):
             subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
-                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'

@@ -59,16 +59,16 @@ class PersistColumns:
 
     def execute(self, df):
         self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
-
-        t1 = dt.datetime.now()
-        self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
-        t2 = dt.datetime.now()
         if self.dms.production_mode:
+            t1 = dt.datetime.now()
+            self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
+            t2 = dt.datetime.now()
             self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
-        self.dms.create_checkpoint_entries(df)
-        t3 = dt.datetime.now()
-        if self.dms.production_mode:
+            self.dms.create_checkpoint_entries(df)
+            t3 = dt.datetime.now()
             self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
+        else:
+            self.logger.info("***** The calculated metric data is not stored into the database. ***** ")
 
         return df
 
@@ -367,62 +367,65 @@ class ProduceAlerts(object):
         logger.info('alerts_to_produce into message hub = %s ' % str(self.alerts_to_message_hub))
         logger.info('alerts_to_produce into database = %s ' % str(self.alerts_to_database))
 
-        key_and_msg = []
-        key_and_msg_updated = []
-        key_and_msg_and_db_parameter = []
+        if self.dms.production_mode:
+            key_and_msg = []
+            key_and_msg_updated = []
+            key_and_msg_and_db_parameter = []
 
-        if len(self.alerts_to_message_hub) > 0:
+            if len(self.alerts_to_message_hub) > 0:
 
-            filtered_alerts = []
-            alert_filter = None
+                filtered_alerts = []
+                alert_filter = None
 
-            # pre-filtering the data frame to be just those rows with True alert column values.
-            # Iterating through the whole data frame is a slow process.
-            for alert_name in self.alerts_to_message_hub:
-                if alert_name in df.columns:
-                    if alert_filter is None:
-                        alert_filter = (df[alert_name] == True)
-                    else:
-                        alert_filter = alert_filter | (df[alert_name] == True)
-                    filtered_alerts.append(alert_name)
-
-            filtered_df = df[alert_filter]
-            index_names = filtered_df.index.names
-
-            name_index_map = {name: (index + 1) for index, name in enumerate(filtered_df.columns)}
-            for df_row in filtered_df.itertuples(index=True, name=None):
-
-                for alert_name in filtered_alerts:
-
-                    if df_row[name_index_map[alert_name]]:
-                        # publish alert format
-                        # key: <tenant-id>|<entity-type-name>|<alert-name>
-                        # value: json document containing all metrics at the same time / same device / same grain
-                        key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
-                        value = self.get_json_values(index_names, filtered_df.columns, df_row)
-
-                        if alert_name in self.alerts_to_database:
-                            kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
-                            db_insert_parameter = (df_row[0][0], df_row[0][1], self.entity_type_id, alert_name,
-                                                   kpi_input.get('Severity', None), kpi_input.get('Priority', None),
-                                                   kpi_input.get('Status', None))
-                            key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
+                # pre-filtering the data frame to be just those rows with True alert column values.
+                # Iterating through the whole data frame is a slow process.
+                for alert_name in self.alerts_to_message_hub:
+                    if alert_name in df.columns:
+                        if alert_filter is None:
+                            alert_filter = (df[alert_name] == True)
                         else:
-                            key_and_msg.append((key, value))
+                            alert_filter = alert_filter | (df[alert_name] == True)
+                        filtered_alerts.append(alert_name)
 
+                filtered_df = df[alert_filter]
+                index_names = filtered_df.index.names
+
+                name_index_map = {name: (index + 1) for index, name in enumerate(filtered_df.columns)}
+                for df_row in filtered_df.itertuples(index=True, name=None):
+
+                    for alert_name in filtered_alerts:
+
+                        if df_row[name_index_map[alert_name]]:
+                            # publish alert format
+                            # key: <tenant-id>|<entity-type-name>|<alert-name>
+                            # value: json document containing all metrics at the same time / same device / same grain
+                            key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
+                            value = self.get_json_values(index_names, filtered_df.columns, df_row)
+
+                            if alert_name in self.alerts_to_database:
+                                kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+                                db_insert_parameter = (df_row[0][0], df_row[0][1], self.entity_type_id, alert_name,
+                                                       kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                                       kpi_input.get('Status', None))
+                                key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
+                            else:
+                                key_and_msg.append((key, value))
+
+            else:
+                logger.debug("No alerts to produce for %s." % self.entity_type_name)
+                return df
+
+            if len(key_and_msg_and_db_parameter) > 0:
+                key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
+
+            if not self.dms.is_icp and (len(key_and_msg) > 0 or len(key_and_msg_updated) > 0):
+                # TODO:: Duplicate alert issue is still exist.
+                key_and_msg_merged = []
+                key_and_msg_merged.extend(key_and_msg)
+                key_and_msg_merged.extend(key_and_msg_updated)
+                self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg_merged)
         else:
-            logger.debug("No alerts to produce for %s." % self.entity_type_name)
-            return df
-
-        if len(key_and_msg_and_db_parameter) > 0:
-            key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
-
-        if not self.dms.is_icp and (len(key_and_msg) > 0 or len(key_and_msg_updated) > 0):
-            # TODO:: Duplicate alert issue is still exist.
-            key_and_msg_merged = []
-            key_and_msg_merged.extend(key_and_msg)
-            key_and_msg_merged.extend(key_and_msg_updated)
-            self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg_merged)
+            logger.info("***** The alert data is not stored into the database/Message hub. ***** ")
 
         return df
 
@@ -566,6 +569,8 @@ class RecordUsage:
                 except BaseException as e:
                     msg = 'Unable to write usage. %s' % str(e)
                     self.logger.error(msg)
+        else:
+            self.logger.info("***** The RecordUsage is not stored into the database. ***** ")
 
         return df
 
