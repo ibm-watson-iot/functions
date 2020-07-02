@@ -211,7 +211,9 @@ class DBDataCache:
                 raise Exception(
                     'Retrieval of cache %s failed with sql statement "%s"' % (cache_filename, sql_statement)) from ex
 
+        cache_found = False
         if row is not None:
+            cache_found = True
             parquet = row[0]
             if parquet is not None and len(parquet) > 0:
                 try:
@@ -229,18 +231,28 @@ class DBDataCache:
         else:
             logger.info('No cache found for %s' % cache_filename)
 
-    def _get_cache_filename(self, dep_grain, grain):
+        return cache_found
+
+    def _get_cache_filename(self, dep_grain, grain, old_name=False):
 
         # Create local path for cache file on disk.
         base_path = '%s/%s/%d' % (DBDataCache.PARQUET_DIRECTORY, self.tenant_id, self.entity_type_id)
         Path(base_path).mkdir(parents=True, exist_ok=True)
 
         # Assemble filename and full pathname of cache file
-        src = '%s_%s_%s' % (
-            str(dep_grain[0]), str('_'.join(dep_grain[1])), str(dep_grain[2])) if dep_grain is not None else str(None)
-        tar = '%s_%s_%s' % (str(grain[0]), str('_'.join(grain[1])), str(grain[2])) if grain is not None else str(None)
-        filename = '%s__%s__%s' % (DBDataCache.CACHE_FILE_STEM, src, tar)
-        local_path = '%s/%s' % (base_path, filename)
+        if old_name is False:
+            filename = '%s__%s__%s' % (DBDataCache.CACHE_FILE_STEM,
+                                       str(dep_grain[3]) if dep_grain is not None else str(None),
+                                       str(grain[3]) if grain is not None else str(None))
+            local_path = '%s/%s' % (base_path, filename)
+        else:
+            src = '%s_%s_%s' % (
+                str(dep_grain[0]), str('_'.join(dep_grain[1])), str(dep_grain[2])) if dep_grain is not None else str(
+                None)
+            tar = '%s_%s_%s' % (str(grain[0]), str('_'.join(grain[1])), str(grain[2])) if grain is not None else str(
+                None)
+            filename = '%s__%s__%s' % (DBDataCache.CACHE_FILE_STEM, src, tar)
+            local_path = '%s/%s' % (base_path, filename)
 
         return filename, local_path, base_path
 
@@ -263,9 +275,9 @@ class DBDataCache:
         else:
             logger.warning('Dataframe is None. Therefore no cache has been stored in database.')
 
-    def retrieve_cache(self, dep_grain, grain):
+    def retrieve_cache(self, dep_grain, grain, old_name=False):
 
-        cache_filename, cache_pathname, base_path = self._get_cache_filename(dep_grain, grain)
+        cache_filename, cache_pathname, base_path = self._get_cache_filename(dep_grain, grain, old_name)
         self._get_cache(cache_filename, cache_pathname)
         df_loaded = None
         if os.path.exists(cache_pathname):
@@ -278,6 +290,47 @@ class DBDataCache:
                 raise Exception('The dataframe could not be loaded from parquet file %s' % cache_pathname) from ex
 
         return df_loaded
+
+    def delete_cache(self, dep_grain, grain, old_name=False):
+        # Delete single cache entry locally
+        cache_filename, cache_pathname, base_path = self._get_cache_filename(dep_grain, grain, old_name)
+        if os.path.exists(cache_pathname):
+            try:
+                os.remove(cache_pathname)
+            except Exception as ex:
+                raise Exception('Removal of cache file %s failed' % cache_pathname) from ex
+
+        # Delete single cache entry in database
+        if not self.is_postgre_sql:
+            sql_statement = "DELETE FROM %s.%s WHERE ENTITY_TYPE_ID = ? AND PARQUET_NAME = ?" % (
+                self.quoted_schema, self.quoted_cache_tablename)
+
+            try:
+                stmt = ibm_db.prepare(self.db_connection, sql_statement)
+
+                try:
+                    ibm_db.bind_param(stmt, 1, self.entity_type_id)
+                    ibm_db.bind_param(stmt, 2, cache_filename)
+                    ibm_db.execute(stmt)
+                finally:
+                    ibm_db.free_result(stmt)
+            except Exception as ex:
+                raise Exception('Deletion of cache file %s failed with sql statement "%s"' % (cache_filename,
+                                                                                              sql_statement)) from ex
+        else:
+            sql_statement = "DELETE FROM %s.%s" % (self.quoted_schema, self.quoted_cache_tablename)
+            sql_statement += ' where entity_type_id = %s and parquet_name = %s'
+
+            try:
+                dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement, (self.entity_type_id,
+                                                                                       cache_filename))
+            except Exception as ex:
+                raise Exception('Deletion of cache file %s failed with sql statement %s' % (cache_filename,
+                                                                                            sql_statement)) from ex
+
+        logger.info('Cache file %s has been deleted from table %s.%s' % (cache_filename,
+                                                                         self.quoted_schema,
+                                                                         self.quoted_cache_tablename))
 
     def delete_all_caches(self):
         # Delete all cache entries for this entity type locally
