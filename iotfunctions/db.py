@@ -73,6 +73,9 @@ class Database(object):
         self.write_chunk_size = 1000
         self.credentials = {}
         self.db_type = None
+        application_name = os.environ.get('AS_APPLICATION_NAME')
+        self.application_name = "" if application_name is None else application_name
+
         if credentials is None:
             credentials = {}
 
@@ -320,8 +323,8 @@ class Database(object):
                             sqlalchemy_connection_string += 'SECURITY=%s;' % ev['SECURITY']
 
                             if 'SSLSERVERCERTIFICATE' in ev:
-                                sqlalchemy_connection_string += 'SSLServerCertificate=' \
-                                                                + ev['SSLSERVERCERTIFICATE'] + ";"
+                                sqlalchemy_connection_string += 'SSLServerCertificate=' + ev[
+                                    'SSLSERVERCERTIFICATE'] + ";"
                             else:
                                 cwd = os.getcwd()
                                 filename = cwd + "/db2_certificate.pem";
@@ -330,8 +333,8 @@ class Database(object):
                                     sqlalchemy_connection_string += tmp_string
                                     native_connection_string += tmp_string
                                 elif db_certificate_file_from_env is not None:
-                                    logger.debug('Found certificate filename in os variable DB_CERTIFICATE_FILE: %s' %
-                                                 db_certificate_file_from_env)
+                                    logger.debug(
+                                        'Found certificate filename in os variable DB_CERTIFICATE_FILE: %s' % db_certificate_file_from_env)
                                     if os.path.exists(db_certificate_file_from_env):
                                         tmp_string = 'SSLServerCertificate=' + db_certificate_file_from_env + ";"
                                         sqlalchemy_connection_string += tmp_string
@@ -412,10 +415,12 @@ class Database(object):
 
             if meets_requirement:
                 sqlalchemy_dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
-                                             'executemany_values_page_size': 1000}
+                                             'executemany_values_page_size': 1000, 'connect_args': {
+                        'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
             else:
                 # 'use_batch_mode=True' is about 20 % slower than 'execute_many_mode=values'
-                sqlalchemy_dialect_kwargs = {'use_batch_mode': True}
+                sqlalchemy_dialect_kwargs = {'use_batch_mode': True, 'connect_args': {
+                    'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
         else:
             sqlalchemy_dialect_kwargs = {}
 
@@ -445,7 +450,8 @@ class Database(object):
             cred = self.credentials['postgresql']
             self.native_connection = psycopg2.connect(user=cred['username'], password=cred['password'],
                                                       host=cred['host'], port=cred['port'],
-                                                      database=cred['databaseName'])
+                                                      database=cred['databaseName'],
+                                                      application_name="AS %s Native Connection" % self.application_name)
             self.native_connection_dbi = self.native_connection
             logger.debug('Native database connection to PostgreSQL established.')
         else:
@@ -495,8 +501,8 @@ class Database(object):
                     break
 
         # Create DBModelStore if it was not handed in
-        if self.model_store is None and self.db_type in ['db2', 'postgresql'] \
-                and self.entity_type_id is not None and self.schema is not None:
+        if self.model_store is None and self.db_type in ['db2',
+                                                         'postgresql'] and self.entity_type_id is not None and self.schema is not None:
             self.model_store = dbtables.DBModelStore(self.tenant_id, self.entity_type_id, self.schema,
                                                      self.native_connection, self.db_type)
 
