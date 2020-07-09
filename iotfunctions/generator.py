@@ -161,7 +161,7 @@ class AnomalyGenerator(BaseTransformer):
         try:
             query, table = db.query(derived_metric_table_name, schema, column_names='KEY',
                                     filters={'KEY': self.output_item})
-            raw_dataframe = db.get_query_data(query)
+            raw_dataframe = db.read_sql_query(query)
             self.key = '_'.join([derived_metric_table_name, self.output_item])
             logger.debug('Check for key {} in derived metric table {}'.format(self.output_item, raw_dataframe.shape))
         except Exception as e:
