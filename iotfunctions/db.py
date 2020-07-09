@@ -1608,7 +1608,7 @@ class Database(object):
             payload = {'name': name, 'description': f.__doc__, 'category': category,
                        'moduleAndTargetName': module_and_target, 'url': package_url, 'input': input_list,
                        'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None,
-                       'tags': tags}
+                       'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
 
