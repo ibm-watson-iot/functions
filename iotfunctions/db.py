@@ -2780,6 +2780,26 @@ class Database(object):
             logger.info('Wrote data to table %s ' % table_name)
         return 1
 
+    def release_resource(self):
+        self.connection.dispose()
+        logger.info('SQLAlchemy database connection successfully closed.')
+        if self.native_connection is not None:
+            try:
+                if self.db_type == 'postgresql':
+                    self.native_connection.close()
+                    self.native_connection_dbi.close()
+                else:
+                    ibm_db.close(self.native_connection)
+
+            except Exception:
+                logger.warning('Error while closing native database connection.', exc_info=True)
+            finally:
+                self.native_connection = None
+                logger.info('Native database connection successfully closed.')
+
+    def __del__(self):
+        self.release_resource()
+
 
 class BaseTable(object):
     is_table = True
