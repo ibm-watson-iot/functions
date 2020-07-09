@@ -1278,20 +1278,6 @@ class Database(object):
             with conn.connect() as con:
                 con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2; dirty read does not exist for postgres
 
-    def get_query_data(self, query):
-        '''
-        Execute a query and a return a dataframe containing results
-
-        Parameters
-        ----------
-        query : sqlalchemy Query object
-            query to execute
-
-        '''
-
-        df = pd.read_sql_query(sql=query.statement, con=self.connection)
-        return df
-
     def start_session(self):
         '''
         Start a database session.
@@ -1326,8 +1312,6 @@ class Database(object):
 
         df = self.read_table(table_name=dimension, schema=schema, entities=entities, columns=columns,
                              parse_dates=parse_dates)
-        if parse_dates is not None:
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
         return df
 
@@ -1362,13 +1346,42 @@ class Database(object):
         q, table = self.query(table_name, schema=schema, column_names=columns, column_aliases=columns,
                               timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
-        logger.debug('query statement:')
-        logger.debug(q)
-        df = pd.read_sql_query(sql=q.statement, con=self.connection, parse_dates=parse_dates)
-        if parse_dates is not None:
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
-        return (df)
+        df = self.read_sql_query(sql=q.statement, parse_dates=parse_dates)
+
+        return df
+
+    def read_sql_query(self, sql, parse_dates=None, index_col= None, requested_col_names=None, log_message=None, **kwargs):
+
+        if log_message is None:
+            logger.debug('The following sql statement is executed: %s' % sql)
+        else:
+            logger.debug('%s: %s' % (log_message, sql))
+
+        # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
+        parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
+        index_col = None if index_col is None else [col.lower() for col in index_col]
+
+        # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
+        # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
+        # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
+        # to avoid type mismatches later on
+        df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
+
+        if parse_dates is not None and len(parse_dates) > 0:
+            df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
+
+        col_name_map = None
+        if requested_col_names is not None and len(requested_col_names) > 0:
+            col_name_map = {name_df: req_name for name_df, req_name in zip(df.columns, requested_col_names)}
+            df = df.rename(columns=col_name_map, copy=False)
+
+        if index_col is not None and len(index_col) > 0:
+            if col_name_map is not None:
+                index_col = [col_name_map.get(col_name, col_name) for col_name in index_col]
+            df.set_index(keys=index_col, inplace=True)
+
+        return df
 
     def read_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
                  dimension=None, start_ts=None, end_ts=None, period_type='days', period_count=1, entities=None,
@@ -1442,11 +1455,9 @@ class Database(object):
                                                                                            filters=filters,
                                                                                            deviceid_col=deviceid_col)
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
-            df = pd.read_sql_query(query.statement, con=self.connection)
-            logger.debug(query.statement)
+            df = self.read_sql_query(query.statement)
 
             # combine special aggregates with regular database aggregates
-
             if df_special is not None:
                 join_cols = []
                 join_cols.extend(groupby)
@@ -1459,7 +1470,6 @@ class Database(object):
                     df = pd.merge(df, df_special, left_index=True, right_index=True)
 
             # apply pandas aggregate if required
-
             if pandas_aggregate is not None:
                 df = resample(df=df, time_frequency=pandas_aggregate, timestamp=timestamp, dimensions=groupby,
                               agg=agg_dict)
@@ -1821,7 +1831,7 @@ class Database(object):
                         logger.debug(query)
                     # execute
                     logger.debug('query statement: %s', query.statement)
-                    df_result = pd.read_sql_query(query, con=self.connection)
+                    df_result = self.read_sql_query(query)
 
                     if pandas_aggregate is not None:
                         df_result = resample(df=df_result, time_frequency=pandas_aggregate, timestamp=timestamp,

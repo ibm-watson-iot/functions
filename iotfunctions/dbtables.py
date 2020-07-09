@@ -11,7 +11,8 @@
 import logging
 import ibm_db
 from pathlib import Path
-import pyarrow as pa
+import pyarrow
+import pyarrow.parquet
 import pandas as pd
 import os
 import psycopg2
@@ -262,10 +263,11 @@ class DBDataCache:
 
         if df is not None:
             try:
-                df.to_parquet(cache_pathname)
+                pyarrow_table = pyarrow.Table.from_pandas(df, schema=pyarrow.Schema.from_pandas(df))
+                pyarrow.parquet.write_table(pyarrow_table, cache_pathname, version='2.0')
                 logger.info(
                     'Cache %s of size %s has been saved to file %s' % (cache_filename, str(df.shape), cache_pathname))
-            except pa.lib.ArrowInvalid as ex:
+            except pyarrow.lib.ArrowInvalid as ex:
                 raise Exception(
                     'The dataframe could not be saved to file %s because pyarrow threw an exception.' % cache_pathname) from ex
             except Exception as ex:
