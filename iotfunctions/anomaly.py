@@ -613,8 +613,6 @@ class KMeansAnomalyScore(BaseTransformer):
                 linear_interpolateK = sp.interpolate.interp1d(
                     time_series_temperature, pred_score, kind='linear', fill_value='extrapolate')
 
-                logger.debug('Processed entity masked dataframe length {}'.format(len(dfe)))
-                logger.debug('Processed entity original dataframe length {}'.format(len(dfe_orig)))
                 zScoreII = merge_score(dfe, dfe_orig, self.output_item,
                                        linear_interpolateK(np.arange(0, temperature.size, 1)), mindelta)
 
@@ -622,8 +620,6 @@ class KMeansAnomalyScore(BaseTransformer):
 
                 idx = pd.IndexSlice
                 df_copy.loc[entity_mask, self.output_item] = zScoreII
-                logger.debug('Final dataframe length {}'.format(len(df_copy.loc[entity_mask, self.output_item])))
-                logger.debug('Final output dataframe {}'.format(df_copy.loc[entity_mask, self.output_item]))
 
         msg = 'KMeansAnomalyScore'
         self.trace_append(msg)
