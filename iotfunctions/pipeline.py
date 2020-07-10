@@ -23,6 +23,7 @@ import time
 import traceback
 import warnings
 import inspect
+import json
 
 from .enginelog import EngineLogging
 from .util import log_df_info, freq_to_timedelta, Trace
@@ -2304,14 +2305,14 @@ class CalcPipeline:
 
         start_time = pd.Timestamp.utcnow()
         try:
-
+            scope_mask = self.apply_scope(df, stage)
             contains_extended_args = self._contains_extended_arguments(stage.execute)
-
             if contains_extended_args:
-                newdf = stage.execute(df=df, start_ts=start_ts, end_ts=end_ts, entities=entities)
+                newdf = stage.execute(df=df[scope_mask], start_ts=start_ts, end_ts=end_ts, entities=entities)
             else:
-                newdf = stage.execute(df=df)
-
+                newdf = stage.execute(df=df[scope_mask])
+            cols_to_merge = newdf.columns.difference(df.columns)
+            newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
         except BaseException as e:
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
@@ -2340,6 +2341,31 @@ class CalcPipeline:
         msg = 'Completed stage %s. ' % name
         self.trace_add(msg, created_by=stage, df=newdf)
         return newdf
+
+    def apply_scope(self, df, stage):
+        if hasattr(stage, 'scope') and stage.scope is not None:
+            logger.debug('Applying Scope')
+            eval_expression = ''
+            scope = json.loads(stage.scope)
+            if scope.get('type') == 'DIMENSIONS':
+                logger.debug('Applying Dimensions Scope')
+                dimension_count = len(scope.get('dimensions'))
+                for dimension_filter in scope.get('dimensions'):
+                    dimension_name = dimension_filter['dimension_name']
+                    dimension_value = dimension_filter['dimension_value']
+                    dimension_count -= 1
+                    eval_expression += 'df[' + dimension_name + '].isin(' + dimension_value + ')' + '&' if dimension_count != 0 else ''
+            else:
+                logger.debug('Applying Expression Scope')
+                expression = scope.get('type') == 'EXPRESSIONS'
+                if expression is not None and '${' in expression:
+                    eval_expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
+            logger.debug('Final Scope Mask Expression {}'.format(eval_expression))
+            scope_mask = eval(eval_expression)
+        else:
+            logger.debug('No Scope Found')
+            scope_mask = np.full(len(df), True)
+        return scope_mask
 
     def _contains_extended_arguments(self, function, extended_argument=['start_ts', 'end_ts', 'entities']):
 
