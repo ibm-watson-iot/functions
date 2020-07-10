@@ -885,11 +885,7 @@ class BaseFunction(object):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading scd %s from %s to %s using %s' % (table_name, start_ts, end_ts, query.statement)
         logger.debug(msg)
-        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection,
-                               parse_dates=[self._start_date, self._end_date])
-
-        df[self._start_date] = df[self._start_date].astype('datetime64[ms]')
-        df[self._end_date] = df[self._end_date].astype('datetime64[ms]')
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=[self._start_date, self._end_date])
 
         return df
 
@@ -1659,7 +1655,6 @@ class BaseDatabaseLookup(BaseTransformer):
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
             df = pd.read_sql_query(self.sql, con=self.db, index_col=lup_keys, parse_dates=date_cols)
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in date_cols}, errors='ignore')
 
             df.columns = [x.lower() for x in list(df.columns)]
             return (list(df.columns))
@@ -1683,10 +1678,7 @@ class BaseDatabaseLookup(BaseTransformer):
 
         msg = ' function attempted to excecute sql %s. ' % self.sql
         self.trace_append(msg)
-        df_sql = pd.read_sql_query(self.sql, self.db.connection, index_col=self.lookup_keys,
-                                   parse_dates=self.parse_dates)
-        if self.parse_dates is not None:
-            df_sql = df_sql.astype(dtype={col: 'datetime64[ms]' for col in self.parse_dates}, errors='ignore')
+        df_sql = self.db.read_sql_query(self.sql, index_col=self.lookup_keys, parse_dates=self.parse_dates)
 
         msg = 'Lookup returned columns %s. ' % ','.join(list(df_sql.columns))
         self.trace_append(msg)
@@ -1802,8 +1794,7 @@ class BaseDBActivityMerge(BaseDataSource):
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
                 parse_dates = [self._start_date, self._end_date]
-                af = pd.read_sql_query(sql, con=self._entity_type.db.connection, parse_dates=parse_dates)
-                af = af.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
+                af = self._entity_type.db.read_sql_query(sql, parse_dates=parse_dates)
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was '
                                'a problem with this retrieval operation. Confirm that the sql is valid and contains '
@@ -2099,8 +2090,8 @@ class BaseDBActivityMerge(BaseDataSource):
         new_df = pd.DataFrame(columns=cols)
         new_df.index.name = self.auto_index_name
 
-        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ms]')
-        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ms]')
+        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
+        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
         new_df['duration'] = new_df['duration'].astype('float64')
 
         new_df.set_index(['activity'], drop=False, inplace=True)
@@ -2140,8 +2131,7 @@ class BaseDBActivityMerge(BaseDataSource):
         msg = 'reading activity %s from %s to %s using %s' % (activity_code, start_ts, end_ts, query.statement)
         logger.debug(msg)
         parse_dates = [self._start_date, self._end_date]
-        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection, parse_dates=parse_dates)
-        df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=parse_dates)
 
         return df
 
