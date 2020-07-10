@@ -491,6 +491,12 @@ class KMeansAnomalyScore(BaseTransformer):
 
         self.whoami = 'KMeans'
 
+        if expression is not None and '${' in expression:
+            expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
+            logger.info('Expression - after regexp: ' + expression)
+        else:
+            logger.info('Expression: ' + expression)
+
         self.expression = expression
 
     def prepare_data(self, dfEntity):
@@ -526,17 +532,8 @@ class KMeansAnomalyScore(BaseTransformer):
 
         logger.info('Expression exp: ' + str(self.expression) + '  input: ' + str(self.input_item))
         expr = self.expression
-        if '${' in expr:
-            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expr)
-            logger.info('Expression - after regexp: ' + expr)
-            msg = 'Expression converted to %s. ' % expr
-        else:
-            msg = 'Expression (%s). ' % expr
-
-        self.trace_append(msg)
-
         try:
-            if expr is not None:
+            if expr:
                 mask = eval(str(expr))
             else:
                 mask = np.full(len(df_copy) , True)
