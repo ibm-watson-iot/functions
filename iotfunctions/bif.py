@@ -1658,13 +1658,11 @@ class ShiftCalendar(BaseTransformer):
         return df
 
     def get_empty_data(self):
-        cols = [self.shift_day, self.shift_id, self.period_start_date, self.period_end_date]
-        df = pd.DataFrame(columns=cols)
+        col_types = {self.shift_day: 'datetime64[ns]', self.shift_id: 'float64',
+                     self.period_start_date: 'datetime64[ns]', self.period_end_date: 'datetime64[ns]'}
 
-        df[self.period_start_date] = df[self.period_start_date].astype('datetime64[ms]')
-        df[self.period_end_date] = df[self.period_end_date].astype('datetime64[ms]')
-        df[self.shift_day] = df[self.shift_day].astype('datetime64[ms]')
-        df[self.shift_id] = df[self.shift_id].astype('float64')
+        df = pd.DataFrame(columns=col_types.keys())
+        df = df.astype(dtype=col_types)
 
         return df
 

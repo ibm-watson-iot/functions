@@ -885,11 +885,7 @@ class BaseFunction(object):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading scd %s from %s to %s using %s' % (table_name, start_ts, end_ts, query.statement)
         logger.debug(msg)
-        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection,
-                               parse_dates=[self._start_date, self._end_date])
-
-        df[self._start_date] = df[self._start_date].astype('datetime64[ms]')
-        df[self._end_date] = df[self._end_date].astype('datetime64[ms]')
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=[self._start_date, self._end_date])
 
         return df
 
@@ -1659,7 +1655,6 @@ class BaseDatabaseLookup(BaseTransformer):
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
             df = pd.read_sql_query(self.sql, con=self.db, index_col=lup_keys, parse_dates=date_cols)
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in date_cols}, errors='ignore')
 
             df.columns = [x.lower() for x in list(df.columns)]
             return (list(df.columns))
@@ -1683,10 +1678,7 @@ class BaseDatabaseLookup(BaseTransformer):
 
         msg = ' function attempted to excecute sql %s. ' % self.sql
         self.trace_append(msg)
-        df_sql = pd.read_sql_query(self.sql, self.db.connection, index_col=self.lookup_keys,
-                                   parse_dates=self.parse_dates)
-        if self.parse_dates is not None:
-            df_sql = df_sql.astype(dtype={col: 'datetime64[ms]' for col in self.parse_dates}, errors='ignore')
+        df_sql = self.db.read_sql_query(self.sql, index_col=self.lookup_keys, parse_dates=self.parse_dates)
 
         msg = 'Lookup returned columns %s. ' % ','.join(list(df_sql.columns))
         self.trace_append(msg)
@@ -1802,8 +1794,7 @@ class BaseDBActivityMerge(BaseDataSource):
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
                 parse_dates = [self._start_date, self._end_date]
-                af = pd.read_sql_query(sql, con=self._entity_type.db.connection, parse_dates=parse_dates)
-                af = af.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
+                af = self._entity_type.db.read_sql_query(sql, parse_dates=parse_dates)
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was '
                                'a problem with this retrieval operation. Confirm that the sql is valid and contains '
@@ -2099,8 +2090,8 @@ class BaseDBActivityMerge(BaseDataSource):
         new_df = pd.DataFrame(columns=cols)
         new_df.index.name = self.auto_index_name
 
-        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ms]')
-        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ms]')
+        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
+        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
         new_df['duration'] = new_df['duration'].astype('float64')
 
         new_df.set_index(['activity'], drop=False, inplace=True)
@@ -2140,8 +2131,7 @@ class BaseDBActivityMerge(BaseDataSource):
         msg = 'reading activity %s from %s to %s using %s' % (activity_code, start_ts, end_ts, query.statement)
         logger.debug(msg)
         parse_dates = [self._start_date, self._end_date]
-        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection, parse_dates=parse_dates)
-        df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=parse_dates)
 
         return df
 
@@ -2304,7 +2294,10 @@ class BaseEstimatorFunction(BaseTransformer):
     eval_metric = None
 
     # Test Train split
-    test_size = 0.2  # Use 20 % of the data for testing
+    test_size = 0.2  # Use 20 % of the data for testing by default
+                     # Selecting 0 means no search and no test !
+    # simplified flow for scalers: no search with cross validation
+    is_scaler = False
 
     # Correlation check
     correlation_threshold = 0.5  # only train when feature and target data are sufficiently correlated - spearman rank
@@ -2356,7 +2349,14 @@ class BaseEstimatorFunction(BaseTransformer):
             results = {}
             trace_message = 'predicting target %s' % target
             logger.info(trace_message)
-            features = self.make_feature_list(features=self.features, df=df, unprocessed_targets=unprocessed_targets)
+
+            # allow target feature overlap for scalers
+            if not self.is_scaler:
+                features = self.make_feature_list(features=self.features, df=df,
+                                                  unprocessed_targets=unprocessed_targets)
+            else:
+                features = self.features
+
             model_name = self.get_model_name(target, suffix=entity_name)
 
             # retrieve existing model
@@ -2474,12 +2474,12 @@ class BaseEstimatorFunction(BaseTransformer):
         rho_max = 0
         if len(required_models) > 0:
             df = self.execute_preprocessing(df)
-            if self.correlation_threshold > 0:
+            if not self.is_scaler and self.correlation_threshold > 0:
                 rho_max = self.correlation_analysis(df)
             df_train, df_test = self.execute_train_test_split(df)
 
         # training
-        if rho_max < self.correlation_threshold:
+        if not self.is_scaler and rho_max < self.correlation_threshold:
             # no models for training - doesn't make any sense according to threshold and correlation
             required_models = []
             msg = 'Correlation between features and targets is not high enough for training: \
@@ -2503,7 +2503,7 @@ class BaseEstimatorFunction(BaseTransformer):
             if best_model is None:
                 msg = 'Failed training models'
             else:
-                best_model.test(df_test)
+                # best_model.test(df_test)  - already stored in results.eval_metric_test
                 if self.active_models is not None:
                     self.active_models[best_model.name]=(best_model, df_train)
 
@@ -2515,7 +2515,12 @@ class BaseEstimatorFunction(BaseTransformer):
         required_models = self.get_models_for_predict(db=db, bucket=bucket, entity_name=entity_name)
         for model in required_models:
             if model is not None:
-                df[model.col_name] = model.predict(df)
+                if self.is_scaler:
+                    df[model.col_name] = 0
+                    df[model.col_name] = model.transform(df)
+                    print(model.col_name)
+                else:
+                    df[model.col_name] = model.predict(df)
                 self.log_df_info(df, 'After adding predictions for target %s' % model.target)
 
         # add null columns for when no model
@@ -2564,7 +2569,11 @@ class BaseEstimatorFunction(BaseTransformer):
         Split dataframe into test and training sets
         '''
 
-        df_train, df_test = train_test_split(df, test_size=self.test_size)
+        if self.is_scaler or self.test_size == 0:
+            df_train = df.copy()
+            df_test = pd.DataFrame()
+        else:
+            df_train, df_test = train_test_split(df, test_size=self.test_size)
         self.log_df_info(df_train, msg='training set', include_data=False)
         self.log_df_info(df_test, msg='test set', include_data=False)
         logger.info('Split data - training set ' + str(df_train.shape) + '  test set ' + str(df_test.shape))
@@ -2598,8 +2607,24 @@ class BaseEstimatorFunction(BaseTransformer):
             best_test_metric = existing_model.eval_metric_test
             best_model = existing_model
 
-        # fit a model for each estimator
+        # short cut for scalers
+        if self.is_scaler:
+            (name, est, params) = estimators[0]
+            est.fit(df_train[features])
+            est_score = 1
 
+            results = {'name': self.get_model_name(target_name=target, suffix=entity_name), 'target': target,
+                       'features': features, 'params': params, 'eval_metric_name': metric_name,
+                       'eval_metric_train': est_score, 'eval_metric_test': 1,
+                       'estimator_name': name, 'shelf_life_days': self.shelf_life_days,
+                       'col_name': col_name}
+
+            best_model = Model(estimator=est, **results)
+            trained_models.append(best_model)
+
+            return best_model
+
+        # fit a model for each estimator
         for counter, (name, estimator, params) in enumerate(estimators):
             estimator, search = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
                                                 features=features)
@@ -2752,6 +2777,7 @@ class BaseEstimatorFunction(BaseTransformer):
         out = []
         for e in names:
             (e_cls, parameters) = self.estimators[e]
+            print ('make_estimators ', e_cls, parameters)
             out.append((e, e_cls(), parameters))
 
         return out

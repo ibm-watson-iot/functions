@@ -258,7 +258,6 @@ class TimeSeriesGenerator(object):
 
         df[self._entity_id] = np.random.choice(self.ids, rows)
         df[self._timestamp] = ts
-        df[self._timestamp] = df[self._timestamp].astype('datetime64[ms]')
 
         days_from_ref = (df[self._timestamp] - self.ref_date).dt.total_seconds() / (60 * 60 * 24)
         day = df[self._timestamp].dt.day

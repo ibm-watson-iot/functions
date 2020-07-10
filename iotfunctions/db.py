@@ -27,10 +27,14 @@ from sqlalchemy.sql import select
 from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy import __version__ as sqlalchemy_version_string
+import psycopg2
+import ibm_db
+import ibm_db_dbi
 from .util import CosClient, resample, reset_df_index
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
+from . import dbtables
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -62,13 +66,16 @@ class Database(object):
     bif_sql = "V1000-18.sql"
 
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
-                 entity_type=None, model_store=None):
+                 entity_type=None, entity_type_id=None, model_store=None):
 
         self.model_store = model_store
         self.function_catalog = {}  # metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}
         self.db_type = None
+        application_name = os.environ.get('AS_APPLICATION_NAME')
+        self.application_name = "" if application_name is None else application_name
+
         if credentials is None:
             credentials = {}
 
@@ -226,105 +233,137 @@ class Database(object):
         # is sqlite for testing purposes
         connection_string_from_env = os.environ.get('DB_CONNECTION_STRING')
         db_type_from_env = os.environ.get('DB_TYPE')
-        connection_kwargs = {}
-        sqlite_warnung_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
+        db_certificate_file_from_env = os.environ.get('DB_CERTIFICATE_FILE')
+
+        sqlalchemy_connection_kwargs = {}
+        sqlite_warning_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
 
         if 'sqlite' in self.credentials:
             filename = credentials['sqlite']
             if filename is not None and len(filename) > 0:
-                connection_string = 'sqlite:///%s' % (credentials['sqlite'])
-                self.db_type = 'sqlite'
-                self.write_chunk_size = 100
-                logger.warning(sqlite_warnung_msg)
+                sqlalchemy_connection_string = 'sqlite:///%s' % (credentials['sqlite'])
+                native_connection_string = None
             else:
                 msg = 'The credentials for sqlite is just a filename. The given filename is an empty string.'
                 raise ValueError(msg)
 
+            self.db_type = 'sqlite'
+            self.write_chunk_size = 100
+            logger.warning(sqlite_warning_msg)
+
         elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
             try:
-                connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
                     self.credentials['db2']['username'], self.credentials['db2']['password'],
                     self.credentials['db2']['host'], self.credentials['db2']['port'],
                     self.credentials['db2']['databaseName'])
-                if 'security' in self.credentials['db2']:
-                    if self.credentials['db2']['security']:
-                        connection_string += 'SECURITY=ssl;'
-                        if os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                            connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+
+                native_connection_string = 'DATABASE=%s;HOSTNAME=%s;PORT=%s;PROTOCOL=TCPIP;UID=%s;PWD=%s;' % (
+                    self.credentials['db2']['databaseName'], self.credentials['db2']['host'],
+                    self.credentials['db2']['port'], self.credentials['db2']['username'],
+                    self.credentials['db2']['password'],)
+
+                security_extension = ''
+                if 'security' in self.credentials['db2'] or self.credentials['db2']['port'] == 50001:
+                    security_extension += 'SECURITY=ssl;'
+                    if os.path.exists('/secrets/truststore/db2_certificate.pem'):
+                        security_extension += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                    else:
+                        cwd1 = os.getcwd()
+                        filename1 = cwd1 + "/db2_certificate.pem;"
+                        logger.info('file name db => %s' % filename1)
+                        if os.path.exists(filename1):
+                            security_extension += ';SSLServerCertificate=' + filename1 + ";"
                         else:
-                            cwd1 = os.getcwd()
-                            filename1 = cwd1 + "/db2_certificate.pem;"
-                            logger.info('file name db => %s' % filename1)
-                            if os.path.exists(filename1):
-                                connection_string += ';SSLServerCertificate=' + filename1 + ";"
-                            else:
-                                db_certificate_file = os.environ.get('DB_CERTIFICATE_FILE')
-                                if db_certificate_file is not None:
-                                    if os.path.exists(db_certificate_file):
-                                        connection_string += ';SSLServerCertificate=' + db_certificate_file + ";"
+                            if db_certificate_file_from_env is not None:
+                                if os.path.exists(db_certificate_file_from_env):
+                                    security_extension += ';SSLServerCertificate=' + db_certificate_file_from_env + ";"
+
+                sqlalchemy_connection_string += security_extension
+                native_connection_string += security_extension
+
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
 
             self.db_type = 'db2'
-            connection_kwargs['pool_size'] = 1
+            sqlalchemy_connection_kwargs['pool_size'] = 1
 
         elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
             try:
-                connection_string = 'postgresql+psycopg2://%s:%s@%s:%s/%s' % (
+                native_connection_string = '%s:%s@%s:%s/%s' % (
                     self.credentials['postgresql']['username'], self.credentials['postgresql']['password'],
                     self.credentials['postgresql']['host'], self.credentials['postgresql']['port'],
                     self.credentials['postgresql']['databaseName'])
-                self.db_type = 'postgresql'
+
+                sqlalchemy_connection_string = 'postgresql+psycopg2://' + native_connection_string
+
             except KeyError as ex:
                 msg = 'The credentials for PostgreSql are incomplete. ' \
                       'You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
 
+            self.db_type = 'postgresql'
+
         elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
-            logger.debug('Found connection string in os variables: %s' % connection_string_from_env)
-            # ##############################
-            # kohlmann: Temporary fix until db_type is enabled in cronjob by API code
-            if db_type_from_env is None:
-                db_type_from_env = 'DB2'
-            # ########## ####################
             if db_type_from_env is not None and len(db_type_from_env) > 0:
-                logger.debug('Found database type in os variables: %s' % db_type_from_env)
+                logger.debug('Found database type in os variable DB_TYPE: %s' % db_type_from_env)
                 db_type_from_env = db_type_from_env.upper()
                 if db_type_from_env == 'DB2':
                     if connection_string_from_env.endswith(';'):
                         connection_string_from_env = connection_string_from_env[:-1]
                     try:
                         ev = dict(item.split("=") for item in connection_string_from_env.split(";"))
-                        connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                        sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
                             ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+
+                        native_connection_string = connection_string_from_env + ';'
+
                         if 'SECURITY' in ev:
-                            connection_string += 'SECURITY=%s;' % ev['SECURITY']
-                            cwd = os.getcwd()
-                            filename = cwd + "/db2_certificate.pem";
-                            if os.path.exists(filename):
-                                connection_string += ';SSLServerCertificate=' + filename + ";"
+                            sqlalchemy_connection_string += 'SECURITY=%s;' % ev['SECURITY']
+
+                            if 'SSLSERVERCERTIFICATE' in ev:
+                                sqlalchemy_connection_string += 'SSLServerCertificate=' + ev[
+                                    'SSLSERVERCERTIFICATE'] + ";"
+                            else:
+                                cwd = os.getcwd()
+                                filename = cwd + "/db2_certificate.pem";
+                                if os.path.exists(filename):
+                                    tmp_string = 'SSLServerCertificate=' + filename + ";"
+                                    sqlalchemy_connection_string += tmp_string
+                                    native_connection_string += tmp_string
+                                elif db_certificate_file_from_env is not None:
+                                    logger.debug(
+                                        'Found certificate filename in os variable DB_CERTIFICATE_FILE: %s' % db_certificate_file_from_env)
+                                    if os.path.exists(db_certificate_file_from_env):
+                                        tmp_string = 'SSLServerCertificate=' + db_certificate_file_from_env + ";"
+                                        sqlalchemy_connection_string += tmp_string
+                                        native_connection_string += tmp_string
+
                         self.credentials['db2'] = {"username": ev['UID'], "password": ev['PWD'],
-                                                   "database": ev['DATABASE'], "port": ev['PORT'],
+                                                   "databaseName": ev['DATABASE'], "port": ev['PORT'],
                                                    "host": ev['HOSTNAME']}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for DB2 is '
                                          'DATABASE=xxx;HOSTNAME=xxx;PORT=xxx;UID=xxx;PWD=xxx[;SECURITY=xxx]' % connection_string_from_env)
                     self.db_type = 'db2'
+
                 elif db_type_from_env == 'POSTGRESQL':
-                    connection_string = 'postgresql+psycopg2://' + connection_string_from_env
+                    sqlalchemy_connection_string = 'postgresql+psycopg2://' + connection_string_from_env
+                    native_connection_string = connection_string_from_env
                     try:
                         # Split connection string according to user:password@hostname:port/database
                         first, last = connection_string_from_env.split("@")
                         uid, pwd = first.split(":", 1)
                         hostname_port, database = last.split("/", 1)
                         hostname, port = hostname_port.split(":", 1)
-                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "database": database,
+                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "databaseName": database,
                                                           "port": port, "host": hostname}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for POSTGRESQL is '
                                          'user:password@hostname:port/database' % connection_string_from_env)
                     self.db_type = 'postgresql'
+
                 else:
                     raise ValueError(
                         'The database type \'%s\' is unknown. Supported types are DB2 and POSTGRESQL' % db_type_from_env)
@@ -332,14 +371,13 @@ class Database(object):
                 raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
                                  'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
-            connection_string = 'sqlite:///sqldb.db'
+            sqlalchemy_connection_string = 'sqlite:///sqldb.db'
+            native_connection_string = None
             self.write_chunk_size = 100
             self.db_type = 'sqlite'
             msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db.'
             logger.info(msg)
-            logger.warning(sqlite_warnung_msg)
-
-        logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
+            logger.warning(sqlite_warning_msg)
 
         self.http = urllib3.PoolManager(timeout=30.0)
         try:
@@ -376,16 +414,19 @@ class Database(object):
                     break
 
             if meets_requirement:
-                dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
-                                  'executemany_values_page_size': 1000}
+                sqlalchemy_dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
+                                             'executemany_values_page_size': 1000, 'connect_args': {
+                        'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
             else:
                 # 'use_batch_mode=True' is about 20 % slower than 'execute_many_mode=values'
-                dialect_kwargs = {'use_batch_mode': True}
+                sqlalchemy_dialect_kwargs = {'use_batch_mode': True, 'connect_args': {
+                    'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
         else:
-            dialect_kwargs = {}
+            sqlalchemy_dialect_kwargs = {}
 
-        connection_kwargs = {**dialect_kwargs, **connection_kwargs}
-        self.connection = create_engine(connection_string, echo=echo, **connection_kwargs)
+        # Establish database connection via sqlalchemy
+        sqlalchemy_connection_kwargs = {**sqlalchemy_dialect_kwargs, **sqlalchemy_connection_kwargs}
+        self.connection = create_engine(sqlalchemy_connection_string, echo=echo, **sqlalchemy_connection_kwargs)
 
         self.Session = sessionmaker(bind=self.connection)
 
@@ -397,20 +438,33 @@ class Database(object):
         else:
             self.session = None
         self.metadata = MetaData(self.connection)
-        logger.debug('Db connection established')
+        logger.debug('Database connection via SqlAlchemy established.')
+
+        # Establish native database connection (for DB2 and PostgreSQL only)
+        if self.db_type == 'db2':
+            self.native_connection = ibm_db.connect(native_connection_string, '', '')
+            self.native_connection_dbi = ibm_db_dbi.Connection(self.native_connection)
+            logger.debug('Native database connection to DB2 established.')
+
+        elif self.db_type == 'postgresql':
+            cred = self.credentials['postgresql']
+            self.native_connection = psycopg2.connect(user=cred['username'], password=cred['password'],
+                                                      host=cred['host'], port=cred['port'],
+                                                      database=cred['databaseName'],
+                                                      application_name="AS %s Native Connection" % self.application_name)
+            self.native_connection_dbi = self.native_connection
+            logger.debug('Native database connection to PostgreSQL established.')
+        else:
+            self.native_connection = None
+            self.native_connection_dbi = None
 
         # cache entity types
         self.entity_type_metadata = {}
-        metadata = None
 
         if entity_metadata is None:
 
-            if entity_type is not None:
-                metadata = self.http_request(object_type='entityType', object_name=entity_type, request='GET',
-                                             payload={}, object_name_2='')
-            else:
-                metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
-                                             object_name_2='')
+            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
+                                         object_name_2='')
             if metadata is not None:
                 try:
                     metadata = json.loads(metadata)
@@ -424,6 +478,33 @@ class Database(object):
         else:
             metadata = entity_metadata
             self.entity_type_metadata[entity_type] = metadata
+
+        # Figure out entity_type, entity_type_id and schema
+        self.entity_type_id = None
+        self.entity_type = None
+        self.schema = None
+        if entity_type is not None:
+            self.entity_type = entity_type
+
+            metadata = self.entity_type_metadata.get(entity_type)
+            if metadata is not None:
+                self.entity_type_id = metadata.get('entityTypeId')
+                self.schema = metadata.get('schemaName')
+
+        elif entity_type_id is not None:
+            self.entity_type_id = entity_type_id
+
+            for name, metadata in self.entity_type_metadata.items():
+                if metadata.get('entityTypeId') == entity_type_id:
+                    self.entity_type = name
+                    self.schema = metadata.get('schemaName')
+                    break
+
+        # Create DBModelStore if it was not handed in
+        if self.model_store is None and self.db_type in ['db2',
+                                                         'postgresql'] and self.entity_type_id is not None and self.schema is not None:
+            self.model_store = dbtables.DBModelStore(self.tenant_id, self.entity_type_id, self.schema,
+                                                     self.native_connection, self.db_type)
 
     def _aggregate_item(self, table, column_name, aggregate, alias_column=None, dimension_table=None,
                         timestamp_col=None):
@@ -884,7 +965,8 @@ class Database(object):
             [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
-        self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
+        self.url[('entityType', 'POST')] = '/'.join(
+            [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
         self.url[('entityType', 'GET')] = '/'.join(
             [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
@@ -1202,20 +1284,6 @@ class Database(object):
             with conn.connect() as con:
                 con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2; dirty read does not exist for postgres
 
-    def get_query_data(self, query):
-        '''
-        Execute a query and a return a dataframe containing results
-
-        Parameters
-        ----------
-        query : sqlalchemy Query object
-            query to execute
-
-        '''
-
-        df = pd.read_sql_query(sql=query.statement, con=self.connection)
-        return df
-
     def start_session(self):
         '''
         Start a database session.
@@ -1250,8 +1318,6 @@ class Database(object):
 
         df = self.read_table(table_name=dimension, schema=schema, entities=entities, columns=columns,
                              parse_dates=parse_dates)
-        if parse_dates is not None:
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
         return df
 
@@ -1286,11 +1352,42 @@ class Database(object):
         q, table = self.query(table_name, schema=schema, column_names=columns, column_aliases=columns,
                               timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
-        df = pd.read_sql_query(sql=q.statement, con=self.connection, parse_dates=parse_dates)
-        if parse_dates is not None:
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
-        return (df)
+        df = self.read_sql_query(sql=q.statement, parse_dates=parse_dates)
+
+        return df
+
+    def read_sql_query(self, sql, parse_dates=None, index_col= None, requested_col_names=None, log_message=None, **kwargs):
+
+        if log_message is None:
+            logger.debug('The following sql statement is executed: %s' % sql)
+        else:
+            logger.debug('%s: %s' % (log_message, sql))
+
+        # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
+        parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
+        index_col = None if index_col is None else [col.lower() for col in index_col]
+
+        # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
+        # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
+        # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
+        # to avoid type mismatches later on
+        df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
+
+        if parse_dates is not None and len(parse_dates) > 0:
+            df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
+
+        col_name_map = None
+        if requested_col_names is not None and len(requested_col_names) > 0:
+            col_name_map = {name_df: req_name for name_df, req_name in zip(df.columns, requested_col_names)}
+            df = df.rename(columns=col_name_map, copy=False)
+
+        if index_col is not None and len(index_col) > 0:
+            if col_name_map is not None:
+                index_col = [col_name_map.get(col_name, col_name) for col_name in index_col]
+            df.set_index(keys=index_col, inplace=True)
+
+        return df
 
     def read_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
                  dimension=None, start_ts=None, end_ts=None, period_type='days', period_count=1, entities=None,
@@ -1364,11 +1461,9 @@ class Database(object):
                                                                                            filters=filters,
                                                                                            deviceid_col=deviceid_col)
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
-            df = pd.read_sql_query(query.statement, con=self.connection)
-            logger.debug(query.statement)
+            df = self.read_sql_query(query.statement)
 
             # combine special aggregates with regular database aggregates
-
             if df_special is not None:
                 join_cols = []
                 join_cols.extend(groupby)
@@ -1381,7 +1476,6 @@ class Database(object):
                     df = pd.merge(df, df_special, left_index=True, right_index=True)
 
             # apply pandas aggregate if required
-
             if pandas_aggregate is not None:
                 df = resample(df=df, time_frequency=pandas_aggregate, timestamp=timestamp, dimensions=groupby,
                               agg=agg_dict)
@@ -1742,7 +1836,7 @@ class Database(object):
                         query = self.subquery_join(query, filter_query, *keys, **project)
                         logger.debug(query)
                     # execute
-                    df_result = pd.read_sql_query(query, con=self.connection)
+                    df_result = self.read_sql_query(query)
 
                     if pandas_aggregate is not None:
                         df_result = resample(df=df_result, time_frequency=pandas_aggregate, timestamp=timestamp,
@@ -1881,7 +1975,7 @@ class Database(object):
         query = self.session.query(*query_args)
 
         if dim is not None:
-            query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
+            query = query.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
 
         if not start_ts is None:
             if timestamp_col is None:
@@ -1915,6 +2009,8 @@ class Database(object):
             else:
                 query = query.filter(col_obj.in_(members[0]))
 
+        logger.debug('query statement: %s', query)
+
         return (query, table)
 
     def get_column_object(self, table, column):
@@ -1928,10 +2024,6 @@ class Database(object):
                     col_obj = table.c[column.upper()]
                 except KeyError:
                     raise KeyError
-
-        # cast NULLTYPE to boolean
-        if self.get_as_datatype(col_obj) == 'BOOLEAN':
-            col_obj = col_obj.cast(Boolean)
 
         return col_obj
 
@@ -2164,7 +2256,7 @@ class Database(object):
             subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
-                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
@@ -2427,7 +2519,7 @@ class Database(object):
             subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
-                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
@@ -2697,6 +2789,26 @@ class Database(object):
             logger.info('Wrote data to table %s ' % table_name)
         return 1
 
+    def release_resource(self):
+        self.connection.dispose()
+        logger.info('SQLAlchemy database connection successfully closed.')
+        if self.native_connection is not None:
+            try:
+                if self.db_type == 'postgresql':
+                    self.native_connection.close()
+                    self.native_connection_dbi.close()
+                else:
+                    ibm_db.close(self.native_connection)
+
+            except Exception:
+                logger.warning('Error while closing native database connection.', exc_info=True)
+            finally:
+                self.native_connection = None
+                logger.info('Native database connection successfully closed.')
+
+    def __del__(self):
+        self.release_resource()
+
 
 class BaseTable(object):
     is_table = True
@@ -2736,9 +2848,8 @@ class BaseTable(object):
         else:
             self.name = name.lower()
         self.table = Table(self.name, self.database.metadata, *args, **kw)
-        self.id_col = Column(self._entity_id.lower(), String(50))
-        # Should be created using the create method available -> self.db.create()
-        #self.table.create(checkfirst=True)
+        self.id_col = Column(self._entity_id.lower(), String(
+            50))  # Should be created using the create method available -> self.db.create()  # self.table.create(checkfirst=True)
 
     def create(self):
         self.table.create(checkfirst=True)
