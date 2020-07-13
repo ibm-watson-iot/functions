@@ -66,6 +66,7 @@ class BaseFunction(object):
     requires_input_items = True
     produces_output_items = True
     _allow_empty_df = False
+    is_scope_enabled = True # enables filtering by scope (details specified in the UI)
     # internal work variables set by AS job processing
     name = None  # name of function
     _entity_type = None  # EntityType object that this function belongs to
