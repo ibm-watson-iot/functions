@@ -1625,7 +1625,7 @@ class Database(object):
         for p in pre_installed:
             query = "INSERT INTO CATALOG_FUNCTION (FUNCTION_ID, TENANT_ID," \
                     " NAME, DESCRIPTION, MODULE_AND_TARGET_NAME, URL, CATEGORY," \
-                    " INPUT, OUTPUT, INCREMENTAL_UPDATE, IMAGE)" \
+                    " INPUT, OUTPUT, INCREMENTAL_UPDATE, IMAGE, SCOPE)" \
                     " VALUES( CATALOG_FUNCTION_SEQ.nextval,'###_IBM_###',"
             query = query + "'%s'," % p['name']
             query = query + "'%s'," % p['description'].replace("'", '"')
@@ -1635,11 +1635,12 @@ class Database(object):
             query = query + "'%s'," % json.dumps(p['input'])
             query = query + "'%s'," % json.dumps(p['output'])
             query = query + str(p['incremental_update']) + ', '
-            query = query + 'NULL)'
+            query = query + "NULL,"
+            query = query + "'%s')" % json.dumps(p['scope'])
 
             sql = sql + query
             sql = sql + '\n'
-
+        
         return sql
 
     def register_module(self, module, url=None, raise_error=True, force_preinstall=False):
