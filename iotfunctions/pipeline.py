@@ -2357,7 +2357,7 @@ class CalcPipeline:
                     eval_expression += 'df[' + dimension_name + '].isin(' + dimension_value + ')' + '&' if dimension_count != 0 else ''
             else:
                 logger.debug('Applying Expression Scope')
-                expression = scope.get('type') == 'EXPRESSIONS'
+                expression = scope.get('expression')
                 if expression is not None and '${' in expression:
                     eval_expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
             logger.debug('Final Scope Mask Expression {}'.format(eval_expression))
