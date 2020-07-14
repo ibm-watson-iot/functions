@@ -22,7 +22,8 @@ import pandas as pd
 import logging
 import iotfunctions as iotf
 from .metadata import EntityType
-from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookup_with_default, \
+    BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
 
 logger = logging.getLogger(__name__)
@@ -1533,7 +1534,21 @@ class IoTSCDLookup(BaseSCDLookup):
     
     def __init__(self, table_name , output_item = None):
         self.table_name = table_name
-        super().__init__(table_name = table_name, output_item = output_item)    
+        super().__init__(table_name = table_name, output_item = output_item)
+
+
+class IoTSCDLookup_with_default(BaseSCDLookup_with_default):
+    '''
+    Look up an scd property from a scd lookup table containing columns for:
+    start_date, end_date, device_id and dimension property.
+    If the table does not provide a value for a given time
+    the default value is taken.
+    '''
+
+    def __init__(self, table_name, dimension_name, entity_name, start_name, end_name, default_value, output_item=None):
+
+        super().__init__(table_name=table_name, dimension_name=dimension_name, entity_name=entity_name,
+                         start_name=start_name, end_name=end_name, default_value=default_value, output_item=output_item)
     
 class IoTShiftCalendar(BaseTransformer):
     '''
