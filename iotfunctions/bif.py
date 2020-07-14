@@ -22,7 +22,7 @@ import pandas as pd
 import logging
 import iotfunctions as iotf
 from .metadata import EntityType
-from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookup_with_default, \
+from .base import BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithDefault, \
     BaseMetadataProvider, BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge
 from .ui import UISingle,UIMultiItem,UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti
 
@@ -1537,7 +1537,7 @@ class IoTSCDLookup(BaseSCDLookup):
         super().__init__(table_name = table_name, output_item = output_item)
 
 
-class IoTSCDLookup_with_default(BaseSCDLookup_with_default):
+class IoTSCDLookupWithDefault(BaseSCDLookupWithDefault):
     '''
     Look up an scd property from a scd lookup table containing columns for:
     start_date, end_date, device_id and dimension property.

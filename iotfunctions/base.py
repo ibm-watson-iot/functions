@@ -2127,7 +2127,7 @@ class BaseSCDLookup(BaseTransformer):
         return (inputs,outputs)
 
 
-class BaseSCDLookup_with_default(BaseTransformer):
+class BaseSCDLookupWithDefault(BaseTransformer):
     '''
     Lookup a slowly changing property
     '''
