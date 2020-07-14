@@ -2312,7 +2312,7 @@ class CalcPipeline:
             else:
                 newdf = stage.execute(df=df[scope_mask])
             cols_to_merge = newdf.columns.difference(df.columns)
-            newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
+            #newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
         except BaseException as e:
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
