@@ -1594,8 +1594,10 @@ class IoTSCDLookupWithDefault(BaseSCDLookupWithDefault):
     '''
 
     def __init__(self, table_name, dimension_name, entity_name, start_name, end_name, default_value, output_item=None):
-        super().__init__(table_name=table_name, dimension_name=dimension_name, entity_name=entity_name,
-                         start_name=start_name, end_name=end_name, default_value=default_value, output_item=output_item)
+
+        super().__init__(table_name=table_name, output_item=output_item, default_value=default_value,
+                         dimension_name=dimension_name, entity_name=entity_name, start_name=start_name,
+                         end_name=end_name)
 
 
 class ShiftCalendar(BaseTransformer):
