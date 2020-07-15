@@ -2225,16 +2225,16 @@ class BaseSCDLookupWithDefault(BaseTransformer):
     '''
     is_scd_lookup = True
 
-    def __init__(self, table_name, dimension_name, entity_name, start_name, end_name, default_value, output_item):
+    def __init__(self, table_name, output_item, default_value, dimension_name=None, entity_name=None, start_name=None, end_name=None):
 
         super().__init__()
 
         self.table_name = table_name
 
-        self.df_dim_name = dimension_name.lower()
-        self.df_entity_name = entity_name.lower()
-        self.df_start_name = start_name.lower()
-        self.df_end_name = end_name.lower()
+        self.df_dim_name = dimension_name.lower() if dimension_name is not None else None
+        self.df_entity_name = entity_name.lower() if entity_name is not None else 'deviceid'
+        self.df_start_name = start_name.lower() if start_name is not None else self._start_date
+        self.df_end_name = end_name.lower() if end_name is not None else self._end_date
 
         self.dim_default_value = default_value
         self.output_item = output_item
@@ -2250,7 +2250,19 @@ class BaseSCDLookupWithDefault(BaseTransformer):
         dim_df = self.get_scd_data(table_name=self.table_name, start_ts=start_ts, end_ts=end_ts, entities=entities,
                                    start_name=self.df_start_name, end_name=self.df_end_name)
 
-        # Verify the required columns are available.
+        if self.df_dim_name is None:
+            # Determine name of dimension column because it has not been defined as input parameter
+            # Assumption: The set of available columns in table minus the columns for device id, start date and
+            # end date leaves exactly one column - the dimension column.
+            remaining_columns = list(set(dim_df.columns) - {self.df_entity_name, self.df_start_name, self.df_end_name})
+            if len(remaining_columns) != 1:
+                raise Exception(('The dimension column cannot be determined in table %s. Potential candidates are %s. '
+                                 'The columns for device id/start date/end date are %s/%s/%s.') % (
+                                self.table_name, remaining_columns, self.df_entity_name, self.df_start_name,
+                                self.df_end_name))
+            else:
+                self.df_dim_name = remaining_columns[0]
+
         # Warning: Do not change order of columns in required_df_cols because function fill_in() relies on it!
         required_df_cols = [self.df_dim_name, self.df_entity_name, self.df_start_name, self.df_end_name]
         missing_df_cols = []
@@ -2273,11 +2285,11 @@ class BaseSCDLookupWithDefault(BaseTransformer):
 
         # Group df on entity_id (first level in MultiIndex) and apply fill-in function
         groups = df.groupby(level=0, sort=False)
-        df = groups.apply(func=self._fill_in, dim_df=dim_df, dim_col=self.output_item, start_col=self.df_start_name)
+        df = groups.apply(func=self._fill_in, dim_df=dim_df, dim_col=self.df_dim_name, start_col=self.df_start_name, output_col=self.output_item)
 
         return df
 
-    def _fill_in(self, group_df, dim_df, dim_col, start_col):
+    def _fill_in(self, group_df, dim_df, dim_col, start_col, output_col):
 
         # Find out entity_id for this group
         group_entity_id = group_df.index.get_level_values(0)[0]
@@ -2289,9 +2301,10 @@ class BaseSCDLookupWithDefault(BaseTransformer):
         dim_df = dim_df[(dim_df[self.df_entity_name] == group_entity_id)]
 
         # Sort dataframe ascending with respect to start date. As a consequence, the record with the later start date
-        # will overwrite any earlier record in case of an overlap of their start-end intervals
-        dim_df.sort_values(by=start_col, inplace=True)
-
+        # will overwrite any earlier record in case of an overlap of their start-end intervals.
+        # Additionally, sort on dimension column for the case there is the same start timestamp for different dimensions
+        # values to achieve reproducibility with respect to order of rows in dim_df
+        dim_df.sort_values(by=[start_col, dim_col], inplace=True)
 
         for row in dim_df.itertuples(index=False, name=None):
 
@@ -2302,7 +2315,7 @@ class BaseSCDLookupWithDefault(BaseTransformer):
             condition2 = (group_timestamps < row[3])
 
             # Replace entries in dimension column with current dimension value
-            group_df[dim_col] = group_df[dim_col].mask((condition1 & condition2), row[0])
+            group_df[output_col] = group_df[output_col].mask((condition1 & condition2), row[0])
 
         return group_df
 
