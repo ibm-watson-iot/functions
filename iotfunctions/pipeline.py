@@ -2305,14 +2305,15 @@ class CalcPipeline:
 
         start_time = pd.Timestamp.utcnow()
         try:
-            scope_mask = self.apply_scope(df, stage)
+            has_scope, scope_mask = self.apply_scope(df, stage)
             contains_extended_args = self._contains_extended_arguments(stage.execute)
             if contains_extended_args:
                 newdf = stage.execute(df=df[scope_mask], start_ts=start_ts, end_ts=end_ts, entities=entities)
             else:
                 newdf = stage.execute(df=df[scope_mask])
-            cols_to_merge = newdf.columns.difference(df.columns)
-            #newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
+
+            if has_scope:
+                newdf = self.merge_scoped_df(df, newdf, stage.category)
         except BaseException as e:
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
@@ -2342,11 +2343,25 @@ class CalcPipeline:
         self.trace_add(msg, created_by=stage, df=newdf)
         return newdf
 
+    def merge_scoped_df(self, df, newdf, category):
+        if category == 'TRANSFORMER':
+            # TODO Resolve duplicate rows issue
+            cols_to_merge = newdf.columns.difference(df.columns)
+            newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
+        elif category == 'AGGREGATOR':
+            # TODO
+            pass
+        else:
+            # TODO
+            pass
+        return newdf
+
     def apply_scope(self, df, stage):
         if hasattr(stage, 'scope') and stage.scope is not None:
             logger.debug('Applying Scope')
             eval_expression = ''
-            scope = json.loads(stage.scope)
+            has_scope = True
+            scope = stage.scope
             if scope.get('type') == 'DIMENSIONS':
                 logger.debug('Applying Dimensions Scope')
                 dimension_count = len(scope.get('dimensions'))
@@ -2364,8 +2379,9 @@ class CalcPipeline:
             scope_mask = eval(eval_expression)
         else:
             logger.debug('No Scope Found')
+            has_scope = False
             scope_mask = np.full(len(df), True)
-        return scope_mask
+        return has_scope, scope_mask
 
     def _contains_extended_arguments(self, function, extended_argument=['start_ts', 'end_ts', 'entities']):
 
