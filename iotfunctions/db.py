@@ -2791,11 +2791,16 @@ class Database(object):
         return 1
 
     def release_resource(self):
-        try:
-            self.connection.dispose()
-            logger.info('SQLAlchemy database connection successfully closed.')
-        except:
-            pass
+        if self.connection is not None:
+            try:
+                self.connection.dispose()
+                logger.info('SQLAlchemy database connection successfully closed.')
+            except Exception:
+                logger.warning('Error while closing sqlalchemy database connection.', exc_info=True)
+            finally:
+                self.connection = None
+                logger.info('SQLAlchemy database connection successfully closed.')
+
         if self.native_connection is not None:
             try:
                 if self.db_type == 'postgresql':
