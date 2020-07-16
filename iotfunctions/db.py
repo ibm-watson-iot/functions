@@ -2815,9 +2815,6 @@ class Database(object):
                 self.native_connection = None
                 logger.info('Native database connection successfully closed.')
 
-    def __del__(self):
-        self.release_resource()
-
 
 class BaseTable(object):
     is_table = True
