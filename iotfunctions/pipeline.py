@@ -2306,11 +2306,12 @@ class CalcPipeline:
         start_time = pd.Timestamp.utcnow()
         try:
             has_scope, scope_mask = self.apply_scope(df, stage)
+            df_stage = df[scope_mask] if has_scope else df
             contains_extended_args = self._contains_extended_arguments(stage.execute)
             if contains_extended_args:
-                newdf = stage.execute(df=df[scope_mask], start_ts=start_ts, end_ts=end_ts, entities=entities)
+                newdf = stage.execute(df=df_stage, start_ts=start_ts, end_ts=end_ts, entities=entities)
             else:
-                newdf = stage.execute(df=df[scope_mask])
+                newdf = stage.execute(df=df_stage)
 
             if has_scope:
                 newdf = self.merge_scoped_df(df, newdf, stage.category)
