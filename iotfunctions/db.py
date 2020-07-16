@@ -2795,7 +2795,6 @@ class Database(object):
             try:
                 self.connection.dispose()
                 logger.info('SQLAlchemy database connection successfully closed.')
-                self.connection = None
             except Exception:
                 logger.warning('Error while closing sqlalchemy database connection.', exc_info=True)
             finally:
