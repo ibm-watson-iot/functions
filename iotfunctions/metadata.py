@@ -2071,7 +2071,7 @@ class ServerEntityType(EntityType):
         # turn function metadata into function objects
         (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
 
-        #  map server properties to entitty type properties
+        #  map server properties to entity type properties
         self._entity_type_id = server_meta['entityTypeId']
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']

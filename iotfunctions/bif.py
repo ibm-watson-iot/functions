@@ -395,9 +395,7 @@ class AlertHighValue(BaseEvent):
 
     def execute(self, df):
         df = df.copy()
-        logger.debug('Initial Input Item df {}'.format(df[self.input_item]))
         df[self.alert_name] = np.where(df[self.input_item] >= self.upper_threshold, True, None)
-        logger.debug('Final AlertHighValue df {}'.format(df[self.alert_name]))
         return df
 
     @classmethod
