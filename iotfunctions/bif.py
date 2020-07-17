@@ -21,7 +21,7 @@ import pandas as pd
 import logging
 import warnings
 from sqlalchemy import String
-from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
+from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithDefault, BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
                    BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
 
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
@@ -1583,6 +1583,21 @@ class SCDLookup(BaseSCDLookup):
     def __init__(self, table_name, output_item=None):
         self.table_name = table_name
         super().__init__(table_name=table_name, output_item=output_item)
+
+
+class IoTSCDLookupWithDefault(BaseSCDLookupWithDefault):
+    '''
+    Look up an scd property from a scd lookup table containing columns for:
+    start_date, end_date, device_id and dimension property.
+    If the table does not provide a value for a given time
+    the default value is taken.
+    '''
+
+    def __init__(self, table_name, dimension_name, entity_name, start_name, end_name, default_value, output_item=None):
+
+        super().__init__(table_name=table_name, output_item=output_item, default_value=default_value,
+                         dimension_name=dimension_name, entity_name=entity_name, start_name=start_name,
+                         end_name=end_name)
 
 
 class ShiftCalendar(BaseTransformer):
