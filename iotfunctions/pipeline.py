@@ -2305,7 +2305,7 @@ class CalcPipeline:
 
         start_time = pd.Timestamp.utcnow()
         try:
-            has_scope, scope_mask = self.apply_scope(df, stage)
+            has_scope, scope_mask = self.apply_scope(df, getattr(stage, 'scope', None))
             df_stage = df[scope_mask] if has_scope else df
             contains_extended_args = self._contains_extended_arguments(stage.execute)
             if contains_extended_args:
@@ -2344,25 +2344,13 @@ class CalcPipeline:
         self.trace_add(msg, created_by=stage, df=newdf)
         return newdf
 
-    def merge_scoped_df(self, df, newdf, category):
-        if category == 'TRANSFORMER':
-            # TODO Resolve duplicate rows issue
-            cols_to_merge = newdf.columns.difference(df.columns)
-            newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
-        elif category == 'AGGREGATOR':
-            # TODO
-            pass
-        else:
-            # TODO
-            pass
-        return newdf
-
-    def apply_scope(self, df, stage):
-        if hasattr(stage, 'scope') and stage.scope is not None:
+    def apply_scope(self, df, scope):
+        has_scope = False
+        scope_mask = None
+        if scope:
             logger.debug('Applying Scope')
             eval_expression = ''
             has_scope = True
-            scope = stage.scope
             if scope.get('type') == 'DIMENSIONS':
                 logger.debug('Applying Dimensions Scope')
                 dimension_count = len(scope.get('dimensions'))
@@ -2377,12 +2365,25 @@ class CalcPipeline:
                 if expression is not None and '${' in expression:
                     eval_expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
             logger.debug('Final Scope Mask Expression {}'.format(eval_expression))
+            # Create merge index to reliably merge scoped df and original df
+            merge_index = pd.Index(np.arange(df.shape[0]), name='merge_idx')
+            df.set_index(merge_index, append=True, inplace=True)
             scope_mask = eval(eval_expression)
-        else:
-            logger.debug('No Scope Found')
-            has_scope = False
-            scope_mask = np.full(len(df), True)
         return has_scope, scope_mask
+
+    def merge_scoped_df(self, df, newdf, category):
+        if category == 'TRANSFORMER':
+            cols_to_merge = newdf.columns.difference(df.columns)
+            newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
+            # Drop the merge index after merge has completed
+            newdf = newdf.droplevel('merge_idx')
+        elif category == 'AGGREGATOR':
+            # TODO
+            pass
+        else:
+            # TODO
+            pass
+        return newdf
 
     def _contains_extended_arguments(self, function, extended_argument=['start_ts', 'end_ts', 'entities']):
 
