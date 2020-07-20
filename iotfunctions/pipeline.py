@@ -36,6 +36,7 @@ from sqlalchemy import (MetaData, Table, Column, Integer, SmallInteger, String, 
 logger = logging.getLogger(__name__)
 
 DATA_ITEM_TAG_ALERT = 'ALERT'
+MERGE_INDEX = '_as_merge_idx'
 
 
 class JobLog(object):
@@ -2366,7 +2367,7 @@ class CalcPipeline:
                     eval_expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
             logger.debug('Final Scope Mask Expression {}'.format(eval_expression))
             # Create merge index to reliably merge scoped df and original df
-            merge_index = pd.Index(np.arange(df.shape[0]), name='merge_idx')
+            merge_index = pd.Index(np.arange(df.shape[0]), name=MERGE_INDEX)
             df.set_index(merge_index, append=True, inplace=True)
             scope_mask = eval(eval_expression)
         return has_scope, scope_mask
@@ -2376,7 +2377,7 @@ class CalcPipeline:
             cols_to_merge = newdf.columns.difference(df.columns)
             newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
             # Drop the merge index after merge has completed
-            newdf = newdf.droplevel('merge_idx')
+            newdf = newdf.droplevel(MERGE_INDEX)
         elif category == 'AGGREGATOR':
             # TODO
             pass
