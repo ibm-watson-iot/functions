@@ -2314,8 +2314,8 @@ class CalcPipeline:
             else:
                 newdf = stage.execute(df=df_stage)
 
-            if has_scope:
-                newdf = self.merge_scoped_df(df, newdf, stage.category)
+            if has_scope and self.is_mergeable(df_stage, newdf):
+                newdf = self.merge_scope_df(df, newdf, stage.category)
         except BaseException as e:
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
@@ -2345,6 +2345,16 @@ class CalcPipeline:
         self.trace_add(msg, created_by=stage, df=newdf)
         return newdf
 
+    def is_mergeable(self, transformed_df, original_df):
+        '''
+        Only merge if the two dataframes have same number of rows and
+        transformed dataframe has all the columns from the original dataframe
+        '''
+        is_mergeable = False
+        if original_df.shape[0] == transformed_df.shape[0] and set(original_df.index).issubset(transformed_df.index):
+            is_mergeable = True
+        return is_mergeable
+
     def apply_scope(self, df, scope):
         has_scope = False
         scope_mask = None
@@ -2359,7 +2369,8 @@ class CalcPipeline:
                     dimension_name = dimension_filter['dimension_name']
                     dimension_value = dimension_filter['dimension_value']
                     dimension_count -= 1
-                    eval_expression += 'df[' + dimension_name + '].isin(' + dimension_value + ')' + '&' if dimension_count != 0 else ''
+                    eval_expression += 'df[' + dimension_name + '].isin(' + dimension_value + ')'\
+                                       + '&' if dimension_count != 0 else ''
             else:
                 logger.debug('Applying Expression Scope')
                 expression = scope.get('expression')
@@ -2372,7 +2383,7 @@ class CalcPipeline:
             scope_mask = eval(eval_expression)
         return has_scope, scope_mask
 
-    def merge_scoped_df(self, df, newdf, category):
+    def merge_scope_df(self, df, newdf, category):
         if category == 'TRANSFORMER':
             cols_to_merge = newdf.columns.difference(df.columns)
             newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
