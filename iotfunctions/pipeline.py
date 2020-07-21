@@ -2369,8 +2369,8 @@ class CalcPipeline:
                     dimension_name = dimension_filter['dimension_name']
                     dimension_value = dimension_filter['dimension_value']
                     dimension_count -= 1
-                    eval_expression += 'df[' + dimension_name + '].isin(' + dimension_value + ')'\
-                                       + '&' if dimension_count != 0 else ''
+                    eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
+                    eval_expression += ' & ' if dimension_count != 0 else ''
             else:
                 logger.debug('Applying Expression Scope')
                 expression = scope.get('expression')
