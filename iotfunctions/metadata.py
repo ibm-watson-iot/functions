@@ -1300,7 +1300,7 @@ class EntityType(object):
 
         query, log = self.db.query(self.log_table, self._db_schema)
         query = query.filter(log.c.entity_type == self.name).order_by(log.c.timestamp_utc.desc()).limit(rows)
-        df = self.db.get_query_data(query)
+        df = self.db.read_sql_query(query)
         return df
 
     def get_latest_log_entry(self):
@@ -1486,7 +1486,6 @@ class EntityType(object):
             df['devicetype'] = self.logical_name
             df['format'] = ''
             df['updated_utc'] = dt.datetime.utcnow()
-            df['updated_utc'] = df['updated_utc'].astype('datetime64[ms]')
             self.db.write_frame(table_name=self.name, df=df, schema=self._db_schema, timestamp_col=self._timestamp)
 
         for (at_name, at_table) in list(self.activity_tables.items()):

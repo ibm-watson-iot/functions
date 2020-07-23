@@ -75,7 +75,7 @@ class JobLog(object):
         q = self.table.select().where(
             and_(self.table.c.object_type == self.job.payload.__class__.__name__, self.table.c.object_name == name,
                  self.table.c.schedule == schedule, self.table.c.status == 'running'))
-        df = pd.read_sql_query(sql=q, con=self.db.connection)
+        df = self.db.read_sql_query(sql=q)
 
         if len(df.index) > 0:
             upd = self.table.update().values(status='abandoned').where(
@@ -2574,8 +2574,7 @@ class CalcPipeline:
                         logger.info('Type is not consistent %s: df type is %s and data type is %s' % (
                             item, df_column.dtype.name, data_item['columnType']))
                         try:
-                            df[data_item['name']] = pd.to_datetime(df_column).astype(
-                                'datetime64[ms]')  # try to convert to timestamp
+                            df[data_item['name']] = pd.to_datetime(df_column)  # try to convert to timestamp
                         except Exception:
                             invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
                     continue

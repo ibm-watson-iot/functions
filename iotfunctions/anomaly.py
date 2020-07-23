@@ -491,6 +491,12 @@ class KMeansAnomalyScore(BaseTransformer):
 
         self.whoami = 'KMeans'
 
+        if expression is not None and '${' in expression:
+            expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
+            logger.info('Expression - after regexp: {}'.format(expression))
+        else:
+            logger.info('Expression: {}'.format(expression))
+
         self.expression = expression
 
     def prepare_data(self, dfEntity):
@@ -526,17 +532,8 @@ class KMeansAnomalyScore(BaseTransformer):
 
         logger.info('Expression exp: ' + str(self.expression) + '  input: ' + str(self.input_item))
         expr = self.expression
-        if '${' in expr:
-            expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expr)
-            logger.info('Expression - after regexp: ' + expr)
-            msg = 'Expression converted to %s. ' % expr
-        else:
-            msg = 'Expression (%s). ' % expr
-
-        self.trace_append(msg)
-
         try:
-            if expr is not None:
+            if expr:
                 mask = eval(str(expr))
             else:
                 mask = np.full(len(df_copy) , True)
@@ -616,8 +613,6 @@ class KMeansAnomalyScore(BaseTransformer):
                 linear_interpolateK = sp.interpolate.interp1d(
                     time_series_temperature, pred_score, kind='linear', fill_value='extrapolate')
 
-                logger.debug('Processed entity masked dataframe length {}'.format(len(dfe)))
-                logger.debug('Processed entity original dataframe length {}'.format(len(dfe_orig)))
                 zScoreII = merge_score(dfe, dfe_orig, self.output_item,
                                        linear_interpolateK(np.arange(0, temperature.size, 1)), mindelta)
 
@@ -625,8 +620,6 @@ class KMeansAnomalyScore(BaseTransformer):
 
                 idx = pd.IndexSlice
                 df_copy.loc[entity_mask, self.output_item] = zScoreII
-                logger.debug('Final dataframe length {}'.format(len(df_copy.loc[entity_mask, self.output_item])))
-                logger.debug('Final output dataframe {}'.format(df_copy.loc[entity_mask, self.output_item]))
 
         msg = 'KMeansAnomalyScore'
         self.trace_append(msg)

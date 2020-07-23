@@ -73,6 +73,9 @@ class Database(object):
         self.write_chunk_size = 1000
         self.credentials = {}
         self.db_type = None
+        application_name = os.environ.get('AS_APPLICATION_NAME')
+        self.application_name = "" if application_name is None else application_name
+
         if credentials is None:
             credentials = {}
 
@@ -320,8 +323,8 @@ class Database(object):
                             sqlalchemy_connection_string += 'SECURITY=%s;' % ev['SECURITY']
 
                             if 'SSLSERVERCERTIFICATE' in ev:
-                                sqlalchemy_connection_string += 'SSLServerCertificate=' \
-                                                                + ev['SSLSERVERCERTIFICATE'] + ";"
+                                sqlalchemy_connection_string += 'SSLServerCertificate=' + ev[
+                                    'SSLSERVERCERTIFICATE'] + ";"
                             else:
                                 cwd = os.getcwd()
                                 filename = cwd + "/db2_certificate.pem";
@@ -330,8 +333,8 @@ class Database(object):
                                     sqlalchemy_connection_string += tmp_string
                                     native_connection_string += tmp_string
                                 elif db_certificate_file_from_env is not None:
-                                    logger.debug('Found certificate filename in os variable DB_CERTIFICATE_FILE: %s' %
-                                                 db_certificate_file_from_env)
+                                    logger.debug(
+                                        'Found certificate filename in os variable DB_CERTIFICATE_FILE: %s' % db_certificate_file_from_env)
                                     if os.path.exists(db_certificate_file_from_env):
                                         tmp_string = 'SSLServerCertificate=' + db_certificate_file_from_env + ";"
                                         sqlalchemy_connection_string += tmp_string
@@ -412,10 +415,12 @@ class Database(object):
 
             if meets_requirement:
                 sqlalchemy_dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
-                                             'executemany_values_page_size': 1000}
+                                             'executemany_values_page_size': 1000, 'connect_args': {
+                        'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
             else:
                 # 'use_batch_mode=True' is about 20 % slower than 'execute_many_mode=values'
-                sqlalchemy_dialect_kwargs = {'use_batch_mode': True}
+                sqlalchemy_dialect_kwargs = {'use_batch_mode': True, 'connect_args': {
+                    'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
         else:
             sqlalchemy_dialect_kwargs = {}
 
@@ -445,7 +450,8 @@ class Database(object):
             cred = self.credentials['postgresql']
             self.native_connection = psycopg2.connect(user=cred['username'], password=cred['password'],
                                                       host=cred['host'], port=cred['port'],
-                                                      database=cred['databaseName'])
+                                                      database=cred['databaseName'],
+                                                      application_name="AS %s Native Connection" % self.application_name)
             self.native_connection_dbi = self.native_connection
             logger.debug('Native database connection to PostgreSQL established.')
         else:
@@ -495,8 +501,8 @@ class Database(object):
                     break
 
         # Create DBModelStore if it was not handed in
-        if self.model_store is None and self.db_type in ['db2', 'postgresql'] \
-                and self.entity_type_id is not None and self.schema is not None:
+        if self.model_store is None and self.db_type in ['db2',
+                                                         'postgresql'] and self.entity_type_id is not None and self.schema is not None:
             self.model_store = dbtables.DBModelStore(self.tenant_id, self.entity_type_id, self.schema,
                                                      self.native_connection, self.db_type)
 
@@ -1278,20 +1284,6 @@ class Database(object):
             with conn.connect() as con:
                 con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2; dirty read does not exist for postgres
 
-    def get_query_data(self, query):
-        '''
-        Execute a query and a return a dataframe containing results
-
-        Parameters
-        ----------
-        query : sqlalchemy Query object
-            query to execute
-
-        '''
-
-        df = pd.read_sql_query(sql=query.statement, con=self.connection)
-        return df
-
     def start_session(self):
         '''
         Start a database session.
@@ -1326,8 +1318,6 @@ class Database(object):
 
         df = self.read_table(table_name=dimension, schema=schema, entities=entities, columns=columns,
                              parse_dates=parse_dates)
-        if parse_dates is not None:
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
         return df
 
@@ -1362,13 +1352,42 @@ class Database(object):
         q, table = self.query(table_name, schema=schema, column_names=columns, column_aliases=columns,
                               timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
-        logger.debug('query statement:')
-        logger.debug(q)
-        df = pd.read_sql_query(sql=q.statement, con=self.connection, parse_dates=parse_dates)
-        if parse_dates is not None:
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
-        return (df)
+        df = self.read_sql_query(sql=q.statement, parse_dates=parse_dates)
+
+        return df
+
+    def read_sql_query(self, sql, parse_dates=None, index_col= None, requested_col_names=None, log_message=None, **kwargs):
+
+        if log_message is None:
+            logger.debug('The following sql statement is executed: %s' % sql)
+        else:
+            logger.debug('%s: %s' % (log_message, sql))
+
+        # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
+        parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
+        index_col = None if index_col is None else [col.lower() for col in index_col]
+
+        # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
+        # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
+        # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
+        # to avoid type mismatches later on
+        df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
+
+        if parse_dates is not None and len(parse_dates) > 0:
+            df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
+
+        col_name_map = None
+        if requested_col_names is not None and len(requested_col_names) > 0:
+            col_name_map = {name_df: req_name for name_df, req_name in zip(df.columns, requested_col_names)}
+            df = df.rename(columns=col_name_map, copy=False)
+
+        if index_col is not None and len(index_col) > 0:
+            if col_name_map is not None:
+                index_col = [col_name_map.get(col_name, col_name) for col_name in index_col]
+            df.set_index(keys=index_col, inplace=True)
+
+        return df
 
     def read_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
                  dimension=None, start_ts=None, end_ts=None, period_type='days', period_count=1, entities=None,
@@ -1442,11 +1461,9 @@ class Database(object):
                                                                                            filters=filters,
                                                                                            deviceid_col=deviceid_col)
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
-            df = pd.read_sql_query(query.statement, con=self.connection)
-            logger.debug(query.statement)
+            df = self.read_sql_query(query.statement)
 
             # combine special aggregates with regular database aggregates
-
             if df_special is not None:
                 join_cols = []
                 join_cols.extend(groupby)
@@ -1459,7 +1476,6 @@ class Database(object):
                     df = pd.merge(df, df_special, left_index=True, right_index=True)
 
             # apply pandas aggregate if required
-
             if pandas_aggregate is not None:
                 df = resample(df=df, time_frequency=pandas_aggregate, timestamp=timestamp, dimensions=groupby,
                               agg=agg_dict)
@@ -1820,8 +1836,7 @@ class Database(object):
                         query = self.subquery_join(query, filter_query, *keys, **project)
                         logger.debug(query)
                     # execute
-                    logger.debug('query statement: %s', query)
-                    df_result = pd.read_sql_query(query, con=self.connection)
+                    df_result = self.read_sql_query(query)
 
                     if pandas_aggregate is not None:
                         df_result = resample(df=df_result, time_frequency=pandas_aggregate, timestamp=timestamp,
@@ -2773,6 +2788,26 @@ class Database(object):
             self.commit()
             logger.info('Wrote data to table %s ' % table_name)
         return 1
+
+    def release_resource(self):
+        self.connection.dispose()
+        logger.info('SQLAlchemy database connection successfully closed.')
+        if self.native_connection is not None:
+            try:
+                if self.db_type == 'postgresql':
+                    self.native_connection.close()
+                    self.native_connection_dbi.close()
+                else:
+                    ibm_db.close(self.native_connection)
+
+            except Exception:
+                logger.warning('Error while closing native database connection.', exc_info=True)
+            finally:
+                self.native_connection = None
+                logger.info('Native database connection successfully closed.')
+
+    def __del__(self):
+        self.release_resource()
 
 
 class BaseTable(object):
