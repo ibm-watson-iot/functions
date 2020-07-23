@@ -1357,7 +1357,8 @@ class Database(object):
 
         return df
 
-    def read_sql_query(self, sql, parse_dates=None, index_col= None, requested_col_names=None, log_message=None, **kwargs):
+    def read_sql_query(self, sql, parse_dates=None, index_col=None, requested_col_names=None, log_message=None,
+                       **kwargs):
 
         if log_message is None:
             logger.debug('The following sql statement is executed: %s' % sql)
@@ -1640,7 +1641,7 @@ class Database(object):
 
             sql = sql + query
             sql = sql + '\n'
-        
+
         return sql
 
     def register_module(self, module, url=None, raise_error=True, force_preinstall=False):
@@ -2794,7 +2795,6 @@ class Database(object):
         if self.connection is not None:
             try:
                 self.connection.dispose()
-                logger.info('SQLAlchemy database connection successfully closed.')
             except Exception:
                 logger.warning('Error while closing sqlalchemy database connection.', exc_info=True)
             finally:
