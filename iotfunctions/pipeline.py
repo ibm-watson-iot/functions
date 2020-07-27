@@ -26,7 +26,7 @@ import inspect
 import json
 
 from .enginelog import EngineLogging
-from .util import log_df_info, freq_to_timedelta, Trace
+from .util import log_df_info, freq_to_timedelta, Trace, is_df_mergeable
 from .system_function import *
 from .stages import DataWriterSqlAlchemy, ProduceAlerts
 from .exceptions import StageException
@@ -36,6 +36,7 @@ from sqlalchemy import (MetaData, Table, Column, Integer, SmallInteger, String, 
 logger = logging.getLogger(__name__)
 
 DATA_ITEM_TAG_ALERT = 'ALERT'
+MERGE_INDEX = '_as_merge_idx'
 
 
 class JobLog(object):
@@ -2305,14 +2306,21 @@ class CalcPipeline:
 
         start_time = pd.Timestamp.utcnow()
         try:
-            scope_mask = self.apply_scope(df, stage)
+            has_scope, scope_mask = self.apply_scope(df, getattr(stage, 'scope', None))
+            if has_scope:
+                logger.debug('No. of rows in the dataframe before applying scope {}'.format(df.shape[0]))
+                df_stage = df[scope_mask]
+                logger.debug('No. of rows in the dataframe after applying scope {}'.format(df_stage.shape[0]))
+            else:
+                df_stage = df
             contains_extended_args = self._contains_extended_arguments(stage.execute)
             if contains_extended_args:
-                newdf = stage.execute(df=df[scope_mask], start_ts=start_ts, end_ts=end_ts, entities=entities)
+                newdf = stage.execute(df=df_stage, start_ts=start_ts, end_ts=end_ts, entities=entities)
             else:
-                newdf = stage.execute(df=df[scope_mask])
-            cols_to_merge = newdf.columns.difference(df.columns)
-            #newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
+                newdf = stage.execute(df=df_stage)
+
+            if has_scope and is_df_mergeable(df_stage, newdf):
+                newdf = self.merge_scope_df(df, newdf, stage.category, stage._outputs)
         except BaseException as e:
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
@@ -2342,30 +2350,51 @@ class CalcPipeline:
         self.trace_add(msg, created_by=stage, df=newdf)
         return newdf
 
-    def apply_scope(self, df, stage):
-        if hasattr(stage, 'scope') and stage.scope is not None:
-            logger.debug('Applying Scope')
+    def apply_scope(self, df, scope):
+        has_scope = False
+        scope_mask = None
+        if scope:
             eval_expression = ''
-            scope = json.loads(stage.scope)
+            has_scope = True
             if scope.get('type') == 'DIMENSIONS':
                 logger.debug('Applying Dimensions Scope')
                 dimension_count = len(scope.get('dimensions'))
                 for dimension_filter in scope.get('dimensions'):
-                    dimension_name = dimension_filter['dimension_name']
-                    dimension_value = dimension_filter['dimension_value']
+                    dimension_name = dimension_filter['name']
+                    dimension_value = dimension_filter['value']
                     dimension_count -= 1
-                    eval_expression += 'df[' + dimension_name + '].isin(' + dimension_value + ')' + '&' if dimension_count != 0 else ''
+                    eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
+                    eval_expression += ' & ' if dimension_count != 0 else ''
             else:
                 logger.debug('Applying Expression Scope')
-                expression = scope.get('type') == 'EXPRESSIONS'
+                expression = scope.get('expression')
                 if expression is not None and '${' in expression:
                     eval_expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
             logger.debug('Final Scope Mask Expression {}'.format(eval_expression))
+            # Create merge index to reliably merge scoped df and original df
+            merge_index = pd.Index(np.arange(df.shape[0]), name=MERGE_INDEX)
+            df.set_index(merge_index, append=True, inplace=True)
             scope_mask = eval(eval_expression)
+        return has_scope, scope_mask
+
+    def merge_scope_df(self, df, newdf, category, cols_to_merge):
+        if category == 'TRANSFORMER':
+            if not cols_to_merge:
+                logger.debug('No output cols value found in stage._outputs.')
+                cols_to_merge = newdf.columns.difference(df.columns)
+                logger.debug('Calculated columns {} to merge from the column name difference b/w original df and scoped df'.format(cols_to_merge))
+            logger.debug('Dataframe shape of original df before merging with scope df {}'.format(df.shape))
+            newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
+            # Drop the merge index after merge has completed
+            newdf = newdf.droplevel(MERGE_INDEX)
+            logger.debug('Dataframe shape of original df after merging with scope df {}'.format(newdf.shape))
+        elif category == 'AGGREGATOR':
+            # TODO
+            pass
         else:
-            logger.debug('No Scope Found')
-            scope_mask = np.full(len(df), True)
-        return scope_mask
+            # TODO
+            pass
+        return newdf
 
     def _contains_extended_arguments(self, function, extended_argument=['start_ts', 'end_ts', 'entities']):
 
