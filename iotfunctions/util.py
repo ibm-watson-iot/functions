@@ -421,7 +421,7 @@ def get_fn_expression_args(function_metadata, kpi_metadata):
     args = kpi_metadata.get('input', {})
 
     for (arg, value) in list(args.items()):
-        if arg == 'expression':
+        if arg == 'expression' and value is not None:
             expressions.append(value)
             logger.debug('Found expression %s', value)
 
