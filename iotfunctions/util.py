@@ -428,6 +428,34 @@ def get_fn_expression_args(function_metadata, kpi_metadata):
     return infer_data_items(expressions)
 
 
+def get_fn_scope_sources(scope_key, kpi):
+    scope_sources = set()
+    if kpi.get(scope_key):
+        scope = kpi.get(scope_key)
+        if scope.get('type') == 'DIMENSIONS':
+            for dimension_filter in scope.get('dimensions'):
+                dimension_name = dimension_filter['dimension_name']
+                scope_sources.add(dimension_name)
+        else:
+            expression = scope.get('expression')
+            if expression is not None and '${' in expression:
+                expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
+            scope_sources.update(infer_data_items(expression))
+        logger.info('scope sources {} for kpi {}'.format(scope_sources, kpi))
+    return scope_sources
+
+
+def is_df_mergeable(transformed_df, original_df):
+    '''
+    Only merge if the two dataframes have same number of rows and
+    transformed dataframe has all the columns from the original dataframe
+    '''
+    is_mergeable = False
+    if original_df.shape[0] == transformed_df.shape[0] and set(original_df.index).issubset(transformed_df.index):
+        is_mergeable = True
+    return is_mergeable
+
+
 def log_df_info(df, msg, include_data=False):
     '''
     Log a debugging entry showing first row and index structure

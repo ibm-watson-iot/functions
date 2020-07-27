@@ -26,7 +26,7 @@ import inspect
 import json
 
 from .enginelog import EngineLogging
-from .util import log_df_info, freq_to_timedelta, Trace
+from .util import log_df_info, freq_to_timedelta, Trace, is_df_mergeable
 from .system_function import *
 from .stages import DataWriterSqlAlchemy, ProduceAlerts
 from .exceptions import StageException
@@ -2307,15 +2307,20 @@ class CalcPipeline:
         start_time = pd.Timestamp.utcnow()
         try:
             has_scope, scope_mask = self.apply_scope(df, getattr(stage, 'scope', None))
-            df_stage = df[scope_mask] if has_scope else df
+            if has_scope:
+                logger.debug('No. of rows in the dataframe before applying scope {}'.format(df.shape[0]))
+                df_stage = df[scope_mask]
+                logger.debug('No. of rows in the dataframe after applying scope {}'.format(df_stage.shape[0]))
+            else:
+                df_stage = df
             contains_extended_args = self._contains_extended_arguments(stage.execute)
             if contains_extended_args:
                 newdf = stage.execute(df=df_stage, start_ts=start_ts, end_ts=end_ts, entities=entities)
             else:
                 newdf = stage.execute(df=df_stage)
 
-            if has_scope and self.is_mergeable(df_stage, newdf):
-                newdf = self.merge_scope_df(df, newdf, stage.category)
+            if has_scope and is_df_mergeable(df_stage, newdf):
+                newdf = self.merge_scope_df(df, newdf, stage.category, stage._outputs)
         except BaseException as e:
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
@@ -2345,21 +2350,10 @@ class CalcPipeline:
         self.trace_add(msg, created_by=stage, df=newdf)
         return newdf
 
-    def is_mergeable(self, transformed_df, original_df):
-        '''
-        Only merge if the two dataframes have same number of rows and
-        transformed dataframe has all the columns from the original dataframe
-        '''
-        is_mergeable = False
-        if original_df.shape[0] == transformed_df.shape[0] and set(original_df.index).issubset(transformed_df.index):
-            is_mergeable = True
-        return is_mergeable
-
     def apply_scope(self, df, scope):
         has_scope = False
         scope_mask = None
         if scope:
-            logger.debug('Applying Scope')
             eval_expression = ''
             has_scope = True
             if scope.get('type') == 'DIMENSIONS':
@@ -2383,12 +2377,17 @@ class CalcPipeline:
             scope_mask = eval(eval_expression)
         return has_scope, scope_mask
 
-    def merge_scope_df(self, df, newdf, category):
+    def merge_scope_df(self, df, newdf, category, cols_to_merge):
         if category == 'TRANSFORMER':
-            cols_to_merge = newdf.columns.difference(df.columns)
+            if not cols_to_merge:
+                logger.debug('No output cols value found in stage._outputs.')
+                cols_to_merge = newdf.columns.difference(df.columns)
+                logger.debug('Calculated columns {} to merge from the column name difference b/w original df and scoped df'.format(cols_to_merge))
+            logger.debug('Dataframe shape of original df before merging with scope df {}'.format(df.shape))
             newdf = df.merge(newdf[cols_to_merge], how='left', left_index=True, right_index=True)
             # Drop the merge index after merge has completed
             newdf = newdf.droplevel(MERGE_INDEX)
+            logger.debug('Dataframe shape of original df after merging with scope df {}'.format(newdf.shape))
         elif category == 'AGGREGATOR':
             # TODO
             pass
