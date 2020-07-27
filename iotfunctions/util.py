@@ -434,7 +434,7 @@ def get_fn_scope_sources(scope_key, kpi):
         scope = kpi.get(scope_key)
         if scope.get('type') == 'DIMENSIONS':
             for dimension_filter in scope.get('dimensions'):
-                dimension_name = dimension_filter['dimension_name']
+                dimension_name = dimension_filter['name']
                 scope_sources.add(dimension_name)
         else:
             expression = scope.get('expression')

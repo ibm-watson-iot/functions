@@ -2360,8 +2360,8 @@ class CalcPipeline:
                 logger.debug('Applying Dimensions Scope')
                 dimension_count = len(scope.get('dimensions'))
                 for dimension_filter in scope.get('dimensions'):
-                    dimension_name = dimension_filter['dimension_name']
-                    dimension_value = dimension_filter['dimension_value']
+                    dimension_name = dimension_filter['name']
+                    dimension_value = dimension_filter['value']
                     dimension_count -= 1
                     eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
                     eval_expression += ' & ' if dimension_count != 0 else ''
