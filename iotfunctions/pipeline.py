@@ -2299,7 +2299,7 @@ class CalcPipeline:
 
         msg = 'Stage %s :' % name
         self.trace_add(msg=msg, df=df)
-        logger.debug('Start of stage %s' % name)
+        logger.debug('Start of stage {{ %s }}' % name)
 
         if self.dblogging is not None:
             self.dblogging.update_stage_info(name)
@@ -2325,7 +2325,7 @@ class CalcPipeline:
             self.entity_type.raise_error(exception=e, abort_on_fail=abort_on_fail, stage_name=name)
 
         logger.debug(
-            'End of stage %s, execution time = %s s' % (name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
+            'End of stage {{ %s }}, execution time = %s s' % (name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
 
         # validate that stage has not violated any pipeline processing rules
         try:
