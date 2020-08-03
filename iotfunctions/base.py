@@ -1289,7 +1289,7 @@ class BaseFunction(object):
 
         df = et.generate_data(days=generate_days, columns=et.local_columns)
         df = et.index_df(df)
-        df = self.execute(df=df)
+        df = self.execute(df)
         if to_csv:
             filename = 'df_%s.csv' % et.name
             df.to_csv(filename)
@@ -2315,7 +2315,7 @@ class BaseEstimatorFunction(BaseTransformer):
     greater_is_better = True
     version_model_writes = False
 
-    def __init__(self, features, targets, predictions):
+    def __init__(self, features, targets, predictions, keep_current_models=False):
         self.features = features
         self.targets = targets
         # Name predictions based on targets if predictions is None
@@ -2325,6 +2325,10 @@ class BaseEstimatorFunction(BaseTransformer):
         super().__init__()
         self._preprocessors = OrderedDict()
         self.estimators = OrderedDict()
+        if keep_current_models:
+            self.active_models = dict()
+        else:
+            self.active_models = None
 
     def add_preprocessor(self, stage):
         '''
@@ -2445,6 +2449,11 @@ class BaseEstimatorFunction(BaseTransformer):
         logger.info('Model names to delete: ' + str(model_names))
 
         for m in model_names:
+            if self.active_models is not None:
+                try:
+                    del self.active_models[m]
+                except Exception:
+                    pass
             self._entity_type.db.model_store.delete_model(m)
 
     def execute(self, df):
@@ -2495,6 +2504,9 @@ class BaseEstimatorFunction(BaseTransformer):
                 msg = 'Failed training models'
             else:
                 best_model.test(df_test)
+                if self.active_models is not None:
+                    self.active_models[best_model.name]=(best_model, df_train)
+
                 self.evaluate_and_write_model(new_model=best_model, current_model=model, db=db, bucket=bucket)
                 msg = 'Finished training model %s' % model.name
 
@@ -2589,7 +2601,7 @@ class BaseEstimatorFunction(BaseTransformer):
         # fit a model for each estimator
 
         for counter, (name, estimator, params) in enumerate(estimators):
-            estimator = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
+            estimator, search = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
                                                 features=features)
             # in case of a failure to train and cross validate then try next
             if estimator is None:
@@ -2600,6 +2612,7 @@ class BaseEstimatorFunction(BaseTransformer):
 
             try:
                 est_score = estimator.score(df_train[features], df_train[target])
+
                 logger.info(trace_msg + ' score:' + str(est_score))
             except Exception as e:
                 logger.info('Estimator predict failed with ' + str(e))
@@ -2612,7 +2625,15 @@ class BaseEstimatorFunction(BaseTransformer):
                        'eval_metric_train': est_score, 'estimator_name': name, 'shelf_life_days': self.shelf_life_days,
                        'col_name': col_name}
 
-            model = Model(estimator=estimator, **results)
+            # search.best_estimator_ and search.best_params_ contain best choice after refit
+
+            if search.best_estimator_ is not None:
+                est = search.best_estimator_
+            else:
+                est = estimator
+
+            model = Model(estimator=est, **results)
+
             results['eval_metric_test'] = model.test(df_test)
             trained_models.append(model)
 
@@ -2668,6 +2689,7 @@ class BaseEstimatorFunction(BaseTransformer):
     def fit_with_search_cv(self, estimator, params, df_train, target, features):
 
         scorer = self.make_scorer()
+        print(self.parameter_tuning_iterations)
         search = RandomizedSearchCV(estimator=estimator, param_distributions=params,
                                     n_iter=self.parameter_tuning_iterations, scoring=scorer, refit=True, cv=self.cv,
                                     return_train_score=False)
@@ -2692,7 +2714,7 @@ class BaseEstimatorFunction(BaseTransformer):
 
         logger.debug(msg)
 
-        return estimator
+        return estimator, search
 
     def set_estimators(self):
         '''

@@ -257,6 +257,11 @@ class Database(object):
                             logger.info('file name db => %s' % filename1)
                             if os.path.exists(filename1):
                                 connection_string += ';SSLServerCertificate=' + filename1 + ";"
+                            else:
+                                db_certificate_file = os.environ.get('DB_CERTIFICATE_FILE')
+                                if db_certificate_file is not None:
+                                    if os.path.exists(db_certificate_file):
+                                        connection_string += ';SSLServerCertificate=' + db_certificate_file + ";"
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
@@ -334,7 +339,7 @@ class Database(object):
             logger.info(msg)
             logger.warning(sqlite_warnung_msg)
 
-        logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
+        # logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
 
         self.http = urllib3.PoolManager(timeout=30.0)
         try:
@@ -1304,7 +1309,7 @@ class Database(object):
         timestamp: str
             Name of timestamp column in the table. Required for time filters.
         time_grain: str
-            Time grain for aggregation may be day,month,year or a pandas frequency string
+            Time grain for aggregation may be day,hour,week,month,year or a pandas frequency string
         start_ts: datetime
             Retrieve data from this date
         end_ts: datetime
@@ -1923,6 +1928,11 @@ class Database(object):
                     col_obj = table.c[column.upper()]
                 except KeyError:
                     raise KeyError
+
+        # cast NULLTYPE to boolean
+        if self.get_as_datatype(col_obj) == 'BOOLEAN':
+            col_obj = col_obj.cast(Boolean)
+
         return col_obj
 
     def missing_columns(self, required_cols, table_cols):
@@ -2727,7 +2737,8 @@ class BaseTable(object):
             self.name = name.lower()
         self.table = Table(self.name, self.database.metadata, *args, **kw)
         self.id_col = Column(self._entity_id.lower(), String(50))
-        self.table.create(checkfirst=True)
+        # Should be created using the create method available -> self.db.create()
+        #self.table.create(checkfirst=True)
 
     def create(self):
         self.table.create(checkfirst=True)
