@@ -8,6 +8,7 @@ install:
 # command to run tests
 script:
   - nosetests --nocapture
+  - pytest ./tests/unit
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:
   only:
