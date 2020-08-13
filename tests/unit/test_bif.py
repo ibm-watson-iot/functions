@@ -27,18 +27,11 @@ def pytest_generate_tests(metafunc):
         argnames, [[funcargs[name] for name in argnames] for funcargs in funcarglist]
     )
 
-# empty object for mocks
+EXPRESSION = "df['col1'] > 3"
+
+# object for mocking
 class Object():
     pass
-
-EXPRESSION = "df['col1'] > 3"
-ALERT_NAME = "test_alert"
-
-@pytest.fixture()
-def alert_expression():
-    expr = bif.AlertExpression(expression=EXPRESSION, alert_name=ALERT_NAME)
-    expr._entity_type = Object()
-    return expr
 
 @pytest.fixture()
 def empty_df():
@@ -49,11 +42,15 @@ def sample_df():
     return func_sample_df()
 
 def func_sample_df():
-    d = {'col1': [1, 3, 4], 'col2': [1, 4, 2]}
-    return pd.DataFrame(d)
+    d = {'col1': [1, 3, 4], 'col2': [1, 4, 2], 'evt_timestamp': ["2019-09-26 18:08:11.262975", "2019-09-26 18:08:11.262975", "2019-09-26 18:08:11.262975"], "id": [1, 2, 3]}
+    df = pd.DataFrame(d)
+    # TODO: make 'evt_timestamp' and 'id' into a multiindex (similar to pipeline)
+    return df
 
 
 class TestAlertExpression():
+    ALERT_NAME = "test_alert"
+
     params = {
         "test_init": [dict(expression=EXPRESSION, alert_name=ALERT_NAME)],
         "test_calc": [{}],
@@ -66,27 +63,25 @@ class TestAlertExpression():
         assert alert.expression == expression
         assert alert.alert_name == alert_name
 
-    def test_calc(self, alert_expression, sample_df):
+    def test_calc(self, sample_df):
         '''
         unused function, shouldn't do anything
         '''
+        alert_expression = bif.AlertExpression(expression=EXPRESSION, alert_name=self.ALERT_NAME)
         same_df = alert_expression._calc(sample_df)
         assert sample_df.equals(sample_df)
 
     def test_execute(self, sample_df, expression, text_log):
-        alert_expression = bif.AlertExpression(expression=expression, alert_name=ALERT_NAME)
-        alert_expression._entity_type = Object()
+        alert_expression = bif.AlertExpression(expression=expression, alert_name=self.ALERT_NAME)
         sample_df_copy = sample_df.copy()
-        alert_expression._entity_type.get_attributes_dict = MagicMock(return_value={})
         alert_expression.trace_append = MagicMock(return_value=None)
 
         df = alert_expression.execute(sample_df)
 
-        assert ALERT_NAME in list(df.columns)
+        assert self.ALERT_NAME in list(df.columns)
         assert sample_df_copy.equals(sample_df)
-        alert_expression._entity_type.get_attributes_dict.assert_called_once()
         alert_expression.trace_append.assert_called_once_with(text_log)
-        assert df[ALERT_NAME].fillna(False).equals(eval(expression))
+        assert df[self.ALERT_NAME].fillna(False).equals(eval(expression))
 
 class TestCoalesce():
     params = {
@@ -94,7 +89,7 @@ class TestCoalesce():
                       dict(data_items=["col1", "col2"], output_item=None, expected_output="output_item")],
         "test_execute": [dict(data_items=["col1", "col2"], input_df=func_sample_df(), expected_output=[1,3,4]),
                          dict(data_items=["col2", "col1"], input_df=func_sample_df(), expected_output=[1,4,2]),
-                         dict(data_items=["col1", "col2"], input_df=pd.DataFrame({'col1': [1, None, 4], 'col2': [1, 4, 2]}), expected_output=[1,4,4])]
+                         dict(data_items=["col1", "col2"], input_df=pd.DataFrame({'col1': [1, None, 4], 'col2': [1, 4, 2],  'evt_timestamp': ["2019-09-26 18:08:11.262975", "2019-09-26 18:08:11.262975", "2019-09-26 18:08:11.262975"], "id": [1, 2, 3]}), expected_output=[1,4,4])]
     }
 
     def test_init(self, data_items, output_item, expected_output):
@@ -140,19 +135,44 @@ class TestDeleteInputData():
         assert did.output_item == expected_output
 
     def test_execute(self):
+        # TODO
         pass
 
-class PythonExpression():
+class TestPythonExpression():
     params = {
         "test_init": [{}],
-        "test_execute": [{}]
+        "test_execute": [dict(expression=EXPRESSION, input_items=['col1'], expected_output=[False, False, True]),
+                         dict(expression="df['col1'] < df['col2']", input_items=['col1', 'col2'], expected_output=[False, True, False]),
+                         dict(expression="df['col2'] * 0.5", input_items=['col2'], expected_output=[0.5, 2.0, 1.0])]
     }
 
-    @patch('bif.PythonExpression.parse_expression')
-    def test_init(self, mocked):
-        py_exp = bif.PythonExpression(expression="", output_name="")
-        mocked.assert_called_once() 
-        pass
+    @patch('iotfunctions.bif.PythonExpression.parse_expression')
+    def test_init(self, mocked_parse_expression):
+        test_output_name = "some_output"
+        mocked_parse_expression.return_value = EXPRESSION
 
-    def test_execute(self):
-        pass
+        py_exp = bif.PythonExpression(expression=EXPRESSION, output_name=test_output_name)
+
+        mocked_parse_expression.assert_called_once_with(EXPRESSION) 
+        assert py_exp.output_name == test_output_name
+        assert py_exp.expression == EXPRESSION
+        assert py_exp.constants == ['expression']
+        assert py_exp.outputs == ['output_name']
+
+
+    @patch('iotfunctions.bif.PythonExpression.trace_append')
+    @patch('iotfunctions.bif.PythonExpression.get_input_items')
+    def test_execute(self, mocked_input_items, mocked_trace_append, expression, sample_df, input_items, expected_output):
+        output_name = "test_output_name"
+        mocked_input_items.return_value = input_items
+        sample_df_copy = sample_df.copy()
+        py_exp = bif.PythonExpression(expression=expression, output_name=output_name)
+        
+        df = py_exp.execute(sample_df)
+
+        assert mocked_trace_append.call_count == 2
+        assert output_name in list(df.columns)
+        assert sample_df_copy.equals(sample_df)
+        assert df[output_name].equals(eval(expression))
+        assert df[output_name].array == expected_output
+
