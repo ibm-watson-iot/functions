@@ -73,11 +73,13 @@ class TestAlertExpression():
 
     def test_execute(self, sample_df, expression, text_log):
         alert_expression = bif.AlertExpression(expression=expression, alert_name=self.ALERT_NAME)
+        alert_expression._entity_type = MagicMock()
         sample_df_copy = sample_df.copy()
         alert_expression.trace_append = MagicMock(return_value=None)
 
         df = alert_expression.execute(sample_df)
 
+        assert alert_expression._entity_type.get_attributes_dict.call_count == 1
         assert self.ALERT_NAME in list(df.columns)
         assert sample_df_copy.equals(sample_df)
         alert_expression.trace_append.assert_called_once_with(text_log)
@@ -167,9 +169,11 @@ class TestPythonExpression():
         mocked_input_items.return_value = input_items
         sample_df_copy = sample_df.copy()
         py_exp = bif.PythonExpression(expression=expression, output_name=output_name)
+        py_exp._entity_type = MagicMock()
         
         df = py_exp.execute(sample_df)
 
+        assert py_exp._entity_type.get_attributes_dict.call_count == 1
         assert mocked_trace_append.call_count == 2
         assert output_name in list(df.columns)
         assert sample_df_copy.equals(sample_df)

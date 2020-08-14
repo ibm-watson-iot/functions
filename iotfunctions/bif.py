@@ -122,6 +122,7 @@ class AlertExpression(BaseEvent):
         return df
 
     def execute(self, df):
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
@@ -982,6 +983,7 @@ class PythonExpression(BaseTransformer):
         self.outputs = ['output_name']
 
     def execute(self, df):
+        c = self._entity_type.get_attributes_dict()
         df = df.copy()
         requested = list(self.get_input_items())
         msg = self.expression + ' .'
