@@ -10,6 +10,7 @@
 
 import os
 import datetime as dt
+from time import time
 import logging
 import urllib3
 import json
@@ -1373,7 +1374,10 @@ class Database(object):
         # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
         # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
         # to avoid type mismatches later on
+        tic = time()
         df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
+        toc = time()
+        logger.debug(f'query execution time: {toc - tic} seconds')
 
         if parse_dates is not None and len(parse_dates) > 0:
             df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
