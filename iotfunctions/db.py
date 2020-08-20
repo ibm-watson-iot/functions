@@ -1362,9 +1362,9 @@ class Database(object):
                        **kwargs):
 
         if log_message is None:
-            logger.info('The following sql statement is executed: %s' % sql)
+            logger.warning('The following sql statement is executed: %s' % sql)
         else:
-            logger.info('%s: %s' % (log_message, sql))
+            logger.warning('%s: %s' % (log_message, sql))
 
         # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
         parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
@@ -1377,7 +1377,7 @@ class Database(object):
         tic = time()
         df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
         toc = time()
-        logger.info(f'query execution time: {toc - tic} seconds')
+        logger.warning(f'query execution time: {toc - tic} seconds')
 
         if parse_dates is not None and len(parse_dates) > 0:
             df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
