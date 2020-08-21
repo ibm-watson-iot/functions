@@ -22,7 +22,7 @@ from scipy import signal, fftpack
 from sklearn.utils import check_array
 from sklearn import metrics
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, minmax_scale
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler, minmax_scale
 from sklearn.covariance import MinCovDet
 from sklearn import ensemble
 from sklearn import linear_model
@@ -223,6 +223,375 @@ def merge_score(dfEntity, dfEntityOrig, column_name, score, mindelta):
         merged_score = dfEntityOrig[column_name].to_numpy()
 
     return merged_score
+
+
+#######################################################################################
+# Scalers
+#######################################################################################
+
+class Standard_Scaler(BaseEstimatorFunction):
+
+    '''
+    Learns and applies standard scaling
+    '''
+    eval_metric = staticmethod(metrics.r2_score)
+
+    # class variables
+    train_if_no_model = True
+
+    def set_estimators(self):
+        self.estimators['standard_scaler'] = (StandardScaler, self.params)
+        logger.info('Standard Scaler initialized')
+
+    def __init__(self, features=None, targets=None, predictions=None):
+        super().__init__(features=features, targets=targets, predictions=predictions,
+                         keep_current_models=True)
+
+        # do not run score and call transform instead of predict
+        self.is_scaler = True
+        self.experiments_per_execution = 1
+        self.normalize = True    # support for optional scaling in subclasses
+
+        self.params = {}
+
+    # dummy function for scaler, can be replaced with anomaly functions
+    def kexecute(self, entity, df_copy):
+        return df_copy
+
+    def execute(self, df):
+
+        df_copy = df.copy()
+        entities = np.unique(df_copy.index.levels[0])
+        logger.debug(str(entities))
+
+        missing_cols = [x for x in self.predictions if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        for entity in entities:
+            try:
+                check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
+            except Exception as e:
+                logger.error('Found Nan or infinite value in feature columns for entity ' + str(entity) + ' error: ' + str(e))
+                continue
+
+            # support for optional scaling in subclasses
+            if self.normalize:
+                dfe = super()._execute(df_copy.loc[[entity]], entity)
+                df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+
+            df_copy = self.kexecute(entity, df_copy)
+
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+        # define arguments that behave as function outputs
+        outputs = []
+        return (inputs, outputs)
+
+
+class Robust_Scaler(BaseEstimatorFunction):
+
+    '''
+    Learns and applies robust scaling, scaling after outlier removal
+    '''
+    eval_metric = staticmethod(metrics.r2_score)
+
+    # class variables
+    train_if_no_model = True
+
+    def set_estimators(self):
+        self.estimators['robust_scaler'] = (RobustScaler, self.params)
+        logger.info('Robust Scaler initialized')
+
+    def __init__(self, features=None, targets=None, predictions=None):
+        super().__init__(features=features, targets=targets, predictions=predictions,
+                         keep_current_models=True)
+
+        # do not run score and call transform instead of predict
+        self.is_scaler = True
+        self.experiments_per_execution = 1
+
+        self.params = {}
+
+    def execute(self, df):
+
+        df_copy = df.copy()
+        entities = np.unique(df_copy.index.levels[0])
+        logger.debug(str(entities))
+
+        missing_cols = [x for x in self.predictions if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        for entity in entities:
+            # per entity - copy for later inplace operations
+            # dfe = df_copy.loc[[entity]].dropna(how='all')
+            # dfe = df_copy.loc[[entity]].copy()
+            try:
+                check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
+            except Exception as e:
+                logger.error('Found Nan or infinite value in feature columns for entity ' + str(entity) + ' error: ' + str(e))
+                continue
+
+            dfe = super()._execute(df_copy.loc[[entity]], entity)
+            print(df_copy.columns)
+            # for c in self.predictions:
+            df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+            # df_copy = df_copy.loc[[entity]] = dfe
+            print(df_copy.columns)
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+        # define arguments that behave as function outputs
+        outputs = []
+        return (inputs, outputs)
+
+
+class MinMax_Scaler(BaseEstimatorFunction):
+    '''
+    Learns and applies minmax scaling
+    '''
+    eval_metric = staticmethod(metrics.r2_score)
+
+    # class variables
+    train_if_no_model = True
+
+    def set_estimators(self):
+        self.estimators['minmax_scaler'] = (MinMaxScaler, self.params)
+        logger.info('MinMax Scaler initialized')
+
+    def __init__(self, features=None, targets=None, predictions=None):
+        super().__init__(features=features, targets=targets, predictions=predictions,
+                         keep_current_models=True)
+
+        # do not run score and call transform instead of predict
+        self.is_scaler = True
+        self.experiments_per_execution = 1
+
+        self.params = {}
+
+    def execute(self, df):
+
+        df_copy = df.copy()
+        entities = np.unique(df_copy.index.levels[0])
+        logger.debug(str(entities))
+
+        missing_cols = [x for x in self.predictions if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        for entity in entities:
+            try:
+                check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
+            except Exception as e:
+                logger.error('Found Nan or infinite value in feature columns for entity ' + str(entity) + ' error: ' + str(e))
+                continue
+
+            dfe = super()._execute(df_copy.loc[[entity]], entity)
+            print(df_copy.columns)
+            # for c in self.predictions:
+            df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+            # df_copy = df_copy.loc[[entity]] = dfe
+            print(df_copy.columns)
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+        # define arguments that behave as function outputs
+        outputs = []
+        return (inputs, outputs)
+
+#######################################################################################
+# Scorers
+#######################################################################################
+
+class KMeansAnomalyScorev2(Standard_Scaler):
+    '''
+    An unsupervised anomaly detection function.
+     Applies a k-means analysis clustering technique to time series data.
+     Moves a sliding window across the data signal and applies the anomaly model to each window.
+     The window size is typically set to 12 data points.
+     The normalize swith allows to learn and apply a standard scaler prior to computing the anomaly score.
+     Try several anomaly models on your data and use the one that fits your databest.
+    '''
+    eval_metric = staticmethod(metrics.r2_score)
+
+    # class variables
+    train_if_no_model = True
+
+    def __init__(self, input_item, windowsize, normalize, output_item, expr=None):
+        super().__init__(features=[input_item], targets=[output_item], predictions=None)
+
+        logger.debug(input_item)
+        # do not run score and call transform instead of predict
+
+        self.input_item = input_item
+
+        # use 12 by default
+        self.windowsize, windowoverlap = set_window_size_and_overlap(windowsize)
+
+        # step
+        self.step = self.windowsize - windowoverlap
+
+        self.normalize = normalize
+
+        # assume 1 per sec for now
+        self.frame_rate = 1
+
+        self.output_item = output_item
+
+        self.whoami = 'KMeansv2'
+
+
+    def prepare_data(self, dfEntity):
+
+        logger.debug(self.whoami + ': prepare Data')
+
+        # operate on simple timestamp index
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index().set_index(index_names[0])
+        else:
+            index_names = None
+            dfe = dfEntity
+
+        # interpolate gaps - data imputation
+        try:
+            dfe = dfe.interpolate(method="time")
+        except Exception as e:
+            logger.error('Prepare data error: ' + str(e))
+
+        # one dimensional time series - named temperature for catchyness
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
+
+        return dfe, temperature
+
+    def kexecute(self, entity, df_copy):
+
+        # per entity - copy for later inplace operations
+        dfe = df_copy.loc[[entity]].dropna(how='all')
+        dfe_orig = df_copy.loc[[entity]].copy()
+
+        # get rid of entityid part of the index
+        # do it inplace as we copied the data before
+        dfe.reset_index(level=[0], inplace=True)
+        dfe.sort_index(inplace=True)
+        dfe_orig.reset_index(level=[0], inplace=True)
+        dfe_orig.sort_index(inplace=True)
+
+        # minimal time delta for merging
+        mindelta, dfe_orig = min_delta(dfe_orig)
+
+        logger.debug('Timedelta:' + str(mindelta))
+
+        # interpolate gaps - data imputation by default
+        #   for missing data detection we look at the timestamp gradient instead
+        dfe, temperature = self.prepare_data(dfe)
+
+        logger.debug('Module ' + self.whoami + ', Entity: ' + str(entity) + ', Input: ' + str(self.input_item) +
+                     ', Windowsize: ' + str(self.windowsize) + ', Output: ' + str(self.output_item) +
+                     ', Overlap: ' + str(self.step) + ', Inputsize: ' + str(temperature.size))
+
+        if temperature.size > self.windowsize:
+            logger.debug(str(temperature.size) + ',' + str(self.windowsize))
+
+            # Chop into overlapping windows
+            slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+
+            if self.windowsize > 1:
+                n_cluster = 40
+            else:
+                n_cluster = 20
+
+            n_cluster = np.minimum(n_cluster, slices.shape[0] // 2)
+
+            logger.debug('KMeans parms, Clusters: ' + str(n_cluster) + ', Slices: ' + str(slices.shape))
+
+            cblofwin = CBLOF(n_clusters=n_cluster, n_jobs=-1)
+            try:
+                cblofwin.fit(slices)
+            except Exception as e:
+                logger.info('KMeans failed with ' + str(e))
+                self.trace_append('KMeans failed with' + str(e))
+                return df_copy
+
+            pred_score = cblofwin.decision_scores_.copy() * KMeans_normalizer
+            # np.savetxt('kmeans.csv', pred_score)
+
+            # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
+            #   extend it to cover the full original length
+            diff = temperature.size - pred_score.size
+
+            time_series_temperature = np.linspace(
+                self.windowsize//2, temperature.size - self.windowsize//2 + 1,
+                temperature.size - diff)
+            #     temperature.size - self.windowsize + 1)
+
+            #time_series_temperature = np.linspace(diff // 2 + diff % 2, temperature.size - diff//2,
+            #                                      temperature.size - diff)
+
+            linear_interpolateK = sp.interpolate.interp1d(
+                time_series_temperature, pred_score, kind='linear', fill_value='extrapolate')
+
+            zScoreII = merge_score(dfe, dfe_orig, self.output_item,
+                                   linear_interpolateK(np.arange(0, temperature.size, 1)), mindelta)
+
+            # np.savetxt('kmeans2.csv', zScoreII)
+
+            idx = pd.IndexSlice
+            df_copy.loc[idx[entity, :], self.output_item] = zScoreII
+
+            return df_copy
+
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(
+                name='input_item',
+                datatype=float,
+                description='Data item to analyze'
+                                              ))
+
+        inputs.append(UISingle(
+                name='windowsize',
+                datatype=int,
+                description='Size of each sliding window in data points. Typically set to 12.'
+                                              ))
+
+        inputs.append(UISingle(
+                name='normalize',
+                datatype=bool,
+                description='Flag for normalizing data.'
+                                              ))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(
+                name='output_item',
+                datatype=float,
+                description='Anomaly score (kmeans)'
+                ))
+        return (inputs, outputs)
 
 
 class SpectralAnomalyScore(BaseTransformer):
@@ -1147,6 +1516,8 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
         return (inputs, outputs)
 
 #######################################################################################
+# Regressors
+#######################################################################################
 
 
 class GBMRegressor(BaseEstimatorFunction):
@@ -1343,10 +1714,10 @@ class SimpleRegressor(BaseEstimatorFunction):
         outputs = []
         return (inputs, outputs)
 
-    # @classmethod
-    # def get_input_items(cls):
-    #     return ['features', 'targets']
 
+#######################################################################################
+# Others
+#######################################################################################
 
 class SimpleAnomaly(BaseRegressor):
     '''
