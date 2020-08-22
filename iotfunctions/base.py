@@ -66,6 +66,8 @@ class BaseFunction(object):
     requires_input_items = True
     produces_output_items = True
     _allow_empty_df = False
+    is_scope_enabled = False  # enables filtering by scope
+    scope = None  # stores scope filtering values
     # internal work variables set by AS job processing
     name = None  # name of function
     _entity_type = None  # EntityType object that this function belongs to
@@ -872,10 +874,16 @@ class BaseFunction(object):
             bucket = '_unknown_'
         return bucket
 
-    def get_scd_data(self, table_name, start_ts, end_ts, entities):
+    def get_scd_data(self, table_name, start_ts, end_ts, entities, start_name=None, end_name=None):
         '''
         Retrieve a slowly changing dimension property as a dataframe
         '''
+        if start_name is None:
+            start_name = self._start_date
+
+        if end_name is None:
+            end_name = self._end_date
+            
         (query, table) = self._entity_type.db.query(table_name, schema=self._entity_type._db_schema)
         if start_ts is not None:
             query = query.filter(table.c.end_date >= start_ts)
@@ -885,7 +893,7 @@ class BaseFunction(object):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading scd %s from %s to %s using %s' % (table_name, start_ts, end_ts, query.statement)
         logger.debug(msg)
-        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=[self._start_date, self._end_date])
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=[start_name, end_name])
 
         return df
 
@@ -2210,6 +2218,126 @@ class BaseSCDLookup(BaseTransformer):
         outputs = []
         outputs.append(UIFunctionOutSingle(name='output_item', datatype=None))
         return (inputs, outputs)
+
+
+class BaseSCDLookupWithDefault(BaseTransformer):
+    '''
+    Lookup a slowly changing property
+    '''
+    is_scd_lookup = True
+
+    def __init__(self, table_name, output_item, default_value, dimension_name=None, entity_name=None, start_name=None, end_name=None):
+
+        super().__init__()
+
+        self.table_name = table_name
+
+        self.df_dim_name = dimension_name.lower() if dimension_name is not None else None
+        self.df_entity_name = entity_name.lower() if entity_name is not None else 'deviceid'
+        self.df_start_name = start_name.lower() if start_name is not None else self._start_date
+        self.df_end_name = end_name.lower() if end_name is not None else self._end_date
+
+        self.dim_default_value = default_value
+        self.output_item = output_item
+
+        self.itemTags['output_item'] = ['DIMENSION']
+
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
+
+        logger.info('Starting scd lookup of %s from table %s for time interval [%s, %s]. ' % (
+            self.output_item, self.table_name, start_ts, end_ts))
+
+        # Get dimension value from a database table
+        dim_df = self.get_scd_data(table_name=self.table_name, start_ts=start_ts, end_ts=end_ts, entities=entities,
+                                   start_name=self.df_start_name, end_name=self.df_end_name)
+
+        if self.df_dim_name is None:
+            # Determine name of dimension column because it has not been defined as input parameter
+            # Assumption: The set of available columns in table minus the columns for device id, start date and
+            # end date leaves exactly one column - the dimension column.
+            remaining_columns = list(set(dim_df.columns) - {self.df_entity_name, self.df_start_name, self.df_end_name})
+            if len(remaining_columns) != 1:
+                raise Exception(('The dimension column cannot be determined in table %s. Potential candidates are %s. '
+                                 'The columns for device id/start date/end date are %s/%s/%s.') % (
+                                self.table_name, remaining_columns, self.df_entity_name, self.df_start_name,
+                                self.df_end_name))
+            else:
+                self.df_dim_name = remaining_columns[0]
+
+        # Warning: Do not change order of columns in required_df_cols because function fill_in() relies on it!
+        required_df_cols = [self.df_dim_name, self.df_entity_name, self.df_start_name, self.df_end_name]
+        missing_df_cols = []
+        for req_col_name in required_df_cols:
+            if req_col_name not in dim_df.columns:
+                missing_df_cols.append(req_col_name)
+
+        if len(missing_df_cols) > 0:
+            raise Exception(('The dimension table %s does not contain the expected columns %s. The following columns '
+                             'are available: %s') % (self.table_name, missing_df_cols, list(dim_df.columns)))
+
+        # Reduce dataframe to required columns in a well defined order. Function fill_in() relies on this order!!!
+        dim_df = dim_df[required_df_cols]
+
+        # Remove all rows in dim_df with an incompletely defined start-end interval
+        dim_df.dropna(subset=[self.df_start_name, self.df_end_name], how='any', inplace=True)
+
+        # Add a new column filled with default value of dimension
+        df[self.output_item] = self.dim_default_value
+
+        # Group df on entity_id (first level in MultiIndex) and apply fill-in function
+        groups = df.groupby(level=0, sort=False)
+        df = groups.apply(func=self._fill_in, dim_df=dim_df, dim_col=self.df_dim_name, start_col=self.df_start_name, output_col=self.output_item)
+
+        return df
+
+    def _fill_in(self, group_df, dim_df, dim_col, start_col, output_col):
+
+        # Find out entity_id for this group
+        group_entity_id = group_df.index.get_level_values(0)[0]
+
+        # Get vector with timestamps for this group
+        group_timestamps = group_df.index.get_level_values(1)
+
+        # Strip off all entries in dimension dataframe that do not refer to the entity id of the current group
+        dim_df = dim_df[(dim_df[self.df_entity_name] == group_entity_id)]
+
+        # Sort dataframe ascending with respect to start date. As a consequence, the record with the later start date
+        # will overwrite any earlier record in case of an overlap of their start-end intervals.
+        # Additionally, sort on dimension column for the case there is the same start timestamp for different dimensions
+        # values to achieve reproducibility with respect to order of rows in dim_df
+        dim_df.sort_values(by=[start_col, dim_col], inplace=True)
+
+        for row in dim_df.itertuples(index=False, name=None):
+
+            # Condition 1: Timestamp >= start_date
+            condition1 = (group_timestamps >= row[2])
+
+            # Condition 2: Timestamp < end_date
+            condition2 = (group_timestamps < row[3])
+
+            # Replace entries in dimension column with current dimension value
+            group_df[output_col] = group_df[output_col].mask((condition1 & condition2), row[0])
+
+        return group_df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = [UISingle(name='table_name', datatype=str,
+                           description='Table name to use as source for dimension look-up'),
+                  UISingle(name='dimension_name', datatype=str,
+                           description='The name of the dimension column in dimension table'),
+                  UISingle(name='entity_name', datatype=str,
+                           description='The name of the entity column in dimension table'),
+                  UISingle(name='start_name', datatype=str,
+                           description='The name of the start column in dimension table'),
+                  UISingle(name='end_name', datatype=str,
+                           description='The name of the end column in dimension table'),
+                  UISingle(name='default_value', datatype=str,
+                           description='Default value to use when the look-up on dimension table does not return a value')]
+        # define arguments that behave as function outputs
+        outputs = [UIFunctionOutSingle(name='output_item')]
+        return inputs, outputs
 
 
 class BasePreload(BaseTransformer):

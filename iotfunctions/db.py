@@ -10,6 +10,7 @@
 
 import os
 import datetime as dt
+from time import time
 import logging
 import urllib3
 import json
@@ -271,7 +272,7 @@ class Database(object):
                     else:
                         cwd1 = os.getcwd()
                         filename1 = cwd1 + "/db2_certificate.pem;"
-                        logger.info('file name db => %s' % filename1)
+                        logger.debug('file name db => %s' % filename1)
                         if os.path.exists(filename1):
                             security_extension += ';SSLServerCertificate=' + filename1 + ";"
                         else:
@@ -376,7 +377,7 @@ class Database(object):
             self.write_chunk_size = 100
             self.db_type = 'sqlite'
             msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db.'
-            logger.info(msg)
+            logger.debug(msg)
             logger.warning(sqlite_warning_msg)
 
         self.http = urllib3.PoolManager(timeout=30.0)
@@ -645,7 +646,7 @@ class Database(object):
         else:
             ret = None
         if ret is None:
-            logger.info('Not able to PUT %s to COS bucket %s', filename, bucket)
+            logger.debug('Not able to PUT %s to COS bucket %s', filename, bucket)
         return ret
 
     def cos_delete(self, filename, bucket=None):
@@ -656,7 +657,7 @@ class Database(object):
         else:
             ret = None
         if ret is None:
-            logger.info('Not able to DELETE %s to COS bucket %s', (filename, bucket))
+            logger.debug('Not able to DELETE %s to COS bucket %s', (filename, bucket))
         return ret
 
     def commit(self):
@@ -681,13 +682,13 @@ class Database(object):
         '''
 
         if bucket is None:
-            logger.info('Not able to CREATE the bucket. A name should be provided.')
+            logger.debug('Not able to CREATE the bucket. A name should be provided.')
         if self.cos_client is not None:
             ret = self.cos_client.cos_put(key=None, payload=None, bucket=bucket)
         else:
             ret = None
         if ret is None:
-            logger.info('Not able to CREATE the bucket %s.' % bucket)
+            logger.debug('Not able to CREATE the bucket %s.' % bucket)
         return ret
 
     def delete_data(self, table_name, schema=None, timestamp=None, older_than_days=None):
@@ -826,7 +827,7 @@ class Database(object):
             if isinstance(table_name, str):
                 kwargs = {'schema': schema}
                 try:
-                    logger.info('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
+                    logger.debug('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
                     table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
                     table.indexes = set()
                 except NoSuchTableError:
@@ -1165,7 +1166,7 @@ class Database(object):
                 if status == 'target_error' and unregister_invalid_target:
                     self.unregister_functions([function_name])
                     msg = 'Unregistered invalid function %s' % function_name
-                    logger.info(msg)
+                    logger.debug(msg)
                 else:
                     msg = 'The class %s for function %s could not be imported from repository %s.' % (
                         package_module_class_name, function_name, url)
@@ -1357,12 +1358,13 @@ class Database(object):
 
         return df
 
-    def read_sql_query(self, sql, parse_dates=None, index_col= None, requested_col_names=None, log_message=None, **kwargs):
+    def read_sql_query(self, sql, parse_dates=None, index_col=None, requested_col_names=None, log_message=None,
+                       **kwargs):
 
         if log_message is None:
-            logger.debug('The following sql statement is executed: %s' % sql)
+            logger.info('The following sql statement is executed: %s' % sql)
         else:
-            logger.debug('%s: %s' % (log_message, sql))
+            logger.info('%s: %s' % (log_message, sql))
 
         # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
         parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
@@ -1372,7 +1374,10 @@ class Database(object):
         # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
         # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
         # to avoid type mismatches later on
+        tic = time()
         df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
+        toc = time()
+        logger.info(f'query execution time: {toc - tic} seconds')
 
         if parse_dates is not None and len(parse_dates) > 0:
             df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
@@ -1608,7 +1613,7 @@ class Database(object):
             payload = {'name': name, 'description': f.__doc__, 'category': category,
                        'moduleAndTargetName': module_and_target, 'url': package_url, 'input': input_list,
                        'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None,
-                       'tags': tags}
+                       'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
 
@@ -1625,7 +1630,7 @@ class Database(object):
         for p in pre_installed:
             query = "INSERT INTO CATALOG_FUNCTION (FUNCTION_ID, TENANT_ID," \
                     " NAME, DESCRIPTION, MODULE_AND_TARGET_NAME, URL, CATEGORY," \
-                    " INPUT, OUTPUT, INCREMENTAL_UPDATE, IMAGE)" \
+                    " INPUT, OUTPUT, INCREMENTAL_UPDATE, IMAGE, SCOPE)" \
                     " VALUES( CATALOG_FUNCTION_SEQ.nextval,'###_IBM_###',"
             query = query + "'%s'," % p['name']
             query = query + "'%s'," % p['description'].replace("'", '"')
@@ -1635,7 +1640,8 @@ class Database(object):
             query = query + "'%s'," % json.dumps(p['input'])
             query = query + "'%s'," % json.dumps(p['output'])
             query = query + str(p['incremental_update']) + ', '
-            query = query + 'NULL)'
+            query = query + "NULL,"
+            query = query + "'%s')" % json.dumps(p['scope'])
 
             sql = sql + query
             sql = sql + '\n'
@@ -2687,7 +2693,7 @@ class Database(object):
                 msg = 'Function registration deletion status: %s' % (r.data.decode('utf-8'))
             except AttributeError:
                 msg = 'Function registration deletion status: %s' % r
-            logger.info(msg)
+            logger.debug(msg)
 
     def unregister_constants(self, constant_names):
         '''
@@ -2706,7 +2712,7 @@ class Database(object):
             msg = 'Constants deletion status: %s' % (r.data.decode('utf-8'))
         except AttributeError:
             msg = 'Constants deletion status: %s' % r
-        logger.info(msg)
+        logger.debug(msg)
 
     def write_frame(self, df, table_name, version_db_writes=False, if_exists='append', timestamp_col=None, schema=None,
                     chunksize=None, auto_index_name='_auto_index_'):
@@ -2782,16 +2788,23 @@ class Database(object):
                       chunksize=chunksize, dtype=dtypes)
         except:
             self.session.rollback()
-            logger.info('Attempted write of %s data to table %s ' % (cols, table_name))
+            logger.debug('Attempted write of %s data to table %s ' % (cols, table_name))
             raise
         finally:
             self.commit()
-            logger.info('Wrote data to table %s ' % table_name)
+            logger.debug('Wrote data to table %s ' % table_name)
         return 1
 
     def release_resource(self):
-        self.connection.dispose()
-        logger.info('SQLAlchemy database connection successfully closed.')
+        if self.connection is not None:
+            try:
+                self.connection.dispose()
+            except Exception:
+                logger.warning('Error while closing sqlalchemy database connection.', exc_info=True)
+            finally:
+                self.connection = None
+                logger.debug('SQLAlchemy database connection successfully closed.')
+
         if self.native_connection is not None:
             try:
                 if self.db_type == 'postgresql':
@@ -2804,10 +2817,7 @@ class Database(object):
                 logger.warning('Error while closing native database connection.', exc_info=True)
             finally:
                 self.native_connection = None
-                logger.info('Native database connection successfully closed.')
-
-    def __del__(self):
-        self.release_resource()
+                logger.debug('Native database connection successfully closed.')
 
 
 class BaseTable(object):
