@@ -973,7 +973,9 @@ class Database(object):
 
         self.url[('engineInput', 'GET')] = '/'.join(
             [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
-
+        self.url[('engineInputByEntityId', 'GET')] = '/'.join(
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'engineInput', object_name])
+        
         self.url[('function', 'GET')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
         self.url[('function', 'DELETE')] = '/'.join(

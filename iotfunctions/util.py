@@ -461,9 +461,9 @@ def log_df_info(df, msg, include_data=False):
     Log a debugging entry showing first row and index structure
     '''
     try:
-        msg = msg + ' df count: %s ' % (len(df.index))
+        msg = msg + ' ; df row count: %s ' % (len(df.index))
         if df.index.names != [None]:
-            msg = msg + ' ; index: %s ' % (','.join(df.index.names))
+            msg = msg + ' ; index: { %s } ' % (' , '.join(df.index.names))
         else:
             msg = msg + ' ; index is unnamed'
         if include_data:
@@ -475,7 +475,7 @@ def log_df_info(df, msg, include_data=False):
             except AttributeError:
                 msg = msg + str(df.head(1))
         else:
-            msg = msg + ' ; columns: %s' % (','.join(list(df.columns)))
+            msg = msg + ' ; columns: { %s }' % (' , '.join(list(df.columns)))
         logger.debug(msg)
         return msg
     except Exception:
