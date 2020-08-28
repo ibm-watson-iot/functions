@@ -1483,13 +1483,15 @@ class BaseDataSource(BaseTransformer):
             new_df = self._entity_type.index_df(new_df)
         except AttributeError:
             pass
-        if df is None or len(df.index) == 0:
+        if df is None:
             df = new_df
-            logger.debug('Incoming dataframe is empty. Replaced with data from %s', self.name)
-        elif new_df is None or len(new_df.index) == 0:
-            logger.debug('No data retrieved from data source %s', self.name)
+            logger.debug('Incoming dataframe is None. Replaced with data frame from %s', self.name)
+        elif new_df is None:
+            logger.debug('No dataframe returned by data source %s. Nothing is merged', self.name)
         else:
-            # both dataframes have data. Merge them.
+            # Merge dataframes, even if they are empty to preserve the columns
+            if len(new_df.index) == 0:
+                logger.debug('No data retrieved from data source %s', self.name)
             self.log_df_info(df, 'source dataframe before merge')
             self.log_df_info(new_df, 'additional data source to be merged')
             overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
@@ -1822,6 +1824,7 @@ class BaseDBActivityMerge(BaseDataSource):
             unique_af[self._activity] = activity
 
             dfs.append(unique_af)
+            msg = 'Result of sql after duplicated start dates have been removed: %s' % sql
             self.log_df_info(unique_af, msg)
             self.available_non_activity_cols.append(self._get_non_activity_cols(unique_af))
 
