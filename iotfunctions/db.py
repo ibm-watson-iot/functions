@@ -2015,7 +2015,7 @@ class Database(object):
             elif len(members) == 0:
                 logger.debug('Ignored query filter on %s with no members', d)
             else:
-                query = query.filter(col_obj.in_(members[0]))
+                query = query.filter(col_obj.in_(members))
 
         logger.debug('query statement: %s', query)
 
@@ -2299,7 +2299,7 @@ class Database(object):
                 elif len(members) == 0:
                     logger.debug('Ignored query filter on %s with no members', d)
                 else:
-                    subquery = subquery.filter(col_obj.in_(members[0]))
+                    subquery = subquery.filter(col_obj.in_(members))
 
             if auto_null_filter:
                 subquery = subquery.filter(or_(*metric_filter))
@@ -2562,7 +2562,7 @@ class Database(object):
                 elif len(members) == 0:
                     logger.debug('Ignored query filter on %s with no members', d)
                 else:
-                    subquery = subquery.filter(col_obj.in_(members[0]))
+                    subquery = subquery.filter(col_obj.in_(members))
 
             if auto_null_filter:
                 subquery = subquery.filter(or_(*metric_filter))
