@@ -1483,6 +1483,19 @@ class BaseDataSource(BaseTransformer):
             new_df = self._entity_type.index_df(new_df)
         except AttributeError:
             pass
+
+        # The type of the levels in index can be flipped, especially if the data frame is empty because the
+        # sequence set_index() ==> reset_index() converts column type  ['str','datetime64[ns]'] to
+        # ['float64','float64']. Therefore we explicitly cast the levels in index to avoid a type mismatch in the
+        # subsequent merge function. Float64 cannot be cast to datetime64[ns] directly; therefore cast to int64 first.
+        if new_df is not None:
+            if (new_df.index.levels[0].dtype_str != 'object') | (new_df.index.levels[1].dtype_str != 'datetime64[ns]'):
+                new_df_index_names = new_df.index.names
+                new_df.reset_index(inplace=True)
+                new_df = new_df.astype({new_df_index_names[0]:'int64', new_df_index_names[1]: 'int64'}, copy=False)
+                new_df = new_df.astype({new_df_index_names[0]:'str', new_df_index_names[1]: 'datetime64[ns]'}, copy=False)
+                new_df.set_index(keys=new_df_index_names, inplace=True)
+
         if df is None:
             df = new_df
             logger.debug('Incoming dataframe is None. Replaced with data frame from %s', self.name)
@@ -1498,8 +1511,8 @@ class BaseDataSource(BaseTransformer):
             if self.merge_method == 'outer':
                 # new_df is expected to be indexed on id and timestamp
                 index_names = df.index.names
-                df = df.join(new_df, how='outer', sort=True,
-                             on=[self._entity_type._df_index_entity_id, self._entity_type._timestamp], rsuffix='_new_')
+                df = df.merge(new_df, how='outer', sort=True,
+                             on=[self._entity_type._df_index_entity_id, self._entity_type._timestamp], suffixes=['','_new_'])
                 df.index.rename(index_names, inplace=True)
                 df = self._coallesce_columns(df=df, cols=overlapping_columns)
             elif self.merge_method == 'nearest':
