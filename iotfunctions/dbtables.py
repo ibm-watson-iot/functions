@@ -466,7 +466,7 @@ class DBModelStore:
 
         if not self.is_postgre_sql:
             sql_statement = "CREATE TABLE %s.%s ( " \
-                            "ENTITY_TYPE_ID VARCHAR(2048) NOT NULL, " \
+                            "ENTITY_TYPE_ID BIGINT NOT NULL, " \
                             "MODEL_NAME VARCHAR(2048) NOT NULL, " \
                             "MODEL BLOB(2G), " \
                             "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
