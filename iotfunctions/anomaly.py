@@ -405,8 +405,33 @@ class Standard_Scaler(BaseEstimatorFunction):
         self.is_scaler = True
         self.experiments_per_execution = 1
         self.normalize = True    # support for optional scaling in subclasses
+        self.prediction = self.predictions[0]  # support for subclasses with univariate focus
 
         self.params = {}
+
+    # used by all the anomaly scorers based on it
+    def prepare_data(self, dfEntity):
+
+        logger.debug(self.whoami + ': prepare Data for ' + self.prediction + ' column')
+
+        # operate on simple timestamp index
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index().set_index(index_names[0])
+        else:
+            index_names = None
+            dfe = dfEntity
+
+        # interpolate gaps - data imputation
+        try:
+            dfe = dfe.interpolate(method="time")
+        except Exception as e:
+            logger.error('Prepare data error: ' + str(e))
+
+        # one dimensional time series - named temperature for catchyness
+        temperature = dfe[[self.prediction]].fillna(0).to_numpy().reshape(-1,)
+
+        return dfe, temperature
 
     # dummy function for scaler, can be replaced with anomaly functions
     def kexecute(self, entity, df_copy):
@@ -1545,29 +1570,6 @@ class KMeansAnomalyScorev2(Standard_Scaler):
         self.whoami = 'KMeansv2'
 
 
-    def prepare_data(self, dfEntity):
-
-        logger.debug(self.whoami + ': prepare Data')
-
-        # operate on simple timestamp index
-        if len(dfEntity.index.names) > 1:
-            index_names = dfEntity.index.names
-            dfe = dfEntity.reset_index().set_index(index_names[0])
-        else:
-            index_names = None
-            dfe = dfEntity
-
-        # interpolate gaps - data imputation
-        try:
-            dfe = dfe.interpolate(method="time")
-        except Exception as e:
-            logger.error('Prepare data error: ' + str(e))
-
-        # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
-
-        return dfe, temperature
-
     def kexecute(self, entity, df_copy):
 
         # per entity - copy for later inplace operations
@@ -1720,29 +1722,6 @@ class GeneralizedAnomalyScorev2(Standard_Scaler):
 
         self.whoami = 'GAMv2'
 
-
-    def prepare_data(self, dfEntity):
-
-        logger.debug(self.whoami + ': prepare Data')
-
-        # operate on simple timestamp index
-        if len(dfEntity.index.names) > 1:
-            index_names = dfEntity.index.names
-            dfe = dfEntity.reset_index().set_index(index_names[0])
-        else:
-            index_names = None
-            dfe = dfEntity
-
-        # interpolate gaps - data imputation
-        try:
-            dfe = dfe.interpolate(method="time")
-        except Exception as e:
-            logger.error('Prepare data error: ' + str(e))
-
-        # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy().reshape(-1,)
-
-        return dfe, temperature
 
     def feature_extract(self, temperature):
 
