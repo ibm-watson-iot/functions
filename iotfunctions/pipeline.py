@@ -2097,13 +2097,22 @@ class CalcPipeline:
         # if no dataframe provided, querying the source entity to get one
         for p in preload_stages:
             if not self.entity_type._is_preload_complete:
-                msg = 'Stage %s :' % p.__class__.__name__
+                try:
+                    name = p.name
+                except AttributeError:
+                    name = p.__class__.__name__
+
+                msg = 'Stage %s :' % name
                 self.trace_add(msg)
+                logger.debug('Start of stage {{ %s }}' % name)
+
                 if self.dblogging is not None:
-                    self.dblogging.update_stage_info(p.name)
+                    self.dblogging.update_stage_info(name)
+
+                start_time = pd.Timestamp.utcnow()
+
                 status = p.execute(df=None, start_ts=start_ts, end_ts=end_ts, entities=entities)
-                msg = '%s completed as pre-load. ' % p.__class__.__name__
-                self.trace_add(msg)
+
                 if register:
                     p.register(df=None)
                 try:
@@ -2111,8 +2120,13 @@ class CalcPipeline:
                 except AttributeError:
                     msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
                     raise AttributeError(msg)
+                finally:
+                    msg = '%s completed as pre-load. ' % name
+                    self.trace_add(msg)
+                    logger.debug('End of stage {{ %s }}, execution time = %s s' % (
+                        name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
                 if not status:
-                    msg = 'Preload stage %s returned with status of False. Aborting execution. ' % p.__class__.__name__
+                    msg = 'Preload stage %s returned with status of False. Aborting execution. ' % name
                     self.trace_add(msg)
                     stages = []
                     break
@@ -2280,6 +2294,8 @@ class CalcPipeline:
                                      register=register, to_csv=to_csv, dropna=dropna, abort_on_fail=True)
         if is_initial_transform:
             try:
+                if self.dblogging is not None:
+                    self.dblogging.update_stage_info('WritingUnmatchedEntities')
                 if df is not None:
                     self.entity_type.write_unmatched_members(df)
             except Exception as e:
