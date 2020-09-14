@@ -63,7 +63,7 @@ MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 
 def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
     logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
-        'simple': {'format': '%(asctime)s [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
+        'simple': {'format': '%(asctime)s [PID %(process)d] [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
                    'datefmt': '%Y-%m-%d %I:%M:%S %p'}}, 'handlers': {
         'console': {'class': 'logging.StreamHandler', 'formatter': 'simple', 'stream': 'ext://sys.stdout'},
         'file': {'class': 'logging.FileHandler', 'filename': 'main.log', 'mode': 'w', 'formatter': 'simple'}},
