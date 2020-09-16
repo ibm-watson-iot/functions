@@ -60,6 +60,8 @@ MH_BROKERS_SASL = os.environ.get('MH_BROKERS_SASL')
 MH_DEFAULT_ALERT_TOPIC = os.environ.get('MH_DEFAULT_ALERT_TOPIC')
 MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 
+UNIQUE_EXTENSION_LABEL='_###IBM_Temporary###'
+
 
 def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
     logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
