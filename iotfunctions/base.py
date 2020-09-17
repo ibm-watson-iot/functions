@@ -33,7 +33,7 @@ from collections import OrderedDict
 from .db import Database
 from .metadata import EntityType, Model, LocalEntityType
 from .pipeline import CalcPipeline, PipelineExpression
-from .util import log_df_info
+from .util import log_df_info, UNIQUE_EXTENSION_LABEL
 from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
 
 logger = logging.getLogger(__name__)
@@ -235,7 +235,7 @@ class BaseFunction(object):
         raise NotImplementedError(
             'Class %s is not defined correctly. It should override the _calc() method of the base class.' % self.__class__.__name__)
 
-    def _coallesce_columns(self, df, cols, rsuffix='_new_'):
+    def _coallesce_columns(self, df, cols, rsuffix=UNIQUE_EXTENSION_LABEL):
         '''
         Coallesce 2 columns into a single by replacing cols with a suffixed version of themselves when null
         '''
@@ -1483,21 +1483,37 @@ class BaseDataSource(BaseTransformer):
             new_df = self._entity_type.index_df(new_df)
         except AttributeError:
             pass
-        if df is None or len(df.index) == 0:
+
+        # The type of the levels in index can be flipped, especially if the data frame is empty because the
+        # sequence set_index() ==> reset_index() converts column type  ['str','datetime64[ns]'] to
+        # ['float64','float64']. Therefore we explicitly cast the levels in index to avoid a type mismatch in the
+        # subsequent merge function. Float64 cannot be cast to datetime64[ns] directly; therefore cast to int64 first.
+        if new_df is not None:
+            if (new_df.index.levels[0].dtype_str != 'object') | (new_df.index.levels[1].dtype_str != 'datetime64[ns]'):
+                new_df_index_names = new_df.index.names
+                new_df.reset_index(inplace=True)
+                new_df = new_df.astype({new_df_index_names[0]:'int64', new_df_index_names[1]: 'int64'}, copy=False)
+                new_df = new_df.astype({new_df_index_names[0]:'str', new_df_index_names[1]: 'datetime64[ns]'}, copy=False)
+                new_df.set_index(keys=new_df_index_names, inplace=True)
+
+        if df is None:
             df = new_df
-            logger.debug('Incoming dataframe is empty. Replaced with data from %s', self.name)
-        elif new_df is None or len(new_df.index) == 0:
-            logger.debug('No data retrieved from data source %s', self.name)
+            logger.debug('Incoming dataframe is None. Replaced with data frame from %s', self.name)
+        elif new_df is None:
+            logger.debug('No dataframe returned by data source %s. Nothing is merged', self.name)
         else:
-            # both dataframes have data. Merge them.
+            # Merge dataframes, even if they are empty to preserve the columns
+            if len(new_df.index) == 0:
+                logger.debug('No data retrieved from data source %s', self.name)
             self.log_df_info(df, 'source dataframe before merge')
             self.log_df_info(new_df, 'additional data source to be merged')
             overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
             if self.merge_method == 'outer':
                 # new_df is expected to be indexed on id and timestamp
                 index_names = df.index.names
-                df = df.join(new_df, how='outer', sort=True,
-                             on=[self._entity_type._df_index_entity_id, self._entity_type._timestamp], rsuffix='_new_')
+                df = df.merge(new_df, how='outer', sort=True,
+                              on=[self._entity_type._df_index_entity_id, self._entity_type._timestamp],
+                              suffixes=['', UNIQUE_EXTENSION_LABEL])
                 df.index.rename(index_names, inplace=True)
                 df = self._coallesce_columns(df=df, cols=overlapping_columns)
             elif self.merge_method == 'nearest':
@@ -1506,18 +1522,18 @@ class BaseDataSource(BaseTransformer):
                 try:
                     df = pd.merge_asof(left=df, right=new_df, by=self._entity_type._entity_id,
                                        on=self._entity_type._timestamp, tolerance=self.merge_nearest_tolerance,
-                                       suffixes=[None, '_new_'])
+                                       suffixes=[None, UNIQUE_EXTENSION_LABEL])
                 except ValueError:
                     new_df = new_df.sort_values([self._entity_type._timestamp, self._entity_type._entity_id])
                     try:
                         df = pd.merge_asof(left=df, right=new_df, by=self._entity_type._entity_id,
                                            on=self._entity_type._timestamp, tolerance=self.merge_nearest_tolerance,
-                                           suffixes=[None, '_new_'])
+                                           suffixes=[None, UNIQUE_EXTENSION_LABEL])
                     except ValueError:
                         df = df.sort_values([self._entity_type._timestamp_col, self._entity_type._entity_id])
                         df = pd.merge_asof(left=df, right=new_df, by=self._entity_type._entity_id,
                                            on=self._entity_type._timestamp_col, tolerance=self.merge_nearest_tolerance,
-                                           suffixes=[None, '_new_'])
+                                           suffixes=[None, UNIQUE_EXTENSION_LABEL])
                 df = self._coallesce_columns(df=df, cols=overlapping_columns)
             elif self.merge_method == 'concat':
                 df = pd.concat([df, new_df], sort=True)
@@ -1822,6 +1838,7 @@ class BaseDBActivityMerge(BaseDataSource):
             unique_af[self._activity] = activity
 
             dfs.append(unique_af)
+            msg = 'Result of sql after duplicated start dates have been removed: %s' % sql
             self.log_df_info(unique_af, msg)
             self.available_non_activity_cols.append(self._get_non_activity_cols(unique_af))
 
@@ -1916,7 +1933,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     include.extend(['start_date', self._entity_type._entity_id])
                     nadf = nadf[include]
                     cdf = cdf.merge(nadf, on=['start_date', self._entity_type._entity_id], how='left',
-                                    suffixes=('', '_new_'))
+                                    suffixes=('', UNIQUE_EXTENSION_LABEL))
                     self.log_df_info(cdf, 'post merge')
                     cdf = self._coallesce_columns(cdf, add_cols)
                     self.log_df_info(cdf, 'post coallesce')

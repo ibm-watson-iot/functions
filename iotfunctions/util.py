@@ -60,10 +60,12 @@ MH_BROKERS_SASL = os.environ.get('MH_BROKERS_SASL')
 MH_DEFAULT_ALERT_TOPIC = os.environ.get('MH_DEFAULT_ALERT_TOPIC')
 MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 
+UNIQUE_EXTENSION_LABEL = '_###IBM_Temporary###'
+
 
 def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
     logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
-        'simple': {'format': '%(asctime)s [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
+        'simple': {'format': '%(asctime)s [PID %(process)d] [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
                    'datefmt': '%Y-%m-%d %I:%M:%S %p'}}, 'handlers': {
         'console': {'class': 'logging.StreamHandler', 'formatter': 'simple', 'stream': 'ext://sys.stdout'},
         'file': {'class': 'logging.FileHandler', 'filename': 'main.log', 'mode': 'w', 'formatter': 'simple'}},
@@ -372,8 +374,7 @@ def getCosTransferAgent(credentials):
                                endpoint_url=service_endpoint)
         return S3Transfer(cos)
     else:
-        raise ValueError(
-            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed.\
+        raise ValueError('Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed.\
              You make use HMAC credentials and the CosClient instead.')
 
 
@@ -461,9 +462,9 @@ def log_df_info(df, msg, include_data=False):
     Log a debugging entry showing first row and index structure
     '''
     try:
-        msg = msg + ' df count: %s ' % (len(df.index))
+        msg = msg + ' ; df row count: %s ' % (len(df.index))
         if df.index.names != [None]:
-            msg = msg + ' ; index: %s ' % (','.join(df.index.names))
+            msg = msg + ' ; index: { %s } ' % (' , '.join(df.index.names))
         else:
             msg = msg + ' ; index is unnamed'
         if include_data:
@@ -475,7 +476,7 @@ def log_df_info(df, msg, include_data=False):
             except AttributeError:
                 msg = msg + str(df.head(1))
         else:
-            msg = msg + ' ; columns: %s' % (','.join(list(df.columns)))
+            msg = msg + ' ; columns: { %s }' % (' , '.join(list(df.columns)))
         logger.debug(msg)
         return msg
     except Exception:
@@ -556,8 +557,7 @@ class CosClient:
         # signed_headers = 'host;x-amz-content-sha256;x-amz-date'
 
         standardized_request = (
-                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' +
-                standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
+                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' + standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
 
         # logging.debug('standardized_request=\n%s' % standardized_request)
 
@@ -577,8 +577,7 @@ class CosClient:
 
         # assemble all elements into the 'authorization' header
         v4auth_header = (
-                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' +
-                credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
+                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
 
         # logging.debug('v4auth_header=\n%s' % v4auth_header)
 
