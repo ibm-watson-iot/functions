@@ -60,7 +60,7 @@ MH_BROKERS_SASL = os.environ.get('MH_BROKERS_SASL')
 MH_DEFAULT_ALERT_TOPIC = os.environ.get('MH_DEFAULT_ALERT_TOPIC')
 MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 
-UNIQUE_EXTENSION_LABEL='_###IBM_Temporary###'
+UNIQUE_EXTENSION_LABEL = '_###IBM_Temporary###'
 
 
 def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
@@ -374,8 +374,7 @@ def getCosTransferAgent(credentials):
                                endpoint_url=service_endpoint)
         return S3Transfer(cos)
     else:
-        raise ValueError(
-            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed.\
+        raise ValueError('Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed.\
              You make use HMAC credentials and the CosClient instead.')
 
 
@@ -558,8 +557,7 @@ class CosClient:
         # signed_headers = 'host;x-amz-content-sha256;x-amz-date'
 
         standardized_request = (
-                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' +
-                standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
+                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' + standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
 
         # logging.debug('standardized_request=\n%s' % standardized_request)
 
@@ -579,8 +577,7 @@ class CosClient:
 
         # assemble all elements into the 'authorization' header
         v4auth_header = (
-                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' +
-                credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
+                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
 
         # logging.debug('v4auth_header=\n%s' % v4auth_header)
 
