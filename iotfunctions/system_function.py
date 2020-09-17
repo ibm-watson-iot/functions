@@ -13,7 +13,7 @@ import pandas as pd
 
 from .ui import UIMultiItem, UISingle
 from .exceptions import MergeException
-from .util import get_index_names, reset_df_index
+from .util import get_index_names, reset_df_index, UNIQUE_EXTENSION_LABEL
 from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
@@ -209,7 +209,7 @@ class DataMerge(object):
     '''
 
     is_system_function = True
-    r_suffix = '_new_'
+    r_suffix = UNIQUE_EXTENSION_LABEL
 
     def __init__(self, name=None, df=None, **kwargs):
 
