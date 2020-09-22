@@ -2489,7 +2489,8 @@ class Model(object):
     '''
 
     def __init__(self, name, estimator, estimator_name, params, features, target, eval_metric_name,
-                 eval_metric_train=None, eval_metric_test=None, shelf_life_days=None, col_name=None):
+                 eval_metric_train=None, eval_metric_test=None, shelf_life_days=None, col_name=None,
+                 col_name_stddev = None):
 
         self.name = name
         self.target = target
@@ -2507,6 +2508,8 @@ class Model(object):
 
         self.col_name = col_name
 
+        self.col_name_stddev = col_name_stddev
+
         if self.estimator is None:
             self.trained_date = None
         else:
@@ -2516,6 +2519,9 @@ class Model(object):
         else:
             self.expiry_date = None
         self.viz = {}
+
+    def hasStdDev(self, pred_stddev):
+        self.col_name_stddev = pred_stddev
 
     def fit(self, df):
         self.estimator = self.estimator.fit(df[self.features], df[self.target])
@@ -2539,6 +2545,12 @@ class Model(object):
         logger.info(msg)
         return result
 
+    def predictWithStddev(self, df):
+        mean, stddev = self.estimator.predict(df[self.features], return_std=True)
+        msg = 'predicted using model %s' % (self.name)
+        logger.info(msg)
+        return mean, stddev
+
     def score(self, df):
         result = self.estimator.score(df[self.features], df[self.target])
         return result
@@ -2552,7 +2564,7 @@ class Model(object):
     def __str__(self):
         out = {}
         output = ['name', 'target', 'features', 'estimator_name', 'eval_metric_name', 'eval_metric_train',
-                  'eval_metric_test', 'trained_date', 'expiry_date']
+                  'eval_metric_test', 'trained_date', 'expiry_date', 'col_name', 'col_name_stddev']
         for o in output:
             try:
                 out[o] = getattr(self, o)
