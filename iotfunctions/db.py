@@ -580,6 +580,14 @@ class Database(object):
 
         return query
 
+    def check_row_count_limit(self, query, row_limit=None):
+        row_count = query.count()
+        logger.debug('Total no. of rows fetched {} by query {}'.format(row_count, str(query.statement)))
+        limit = int(row_limit) if row_limit is not None and row_limit.isdigit() else 10**6
+        if row_count > limit:
+            return True, row_count
+        return False, row_count
+
     def calc_time_interval(self, start_ts, end_ts, period_type, period_count):
 
         '''
