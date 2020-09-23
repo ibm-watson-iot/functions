@@ -58,7 +58,7 @@ class DBDataCache:
         if not self.is_postgre_sql:
 
             sql_statement = "CREATE TABLE %s.%s ( " \
-                            "ENTITY_TYPE_ID VARCHAR(2048) NOT NULL, " \
+                            "ENTITY_TYPE_ID BIGINT NOT NULL, " \
                             "PARQUET_NAME VARCHAR(2048) NOT NULL, " \
                             "PARQUET_FILE BLOB(2G), " \
                             "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
@@ -471,7 +471,7 @@ class DBModelStore:
                             "MODEL BLOB(2G), " \
                             "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
                             "LAST_UPDATED_BY VARCHAR(256), " \
-                            "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, MODEL_NAME) ) " \
+                            "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, MODEL_NAME) ENFORCED) " \
                             "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_store_tablename,
                                                  dbhelper.quotingTableName('uc_%s' % self.store_tablename,
                                                                            self.is_postgre_sql))
