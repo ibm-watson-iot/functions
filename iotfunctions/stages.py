@@ -541,7 +541,7 @@ class RecordUsage:
         if self.dms.production_mode:
             end_ts = None
             if self.completed:
-                end_ts = pd.Timestamp('today')
+                end_ts = pd.Timestamp.utcnow().tz_convert(tz=None)
 
             usage = []
             for fname, kfname, kpis, kpiFunctionId in self.function_kpi_generated:
