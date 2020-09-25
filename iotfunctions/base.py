@@ -2531,7 +2531,7 @@ class BaseEstimatorFunction(BaseTransformer):
                                   target=target, eval_metric_name=self.eval_metric.__name__, eval_metric_train=None,
                                   shelf_life_days=None, col_name=self.predictions[i])
                     if self.pred_stddev is not None:
-                        model.hasStdDev(self.pred_stddev[i])
+                        model.has_std_dev(self.pred_stddev[i])
                 models.append(model)
             else:
                 results['use_existing_model'] = True
@@ -2673,7 +2673,7 @@ class BaseEstimatorFunction(BaseTransformer):
                     df[model.col_name] = 0
                     df[model.col_name] = model.transform(df)
                 elif model.col_name_stddev is not None:
-                    df[model.col_name], df[model.col_name_stddev] = model.predictWithStddev(df)
+                    df[model.col_name], df[model.col_name_stddev] = model.predict_with_std_dev(df)
                 else:
                     df[model.col_name] = model.predict(df)
                 self.log_df_info(df, 'After adding predictions for target %s' % model.target)

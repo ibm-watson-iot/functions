@@ -2520,7 +2520,7 @@ class Model(object):
             self.expiry_date = None
         self.viz = {}
 
-    def hasStdDev(self, pred_stddev):
+    def has_std_dev(self, pred_stddev):
         self.col_name_stddev = pred_stddev
 
     def fit(self, df):
@@ -2545,7 +2545,7 @@ class Model(object):
         logger.info(msg)
         return result
 
-    def predictWithStddev(self, df):
+    def predict_with_std_dev(self, df):
         mean, stddev = self.estimator.predict(df[self.features], return_std=True)
         msg = 'predicted using model %s' % (self.name)
         logger.info(msg)
