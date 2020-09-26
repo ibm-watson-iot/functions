@@ -883,7 +883,7 @@ class BaseFunction(object):
 
         if end_name is None:
             end_name = self._end_date
-            
+
         (query, table) = self._entity_type.db.query(table_name, schema=self._entity_type._db_schema)
         if start_ts is not None:
             query = query.filter(table.c.end_date >= start_ts)
@@ -2453,13 +2453,20 @@ class BaseEstimatorFunction(BaseTransformer):
     greater_is_better = True
     version_model_writes = False
 
-    def __init__(self, features, targets, predictions, keep_current_models=False):
+    def __init__(self, features, targets, predictions, stddev=False, keep_current_models=False):
         self.features = features
         self.targets = targets
+
         # Name predictions based on targets if predictions is None
         if predictions is None:
             predictions = ['predicted_%s' % x for x in self.targets]
         self.predictions = predictions
+
+        # if stddev is True we predict means and stddev instead of a single value
+        self.pred_stddev = None
+        if stddev:
+            self.pred_stddev = ['stddev_%s' % x for x in self.targets]
+
         super().__init__()
         self._preprocessors = OrderedDict()
         self.estimators = OrderedDict()
@@ -2523,6 +2530,8 @@ class BaseEstimatorFunction(BaseTransformer):
                     model = Model(name=model_name, estimator=None, estimator_name=None, params=None, features=features,
                                   target=target, eval_metric_name=self.eval_metric.__name__, eval_metric_train=None,
                                   shelf_life_days=None, col_name=self.predictions[i])
+                    if self.pred_stddev is not None:
+                        model.has_std_dev(self.pred_stddev[i])
                 models.append(model)
             else:
                 results['use_existing_model'] = True
@@ -2635,8 +2644,8 @@ class BaseEstimatorFunction(BaseTransformer):
         for model in required_models:
             msg = 'Prepare to train model %s' % model
             logger.info(msg)
-            best_model = self.find_best_model(df_train=df_train, df_test=df_test, target=model.target,
-                                              features=model.features, existing_model=model, col_name=model.col_name,
+
+            best_model = self.find_best_model(df_train=df_train, df_test=df_test, existing_model=model,
                                               entity_name=entity_name)
             msg = 'Trained model: %s' % best_model
             logger.debug(msg)
@@ -2663,7 +2672,8 @@ class BaseEstimatorFunction(BaseTransformer):
                 if self.is_scaler:
                     df[model.col_name] = 0
                     df[model.col_name] = model.transform(df)
-                    print(model.col_name)
+                elif model.col_name_stddev is not None:
+                    df[model.col_name], df[model.col_name_stddev] = model.predict_with_std_dev(df)
                 else:
                     df[model.col_name] = model.predict(df)
                 self.log_df_info(df, 'After adding predictions for target %s' % model.target)
@@ -2724,7 +2734,7 @@ class BaseEstimatorFunction(BaseTransformer):
         logger.info('Split data - training set ' + str(df_train.shape) + '  test set ' + str(df_test.shape))
         return (df_train, df_test)
 
-    def find_best_model(self, df_train, df_test, target, features, existing_model, col_name, entity_name=None):
+    def find_best_model(self, df_train, df_test, existing_model, entity_name=None):
 
         '''
 
@@ -2732,23 +2742,28 @@ class BaseEstimatorFunction(BaseTransformer):
 
         :param df_train: DataFrame containing training data
         :param df_test: DataFrame containing test data
-        :param target: str
-        :param features: list of strs
-        :param existing_model: Model object
+        :param existing_model: Model object - could be uninitialized but needs to hold features, target and column names
         :return: Model object
         '''
 
         metric_name = self.eval_metric.__name__
 
         # build a list of estimators to fit as experiments
-
         estimators = self.make_estimators(names=None, count=self.experiments_per_execution)
         if existing_model is None:
+            logger.error('Find best model called with empty existing model')
+            raise ValueError('Find best model called with empty existing model')
             trained_models = []
             best_test_metric = None
             best_model = None
         else:
             trained_models = [existing_model]
+
+            col_name = existing_model.col_name
+            col_name_stddev = existing_model.col_name_stddev
+            features = existing_model.features
+            target = existing_model.target
+
             best_test_metric = existing_model.eval_metric_test
             best_model = existing_model
 
@@ -2762,7 +2777,7 @@ class BaseEstimatorFunction(BaseTransformer):
                        'features': features, 'params': params, 'eval_metric_name': metric_name,
                        'eval_metric_train': est_score, 'eval_metric_test': 1,
                        'estimator_name': name, 'shelf_life_days': self.shelf_life_days,
-                       'col_name': col_name}
+                       'col_name': col_name}   # no stddev for scalers
 
             best_model = Model(estimator=est, **results)
             trained_models.append(best_model)
@@ -2793,7 +2808,7 @@ class BaseEstimatorFunction(BaseTransformer):
             results = {'name': self.get_model_name(target_name=target, suffix=entity_name), 'target': target,
                        'features': features, 'params': estimator.best_params_, 'eval_metric_name': metric_name,
                        'eval_metric_train': est_score, 'estimator_name': name, 'shelf_life_days': self.shelf_life_days,
-                       'col_name': col_name}
+                       'col_name': col_name, 'col_name_stddev': col_name_stddev}
 
             # search.best_estimator_ and search.best_params_ contain best choice after refit
 

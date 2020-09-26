@@ -1532,7 +1532,7 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
 #######################################################################################
 # Anomaly detectors with scaling
 #######################################################################################
-class KMeansAnomalyScorev2(Standard_Scaler):
+class KMeansAnomalyScoreV2(Standard_Scaler):
     '''
     An unsupervised anomaly detection function.
      Applies a k-means analysis clustering technique to time series data.
@@ -1567,7 +1567,7 @@ class KMeansAnomalyScorev2(Standard_Scaler):
 
         self.output_item = output_item
 
-        self.whoami = 'KMeansv2'
+        self.whoami = 'KMeansV2'
 
 
     def kexecute(self, entity, df_copy):
@@ -1680,7 +1680,7 @@ class KMeansAnomalyScorev2(Standard_Scaler):
         return (inputs, outputs)
 
 
-class GeneralizedAnomalyScorev2(Standard_Scaler):
+class GeneralizedAnomalyScoreV2(Standard_Scaler):
     """
     An unsupervised anomaly detection function.
      Applies the Minimum Covariance Determinant (FastMCD) technique to detect outliers.
@@ -1720,7 +1720,7 @@ class GeneralizedAnomalyScorev2(Standard_Scaler):
 
         self.normalizer = Generalized_normalizer
 
-        self.whoami = 'GAMv2'
+        self.whoami = 'GAMV2'
 
 
     def feature_extract(self, temperature):
@@ -1883,7 +1883,7 @@ class GeneralizedAnomalyScorev2(Standard_Scaler):
         return (inputs, outputs)
 
 
-class FFTbasedGeneralizedAnomalyScorev2(GeneralizedAnomalyScorev2):
+class FFTbasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
     """
     An unsupervised and robust anomaly detection function.
      Extracts temporal features from time series data using Fast Fourier Transforms.
@@ -1897,7 +1897,7 @@ class FFTbasedGeneralizedAnomalyScorev2(GeneralizedAnomalyScorev2):
     def __init__(self, input_item, windowsize, normalize, output_item):
         super().__init__(input_item, windowsize, normalize, output_item)
 
-        self.whoami = 'FFTv2'
+        self.whoami = 'FFTV2'
         self.normalizer = FFT_normalizer
 
         logger.debug('FFT')
@@ -1954,7 +1954,7 @@ class FFTbasedGeneralizedAnomalyScorev2(GeneralizedAnomalyScorev2):
         return (inputs, outputs)
 
 
-class SaliencybasedGeneralizedAnomalyScorev2(GeneralizedAnomalyScorev2):
+class SaliencybasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
     """
     An unsupervised anomaly detection function.
      Based on salient region detection models,
@@ -1969,7 +1969,7 @@ class SaliencybasedGeneralizedAnomalyScorev2(GeneralizedAnomalyScorev2):
     def __init__(self, input_item, windowsize, normalize, output_item):
         super().__init__(input_item, windowsize, normalize, output_item)
 
-        self.whoami = 'Saliencyv2'
+        self.whoami = 'SaliencyV2'
         self.saliency = Saliency(windowsize, 0, 0)
         self.normalizer = Saliency_normalizer
 
