@@ -8,9 +8,9 @@
 #
 # *****************************************************************************
 
-'''
+"""
 The Built In Functions module contains preinstalled functions
-'''
+"""
 
 # import datetime as dt
 # import time
@@ -211,9 +211,9 @@ class AnomalyGenerator(BaseTransformer):
 
 
 class AnomalyGeneratorExtremeValue(AnomalyGenerator):
-    '''
+    """
     This function generates extreme anomaly.
-    '''
+    """
 
     def __init__(self, input_item, factor, size, output_item):
         super().__init__()
@@ -292,9 +292,9 @@ class AnomalyGeneratorExtremeValue(AnomalyGenerator):
 
 
 class AnomalyGeneratorNoData(AnomalyGenerator):
-    '''
+    """
     This function generates nodata anomaly.
-    '''
+    """
 
     def __init__(self, input_item, width, factor, output_item):
         super().__init__()
@@ -369,9 +369,9 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
 
 
 class AnomalyGeneratorFlatline(AnomalyGenerator):
-    '''
+    """
     This function generates flatline anomaly.
-    '''
+    """
 
     def __init__(self, input_item, width, factor, output_item):
         super().__init__()
