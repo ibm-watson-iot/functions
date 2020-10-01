@@ -9,27 +9,23 @@
 # *****************************************************************************
 
 import datetime as dt
+import json
 import logging
-import warnings
+import re
+
 import numpy as np
 import pandas as pd
-import re
-import json
-from sqlalchemy import (Table, Column, Integer, SmallInteger, String, DateTime)
+from sqlalchemy import (Column, String)
 
-from pandas.api.types import (is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like)
-
-from iotfunctions.db import SystemLogTable
-from iotfunctions.metadata import EntityType
-from iotfunctions.automation import TimeSeriesGenerator
-from iotfunctions.base import (BaseTransformer, BaseDataSource, BaseEvent, BaseFilter, BaseAggregator,BaseSimpleAggregator,
-                               BaseDatabaseLookup, BaseDBActivityMerge, BaseSCDLookup, BaseMetadataProvider,
-                               BasePreload)
 from iotfunctions import ui
+from iotfunctions.automation import TimeSeriesGenerator
+from iotfunctions.base import (BaseTransformer, BaseDataSource, BaseFilter, BaseSimpleAggregator, BaseDatabaseLookup,
+                               BaseDBActivityMerge, BaseSCDLookup, BasePreload)
+from iotfunctions.db import SystemLogTable
 
-'''
+"""
 This module contains a number of sample functions. 
-'''
+"""
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +33,9 @@ PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 
 
 class CompanyFilter(BaseFilter):
-    '''
+    """
     Demonstration function that filters data on a particular company code. 
-    '''
+    """
 
     def __init__(self, company_code, company, status_flag=None):
         super().__init__(dependent_items=company_code, output_item=status_flag)
@@ -91,9 +87,9 @@ class DateDifferenceReference(BaseTransformer):
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(ui.UISingleItem(name='date_1', datatype=dt.datetime, required=False,
@@ -108,10 +104,10 @@ class DateDifferenceReference(BaseTransformer):
 
 
 class HTTPPreload(BasePreload):
-    '''
+    """
     Do a HTTP request as a preload activity. Load results of the get into the Entity Type time series table.
     HTTP request is experimental
-    '''
+    """
 
     out_table_name = None
 
@@ -210,9 +206,9 @@ class HTTPPreload(BasePreload):
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(ui.UISingle(name='request', datatype=str, description='comma separated list of entity ids',
@@ -227,9 +223,9 @@ class HTTPPreload(BasePreload):
 
 
 class MultiplyTwoItems(BaseTransformer):
-    '''
+    """
     Multiply two input items together to produce output column
-    '''
+    """
 
     def __init__(self, input_item_1, input_item_2, output_item):
         self.input_item_1 = input_item_1
@@ -255,9 +251,9 @@ class MultiplyTwoItems(BaseTransformer):
 
 
 class MultiplyColumns(BaseTransformer):
-    '''
+    """
     Columnwise multiplication of multiple data items
-    '''
+    """
 
     def __init__(self, input_items, output_item='output_item'):
         self.input_items = input_items
@@ -370,10 +366,10 @@ class MergeSampleTimeSeries(BaseDataSource):
 
 
 class MultiplyByFactor(BaseTransformer):
-    '''
+    """
     Multiply a list of input data items by a constant to produce a data output column
     for each input column in the list.
-    '''
+    """
 
     def __init__(self, input_items, factor, output_items):
         self.input_items = input_items
@@ -399,9 +395,9 @@ class MultiplyByFactor(BaseTransformer):
 
 
 class StatusFilter(BaseFilter):
-    '''
+    """
     Demonstration function that filters on particular company codes.
-    '''
+    """
 
     def __init__(self, status_input_item, include_only, output_item=None):
         super().__init__(dependent_items=[status_input_item], output_item=output_item)
@@ -433,15 +429,15 @@ class StatusFilter(BaseFilter):
         return (inputs, outputs)
 
 
-'''
+"""
 These functions have no build_ui() method. They are included to show function logic.
-'''
+"""
 
 
 class ComputationsOnStringArray(BaseTransformer):
-    '''
+    """
     Perform computation on a string that contains a comma separated list of values
-    '''
+    """
     # The metadata describes what columns of data are included in the array
     column_metadata = ['x1', 'x2', 'x3', 'x4', 'x5']
 
@@ -471,9 +467,9 @@ class ComputationsOnStringArray(BaseTransformer):
 
 
 class FillForwardByEntity(BaseTransformer):
-    '''
+    """
     Fill null values forward from last item for the same entity instance
-    '''
+    """
 
     execute_by = ['id']
 
@@ -490,9 +486,9 @@ class FillForwardByEntity(BaseTransformer):
 
 
 class FlowRateMonitor(BaseTransformer):
-    '''
+    """
     Check for leaks and other flow irregularies by comparing input flows with output flows
-    '''
+    """
 
     def __init__(self, input_flows, output_flows, loss_threshold=0.005, output='output'):
         self.input_flows = input_flows
@@ -512,9 +508,9 @@ class FlowRateMonitor(BaseTransformer):
 
 
 class InputsAndOutputsOfMultipleTypes(BaseTransformer):
-    '''
+    """
     This sample function is just a pass through that demonstrates the use of multiple datatypes for inputs and outputs
-    '''
+    """
 
     def __init__(self, input_number, input_date, input_str, output_number='output_number', output_date='output_date',
                  output_str='output_str'):
@@ -575,12 +571,12 @@ class LookupCompany(BaseDatabaseLookup):
 
 
 class LookupOperator(BaseSCDLookup):
-    '''
+    """
     Lookup Operator information from a resource calendar
     A resource calendar is a table with a start_date, end_date, device_id and resource_id
     Resource assignments are defined for each device_id. Each assignment has a start date
     End dates are not currently used. Assignment is assumed to be valid until the next.
-    '''
+    """
 
     def __init__(self, dummy_item, output_item=None):
         # at the moment there is a requirement to include at least one item is input to a function
@@ -592,12 +588,12 @@ class LookupOperator(BaseSCDLookup):
 
 
 class LookupStatus(BaseSCDLookup):
-    '''
+    """
     Lookup Operator information from a resource calendar
     A resource calendar is a table with a start_date, end_date, device_id and resource_id
     Resource assignments are defined for each device_id. Each assignment has a start date
     End dates are not currently used. Assignment is assumed to be valid until the next.
-    '''
+    """
 
     def __init__(self, dummy_item, output_item=None):
         # at the moment there is a requirement to include at least one item is input to a function
@@ -609,9 +605,9 @@ class LookupStatus(BaseSCDLookup):
 
 
 class NegativeRemover(BaseTransformer):
-    '''
+    """
     Replace negative values with NaN
-    '''
+    """
 
     def __init__(self, names, sources=None):
         if names is None:
@@ -633,9 +629,9 @@ class NegativeRemover(BaseTransformer):
 
 
 class PivotRowsToColumns(BaseTransformer):
-    '''
+    """
     Produce a column of data for each instance of a particular categoric value present
-    '''
+    """
 
     def __init__(self, pivot_by_item, pivot_values, input_item=True, null_value=False, output_items=None):
 
@@ -681,9 +677,9 @@ class PivotRowsToColumns(BaseTransformer):
 
 
 class OutlierRemover(BaseTransformer):
-    '''
+    """
     Replace values outside of a threshold with NaN
-    '''
+    """
 
     def __init__(self, name, source, min, max):
         if name is None:
@@ -712,9 +708,9 @@ class OutlierRemover(BaseTransformer):
 
 
 class SamplePreLoad(BasePreload):
-    '''
+    """
     This is a demonstration function that logs the start of pipeline execution to a database table
-    '''
+    """
     table_name = 'sample_pre_load'
 
     def __init__(self, dummy_items, output_item=None):
@@ -730,9 +726,9 @@ class SamplePreLoad(BasePreload):
 
 
 class SampleActivityDuration(BaseDBActivityMerge):
-    '''
+    """
     Merge data from multiple tables containing activities with start and end dates
-    '''
+    """
 
     _is_instance_level_logged = False
 
@@ -750,10 +746,10 @@ class SampleActivityDuration(BaseDBActivityMerge):
 
 
 class TimeToFirstAndLastInDay(BaseTransformer):
-    '''
+    """
     Calculate the time until the first occurance of a valid entry for an input_item in a period and
     the time until the end of period from the last occurance of a measurement
-    '''
+    """
     execute_by = ['id', '_day']
     period_start = '_day'
     period_end = '_day_end'
@@ -791,10 +787,10 @@ class TimeToFirstAndLastInDay(BaseTransformer):
 
 
 class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
-    '''
+    """
     Calculate the time until the first occurance of a valid entry for an input_item in a period and
     the time until the end of period from the last occurance of a measurement
-    '''
+    """
     execute_by = ['id', 'shift_day', 'shift_id']
     period_start = 'shift_start_date'
     period_end = 'shift_end_date'
@@ -805,19 +801,19 @@ class TimeToFirstAndLastInShift(TimeToFirstAndLastInDay):
         super().__init__(input_item=input_item, time_to_first=time_to_first, time_from_last=time_from_last)
 
     def _add_period_start_end(self, df):
-        '''
+        """
         override parent method - instead of setting start and end dates from the gregorian calendar,
         set them from a custom calendar using a calendar object
-        '''
+        """
         custom_calendar = self.get_custom_calendar()
         df = custom_calendar.execute(df)
         return df
 
 
 class WriteDataFrame(BaseTransformer):
-    '''
+    """
     Write the current contents of the pipeline to a database table
-    '''
+    """
     out_table_prefix = ''
     version_db_writes = False
     out_table_if_exists = 'append'
@@ -833,10 +829,11 @@ class WriteDataFrame(BaseTransformer):
         df[self.output_status] = self.write_frame(df=df[self.input_items])
         return df
 
+
 class HelloWorldAggregator(BaseSimpleAggregator):
-    '''
+    """
     The docstring of the function will show as the function description in the UI.
-    '''
+    """
 
     def __init__(self, source=None, expression=None):
         if expression is None or not isinstance(expression, str):
@@ -852,11 +849,11 @@ class HelloWorldAggregator(BaseSimpleAggregator):
     def build_ui(cls):
         inputs = []
         inputs.append(ui.UIMultiItem(name='source', datatype=None, description=('Choose the data items'
-                                                                            ' that you would like to'
-                                                                                  ' aggregate'),
-                                  output_item='name', is_output_datatype_derived=True))
+                                                                                ' that you would like to'
+                                                                                ' aggregate'), output_item='name',
+                                     is_output_datatype_derived=True))
 
         inputs.append(ui.UIExpression(name='expression', description='Use ${GROUP} to reference the current grain.'
-                                                    'All Pandas Series methods can be used on the grain.'
-                                                    'For example, ${GROUP}.max() - ${GROUP}.min().'))
+                                                                     'All Pandas Series methods can be used on the grain.'
+                                                                     'For example, ${GROUP}.max() - ${GROUP}.min().'))
         return (inputs, [])

@@ -9,17 +9,19 @@
 # *****************************************************************************
 
 
-import logging
-import pandas as pd
-import json
-import ibm_db
 import datetime as dt
-import numpy as np
+import json
+import logging
 from collections import defaultdict
+
+import ibm_db
+import numpy as np
+import pandas as pd
 from sqlalchemy import (MetaData, Table)
+
 from . import dbhelper
-from .util import MessageHub, asList
 from .exceptions import StageException, DataWriterException
+from .util import MessageHub, asList
 
 # Kohlmann verify location of the following constants
 DATA_ITEM_TYPE_BOOLEAN = 'BOOLEAN'
@@ -429,10 +431,10 @@ class ProduceAlerts(object):
 
         return df
 
-    '''
+    """
     Timestamp is not serialized by default by json.dumps()
     It is necessary to convert the object to string
-    '''
+    """
 
     def _serialize_converter(self, object):
         if isinstance(object, dt.datetime):
@@ -440,9 +442,9 @@ class ProduceAlerts(object):
         else:
             raise TypeError('Do not know how to convert object of class %s to JSON' % object.__class__.__name__)
 
-    '''
+    """
     This function creates a json string which consist of dataframe row records and index key, value .
-    '''
+    """
 
     def get_json_values(self, index_names, col_names, row):
 
@@ -541,7 +543,7 @@ class RecordUsage:
         if self.dms.production_mode:
             end_ts = None
             if self.completed:
-                end_ts = pd.Timestamp('today')
+                end_ts = pd.Timestamp.utcnow().tz_convert(tz=None)
 
             usage = []
             for fname, kfname, kpis, kpiFunctionId in self.function_kpi_generated:
@@ -581,9 +583,9 @@ class DataWriter(object):
 
 
 class DataWriterFile(DataWriter):
-    '''
+    """
     Default data write stage. Writes to the file system.
-    '''
+    """
 
     is_system_function = True
     requires_input_items = False
@@ -603,18 +605,18 @@ class DataWriterFile(DataWriter):
         return df
 
     def set_params(self, **params):
-        '''
+        """
         Set parameters based using supplied dictionary
-        '''
+        """
         for key, value in list(params.items()):
             setattr(self, key, value)
         return self
 
 
 class DataReader(object):
-    '''
+    """
     Default data reader stage. Calls get_data method on the object.
-    '''
+    """
     is_system_function = True
     is_data_source = True
     requires_input_items = False
@@ -676,9 +678,9 @@ class DataReader(object):
 
 
 class DataWriterSqlAlchemy(DataWriter):
-    '''
+    """
     Stage that writes the calculated data items to database.
-    '''
+    """
     is_system_function = True
     MAX_NUMBER_OF_ROWS_FOR_SQL = 5000
     produces_output_items = False

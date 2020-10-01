@@ -8,25 +8,25 @@
 #
 # *****************************************************************************
 
-'''
+"""
 The Built In Functions module contains preinstalled functions
-'''
+"""
 
 import datetime as dt
-import time
-from collections import OrderedDict
-import numpy as np
-import re
-import pandas as pd
 import logging
+import re
+import time
 import warnings
-from sqlalchemy import String
-from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithDefault, BaseMetadataProvider, BasePreload, BaseDatabaseLookup,
-                   BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
+from collections import OrderedDict
 
+import numpy as np
+import pandas as pd
+from sqlalchemy import String
+
+from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithDefault, BaseMetadataProvider,
+                   BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
-
 from .util import adjust_probabilities, reset_df_index
 
 logger = logging.getLogger(__name__)
@@ -35,11 +35,11 @@ _IS_PREINSTALLED = True
 
 
 class ActivityDuration(BaseDBActivityMerge):
-    '''
+    """
     Merge data from multiple tables containing activities. An activity table
     must have a deviceid, activity_code, start_date and end_date. The
     function returns an activity duration for each selected activity code.
-    '''
+    """
 
     _is_instance_level_logged = False
 
@@ -70,7 +70,7 @@ class ActivityDuration(BaseDBActivityMerge):
 
 
 class AggregateWithExpression(BaseSimpleAggregator):
-    '''
+    """
     Create aggregation using expression. The calculation is evaluated for
     each data_item selected. The data item will be made available as a
     Pandas Series. Refer to the Pandas series using the local variable named
@@ -80,7 +80,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
 
     x.max() - x.min()
 
-    '''
+    """
 
     def __init__(self, input_items, expression=None, output_items=None):
         super().__init__()
@@ -106,9 +106,9 @@ class AggregateWithExpression(BaseSimpleAggregator):
 
 
 class AlertExpression(BaseEvent):
-    '''
+    """
     Create alerts that are triggered when data values the expression is True
-    '''
+    """
 
     def __init__(self, expression, alert_name, **kwargs):
         self.expression = expression
@@ -116,9 +116,9 @@ class AlertExpression(BaseEvent):
         super().__init__()
 
     def _calc(self, df):
-        '''
+        """
         unused
-        '''
+        """
         return df
 
     def execute(self, df):
@@ -151,9 +151,9 @@ class AlertExpression(BaseEvent):
 
 
 class AlertExpressionWithFilter(BaseEvent):
-    '''
+    """
     Create alerts that are triggered when data values the expression is True
-    '''
+    """
 
     def __init__(self, expression, dimension_name, dimension_value, alert_name, **kwargs):
         self.dimension_name = dimension_name
@@ -162,7 +162,9 @@ class AlertExpressionWithFilter(BaseEvent):
         self.pulse_trigger = False
         self.alert_name = alert_name
         self.alert_end = None
-        logger.info('AlertExpressionWithFilter  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' + str(alert_name))
+        logger.info(
+            'AlertExpressionWithFilter  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' + str(
+                alert_name))
         super().__init__()
 
     # evaluate alerts by entity
@@ -172,9 +174,6 @@ class AlertExpressionWithFilter(BaseEvent):
         logger.info('AlertExpressionWithFilter  exp: ' + self.expression + '  input: ' + str(df.columns))
 
         expr = self.expression
-
-        # if '${}' in expr:
-        #    expr = expr.replace("${}", "df['" + self.dimension_name + "']")
 
         if '${' in expr:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expr)
@@ -190,8 +189,8 @@ class AlertExpressionWithFilter(BaseEvent):
         try:
             evl = eval(expr)
             n1 = np.where(evl, 1, 0)
-            if self.dimension_name is None or self.dimension_value is None or \
-               len(self.dimension_name) == 0 or len(self.dimension_value) == 0:
+            if self.dimension_name is None or self.dimension_value is None or len(self.dimension_name) == 0 or len(
+                    self.dimension_value) == 0:
                 n2 = n1
                 np_res = n1
             else:
@@ -205,10 +204,10 @@ class AlertExpressionWithFilter(BaseEvent):
                 # walk through all subsequences starting with the longest
                 # and replace all True with True, False, False, ...
                 for i in range(np_res.size, 2, -1):
-                    for j in range(0, i-1):
+                    for j in range(0, i - 1):
                         if np.all(np_res[j:i]):
-                            np_res[j+1:i] = np.zeros(i-j-1, dtype=int)
-                            np_res[j] = i-j  # keep track of sequence length
+                            np_res[j + 1:i] = np.zeros(i - j - 1, dtype=int)
+                            np_res[j] = i - j  # keep track of sequence length
 
                 if self.alert_end is not None:
                     alert_end = np.zeros(np_res.size)
@@ -220,8 +219,8 @@ class AlertExpressionWithFilter(BaseEvent):
                 if self.alert_end is not None:
                     df[self.alert_end] = df.index[0]
 
-            logger.info('AlertExpressionWithFilter  shapes ' + str(n1.shape) + ' ' + str(n2.shape) + ' ' +
-                        str(np_res.shape) + '  results\n - ' + str(n1) + '\n - ' + str(n2) + '\n - ' + str(np_res))
+            logger.info('AlertExpressionWithFilter  shapes ' + str(n1.shape) + ' ' + str(n2.shape) + ' ' + str(
+                np_res.shape) + '  results\n - ' + str(n1) + '\n - ' + str(n2) + '\n - ' + str(np_res))
             df[self.alert_name] = np_res
 
         except Exception as e:
@@ -232,9 +231,9 @@ class AlertExpressionWithFilter(BaseEvent):
         return df
 
     def execute(self, df):
-        '''
+        """
         unused
-        '''
+        """
         return super().execute(df)
 
     def get_input_items(self):
@@ -247,10 +246,8 @@ class AlertExpressionWithFilter(BaseEvent):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(name='dimension_name', datatype=str))
-        inputs.append(UISingle(name='dimension_value', datatype=str,
-                               description='Dimension Filter Value'))
-        inputs.append(UIExpression(name='expression',
-                                   description="Define alert expression using pandas systax. \
+        inputs.append(UISingle(name='dimension_value', datatype=str, description='Dimension Filter Value'))
+        inputs.append(UIExpression(name='expression', description="Define alert expression using pandas systax. \
                                                 Example: df['inlet_temperature']>50. ${pressure} will be substituted \
                                                 with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
 
@@ -261,9 +258,9 @@ class AlertExpressionWithFilter(BaseEvent):
 
 
 class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
-    '''
+    """
     Create alerts that are triggered when data values the expression is True
-    '''
+    """
 
     def __init__(self, expression, dimension_name, dimension_value, pulse_trigger, alert_name, alert_end, **kwargs):
         super().__init__(expression, dimension_name, dimension_value, alert_name, **kwargs)
@@ -272,13 +269,13 @@ class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
         if alert_end is not None:
             self.alert_end = alert_end
 
-        logger.info('AlertExpressionWithFilterExt  dim: ' + str(dimension_name) + '  exp: ' + str(expression) + '  alert: ' +
-                    str(alert_name) + '  pulsed: ' + str(pulse_trigger))
+        logger.info('AlertExpressionWithFilterExt  dim: ' + str(dimension_name) + '  exp: ' + str(
+            expression) + '  alert: ' + str(alert_name) + '  pulsed: ' + str(pulse_trigger))
 
     def _calc(self, df):
-        '''
+        """
         unused
-        '''
+        """
         return df
 
     def execute(self, df):
@@ -291,20 +288,19 @@ class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(name='dimension_name', datatype=str))
-        inputs.append(UISingle(name='dimension_value', datatype=str,
-                               description='Dimension Filter Value'))
-        inputs.append(UIExpression(name='expression',
-                                   description="Define alert expression using pandas systax. \
+        inputs.append(UISingle(name='dimension_value', datatype=str, description='Dimension Filter Value'))
+        inputs.append(UIExpression(name='expression', description="Define alert expression using pandas systax. \
                                                 Example: df['inlet_temperature']>50. ${pressure} will be substituted \
                                                 with df['pressure'] before evaluation, ${} with df[<dimension_name>]"))
-        inputs.append(UISingle(name='pulse_trigger',
-                               description="If true only generate alerts on crossing the threshold",
-                               datatype=bool))
+        inputs.append(
+            UISingle(name='pulse_trigger', description="If true only generate alerts on crossing the threshold",
+                     datatype=bool))
 
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
-        outputs.append(UIFunctionOutSingle(name='alert_end', datatype=dt.datetime, description='End of pulse triggered alert'))
+        outputs.append(
+            UIFunctionOutSingle(name='alert_end', datatype=dt.datetime, description='End of pulse triggered alert'))
         return (inputs, outputs)
 
 
@@ -337,9 +333,9 @@ class AlertOutOfRange(BaseEvent):
         super().__init__()
 
     def _calc(self, df):
-        '''
+        """
         unused
-        '''
+        """
 
     def execute(self, df):
         # c = self._entity_type.get_attributes_dict()
@@ -389,9 +385,9 @@ class AlertHighValue(BaseEvent):
         super().__init__()
 
     def _calc(self, df):
-        '''
+        """
         unused
-        '''
+        """
 
     def execute(self, df):
         df = df.copy()
@@ -430,9 +426,9 @@ class AlertLowValue(BaseEvent):
         super().__init__()
 
     def _calc(self, df):
-        '''
+        """
         unused
-        '''
+        """
         return df
 
     def execute(self, df):
@@ -455,13 +451,13 @@ class AlertLowValue(BaseEvent):
 
 
 class AutoTest(BaseTransformer):
-    '''
+    """
     Test the results of pipeline execution against a known test dataset.
     The test will compare calculated values with values in the test dataset.
     Discepancies will the written to a test output file.
 
     Note: This function is experimental
-    '''
+    """
 
     def __init__(self, test_datset_name, columns_to_test, result_col=None):
         super().__init__()
@@ -637,9 +633,9 @@ class DateDifference(BaseTransformer):
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(name='date_1', datatype=dt.datetime, required=False,
@@ -689,9 +685,9 @@ class DateDifferenceConstant(BaseTransformer):
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingleItem(name='date_1', datatype=dt.datetime, required=False,
@@ -721,9 +717,9 @@ class DatabaseLookup(BaseDatabaseLookup):
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(
@@ -745,9 +741,9 @@ class DatabaseLookup(BaseDatabaseLookup):
 
 
 class DeleteInputData(BasePreload):
-    '''
+    """
     Delete data from time series input table for entity type
-    '''
+    """
 
     def __init__(self, dummy_items, older_than_days, output_item=None):
         super().__init__(dummy_items=dummy_items)
@@ -767,9 +763,9 @@ class DeleteInputData(BasePreload):
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMultiItem(name='dummy_items', datatype=None, description='Dummy data items'))
@@ -784,12 +780,11 @@ class DeleteInputData(BasePreload):
 
 
 class DropNull(BaseMetadataProvider):
-    '''
+    """
     Drop any row that has all null metrics
-    '''
+    """
 
     def __init__(self, exclude_items, drop_all_null_rows=True, output_item=None):
-
         if output_item is None:
             output_item = 'drop_nulls'
 
@@ -800,9 +795,9 @@ class DropNull(BaseMetadataProvider):
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMultiItem(name='exclude_items', datatype=None,
@@ -912,17 +907,17 @@ class EntityDataGenerator(BasePreload):
         return True
 
     def get_entity_ids(self):
-        '''
+        """
         Generate a list of entity ids
-        '''
+        """
         ids = [str(self.start_entity_id + x) for x in list(range(self.auto_entity_count))]
         return (ids)
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(
@@ -937,13 +932,12 @@ class EntityDataGenerator(BasePreload):
 
 
 class EntityFilter(BaseMetadataProvider):
-    '''
+    """
     Filter data retrieval queries to retrieve only data for the entity ids
     included in the filter
-    '''
+    """
 
     def __init__(self, entity_list, output_item=None):
-
         if output_item is None:
             output_item = 'is_filter_set'
 
@@ -954,9 +948,9 @@ class EntityFilter(BaseMetadataProvider):
 
     @classmethod
     def build_ui(cls):
-        '''
+        """
         Registration metadata
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UIMulti(name='entity_list', datatype=str, description='comma separated list of entity ids'))
@@ -969,9 +963,9 @@ class EntityFilter(BaseMetadataProvider):
 
 
 class PythonExpression(BaseTransformer):
-    '''
+    """
     Create a new item from an expression involving other items
-    '''
+    """
 
     def __init__(self, expression, output_name):
         self.output_name = output_name
@@ -1019,11 +1013,13 @@ class GetEntityData(BaseDataSource):
 
     Note: This function is experimental
     """
+    is_deprecated = True
 
     merge_method = 'outer'
     allow_projection_list_trim = False
 
     def __init__(self, source_entity_type_name, key_map_column, input_items, output_items=None):
+        warnings.warn('GetEntityData is deprecated.', DeprecationWarning)
         self.source_entity_type_name = source_entity_type_name
         self.key_map_column = key_map_column
         super().__init__(input_items=input_items, output_items=output_items)
@@ -1052,8 +1048,7 @@ class GetEntityData(BaseDataSource):
         inputs = []
         inputs.append(UISingle(name='source_entity_type_name', datatype=str,
                                description="Enter the name of the entity type that you would like to retrieve data from"))
-        inputs.append(UISingle(name='key_map_column', datatype=str,
-                               description="Enter the name of the column on the source entity type that represents the map \
+        inputs.append(UISingle(name='key_map_column', datatype=str, description="Enter the name of the column on the source entity type that represents the map \
                                             to the device id of this entity type"))
         inputs.append(UIMulti(name='input_items', datatype=str,
                               description="Comma separated list of data item names to retrieve from the source entity type",
@@ -1092,8 +1087,7 @@ class EntityId(BaseTransformer):
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='data_items', datatype=None, required=False,
-                      description='Choose one or more data items. If data items are defined, \
+        inputs.append(UIMultiItem(name='data_items', datatype=None, required=False, description='Choose one or more data items. If data items are defined, \
                                                entity id will only be shown if these data items are not null'))
         # define arguments that behave as function outputs
         outputs = []
@@ -1341,9 +1335,9 @@ class RaiseError(BaseTransformer):
 
 
 class RandomNoise(BaseTransformer):
-    '''
+    """
     Add random noise to one or more data items
-    '''
+    """
 
     def __init__(self, input_items, standard_deviation, output_items):
         super().__init__()
@@ -1381,7 +1375,7 @@ class RandomUniform(BaseTransformer):
         self.min_value = min_value
         self.max_value = max_value
         if output_item is None:
-            self. output_item = 'output_item'
+            self.output_item = 'output_item'
         else:
             self.output_item = output_item
 
@@ -1572,11 +1566,11 @@ class SaveCosDataFrame(BaseTransformer):
 
 
 class SCDLookup(BaseSCDLookup):
-    '''
+    """
     Lookup an slowly changing dimension property from a scd lookup table containing:
     Start_date, end_date, device_id and property. End dates are not currently used.
     Previous lookup value is assumed to be valid until the next.
-    '''
+    """
 
     def __init__(self, table_name, output_item=None):
         self.table_name = table_name
@@ -1584,22 +1578,21 @@ class SCDLookup(BaseSCDLookup):
 
 
 class IoTSCDLookupWithDefault(BaseSCDLookupWithDefault):
-    '''
+    """
     Look up an scd property from a scd lookup table containing columns for:
     start_date, end_date, device_id and dimension property.
     If the table does not provide a value for a given time
     the default value is taken.
-    '''
+    """
 
     def __init__(self, table_name, dimension_name, entity_name, start_name, end_name, default_value, output_item=None):
-
         super().__init__(table_name=table_name, output_item=output_item, default_value=default_value,
                          dimension_name=dimension_name, entity_name=entity_name, start_name=start_name,
                          end_name=end_name)
 
 
 class ShiftCalendar(BaseTransformer):
-    '''
+    """
     Generate data for a shift calendar using a shift_definition in the form of a dict keyed on shift_id
     Dict contains a tuple with the start and end hours of the shift expressed as numbers. Example:
           {
@@ -1607,13 +1600,13 @@ class ShiftCalendar(BaseTransformer):
                "2": [14, 21],
                "3": [21, 29.5]
            },
-    '''
+    """
 
     is_custom_calendar = True
     auto_conform_index = True
 
-    def __init__(self, shift_definition=None, period_start_date=None, period_end_date=None,
-                 shift_day=None, shift_id=None):
+    def __init__(self, shift_definition=None, period_start_date=None, period_end_date=None, shift_day=None,
+                 shift_id=None):
 
         if shift_definition is None:
             self.shift_definition = {"1": [5.5, 14], "2": [14, 21], "3": [21, 29.5]}
@@ -1881,14 +1874,14 @@ class IoTCalcSettings(BaseMetadataProvider):
     Overide default calculation settings for the entity type
     """
 
-    warnings.warn(('IoTCalcSettings is deprecated. Use entity type constants'
-                   ' instead of a metadata provider to set entity type properties'))
-
     is_deprecated = True
 
     def __init__(self, checkpoint_by_entity=False, pre_aggregate_time_grain=None, auto_read_from_ts_table=None,
                  sum_items=None, mean_items=None, min_items=None, max_items=None, count_items=None, sum_outputs=None,
                  mean_outputs=None, min_outputs=None, max_outputs=None, count_outputs=None, output_item=None):
+
+        warnings.warn('IoTCalcSettings is deprecated. Use entity type constants instead of a '
+                      'metadata provider to set entity type properties', DeprecationWarning)
 
         if auto_read_from_ts_table is None:
             auto_read_from_ts_table = True
@@ -1914,9 +1907,10 @@ class IoTCalcSettings(BaseMetadataProvider):
         super().__init__(dummy_items=[], output_item=output_item, **kwargs)
 
     def _apply_pre_agg_metadata(self, aggregate, items, outputs):
-        '''
-        convert UI inputs into a pandas aggregate dictioonary and a separate dictionary containing names of aggregate items
-        '''
+        """
+        convert UI inputs into a pandas aggregate dictionary and 
+        a separate dictionary containing names of aggregate items
+        """
         if items is not None:
             if outputs is None:
                 outputs = ['%s_%s' % (x, aggregate) for x in items]
@@ -1942,8 +1936,7 @@ class IoTCalcSettings(BaseMetadataProvider):
                                description='By default, data retrieved is from the designated input table. Use this setting to disable.', ))
         inputs.append(
             UISingle(name='checkpoint_by_entity', datatype=bool, required=False, description='By default a single '))
-        inputs.append(UISingle(name='pre_aggregate_time_grain', datatype=str, required=False,
-                               description='By default, data is retrieved at the input grain. Use this setting to preaggregate \
+        inputs.append(UISingle(name='pre_aggregate_time_grain', datatype=str, required=False, description='By default, data is retrieved at the input grain. Use this setting to preaggregate \
                                             data and reduce the volumne of data retrieved',
                                values=['1min', '5min', '15min', '30min', '1H', '2H', '4H', '8H', '12H', 'day', 'week',
                                        'month', 'year']))
@@ -1954,13 +1947,13 @@ class IoTCalcSettings(BaseMetadataProvider):
                                   description='Choose items that should be averaged when aggregating',
                                   output_item='mean_outputs', is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='min_items', datatype=float, required=False,
-                                  description='Choose items that the system should choose the smallest value when aggregating',
+                                  description='Choose items that the system should find the smallest value when aggregating',
                                   output_item='mean_outputs', is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='max_items', datatype=float, required=False,
-                                  description='Choose items that the system should choose the smallest value when aggregating',
+                                  description='Choose items that the system should find the largest value when aggregating',
                                   output_item='mean_outputs', is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='count_items', datatype=float, required=False,
-                                  description='Choose items that the system should choose the smallest value when aggregating',
+                                  description='Choose items that the system should count the value when aggregating',
                                   output_item='mean_outputs', is_output_datatype_derived=True))
         # define arguments that behave as function outputs
         outputs = []
@@ -1982,6 +1975,8 @@ class IoTCosFunction(BaseTransformer):
 
     def __init__(self, function_name, input_items, output_item=None, parameters=None):
 
+        warnings.warn('IoTCosFunction is deprecated. Use PythonFunction.', DeprecationWarning)
+
         # the function name may be passed as a function object or function name (string)
         # if a string is provided, it is assumed that the function object has already been serialized to COS
         # if a function onbject is supplied, it will be serialized to cos
@@ -2000,8 +1995,6 @@ class IoTCosFunction(BaseTransformer):
             parameters = {}
         parameters = {**parameters, **self.__dict__}
         self.parameters = parameters
-
-        warnings.warn('IoTCosFunction is deprecated. Use PythonFunction.', DeprecationWarning)
 
     def execute(self, df):
         db = self.get_db()

@@ -9,21 +9,21 @@
 # *****************************************************************************
 
 import logging
+from collections import OrderedDict
+
 import pandas as pd
 
-from .ui import UIMultiItem, UISingle
 from .exceptions import MergeException
+from .ui import UIMultiItem, UISingle
 from .util import get_index_names, reset_df_index, UNIQUE_EXTENSION_LABEL
-from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
 
 class AggregateItems(object):
-    '''
+    """
     Use common aggregation methods to aggregate one or more data items
-
-    '''
+    """
 
     is_system_function = True
     _allow_empty_df = False
@@ -123,7 +123,7 @@ class AggregateItems(object):
 
 
 class DataAggregator(object):
-    '''
+    """
     Default simple aggregation stage.
 
     Parameters:
@@ -139,7 +139,7 @@ class DataAggregator(object):
         AS aggregation functions have an execute method that can be called
         inside of a pandas apply() on a groupby() to create a dataframe or series
 
-    '''
+    """
 
     is_system_function = True
     _allow_empty_df = False
@@ -193,7 +193,7 @@ class DataAggregator(object):
 
 
 class DataMerge(object):
-    '''
+    """
     A DataMerge object combines the results of execution of a stage
     with the results of execution of the previous stages.
 
@@ -206,7 +206,7 @@ class DataMerge(object):
     Use the execute method to combine a new incoming data object with
     whatever data is present in the DataMerge at the time.
 
-    '''
+    """
 
     is_system_function = True
     r_suffix = UNIQUE_EXTENSION_LABEL
@@ -232,38 +232,38 @@ class DataMerge(object):
         return out
 
     def add_constant(self, name, value):
-        '''
+        """
         Register a constant provide a value.
         Apply the constant to the dataframe.
-        '''
+        """
 
         self.constants[name] = value
         self.df[name] = value
 
     def apply_constants(self):
-        '''
+        """
         Apply the values of all constants to the dataframe.
-        '''
+        """
 
         for name, value in list(self.constants.items()):
             self.df[name] = value
 
     def clear_data(self):
-        '''
+        """
         Clear dataframe and constants
-        '''
+        """
 
         self.constants = {}
         self.df = pd.DataFrame()
 
     def coalesce_cols(self, df, suffix):
-        '''
+        """
         Combine two variants of the same column into a single. Variants are
         distinguished using a suffix, e.g. 'x' and 'x_new_' will be combined
         if the suffix of '_new_' is used. The coalesced result will be
         placed in column 'x' and will contain 'x_new' where a value of 'x_new'
         was provided and 'x' where the value of 'x_new' was null.
-        '''
+        """
 
         altered = []
         for i, o in enumerate(df.columns):
@@ -287,10 +287,10 @@ class DataMerge(object):
 
     def get_index_names(self, df=None):
 
-        '''
+        """
         Get a list of index names from a dataframe with a single index
         or multi-index.
-        '''
+        """
 
         if df is None:
             df = self.df
@@ -304,9 +304,9 @@ class DataMerge(object):
 
     def get_cols(self, df=None):
 
-        '''
+        """
         Get a full set of column names from df and index. Return set.
-        '''
+        """
 
         if df is None:
             df = self.df
@@ -317,7 +317,7 @@ class DataMerge(object):
         return cols
 
     def execute(self, obj, col_names, force_overwrite=False, col_map=None):
-        '''
+        """
         Perform a smart merge between a dataframe and another object. The other
         object may be a dataframe, series, numpy array, list or scalar.
 
@@ -333,7 +333,7 @@ class DataMerge(object):
         col_names are provided they will be used to rename the obj columns
         before merging.
 
-        '''
+        """
         if obj is None:
             raise MergeException(('DataMerge is attempting to merge a null object with a dataframe. Object to be '
                                   ' merged must be a dataframe, series, constant or numpy array. Unable to merge None'))
@@ -500,9 +500,9 @@ class DataMerge(object):
                                   obj_index_names, self.get_index_names(), list(self.df.columns))))
 
     def merge_non_dataframe(self, obj, col_names):
-        '''
+        """
         Merge a non-dataframe object into the DataMerge dataframe object.
-        '''
+        """
         if len(col_names) == 1:
             # if the source dataframe is empty, it has no index
             # the data merge object can only accept a constant
@@ -527,9 +527,9 @@ class DataMerge(object):
 
 
 class DropNull(object):
-    '''
+    """
     System function that drops null data
-    '''
+    """
 
     is_system_function = True
     produces_output_items = False

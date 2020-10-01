@@ -8,11 +8,11 @@
 #
 # *****************************************************************************
 
-import logging
-import sys
-import os
-import gzip
 import datetime as dt
+import gzip
+import logging
+import os
+import sys
 
 logger = logging.getLogger(__name__)
 
