@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+
 import ibm_db
 import psycopg2.extras
 

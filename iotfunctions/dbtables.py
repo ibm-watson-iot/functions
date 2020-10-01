@@ -9,14 +9,15 @@
 # *****************************************************************************
 
 import logging
-import ibm_db
+import os
 from pathlib import Path
+
+import dill as pickle
+import ibm_db
+import pandas as pd
+import psycopg2
 import pyarrow
 import pyarrow.parquet
-import pandas as pd
-import os
-import psycopg2
-import dill as pickle
 
 from iotfunctions import dbhelper
 
@@ -242,9 +243,9 @@ class DBDataCache:
 
         # Assemble filename and full pathname of cache file
         if old_name is False:
-            filename = '%s__%s__%s' % (DBDataCache.CACHE_FILE_STEM,
-                                       str(dep_grain[3]) if dep_grain is not None else str(None),
-                                       str(grain[3]) if grain is not None else str(None))
+            filename = '%s__%s__%s' % (
+                DBDataCache.CACHE_FILE_STEM, str(dep_grain[3]) if dep_grain is not None else str(None),
+                str(grain[3]) if grain is not None else str(None))
             local_path = '%s/%s' % (base_path, filename)
         else:
             src = '%s_%s_%s' % (
@@ -317,22 +318,21 @@ class DBDataCache:
                 finally:
                     ibm_db.free_result(stmt)
             except Exception as ex:
-                raise Exception('Deletion of cache file %s failed with sql statement "%s"' % (cache_filename,
-                                                                                              sql_statement)) from ex
+                raise Exception('Deletion of cache file %s failed with sql statement "%s"' % (
+                    cache_filename, sql_statement)) from ex
         else:
             sql_statement = "DELETE FROM %s.%s" % (self.quoted_schema, self.quoted_cache_tablename)
             sql_statement += ' where entity_type_id = %s and parquet_name = %s'
 
             try:
-                dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement, (self.entity_type_id,
-                                                                                       cache_filename))
+                dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement,
+                                                   (self.entity_type_id, cache_filename))
             except Exception as ex:
-                raise Exception('Deletion of cache file %s failed with sql statement %s' % (cache_filename,
-                                                                                            sql_statement)) from ex
+                raise Exception(
+                    'Deletion of cache file %s failed with sql statement %s' % (cache_filename, sql_statement)) from ex
 
-        logger.info('Cache file %s has been deleted from table %s.%s' % (cache_filename,
-                                                                         self.quoted_schema,
-                                                                         self.quoted_cache_tablename))
+        logger.info('Cache file %s has been deleted from table %s.%s' % (
+            cache_filename, self.quoted_schema, self.quoted_cache_tablename))
 
     def delete_all_caches(self):
         # Delete all cache entries for this entity type locally
