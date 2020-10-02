@@ -8,34 +8,36 @@
 #
 # *****************************************************************************
 
-import os
-import datetime as dt
-from time import time
-import logging
-import urllib3
-import json
-import inspect
-import sys
-import importlib
 import datetime
-import pandas as pd
+import datetime as dt
+import importlib
+import inspect
+import json
+import logging
+import os
 import subprocess
-from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
-    func, and_, or_
-from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN, NullType
-from sqlalchemy.sql import select
-from sqlalchemy.orm.session import sessionmaker
-from sqlalchemy.exc import NoSuchTableError
-from sqlalchemy import __version__ as sqlalchemy_version_string
-import psycopg2
+import sys
+from time import time
+
 import ibm_db
 import ibm_db_dbi
-from .util import CosClient, resample, reset_df_index
+import pandas as pd
+import psycopg2
+import urllib3
+from pandas.api.types import is_string_dtype, is_bool_dtype
+from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
+    func, and_, or_
+from sqlalchemy import __version__ as sqlalchemy_version_string
+from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.orm.session import sessionmaker
+from sqlalchemy.sql import select
+from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN, NullType
+
+from . import dbtables
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
-from . import dbtables
+from .util import CosClient, resample, reset_df_index
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -50,7 +52,7 @@ except ImportError:
 
 
 class Database(object):
-    '''
+    """
     Use Database objects to establish database connectivity, manage database metadata and sessions, build queries and write DataFrames to tables.
 
     Parameters:
@@ -61,7 +63,7 @@ class Database(object):
         Start a session when establishing connection
     echo: bool
         Output sql to log
-    '''
+    """
 
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
     bif_sql = "V1000-18.sql"
@@ -140,8 +142,8 @@ class Database(object):
                 db2_creds['databaseName'] = credentials['database']
                 db2_creds['username'] = credentials['username']
                 self.credentials['db2'] = db2_creds
-                logger.warning(
-                    'Old style credentials still work just fine, but will be depreciated in the future. Check the usage section of the UI for the updated credentials dictionary')
+                logger.warning('Old style credentials still work just fine, but will be depreciated in the future. '
+                               'Check the usage section of the UI for the updated credentials dictionary')
                 self.credentials['as'] = credentials
         else:
             try:
@@ -548,9 +550,9 @@ class Database(object):
         return (alias_column, col, agg_function)
 
     def _is_not_null(self, table, dimension_table, column):
-        '''
+        """
         build an is not null condition for the column pointing to the table or dimension table
-        '''
+        """
 
         try:
             return (self.get_column_object(table, column)).isnot(None)  # return table.c[column].isnot(None)
@@ -580,9 +582,17 @@ class Database(object):
 
         return query
 
+    def check_row_count_limit(self, query, row_limit=None):
+        row_count = query.count()
+        logger.debug('Total no. of rows fetched {} by query {}'.format(row_count, str(query.statement)))
+        limit = int(row_limit) if row_limit is not None and row_limit.isdigit() else 10 ** 6
+        if row_count > limit:
+            return True, row_count
+        return False, row_count
+
     def calc_time_interval(self, start_ts, end_ts, period_type, period_count):
 
-        '''
+        """
 
         Infer a missing start or end date from a number of periods and a period type.
         If a start_date is provided, calculate the end date
@@ -594,7 +604,7 @@ class Database(object):
         :param period_count: float
         :return: tuple (start_ts,end_ts)
 
-        '''
+        """
 
         if period_type == 'mtd':
             if end_ts is None:
@@ -661,25 +671,25 @@ class Database(object):
         return ret
 
     def commit(self):
-        '''
+        """
         Commit the active session
-        '''
+        """
         if not self.session is None:
             self.session.commit()
             self.session.close()
             self.session = None
 
     def create(self, tables=None, checkfirst=True):
-        '''
+        """
         Create database tables for logical tables defined in the database metadata
-        '''
+        """
 
         self.metadata.create_all(tables=tables, checkfirst=checkfirst)
 
     def cos_create_bucket(self, bucket=None):
-        '''
+        """
         Create a bucket in cloud object storage
-        '''
+        """
 
         if bucket is None:
             logger.debug('Not able to CREATE the bucket. A name should be provided.')
@@ -692,9 +702,9 @@ class Database(object):
         return ret
 
     def delete_data(self, table_name, schema=None, timestamp=None, older_than_days=None):
-        '''
+        """
         Delete data from table. Optional older_than_days parameter deletes old data only.
-        '''
+        """
         try:
             table = self.get_table(table_name, schema=schema)
         except KeyError:
@@ -746,10 +756,10 @@ class Database(object):
         job.execute()
 
     def get_as_datatype(self, column_object):
-        '''
+        """
         Get the datatype of a sql alchemy column object and convert it to an
         AS server datatype string
-        '''
+        """
 
         data_type = column_object.type
 
@@ -778,10 +788,10 @@ class Database(object):
         return (package, module, class_name)
 
     def get_entity_type(self, name):
-        '''
+        """
         Get an EntityType instance by name. Name may be the logical name shown in the UI or the table name.'
 
-        '''
+        """
         metadata = None
         try:
             metadata = self.entity_type_metadata[name]
@@ -818,9 +828,9 @@ class Database(object):
         return entity
 
     def get_table(self, table_name, schema=None):
-        '''
+        """
         Get sql alchemchy table object for table name
-        '''
+        """
 
         if not table_name is None:
 
@@ -914,7 +924,7 @@ class Database(object):
         return [column.key for column in table.columns]
 
     def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False, ):
-        '''
+        """
         Make an api call to AS.
 
         Warning: This is a low level API that closley maps to the AS Server API.
@@ -934,7 +944,7 @@ class Database(object):
         payload : dict
             Dictionary will be encoded as JSON
 
-        '''
+        """
         if object_name is None:
             object_name = ''
         if payload is None:
@@ -973,6 +983,8 @@ class Database(object):
 
         self.url[('engineInput', 'GET')] = '/'.join(
             [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+        self.url[('engineInputByEntityId', 'GET')] = '/'.join(
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'engineInput', object_name])
 
         self.url[('function', 'GET')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
@@ -1047,9 +1059,9 @@ class Database(object):
         return response
 
     def if_exists(self, table_name, schema=None):
-        '''
+        """
         Return True if table exists in the database
-        '''
+        """
         try:
             self.get_table(table_name, schema)
         except KeyError:
@@ -1058,9 +1070,9 @@ class Database(object):
         return True
 
     def install_package(self, url):
-        '''
+        """
         Install python package located at URL
-        '''
+        """
 
         msg = 'running pip install for url %s' % url
         logger.debug(msg)
@@ -1086,10 +1098,10 @@ class Database(object):
                 raise ImportError('pip install for url %s failed: \n %s.', url, completedProcess.stdout)
 
     def import_target(self, package, module, target, url=None):
-        '''
+        """
         from package.module import target
         if a url is specified import missing packages
-        '''
+        """
 
         if module is not None:
             impstr = 'from %s.%s import %s' % (package, module, target)
@@ -1114,13 +1126,13 @@ class Database(object):
             return (target, 'ok')
 
     def load_catalog(self, install_missing=True, unregister_invalid_target=False, function_list=None):
-        '''
+        """
         Import all functions from the AS function catalog.
 
         Returns:
         --------
         dict keyed on function name
-        '''
+        """
 
         result = {}
 
@@ -1189,13 +1201,13 @@ class Database(object):
         return fn
 
     def subquery_join(self, left_query, right_query, *args, **kwargs):
-        '''
+        """
         Perform an equijoin between two sql alchemy query objects, filtering the left query by the keys in the right query
         args are the names of the keys to join on, e.g 'deviceid', 'timestamp'.
         Use string args for joins on common names. Use tuples like ('timestamp','evt_timestamp') for joins on different column names.
         By default the join acts as a filter. It does not return columns from the right query. To return a custom projection list
         specify **kwargs as a dict keyed on column name with an alias names.
-        '''
+        """
         left_query = left_query.subquery('a')
         right_query = right_query.subquery('b')
         joins = []
@@ -1228,13 +1240,13 @@ class Database(object):
         return result_query
 
     def subquery_join_with_filters(self, left_query, right_query, filters, table, *args, **kwargs):
-        '''
+        """
         Perform an equijoin between two sql alchemy query objects, filtering the left query by the keys in the right query
         args are the names of the keys to join on, e.g 'deviceid', 'timestamp'.
         Use string args for joins on common names. Use tuples like ('timestamp','evt_timestamp') for joins on different column names.
         By default the join acts as a filter. It does not return columns from the right query. To return a custom projection list
         specify **kwargs as a dict keyed on column name with an alias names.
-        '''
+        """
         left_query = left_query.subquery('a')
         right_query = right_query.subquery('b')
         joins = []
@@ -1286,9 +1298,9 @@ class Database(object):
                 con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2; dirty read does not exist for postgres
 
     def start_session(self):
-        '''
+        """
         Start a database session.
-        '''
+        """
         if self.session is None:
             self.session = self.Session()
 
@@ -1308,14 +1320,14 @@ class Database(object):
 
     def read_dimension(self, dimension, schema, entities=None, columns=None, parse_dates=None):
 
-        '''
+        """
 
         Read a dimension table. Return a dataframe.
         Optionally filter on a list of entity ids.
         Optionally specify specific column names
         Optionally specify date columns to parse
 
-        '''
+        """
 
         df = self.read_table(table_name=dimension, schema=schema, entities=entities, columns=columns,
                              parse_dates=parse_dates)
@@ -1324,7 +1336,7 @@ class Database(object):
 
     def read_table(self, table_name, schema, parse_dates=None, columns=None, timestamp_col=None, start_ts=None,
                    end_ts=None, entities=None, dimension=None):
-        '''
+        """
         Read whole table and return as dataframe
 
         Parameters
@@ -1349,7 +1361,7 @@ class Database(object):
             Column names to parse as dates
 
 
-        '''
+        """
         q, table = self.query(table_name, schema=schema, column_names=columns, column_aliases=columns,
                               timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
@@ -1397,7 +1409,7 @@ class Database(object):
     def read_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
                  dimension=None, start_ts=None, end_ts=None, period_type='days', period_count=1, entities=None,
                  to_csv=False, filters=None, deviceid_col='deviceid'):
-        '''
+        """
         Pandas style aggregate function against db table
 
         Parameters
@@ -1424,7 +1436,7 @@ class Database(object):
             Keyed on dimension name. List of members.
         deviceid_col: str
             Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
-        '''
+        """
 
         # process special aggregates (first and last)
 
@@ -1496,12 +1508,12 @@ class Database(object):
         return df
 
     def register_constants(self, constants, raise_error=True):
-        '''
+        """
         Register one or more server properties that can be used as entity type
         properties in the AS UI
 
         Constants are UI objects.
-        '''
+        """
 
         if not isinstance(constants, list):
             constants = [constants]
@@ -1520,9 +1532,9 @@ class Database(object):
                           raise_error=True)
 
     def register_functions(self, functions, url=None, raise_error=True, force_preinstall=False):
-        '''
+        """
         Register one or more class for use with AS
-        '''
+        """
 
         if not isinstance(functions, list):
             functions = [functions]
@@ -1649,9 +1661,9 @@ class Database(object):
         return sql
 
     def register_module(self, module, url=None, raise_error=True, force_preinstall=False):
-        '''
+        """
         Register all of the functions contained within a python module
-        '''
+        """
 
         registered = set()
         sql = ''
@@ -1699,7 +1711,7 @@ class Database(object):
     def process_special_agg(self, table_name, schema, agg_dict, timestamp, agg_outputs=None, groupby=None,
                             time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None, filters=None,
                             deviceid_col='deviceid'):
-        '''
+        """
         Strip out the special aggregates (first and last) from the an agg
         dict and execute each as separate query.
 
@@ -1733,7 +1745,7 @@ class Database(object):
         agg_outputs: dict
         df: dataframe
 
-        '''
+        """
 
         if agg_outputs is None:
             agg_outputs = {}
@@ -1874,39 +1886,39 @@ class Database(object):
         return (agg_dict, agg_outputs, df)
 
     def _ts_col_rounded_to_minutes(self, table_name, schema, column_name, minutes, label):
-        '''
+        """
         Returns a column expression that rounds the timestamp to the specified number of minutes
-        '''
+        """
 
         a = self.get_table(table_name, schema)
         # col = a.c[column_name]
         col = self.get_column_object(a, column_name)
         exp = func.date_trunc('minute', col)
-        '''
+        """
         hour = func.add_hours(func.timestamp(func.date(col)), func.hour(col))
         min_col = (func.minute(col) / minutes) * minutes
         exp = (func.add_minutes(hour, min_col)).label(label)
-        '''
+        """
         return exp
 
     def _ts_col_rounded_to_hours(self, table_name, schema, column_name, hours, label):
-        '''
+        """
         Returns a column expression that rounds the timestamp to the specified number of minutes
-        '''
+        """
         a = self.get_table(table_name, schema)
         # col = a.c[column_name]
         col = self.get_column_object(a, column_name)
         exp = func.date_trunc('hour', col)
-        '''
+        """
         date_col = func.timestamp(func.date(col))
         hour_col = (func.hour(col) / hours) * hours
         exp = (func.add_hours(date_col, hour_col)).label(label)
-        '''
+        """
         return exp
 
     def query(self, table_name, schema, column_names=None, column_aliases=None, timestamp_col=None, start_ts=None,
               end_ts=None, entities=None, dimension=None, filters=None, deviceid_col='deviceid'):
-        '''
+        """
         Build a sqlalchemy query object for a table. You can further manipulate the query object using standard
         sqlalchemcy operations to do things like filter and join.
 
@@ -1935,7 +1947,7 @@ class Database(object):
         Returns
         -------
         tuple containing a sqlalchemy query object and a sqlalchemy table object
-        '''
+        """
 
         if filters is None:
             filters = {}
@@ -2013,7 +2025,7 @@ class Database(object):
             elif len(members) == 0:
                 logger.debug('Ignored query filter on %s with no members', d)
             else:
-                query = query.filter(col_obj.in_(members[0]))
+                query = query.filter(col_obj.in_(members))
 
         logger.debug('query statement: %s', query)
 
@@ -2066,7 +2078,7 @@ class Database(object):
                   dimension=None, start_ts=None, end_ts=None, entities=None, auto_null_filter=False, filters=None,
                   deviceid_col='deviceid', kvp_device_id_col='entity_id', kvp_key_col='key',
                   kvp_timestamp_col='timestamp'):
-        '''
+        """
         Pandas style aggregate function against db table
 
         Parameters
@@ -2091,7 +2103,7 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         deviceid_col: str
             Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
-        '''
+        """
 
         if agg_outputs is None:
             agg_outputs = {}
@@ -2297,7 +2309,7 @@ class Database(object):
                 elif len(members) == 0:
                     logger.debug('Ignored query filter on %s with no members', d)
                 else:
-                    subquery = subquery.filter(col_obj.in_(members[0]))
+                    subquery = subquery.filter(col_obj.in_(members))
 
             if auto_null_filter:
                 subquery = subquery.filter(or_(*metric_filter))
@@ -2329,7 +2341,7 @@ class Database(object):
                           time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None,
                           auto_null_filter=False, filters=None, deviceid_col='deviceid', kvp_device_id_col='entity_id',
                           kvp_key_col='key', kvp_timestamp_col='timestamp', item=None):
-        '''
+        """
         Pandas style aggregate function against db table
 
         Parameters
@@ -2354,7 +2366,7 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         deviceid_col: str
             Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
-        '''
+        """
 
         if agg_outputs is None:
             agg_outputs = {}
@@ -2560,7 +2572,7 @@ class Database(object):
                 elif len(members) == 0:
                     logger.debug('Ignored query filter on %s with no members', d)
                 else:
-                    subquery = subquery.filter(col_obj.in_(members[0]))
+                    subquery = subquery.filter(col_obj.in_(members))
 
             if auto_null_filter:
                 subquery = subquery.filter(or_(*metric_filter))
@@ -2594,7 +2606,7 @@ class Database(object):
 
     def query_column_aggregate(self, table_name, schema, column, aggregate, start_ts=None, end_ts=None, entities=None):
 
-        '''
+        """
         Perform a single aggregate operation against a table to return a scalar value
 
         Parameters
@@ -2613,7 +2625,7 @@ class Database(object):
             Retrieve data up until date
         entities: list of strs
             Retrieve data for a list of deviceids
-        '''
+        """
 
         agg_dict = {column: aggregate}
 
@@ -2628,9 +2640,9 @@ class Database(object):
 
     def query_time_agg(self, table_name, schema, column, regular_agg, time_agg, groupby=None, timestamp=None,
                        time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None, output_item=None):
-        '''
+        """
         Build a query with separate aggregation functions for regular rollup and timestate rollup.
-        '''
+        """
 
         if isinstance(groupby, str):
             groupby = [groupby]
@@ -2649,8 +2661,8 @@ class Database(object):
                                                                                          entities=entities)
 
         if pandas_aggregate:
-            raise ValueError(
-                'Attempting to db time aggregation on a query cannot be pushed to the database. Perform the time aggregation in Pandas.')
+            raise ValueError('Attempting to db time aggregation on a query cannot be pushed to the database. '
+                             'Perform the time aggregation in Pandas.')
 
         if time_agg == 'first':
             time_agg_dict = {timestamp: "min"}
@@ -2680,9 +2692,9 @@ class Database(object):
         return (query, table)
 
     def unregister_functions(self, function_names):
-        '''
+        """
         Unregister functions by name. Accepts a list of function names.
-        '''
+        """
         if not isinstance(function_names, list):
             function_names = [function_names]
 
@@ -2696,9 +2708,9 @@ class Database(object):
             logger.debug(msg)
 
     def unregister_constants(self, constant_names):
-        '''
+        """
         Unregister constants by name.
-        '''
+        """
 
         if not isinstance(constant_names, list):
             constant_names = [constant_names]
@@ -2716,7 +2728,7 @@ class Database(object):
 
     def write_frame(self, df, table_name, version_db_writes=False, if_exists='append', timestamp_col=None, schema=None,
                     chunksize=None, auto_index_name='_auto_index_'):
-        '''
+        """
         Write a dataframe to a database table
 
         Parameters
@@ -2735,7 +2747,7 @@ class Database(object):
         -----------
         numerical status. 1 for successful write.
 
-        '''
+        """
 
         if chunksize is None:
             chunksize = self.write_chunk_size
@@ -2775,8 +2787,8 @@ class Database(object):
                 cols = [column.key for column in table.columns]
                 extra_cols = set([x for x in df.columns if x != 'index']) - set(cols)
                 if len(extra_cols) > 0:
-                    logger.warning(
-                        'Dataframe includes column/s %s that are not present in the table. They will be ignored.' % extra_cols)
+                    logger.warning('Dataframe includes column/s %s that are not present in the table. '
+                                   'They will be ignored.' % extra_cols)
                 try:
                     df = df[cols]
                 except KeyError:
@@ -2911,9 +2923,9 @@ class BaseTable(object):
             self.database.session.close()
 
     def set_params(self, **params):
-        '''
+        """
         Set parameters based using supplied dictionary
-        '''
+        """
         for key, value in list(params.items()):
             setattr(self, key, value)
         return self

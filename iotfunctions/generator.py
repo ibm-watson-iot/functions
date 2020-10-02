@@ -8,22 +8,24 @@
 #
 # *****************************************************************************
 
-'''
+"""
 The Built In Functions module contains preinstalled functions
-'''
+"""
+
+# import re
+# import pandas as pd
+import logging
 
 # import datetime as dt
 # import time
 # from collections import OrderedDict
 import numpy as np
-# import re
-# import pandas as pd
-import logging
-# import warnings
-# from sqlalchemy import String
 
 from .base import (BaseTransformer)
 from .ui import (UISingle, UIFunctionOutSingle, UISingleItem)
+
+# import warnings
+# from sqlalchemy import String
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -211,9 +213,9 @@ class AnomalyGenerator(BaseTransformer):
 
 
 class AnomalyGeneratorExtremeValue(AnomalyGenerator):
-    '''
+    """
     This function generates extreme anomaly.
-    '''
+    """
 
     def __init__(self, input_item, factor, size, output_item):
         super().__init__()
@@ -292,9 +294,9 @@ class AnomalyGeneratorExtremeValue(AnomalyGenerator):
 
 
 class AnomalyGeneratorNoData(AnomalyGenerator):
-    '''
+    """
     This function generates nodata anomaly.
-    '''
+    """
 
     def __init__(self, input_item, width, factor, output_item):
         super().__init__()
@@ -369,9 +371,9 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
 
 
 class AnomalyGeneratorFlatline(AnomalyGenerator):
-    '''
+    """
     This function generates flatline anomaly.
-    '''
+    """
 
     def __init__(self, input_item, width, factor, output_item):
         super().__init__()

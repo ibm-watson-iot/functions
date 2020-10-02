@@ -10,8 +10,8 @@
 
 import logging
 
-from .enginelog import EngineLogging
 from . import db
+from .enginelog import EngineLogging
 
 logger = logging.getLogger(__name__)
 

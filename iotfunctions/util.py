@@ -8,28 +8,28 @@
 #
 # *****************************************************************************
 
-import os
-import tempfile
-import dill as pickle
-import requests
 import datetime
+import datetime as dt
+import errno
 import hashlib
 import hmac
-import re
-import pandas as pd
-import random
-import string
+import json
 import logging
 import logging.config
-import errno
+import os
+import random
+import re
+import string
 import sys
-import json
+import tempfile
 import threading
-import datetime as dt
 import time
-
-from urllib.parse import quote, urlparse
 from base64 import b64encode
+from urllib.parse import quote, urlparse
+
+import dill as pickle
+import pandas as pd
+import requests
 from lxml import etree
 
 logger = logging.getLogger(__name__)
@@ -60,10 +60,12 @@ MH_BROKERS_SASL = os.environ.get('MH_BROKERS_SASL')
 MH_DEFAULT_ALERT_TOPIC = os.environ.get('MH_DEFAULT_ALERT_TOPIC')
 MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 
+UNIQUE_EXTENSION_LABEL = '_###IBM_Temporary###'
+
 
 def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
     logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
-        'simple': {'format': '%(asctime)s [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
+        'simple': {'format': '%(asctime)s [PID %(process)d] [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
                    'datefmt': '%Y-%m-%d %I:%M:%S %p'}}, 'handlers': {
         'console': {'class': 'logging.StreamHandler', 'formatter': 'simple', 'stream': 'ext://sys.stdout'},
         'file': {'class': 'logging.FileHandler', 'filename': 'main.log', 'mode': 'w', 'formatter': 'simple'}},
@@ -72,9 +74,9 @@ def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
 
 
 def adjust_probabilities(p_list):
-    '''
+    """
     Adjust a list of probabilties to ensure that they sum to 1
-    '''
+    """
 
     if p_list is None or len(p_list) == 0:
         out = None
@@ -91,7 +93,7 @@ def adjust_probabilities(p_list):
 
 
 def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calendar_keys=None, ):
-    '''
+    """
     Build a pandas grouper from columns and frequecy metadata.
 
     Parameters
@@ -115,7 +117,7 @@ def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calen
     column names for the custom calendar keys to be included in group by
     e.g. ['shift']
 
-    '''
+    """
 
     grouper = []
 
@@ -133,7 +135,7 @@ def build_grouper(freq, timestamp, entity_id=None, dimensions=None, custom_calen
 
 
 def categorize_args(categories, catch_all, *args):
-    '''
+    """
     Separate objects passed as arguments into a dictionary of categories
 
     members of categories are identified by a bool property or by
@@ -145,7 +147,7 @@ def categorize_args(categories, catch_all, *args):
                   ('granularity','is_granularity',None),
                   ('function','is_function',None),
                   ('column',None,Column)]
-    '''
+    """
 
     meta = {}
     if catch_all is not None:
@@ -178,9 +180,9 @@ def categorize_args(categories, catch_all, *args):
 
 
 def compare_dataframes(dfl, dfr, cols=None):
-    '''
+    """
     Explain the differences between 2 dataframes
-    '''
+    """
 
     if cols is None:
         cols = list(dfl.columns)
@@ -220,9 +222,9 @@ def compare_dataframes(dfl, dfr, cols=None):
 
 
 def reset_df_index(df, auto_index_name='_auto_index_'):
-    '''
+    """
     Reset the data dataframe index. Ignore duplicate columns.
-    '''
+    """
 
     # if the dataframe has an auto index, do not place it in the dataframe
     if len([x for x in df.index.names if x is not None]) > 0:
@@ -254,7 +256,7 @@ def reset_df_index(df, auto_index_name='_auto_index_'):
 
 
 def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_aggregate='last'):
-    '''
+    """
     Resample a dataframe to a new time grain / dimensional grain
 
     Parameters:
@@ -274,7 +276,7 @@ def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_a
     -------
     Pandas dataframe
 
-    '''
+    """
     if dimensions is None:
         dimensions = []
     if agg is None:
@@ -301,11 +303,11 @@ def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_a
 
 
 def freq_to_timedelta(freq):
-    '''
+    """
     The pandas to_timedelta does not handle the full set of
     set of pandas frequency abreviations. Convert to supported
     abreviation and the use to_timedelta.
-    '''
+    """
     try:
         freq = freq.replace('T', 'min')
     except AttributeError:
@@ -319,9 +321,9 @@ def randomword(length):
 
 
 def cosSave(obj, bucket, filename, credentials):
-    '''
+    """
     Use IAM credentials to write an object to Cloud Object Storage
-    '''
+    """
     try:
         fhandle, fname = tempfile.mkstemp("cosfile")
         os.close(fhandle)
@@ -337,9 +339,9 @@ def cosSave(obj, bucket, filename, credentials):
 
 
 def cosLoad(bucket, filename, credentials):
-    '''
+    """
     Use IAM credentials to read an object from Cloud Object Storage
-    '''
+    """
     try:
         fhandle, fname = tempfile.mkstemp("cosfile")
         os.close(fhandle)
@@ -356,9 +358,9 @@ def cosLoad(bucket, filename, credentials):
 
 
 def getCosTransferAgent(credentials):
-    '''
+    """
     Use IAM credentials to obtain a Cloud Object Storage transfer agent object
-    '''
+    """
     if IBMBOTO_INSTALLED:
         endpoints = requests.get(credentials.get('endpoints')).json()
         iam_host = (endpoints['identity-endpoints']['iam-token'])
@@ -372,15 +374,14 @@ def getCosTransferAgent(credentials):
                                endpoint_url=service_endpoint)
         return S3Transfer(cos)
     else:
-        raise ValueError(
-            'Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed.\
+        raise ValueError('Attempting to use IAM credentials to communicate with COS. IBMBOTO is not installed.\
              You make use HMAC credentials and the CosClient instead.')
 
 
 def get_index_names(df):
-    '''
+    """
     Get names from either single or multi-part index
-    '''
+    """
 
     if df.index.name is not None:
         df_index_names = [df.index.name]
@@ -393,12 +394,12 @@ def get_index_names(df):
 
 
 def infer_data_items(expressions):
-    '''
+    """
     Examine a pandas expression or list of expressions. Identify data items
     in the expressions by looking for df['<data_item>'].
 
     Returns as set of strings.
-    '''
+    """
     if not isinstance(expressions, list):
         expressions = [expressions]
     regex1 = "df\[\'(.+?)\'\]"
@@ -411,11 +412,11 @@ def infer_data_items(expressions):
 
 
 def get_fn_expression_args(function_metadata, kpi_metadata):
-    '''
+    """
     Examine a functions metadata dictionary. Identify data items used
     in any expressions that the function has.
 
-    '''
+    """
 
     expressions = []
     args = kpi_metadata.get('input', {})
@@ -446,10 +447,10 @@ def get_fn_scope_sources(scope_key, kpi):
 
 
 def is_df_mergeable(transformed_df, original_df):
-    '''
+    """
     Only merge if the two dataframes have same number of rows and
     transformed dataframe has all the columns from the original dataframe
-    '''
+    """
     is_mergeable = False
     if original_df.shape[0] == transformed_df.shape[0] and set(original_df.index).issubset(transformed_df.index):
         is_mergeable = True
@@ -457,13 +458,13 @@ def is_df_mergeable(transformed_df, original_df):
 
 
 def log_df_info(df, msg, include_data=False):
-    '''
+    """
     Log a debugging entry showing first row and index structure
-    '''
+    """
     try:
-        msg = msg + ' df count: %s ' % (len(df.index))
+        msg = msg + ' ; df row count: %s ' % (len(df.index))
         if df.index.names != [None]:
-            msg = msg + ' ; index: %s ' % (','.join(df.index.names))
+            msg = msg + ' ; index: { %s } ' % (' , '.join(df.index.names))
         else:
             msg = msg + ' ; index is unnamed'
         if include_data:
@@ -475,7 +476,7 @@ def log_df_info(df, msg, include_data=False):
             except AttributeError:
                 msg = msg + str(df.head(1))
         else:
-            msg = msg + ' ; columns: %s' % (','.join(list(df.columns)))
+            msg = msg + ' ; columns: { %s }' % (' , '.join(list(df.columns)))
         logger.debug(msg)
         return msg
     except Exception:
@@ -490,9 +491,9 @@ def asList(x):
 
 
 class CosClient:
-    '''
+    """
     Cloud Object Storage client
-    '''
+    """
 
     def __init__(self, credentials):
         self._cod_hmac_access_key_id = credentials['objectStorage']['username']
@@ -556,8 +557,7 @@ class CosClient:
         # signed_headers = 'host;x-amz-content-sha256;x-amz-date'
 
         standardized_request = (
-                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' +
-                standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
+                http_method + '\n' + standardized_resource + '\n' + standardized_querystring + '\n' + standardized_headers + '\n' + signed_headers + '\n' + payload_hash)
 
         # logging.debug('standardized_request=\n%s' % standardized_request)
 
@@ -577,8 +577,7 @@ class CosClient:
 
         # assemble all elements into the 'authorization' header
         v4auth_header = (
-                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' +
-                credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
+                hashing_algorithm + ' ' + 'Credential=' + self._cod_hmac_access_key_id + '/' + credential_scope + ', ' + 'SignedHeaders=' + signed_headers + ', ' + 'Signature=' + signature)
 
         # logging.debug('v4auth_header=\n%s' % v4auth_header)
 
@@ -664,9 +663,9 @@ class CosClient:
 
 
 class MemoryOptimizer:
-    '''
+    """
     Util class used to optimize the pipeline memory consumption using native Pandas downcasting
-    '''
+    """
 
     def printCurrentMemoryConsumption(self, df):
         logger.info('Memory consumed by the data frame: \n %s' % df.memory_usage(deep=True))
@@ -715,11 +714,11 @@ class MemoryOptimizer:
         return df_new
 
     def getColumnsForCategorization(self, df, threshold=0.5):
-        '''
+        """
         It generates a list of columns that are elegible to be categorized.
         The column name is printed if the number of unique values is proportionally greater than 50% of the total number of rows.
         Threshold is customized.
-        '''
+        """
 
         df_new = df.select_dtypes(include=['object']).copy()
 
@@ -734,9 +733,9 @@ class MemoryOptimizer:
         return lst_columns
 
     def downcastString(self, df, lst_columns):
-        '''
+        """
         It converts a data frame column type object into a categorical type
-        '''
+        """
 
         logger.info('Applying downcast to String columns. %s' % str(lst_columns))
 
@@ -786,6 +785,7 @@ class MessageHub:
     def produce_batch(self, topic, key_and_msg):
         start_time = dt.datetime.now()
         if topic is None or len(topic) == 0 or key_and_msg is None:
+            logger.warning('Default alert topic name not present. Skipping alerts generation to the queues.')
             return
 
         counter = 0
@@ -847,9 +847,9 @@ class MessageHub:
                 raise
 
     def safe_open_w(self):
-        '''
+        """
         Open "MH_CA_CERT_PATH" for writing, creating the parent directories as needed.
-        '''
+        """
         self.mkdir_p(os.path.dirname(self.MH_CA_CERT_PATH))
         return open(self.MH_CA_CERT_PATH, 'w')
 
@@ -877,9 +877,9 @@ class MessageHub:
 
 
 class Trace(object):
-    '''
+    """
     Gather status and diagnostic information to report back in the UI
-    '''
+    """
 
     save_trace_to_file = False
 
@@ -930,9 +930,9 @@ class Trace(object):
         return (trace_name, cos_path)
 
     def get_stack_trace(self):
-        '''
+        """
         Extract stack trace entries. Return string.
-        '''
+        """
 
         stack_trace = ''
 
@@ -947,9 +947,9 @@ class Trace(object):
         return stack_trace
 
     def reset(self, object_name=None, execution_date=None, auto_save=None):
-        '''
+        """
         Clear trace information and rename trace
-        '''
+        """
         self.df_cols = set()
         self.df_index = set()
         self.df_count = 0
@@ -970,9 +970,9 @@ class Trace(object):
             self.auto_save_thread.start()
 
     def run_auto_save(self, stop_event):
-        '''
+        """
         Run auto save. Auto save is intended to be run in a separate thread.
-        '''
+        """
         last_trace = None
         next_autosave = dt.datetime.utcnow()
         while not stop_event.is_set():
@@ -986,9 +986,9 @@ class Trace(object):
         logger.debug('%s autosave thread has stopped', self.name)
 
     def save(self):
-        '''
+        """
         Write trace to COS
-        '''
+        """
         try:
             save_to_file = self.parent.save_trace_to_file
         except AttributeError:
@@ -1016,9 +1016,9 @@ class Trace(object):
         return trace
 
     def stop(self):
-        '''
+        """
         Stop autosave thead
-        '''
+        """
         self.auto_save = None
         if self.stop_event is not None:
             self.stop_event.set()
@@ -1028,9 +1028,9 @@ class Trace(object):
             logger.debug('Stopping autosave on trace %s', self.name)
 
     def update_last_entry(self, msg=None, log_method=None, df=None, **kw):
-        '''
+        """
         Update the last trace entry. Include the contents of **kw.
-        '''
+        """
         kw['updated'] = dt.datetime.utcnow()
 
         self.usage = self.usage + kw.get('usage', 0)
@@ -1118,9 +1118,9 @@ class Trace(object):
                 logger.warning(stack_trace)
 
     def write_usage(self, db, start_ts=None, end_ts=None):
-        '''
+        """
         Write usage stats to the usage log
-        '''
+        """
 
         usage_logged = False
         msg = 'No db object provided. Did not write usage'
@@ -1161,9 +1161,9 @@ class Trace(object):
 
     def _df_as_dict(self, df):
 
-        '''
+        """
         Gather stats about changes to the dataframe between trace entries
-        '''
+        """
 
         data = {}
         if df is None:
