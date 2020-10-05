@@ -91,6 +91,11 @@ def min_delta(df):
 
 
 def set_window_size_and_overlap(windowsize, trim_value=2 * DefaultWindowSize):
+
+    # make sure it exists
+    if windowsize is None:
+        windowsize = DefaultWindowSize
+
     # make sure it is positive and not too large
     trimmed_ws = np.minimum(np.maximum(windowsize, 1), trim_value)
 

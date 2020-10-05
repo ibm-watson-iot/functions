@@ -2673,7 +2673,7 @@ class BaseEstimatorFunction(BaseTransformer):
                 if self.is_scaler:
                     df[model.col_name] = 0
                     df[model.col_name] = model.transform(df)
-                elif model.col_name_stddev is not None:
+                elif hasattr(model, col_name_stddev) and model.col_name_stddev is not None:
                     df[model.col_name], df[model.col_name_stddev] = model.predict_with_std_dev(df)
                 else:
                     df[model.col_name] = model.predict(df)
