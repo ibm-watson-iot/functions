@@ -32,12 +32,8 @@ from sklearn import metrics
 from sklearn.covariance import MinCovDet
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler, minmax_scale
-# from scipy.stats import energy_distance
 from sklearn.utils import check_array
 
-# import warnings
-# import json
-# from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
@@ -53,7 +49,6 @@ FrequencySplit = 0.3
 DefaultWindowSize = 12
 SmallEnergy = 1e-20
 
-# KMeans_normalizer = 100 / 1.3
 KMeans_normalizer = 1
 Spectral_normalizer = 100 / 2.8
 FFT_normalizer = 1
@@ -66,7 +61,7 @@ def custom_resampler(array_like):
     if 'gap' not in dir():
         gap = 0
 
-    if (array_like.values.size > 0):
+    if array_like.values.size > 0:
         gap = 0
         return 0
     else:
@@ -96,6 +91,11 @@ def min_delta(df):
 
 
 def set_window_size_and_overlap(windowsize, trim_value=2 * DefaultWindowSize):
+
+    # make sure it exists
+    if windowsize is None:
+        windowsize = DefaultWindowSize
+
     # make sure it is positive and not too large
     trimmed_ws = np.minimum(np.maximum(windowsize, 1), trim_value)
 
@@ -103,7 +103,6 @@ def set_window_size_and_overlap(windowsize, trim_value=2 * DefaultWindowSize):
     if trimmed_ws == 1:
         ws_overlap = 0
     else:
-        # ws_overlap = trimmed_ws - np.maximum(trimmed_ws // DefaultWindowSize, 1)
         # larger overlap - half the window
         ws_overlap = trimmed_ws // 2
 
@@ -120,7 +119,6 @@ def dampen_anomaly_score(array, dampening):
     if dampening < 0.01:
         return array
 
-    # ToDo error testing for arrays of size <= 1
     if array.size <= 1:
         return array
 
@@ -285,7 +283,6 @@ class Interpolator(BaseTransformer):
         logger.debug(str(entities))
 
         df_copy[self.output_item] = 0
-        # df_copy.sort_index()   # NoOp
 
         # check data type
         if df_copy[self.input_item].dtype != np.float64:
@@ -327,12 +324,6 @@ class Interpolator(BaseTransformer):
                 try:
                     # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
                     #   extend it to cover the full original length
-
-                    # linear_interpolate = sp.interpolate.interp1d(
-                    #    time_series_temperature, temperature, kind='linear', fill_value='extrapolate')
-
-                    # temperatureII = merge_score(dfe, dfe_orig, self.output_item,
-                    #                       abs(linear_interpolate(np.arange(0, temperature.size, 1))), mindelta)
                     temperatureII = merge_score(dfe, dfe_orig, self.output_item, temperature, mindelta)
 
                 except Exception as e:
@@ -492,8 +483,6 @@ class Robust_Scaler(BaseEstimatorFunction):
 
         for entity in entities:
             # per entity - copy for later inplace operations
-            # dfe = df_copy.loc[[entity]].dropna(how='all')
-            # dfe = df_copy.loc[[entity]].copy()
             try:
                 check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
             except Exception as e:
@@ -502,11 +491,8 @@ class Robust_Scaler(BaseEstimatorFunction):
                 continue
 
             dfe = super()._execute(df_copy.loc[[entity]], entity)
-            print(df_copy.columns)
-            # for c in self.predictions:
             df_copy.loc[entity, self.predictions] = dfe[self.predictions]
-            # df_copy = df_copy.loc[[entity]] = dfe
-            print(df_copy.columns)
+
         return df_copy
 
     @classmethod
@@ -562,11 +548,8 @@ class MinMax_Scaler(BaseEstimatorFunction):
                 continue
 
             dfe = super()._execute(df_copy.loc[[entity]], entity)
-            print(df_copy.columns)
-            # for c in self.predictions:
             df_copy.loc[entity, self.predictions] = dfe[self.predictions]
-            # df_copy = df_copy.loc[[entity]] = dfe
-            print(df_copy.columns)
+
         return df_copy
 
     @classmethod
@@ -641,7 +624,6 @@ class SpectralAnomalyScore(BaseTransformer):
         logger.debug(str(entities))
 
         df_copy[self.output_item] = 0
-        # df_copy.sort_index()   # NoOp
 
         # check data type
         if df_copy[self.input_item].dtype != np.float64:
@@ -701,8 +683,6 @@ class SpectralAnomalyScore(BaseTransformer):
                     frequency_temperature[frequency_temperature == 0] = 1 / self.windowsize
 
                     signal_energy = np.dot(spectral_density_temperature.T, frequency_temperature)
-
-                    # np.linalg.norm(spectral_density_temperature, axis=0)
 
                     signal_energy[signal_energy < SmallEnergy] = SmallEnergy
                     inv_signal_energy = np.divide(np.ones(signal_energy.size), signal_energy)
@@ -915,7 +895,6 @@ class KMeansAnomalyScore(BaseTransformer):
                     continue
 
                 pred_score = cblofwin.decision_scores_.copy() * KMeans_normalizer
-                # np.savetxt('kmeans.csv', pred_score)
 
                 # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length
@@ -923,18 +902,12 @@ class KMeansAnomalyScore(BaseTransformer):
 
                 time_series_temperature = np.linspace(self.windowsize // 2, temperature.size - self.windowsize // 2 + 1,
                                                       temperature.size - diff)
-                #     temperature.size - self.windowsize + 1)
 
-                # time_series_temperature = np.linspace(diff // 2 + diff % 2, temperature.size - diff//2,
-                #                                      temperature.size - diff)
-
-                linear_interpolateK = sp.interpolate.interp1d(time_series_temperature, pred_score, kind='linear',
-                                                              fill_value='extrapolate')
+                linear_interpolate_k = sp.interpolate.interp1d(time_series_temperature, pred_score, kind='linear',
+                                                               fill_value='extrapolate')
 
                 zScoreII = merge_score(dfe, dfe_orig, self.output_item,
-                                       linear_interpolateK(np.arange(0, temperature.size, 1)), mindelta)
-
-                # np.savetxt('kmeans2.csv', zScoreII)
+                                       linear_interpolate_k(np.arange(0, temperature.size, 1)), mindelta)
 
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity, :], self.output_item] = zScoreII
@@ -1058,8 +1031,6 @@ class GeneralizedAnomalyScore(BaseTransformer):
             if temperature.size > self.windowsize:
                 logger.debug(str(temperature.size) + "," + str(self.windowsize))
 
-                # NN = GeneralizedAnomalyModel( base_learner=MinCovDet(), fit_function="fit",
-                #        predict_function="mahalanobis", score_sign=1,)
                 temperature -= np.mean(temperature, axis=0)
                 mcd = MinCovDet()
 
@@ -1069,10 +1040,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
                 pred_score = None
 
                 try:
-                    # NN.fit(slices)
                     mcd.fit(slices)
-
-                    # pred_score = NN.decision_function(slices).copy()
                     pred_score = mcd.mahalanobis(slices).copy() * self.normalizer
 
                 except ValueError as ve:
@@ -1084,7 +1052,6 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
                     dfe[self.output_item] = 0
                     #  this fails in the interpolation step
-                    # pred_score = np.zeros(slices.shape[0])
                     continue
 
                 except Exception as e:
@@ -1096,8 +1063,6 @@ class GeneralizedAnomalyScore(BaseTransformer):
                         slices.shape) + " failed in the fitting step with " + str(e))
                     continue
 
-                # np.savetxt(self.whoami + '.csv', pred_score)
-
                 # will break if pred_score is None
                 # length of timesTS, ETS and ets_zscore is smaller than half the original
                 #   extend it to cover the full original length
@@ -1105,29 +1070,18 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
                 time_series_temperature = np.linspace(self.windowsize // 2, temperature.size - self.windowsize // 2 + 1,
                                                       temperature.size - diff)
-                #     temperature.size - self.windowsize + 1)
 
-                # time_series_temperature = np.linspace(diff // 2 + diff % 2, temperature.size - diff//2,
-                #                                      temperature.size - diff)
-
-                print(self.whoami + '   Entity: ' + str(entity) + ', result shape: ' + str(
-                    time_series_temperature.shape) + ' score shape: ' + str(pred_score.shape) + ' input shape: ' + str(
-                    temperature.shape))
                 logger.debug(self.whoami + '   Entity: ' + str(entity) + ', result shape: ' + str(
                     time_series_temperature.shape) + ' score shape: ' + str(pred_score.shape))
 
-                # timesI = np.linspace(0, Size - 1, Size)
-                linear_interpolateK = sp.interpolate.interp1d(time_series_temperature, pred_score, kind="linear",
-                                                              fill_value="extrapolate")
+                linear_interpolate_k = sp.interpolate.interp1d(time_series_temperature, pred_score, kind="linear",
+                                                               fill_value="extrapolate")
 
-                # kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
-                gam_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
+                gam_scoreI = linear_interpolate_k(np.arange(0, temperature.size, 1))
 
                 dampen_anomaly_score(gam_scoreI, self.dampening)
 
                 zScoreII = merge_score(dfe, dfe_orig, self.output_item, gam_scoreI, mindelta)
-
-                # np.savetxt(self.whoami + '2.csv', zScoreII)
 
                 idx = pd.IndexSlice
                 df_copy.loc[idx[entity, :], self.output_item] = zScoreII
@@ -1196,7 +1150,6 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
             dfe[[self.input_item]] = 0
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
-            pass
 
         return dfe, temperature
 
@@ -1249,7 +1202,6 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
 
-        # return np.array(slicelist)
         return np.stack(slicelist, axis=0)
 
     def execute(self, df):
@@ -1305,7 +1257,6 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
 
-        # return np.array(slicelist)
         return np.stack(slicelist, axis=0)
 
     def execute(self, df):
@@ -1475,7 +1426,6 @@ class KMeansAnomalyScoreV2(Standard_Scaler):
                 return df_copy
 
             pred_score = cblofwin.decision_scores_.copy() * KMeans_normalizer
-            # np.savetxt('kmeans.csv', pred_score)
 
             # length of time_series_temperature, signal_energy and ets_zscore is smaller than half the original
             #   extend it to cover the full original length
@@ -1483,21 +1433,15 @@ class KMeansAnomalyScoreV2(Standard_Scaler):
 
             time_series_temperature = np.linspace(self.windowsize // 2, temperature.size - self.windowsize // 2 + 1,
                                                   temperature.size - diff)
-            #     temperature.size - self.windowsize + 1)
 
-            # time_series_temperature = np.linspace(diff // 2 + diff % 2, temperature.size - diff//2,
-            #                                      temperature.size - diff)
+            linear_interpolate_k = sp.interpolate.interp1d(time_series_temperature, pred_score, kind='linear',
+                                                           fill_value='extrapolate')
 
-            linear_interpolateK = sp.interpolate.interp1d(time_series_temperature, pred_score, kind='linear',
-                                                          fill_value='extrapolate')
-
-            zScoreII = merge_score(dfe, dfe_orig, self.output_item,
-                                   linear_interpolateK(np.arange(0, temperature.size, 1)), mindelta)
-
-            # np.savetxt('kmeans2.csv', zScoreII)
+            z_score_ii = merge_score(dfe, dfe_orig, self.output_item,
+                                     linear_interpolate_k(np.arange(0, temperature.size, 1)), mindelta)
 
             idx = pd.IndexSlice
-            df_copy.loc[idx[entity, :], self.output_item] = zScoreII
+            df_copy.loc[idx[entity, :], self.output_item] = z_score_ii
 
             return df_copy
 
@@ -1595,8 +1539,6 @@ class GeneralizedAnomalyScoreV2(Standard_Scaler):
         if temperature.size > self.windowsize:
             logger.debug(str(temperature.size) + "," + str(self.windowsize))
 
-            # NN = GeneralizedAnomalyModel( base_learner=MinCovDet(), fit_function="fit",
-            #        predict_function="mahalanobis", score_sign=1,)
             temperature -= np.mean(temperature, axis=0)
             mcd = MinCovDet()
 
@@ -1606,10 +1548,7 @@ class GeneralizedAnomalyScoreV2(Standard_Scaler):
             pred_score = None
 
             try:
-                # NN.fit(slices)
                 mcd.fit(slices)
-
-                # pred_score = NN.decision_function(slices).copy()
                 pred_score = mcd.mahalanobis(slices).copy() * self.normalizer
 
             except ValueError as ve:
@@ -1620,8 +1559,6 @@ class GeneralizedAnomalyScoreV2(Standard_Scaler):
                     slices.shape) + " failed in the fitting step with \"" + str(ve) + "\" - scoring zero")
 
                 dfe[self.output_item] = 0
-                #  this fails in the interpolation step
-                # pred_score = np.zeros(slices.shape[0])
                 return df_copy
 
             except Exception as e:
@@ -1633,8 +1570,6 @@ class GeneralizedAnomalyScoreV2(Standard_Scaler):
                     slices.shape) + " failed in the fitting step with " + str(e))
                 return df_copy
 
-            # np.savetxt(self.whoami + '.csv', pred_score)
-
             # will break if pred_score is None
             # length of timesTS, ETS and ets_zscore is smaller than half the original
             #   extend it to cover the full original length
@@ -1642,29 +1577,18 @@ class GeneralizedAnomalyScoreV2(Standard_Scaler):
 
             time_series_temperature = np.linspace(self.windowsize // 2, temperature.size - self.windowsize // 2 + 1,
                                                   temperature.size - diff)
-            #     temperature.size - self.windowsize + 1)
 
-            # time_series_temperature = np.linspace(diff // 2 + diff % 2, temperature.size - diff//2,
-            #                                      temperature.size - diff)
-
-            print(self.whoami + '   Entity: ' + str(entity) + ', result shape: ' + str(
-                time_series_temperature.shape) + ' score shape: ' + str(pred_score.shape) + ' input shape: ' + str(
-                temperature.shape))
             logger.debug(self.whoami + '   Entity: ' + str(entity) + ', result shape: ' + str(
                 time_series_temperature.shape) + ' score shape: ' + str(pred_score.shape))
 
-            # timesI = np.linspace(0, Size - 1, Size)
-            linear_interpolateK = sp.interpolate.interp1d(time_series_temperature, pred_score, kind="linear",
-                                                          fill_value="extrapolate")
+            linear_interpolate_k = sp.interpolate.interp1d(time_series_temperature, pred_score, kind="linear",
+                                                           fill_value="extrapolate")
 
-            # kmeans_scoreI = np.interp(timesI, timesTS, pred_score)
-            gam_scoreI = linear_interpolateK(np.arange(0, temperature.size, 1))
+            gam_scoreI = linear_interpolate_k(np.arange(0, temperature.size, 1))
 
             dampen_anomaly_score(gam_scoreI, self.dampening)
 
             zScoreII = merge_score(dfe, dfe_orig, self.output_item, gam_scoreI, mindelta)
-
-            # np.savetxt(self.whoami + '2.csv', zScoreII)
 
             idx = pd.IndexSlice
             df_copy.loc[idx[entity, :], self.output_item] = zScoreII
@@ -1718,7 +1642,6 @@ class FFTbasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
 
-        # return np.array(slicelist)
         return np.stack(slicelist, axis=0)
 
     @classmethod
@@ -1797,6 +1720,72 @@ class SaliencybasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
 # Regressors
 #######################################################################################
 
+class BayesRidgeRegressor(BaseEstimatorFunction):
+    """
+    Linear regressor based on a probabilistic model as provided by sklearn
+    """
+    eval_metric = staticmethod(metrics.r2_score)
+
+    # class variables
+    train_if_no_model = True
+    num_rounds_per_estimator = 3
+
+    def BRidgePipeline(self):
+        steps = [('scaler', StandardScaler()), ('bridge', linear_model.BayesianRidge(compute_score=True))]
+        return Pipeline(steps)
+
+    def set_estimators(self):
+        params = {}
+        self.estimators['bayesianridge'] = (self.BRidgePipeline, params)
+
+        logger.info('Bayesian Ridge Regressor start searching for best model')
+
+    def __init__(self, features, targets, predictions=None):
+        super().__init__(features=features, targets=targets, predictions=predictions, stddev=True)
+
+        self.experiments_per_execution = 1
+        self.auto_train = True
+        self.correlation_threshold = 0
+        self.stop_auto_improve_at = -2
+
+    def execute(self, df):
+
+        df_copy = df.copy()
+        entities = np.unique(df_copy.index.levels[0])
+        logger.debug(str(entities))
+
+        missing_cols = [x for x in self.predictions + self.pred_stddev if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        for entity in entities:
+            try:
+                check_array(df_copy.loc[[entity]][self.features].values)
+                dfe = super()._execute(df_copy.loc[[entity]], entity)
+                print(df_copy.columns)
+
+                df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+                df_copy.loc[entity, self.pred_stddev] = dfe[self.pred_stddev]
+
+                print(df_copy.columns)
+            except Exception as e:
+                logger.info('Bayesian Ridge regressor for entity ' + str(entity) + ' failed with: ' + str(e))
+                df_copy.loc[entity, self.predictions] = 0
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        return (inputs, outputs)
+
+
 class GBMRegressor(BaseEstimatorFunction):
     """
     Regressor based on gradient boosting method as provided by lightGBM
@@ -1812,7 +1801,6 @@ class GBMRegressor(BaseEstimatorFunction):
 
     def set_estimators(self):
         # gradient_boosted
-        # self.estimators['light_gradient_boosted_regressor'] = (lightgbm.LGBMRegressor, self.params)
         self.estimators['light_gradient_boosted_regressor'] = (self.GBMPipeline, self.params)
         logger.info('GBMRegressor start searching for best model')
 
@@ -1827,7 +1815,6 @@ class GBMRegressor(BaseEstimatorFunction):
         self.parameter_tuning_iterations = 1
         self.cv = 1
 
-        # if n_estimators is not None or num_leaves is not None or learning_rate is not None or max_depth is not None:
         if n_estimators is not None or num_leaves is not None or learning_rate is not None:
             self.params = {'gbm__n_estimators': [n_estimators], 'gbm__num_leaves': [num_leaves],
                            'gbm__learning_rate': [learning_rate], 'gbm__max_depth': [max_depth], 'gbm__verbosity': [2]}
@@ -1849,8 +1836,6 @@ class GBMRegressor(BaseEstimatorFunction):
 
         for entity in entities:
             # per entity - copy for later inplace operations
-            # dfe = df_copy.loc[[entity]].dropna(how='all')
-            # dfe = df_copy.loc[[entity]].copy()
             try:
                 check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
             except Exception as e:
@@ -1859,11 +1844,8 @@ class GBMRegressor(BaseEstimatorFunction):
                 continue
 
             dfe = super()._execute(df_copy.loc[[entity]], entity)
-            print(df_copy.columns)
-            # for c in self.predictions:
             df_copy.loc[entity, self.predictions] = dfe[self.predictions]
-            # df_copy = df_copy.loc[[entity]] = dfe
-            print(df_copy.columns)
+
         return df_copy
 
     @classmethod
@@ -1884,8 +1866,6 @@ class GBMRegressor(BaseEstimatorFunction):
         outputs = []
         return (inputs, outputs)
 
-    # @classmethod  # def get_input_items(cls):  #     return {'features', 'targets'}
-
 
 class SimpleRegressor(BaseEstimatorFunction):
     """
@@ -1899,7 +1879,6 @@ class SimpleRegressor(BaseEstimatorFunction):
 
     def GBRPipeline(self):
         steps = [('scaler', StandardScaler()), ('gbr', ensemble.GradientBoostingRegressor)]
-        # steps = [('scaler', StandardScaler()), ('gbm', lightgbm.LGBMRegressor())]
         return Pipeline(steps)
 
     def SGDPipeline(self):
@@ -1908,23 +1887,9 @@ class SimpleRegressor(BaseEstimatorFunction):
 
     def set_estimators(self):
         # gradient_boosted
-        # params = {'gbr__n_estimators': [100, 250, 500, 1000],
-        #           'gbr__max_depth': [2, 4, 10],
-        #           'gbr__min_samples_split': [2, 5, 9],
-        #           'gbr__learning_rate': [0.01, 0.02, 0.05],
-        #           'gbr__loss': ['ls']}
         params = {'n_estimators': [100, 250, 500, 1000], 'max_depth': [2, 4, 10], 'min_samples_split': [2, 5, 9],
                   'learning_rate': [0.01, 0.02, 0.05], 'loss': ['ls']}
         self.estimators['gradient_boosted_regressor'] = (ensemble.GradientBoostingRegressor, params)
-        # self.estimators['gradient_boosted_regressor'] = (self.GBRPipeline, params)
-
-        # sgd
-        # params = {'sgd__max_iter': [250, 1000, 5000, 10000],
-        #           'sgd__tol': [0.001, 0.002, 0.005]}
-        # params = {'sgd__max_iter': [250, 1000, 5000, 10000],
-        #           'sgd__tol': [0.001, 0.002, 0.005]}
-        # self.estimators['sgd_regressor'] = (linear_model.SGDRegressor, params)
-        # self.estimators['sgd_regressor'] = (self.SGDPipeline, params)
         logger.info('SimpleRegressor start searching for best model')
 
     def __init__(self, features, targets, predictions=None, n_estimators=None, num_leaves=None, learning_rate=None,
@@ -1934,8 +1899,6 @@ class SimpleRegressor(BaseEstimatorFunction):
         self.experiments_per_execution = 1
         self.auto_train = True
         self.correlation_threshold = 0
-
-        # self.stop_auto_improve_at = -2
 
     def execute(self, df):
 
@@ -1951,15 +1914,12 @@ class SimpleRegressor(BaseEstimatorFunction):
             try:
                 check_array(df_copy.loc[[entity]][self.features].values)
                 dfe = super()._execute(df_copy.loc[[entity]], entity)
-                print(df_copy.columns)
-                # for c in self.predictions:
                 df_copy.loc[entity, self.predictions] = dfe[self.predictions]
-                # df_copy = df_copy.loc[[entity]] = dfe
-                print(df_copy.columns)
+
             except Exception as e:
                 logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
                 df_copy.loc[entity, self.predictions] = 0
-                pass
+
         return df_copy
 
     @classmethod
@@ -1969,8 +1929,6 @@ class SimpleRegressor(BaseEstimatorFunction):
         inputs.append(UIMultiItem(name='features', datatype=float, required=True))
         inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
                                   is_output_datatype_derived=True))
-        return (inputs, [])
-
         # define arguments that behave as function outputs
         outputs = []
         return (inputs, outputs)
@@ -2008,7 +1966,6 @@ class SimpleAnomaly(BaseRegressor):
                 df = alert.execute(df)
         except Exception as e:
             logger.info('Simple Anomaly failed with: ' + str(e))
-            pass
 
         return df
 

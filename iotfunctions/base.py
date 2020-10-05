@@ -2670,10 +2670,17 @@ class BaseEstimatorFunction(BaseTransformer):
         required_models = self.get_models_for_predict(db=db, bucket=bucket, entity_name=entity_name)
         for model in required_models:
             if model is not None:
+                has_stddev = False
+                try:
+                    if model.col_name_stddev is not None:
+                        has_stddev = True
+                except Exception:
+                    pass
+
                 if self.is_scaler:
                     df[model.col_name] = 0
                     df[model.col_name] = model.transform(df)
-                elif model.col_name_stddev is not None:
+                elif has_stddev:
                     df[model.col_name], df[model.col_name_stddev] = model.predict_with_std_dev(df)
                 else:
                     df[model.col_name] = model.predict(df)
