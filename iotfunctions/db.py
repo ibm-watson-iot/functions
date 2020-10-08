@@ -434,7 +434,9 @@ class Database(object):
         self.Session = sessionmaker(bind=self.connection)
 
         # this method should be invoked before the get Metadata()
+        logger.debug('Set isolation')
         self.set_isolation_level(self.connection)
+        logger.debug('Isolation level set')
 
         if start_session:
             self.session = self.Session()
