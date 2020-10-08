@@ -1763,8 +1763,6 @@ class BaseDBActivityMerge(BaseDataSource):
     activities_metadata = None
     # merge in data from one or more custom sql statement
     activities_custom_query_metadata = None
-    # decide on a strategy for removing gaps
-    remove_gaps = 'within_single'  # 'across_all'
     # column name metadata
     # the start and end dates for activities are assumed to be designated by specific columns
     # the type of activity performed on or using an entity is designated by the 'activity' column
@@ -1773,7 +1771,7 @@ class BaseDBActivityMerge(BaseDataSource):
     allow_projection_list_trim = False
 
     def __init__(self, input_activities, activity_duration=None, additional_items=None, additional_output_names=None,
-                 dummy_items=None):
+                 dummy_items=None, remove_gaps='within_single'):
 
         if self.activities_metadata is None:
             self.activities_metadata = {}
@@ -1790,6 +1788,9 @@ class BaseDBActivityMerge(BaseDataSource):
             additional_output_names = ['output_%s' % x for x in self.additional_items]
         self.additional_output_names = additional_output_names
         self.available_non_activity_cols = []
+
+        # decide on a strategy for removing gaps
+        self.remove_gaps = remove_gaps
 
         super().__init__(input_items=input_activities, output_items=None, dummy_items=dummy_items)
 
@@ -1808,14 +1809,15 @@ class BaseDBActivityMerge(BaseDataSource):
                 af = self.read_activity_data(table_name=table_name, activity_code=a, start_ts=start_ts, end_ts=end_ts,
                                              entities=entities)
 
-                unique_af = self.make_start_dates_unique(af)
+                af[self._activity] = a
 
-                unique_af[self._activity] = a
+                if self.remove_gaps == 'within_single':
+                    af = self.make_start_dates_unique(af)
 
                 msg = 'Read activity table %s' % table_name
-                self.log_df_info(unique_af, msg)
-                dfs.append(unique_af)
-                self.available_non_activity_cols.append(self._get_non_activity_cols(unique_af))
+                self.log_df_info(af, msg)
+                dfs.append(af)
+                self.available_non_activity_cols.append(self._get_non_activity_cols(af))
 
         # execute sql provided explicitly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
@@ -1836,14 +1838,15 @@ class BaseDBActivityMerge(BaseDataSource):
                 start_date_col = af[self._start_date]
                 af[self._start_date] = start_date_col.where((start_date_col >= start_ts), start_ts)
 
-            unique_af = self.make_start_dates_unique(af)
+            af[self._activity] = activity
 
-            unique_af[self._activity] = activity
+            if self.remove_gaps == 'within_single':
+                af = self.make_start_dates_unique(af)
 
-            dfs.append(unique_af)
+            dfs.append(af)
             msg = 'Result of sql after duplicated start dates have been removed: %s' % sql
-            self.log_df_info(unique_af, msg)
-            self.available_non_activity_cols.append(self._get_non_activity_cols(unique_af))
+            self.log_df_info(af, msg)
+            self.available_non_activity_cols.append(self._get_non_activity_cols(af))
 
         if len(dfs) == 0:
             cols = []
@@ -1852,6 +1855,9 @@ class BaseDBActivityMerge(BaseDataSource):
             cdf = self.empty_dataframe(columns=cols)
         else:
             adf = pd.concat(dfs, sort=False)
+            if self.remove_gaps == 'across_all':
+                adf = self.make_start_dates_unique(adf)
+
             self.log_df_info(adf, 'After merging activity data from all sources')
             # get shift changes
             self.add_dates = []
@@ -2023,7 +2029,8 @@ class BaseDBActivityMerge(BaseDataSource):
     def _unique_start_date(self, df):
         micro_second = pd.Timedelta(milliseconds=1)
 
-        df = df.sort_values(by=self._start_date)
+        # Get a well defined ordering to avoid ambiguities when start_date is identical
+        df = df.sort_values(by=[self._start_date, self._end_date, self._activity ])
         start_dates_series = df[self._start_date]
 
         # Add as many microseconds to start_date that it is unique
