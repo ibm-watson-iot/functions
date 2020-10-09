@@ -4,6 +4,7 @@ import sys
 import getopt
 import logging
 import json
+import ast
 from iotfunctions.db import Database
 from iotfunctions.enginelog import EngineLogging
 from iotfunctions.anomaly import GBMRegressor
@@ -100,9 +101,9 @@ def main(argv):
     if endTime is None:
         endTimeV = 0
     else:
-        endTimeV = eval(endTime)
+        endTimeV = ast.literal_eval(endTime)
 
-    startTimeV = eval(startTime) + endTimeV
+    startTimeV = ast.literal_eval(startTime) + endTimeV
 
     # db_schema = None
     db = Database(credentials=credentials)
