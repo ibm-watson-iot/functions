@@ -18,6 +18,7 @@ import pytz
 
 import pandas as pd
 import logging
+import ast
 import wiotp.sdk
 
 from iotfunctions.base import (BaseTransformer)
@@ -94,13 +95,13 @@ class UnrollData(BaseTransformer):
             #print(ix, row)
             device_id = ix[0].replace('Device','Shadow')
 
-            vibx = eval(row['VibrationX'])
-            viby = eval(row['VibrationY'])
-            vibz = eval(row['VibrationZ'])
+            vibx = ast.literal_eval(row['VibrationX'])
+            viby = ast.literal_eval(row['VibrationY'])
+            vibz = ast.literal_eval(row['VibrationZ'])
 
             # columns with 5 elements
-            speed = eval(row['Speed'])
-            power = eval(row['Power'])
+            speed = ast.literal_eval(row['Speed'])
+            power = ast.literal_eval(row['Power'])
 
             for i in range(15):
                 jsin = {'evt_timestamp': (ix[1] + pd.Timedelta(seconds=20*i - 300)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + 'Z',

@@ -709,7 +709,8 @@ class EntityType(object):
                 start_min = start[4]
                 backtrack = f['backtrack']
                 if backtrack is not None:
-                    backtrack_days = (backtrack['days'] + backtrack['hours'] / 24 + backtrack['minutes'] / 1440)
+                    backtrack_days = backtrack.get('days', 0) + (backtrack.get('hours', 0) / 24) + (
+                            backtrack.get('minutes', 0) / 1440)
                 else:
                     backtrack_days = None
 
