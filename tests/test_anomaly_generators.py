@@ -3,7 +3,8 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 from sqlalchemy import Column, Float, DateTime
-from iotfunctions.bif import AnomalyGeneratorExtremeValue, DateDifference
+from iotfunctions.bif import DateDifference
+from iotfunctions.generator import AnomalyGeneratorExtremeValue
 from nose.tools import assert_true
 
 # constants

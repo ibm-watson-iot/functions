@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
@@ -15,6 +16,9 @@ sal = 'SaliencyAnomalyScore'
 gen = 'TemperatureGeneralizedScore'
 
 def test_anomaly_scores():
+
+    numba_logger = logging.getLogger('numba')
+    numba_logger.setLevel(logging.ERROR)
 
     # Run on the good pump first
     # Get stuff in

@@ -272,7 +272,7 @@ class Interpolator(BaseTransformer):
 
         # one dimensional time series - named temperature for catchyness
         # replace NaN with self.missing
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=float64).reshape(-1, )
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=np.float64).reshape(-1, )
 
         return dfe, temperature
 
@@ -402,7 +402,7 @@ class Standard_Scaler(BaseEstimatorFunction):
             logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.prediction]].fillna(0).to_numpy(dtype=float64).reshape(-1, )
+        temperature = dfe[[self.prediction]].fillna(0).to_numpy(dtype=np.float64).reshape(-1, )
 
         return dfe, temperature
 
@@ -613,7 +613,7 @@ class SpectralAnomalyScore(BaseTransformer):
             logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=float64).reshape(-1, )
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=np.float64).reshape(-1, )
 
         return dfe, temperature
 
@@ -647,7 +647,7 @@ class SpectralAnomalyScore(BaseTransformer):
             logger.debug('Timedelta:' + str(mindelta) + ' Index: ' + str(dfe_orig.index))
 
             # one dimensional time series - named temperature for catchyness
-            temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=float64).reshape(-1, )
+            temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=np.float64).reshape(-1, )
 
             # interpolate gaps - data imputation by default
             #   for missing data detection we look at the timestamp gradient instead
@@ -829,7 +829,7 @@ class KMeansAnomalyScore(BaseTransformer):
             logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=float64).reshape(-1, )
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=np.float64).reshape(-1, )
 
         return dfe, temperature
 
@@ -982,7 +982,7 @@ class GeneralizedAnomalyScore(BaseTransformer):
             logger.error('Prepare data error: ' + str(e))
 
         # one dimensional time series - named temperature for catchyness
-        temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=float64).reshape(-1, )
+        temperature = dfe[[self.input_item]].fillna(0).to_numpy(dtype=np.float64).reshape(-1, )
 
         return dfe, temperature
 
