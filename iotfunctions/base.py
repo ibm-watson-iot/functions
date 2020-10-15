@@ -2889,6 +2889,11 @@ class BaseEstimatorFunction(BaseTransformer):
 
         scorer = self.make_scorer()
         print(self.parameter_tuning_iterations)
+
+        if self.cv is not None and self.cv < 2:
+            print('here')
+            self.cv = 2
+
         search = RandomizedSearchCV(estimator=estimator, param_distributions=params,
                                     n_iter=self.parameter_tuning_iterations, scoring=scorer, refit=True, cv=self.cv,
                                     return_train_score=False)
