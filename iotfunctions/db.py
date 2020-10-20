@@ -925,7 +925,8 @@ class Database(object):
 
         return [column.key for column in table.columns]
 
-    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False, ):
+    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False, 
+                     sample_entity_type=False):
         """
         Make an api call to AS.
 
@@ -945,7 +946,8 @@ class Database(object):
             GET, POST, DELETE, PUT
         payload : dict
             Dictionary will be encoded as JSON
-
+        sample_entity_type : boolean
+            When true calls meta api will additional parameter
         """
         if object_name is None:
             object_name = ''
@@ -978,8 +980,12 @@ class Database(object):
             [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
-        self.url[('entityType', 'POST')] = '/'.join(
-            [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
+        if sample_entity_type:
+            self.url[('entityType', 'POST')] = '/'.join(
+                [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true&sampleEntityType=true'
+        else:
+            self.url[('entityType', 'POST')] = '/'.join(
+                [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
         self.url[('entityType', 'GET')] = '/'.join(
             [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
