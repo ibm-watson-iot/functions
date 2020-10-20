@@ -1833,7 +1833,7 @@ class EntityType(object):
         except Exception:
             logger.debug('Error populating dm_wiot_entity_list table.')
 
-    def register(self, publish_kpis=False, raise_error=False):
+    def register(self, publish_kpis=False, raise_error=False, sample_entity_type=False):
         """
         Register entity type so that it appears in the UI. Create a table for input data.
 
@@ -1899,7 +1899,7 @@ class EntityType(object):
                     raise KeyError('No database credentials found. Unable to register table.')
         payload = [table]
         response = self.db.http_request(request='POST', object_type='entityType', object_name=self.name,
-                                        payload=payload, raise_error=raise_error)
+                                        payload=payload, raise_error=raise_error, sample_entity_type=sample_entity_type)
 
         msg = 'Metadata registered for table %s ' % self.name
         logger.debug(msg)
