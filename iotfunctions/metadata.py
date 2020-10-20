@@ -1899,7 +1899,7 @@ class EntityType(object):
                     raise KeyError('No database credentials found. Unable to register table.')
         payload = [table]
         response = self.db.http_request(request='POST', object_type='entityType', object_name=self.name,
-                                        payload=payload, raise_error=raise_error)
+                                        payload=payload, raise_error=raise_error, sample_entity_type=True)
 
         msg = 'Metadata registered for table %s ' % self.name
         logger.debug(msg)
