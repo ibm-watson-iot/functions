@@ -1784,8 +1784,8 @@ class EntityType(object):
                     'SyntaxError': 'The function %s contains a syntax error. If the function includes a type-in expression, make sure this is correct.',
                     'ValueError': 'The function %s is operating on a data that has an unexpected value for its data type.',
                     'TypeError': 'The function %s is operating on a data that has an unexpected data type.',
-                    'KeyError': 'The function %s is refering to a dictionary key or dataframe column name that doesnt exist.',
-                    'NameError': 'The function %s is refering to an object that doesnt exist. If refering to data items in a pandas dataframe, ensure that you quote them, e.g. df["temperature"].', }
+                    'KeyError': 'The function %s is referring to a dictionary key or dataframe column name that doesnt exist.',
+                    'NameError': 'The function %s is referring to an object that doesnt exist. If referring to data items in a pandas dataframe, ensure that you quote them, e.g. df["temperature"].', }
 
         if msg is None:
             msg = err_info.get(exception.__class__.__name__, 'The function %s failed to execute.') % stage_name
