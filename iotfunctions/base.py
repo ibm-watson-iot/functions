@@ -158,6 +158,8 @@ class BaseFunction(object):
             self.optionalItems = []
         if self.out_table_prefix is None:
             self.out_table_prefix = ''
+        if self.execute_by is None:
+            self.execute_by = []
         if self.tags is None:
             self.tags = []
         if self._entity_scd_dict is None:
@@ -325,16 +327,17 @@ class BaseFunction(object):
         If the function should be executed by entity instance, use the base execute method. Provide a custom _calc method instead.
         """
         group_base = []
-        if self.execute_by in df.columns:
-            group_base.append(self.execute_by)
-        else:
-            try:
-                df.index.get_level_values(self.execute_by)
-            except KeyError:
-                raise ValueError('This function executes by column %s. This column was not found in columns or '
-                                 'index' % self.execute_by)
+        for s in self.execute_by:
+            if s in df.columns:
+                group_base.append(s)
             else:
-                group_base.append(pd.Grouper(axis=0, level=df.index.names.index(self.execute_by)))
+                try:
+                    df.index.get_level_values(s)
+                except KeyError:
+                    raise ValueError(
+                        'This function executes by column %s. This column was not found in columns or index' % s)
+                else:
+                    group_base.append(pd.Grouper(axis=0, level=df.index.names.index(s)))
 
         if len(group_base) > 0:
             df = df.groupby(group_base).apply(self._calc)
@@ -1767,11 +1770,8 @@ class BaseDBActivityMerge(BaseDataSource):
     _allow_empty_df = True
     allow_projection_list_trim = False
 
-    WITHIN_SINGLE = 'within_single'
-    ACROSS_ALL = 'across_all'
-
     def __init__(self, input_activities, activity_duration=None, additional_items=None, additional_output_names=None,
-                 dummy_items=None, uniqueness_scope=None, method='preserve_start', activity_ranking=None):
+                 dummy_items=None, remove_gaps='within_single'):
 
         if self.activities_metadata is None:
             self.activities_metadata = {}
@@ -1789,42 +1789,18 @@ class BaseDBActivityMerge(BaseDataSource):
         self.additional_output_names = additional_output_names
         self.available_non_activity_cols = []
 
-        # decide on a scope for removing overlapping activity phases: within a single activity or across all activities
-        supported_scopes = [__class__.WITHIN_SINGLE, __class__.ACROSS_ALL]
-        if uniqueness_scope is None:
-            uniqueness_scope = __class__.WITHIN_SINGLE
-        elif uniqueness_scope in supported_scopes:
-            self.uniqueness_scope = uniqueness_scope
-        else:
-            raise Exception(
-                'Activity scope %s is not supported. The following scopes are supported: %s' % (uniqueness_scope,
-                                                                                                str(supported_scopes)))
-
-        # decide on the method to remove overlapping activity phase:
-        # 'preserve_start': A new phase will terminate a preceding phase. Phases with identical start date are shifted
-        #       by 1 ms.
-        # 'prefer_earliest': Take the phase which started earliest for any point in time. For phases with identical
-        #       start dates, the longest is taken
-        supported_methods = ['preserve_start', 'prefer_earliest']
-        if method in supported_methods:
-            self.method = method
-        else:
-            raise Exception(
-                'Method %s is not supported. The following methods are supported: %s' % (method, str(supported_methods)))
-
-        # Activity_ranking only applies to uniqueness_scope='across_all' and defines the ranking for phases with the same
-        # start date and end date to provide unique reproducible results
-        self.activity_ranking = activity_ranking
+        # decide on a strategy for removing gaps
+        self.remove_gaps = remove_gaps
 
         super().__init__(input_items=input_activities, output_items=None, dummy_items=dummy_items)
 
     def execute(self, df, start_ts=None, end_ts=None, entities=None):
 
-        self.execute_by = self._entity_type._entity_id
+        self.execute_by = [self._entity_type._entity_id]
         df = super().execute(df, start_ts=start_ts, end_ts=end_ts, entities=entities)
         return df
 
-    def get_data2(self, start_ts=None, end_ts=None, entities=None):
+    def get_data(self, start_ts=None, end_ts=None, entities=None):
 
         dfs = []
         # build sql and execute it
@@ -1835,11 +1811,8 @@ class BaseDBActivityMerge(BaseDataSource):
 
                 af[self._activity] = a
 
-                if self.uniqueness_scope == __class__.WITHIN_SINGLE:
-                    if self.method == 'preserve_start':
-                        af = self.make_start_dates_unique(af)
-                    elif self.method == 'prefer_earliest':
-                        af = self.remove_overlaps(af)
+                if self.remove_gaps == 'within_single':
+                    af = self.make_start_dates_unique(af)
 
                 msg = 'Read activity table %s' % table_name
                 self.log_df_info(af, msg)
@@ -1858,13 +1831,17 @@ class BaseDBActivityMerge(BaseDataSource):
                 logger.warning(sql)
                 raise
 
+            # Make sure no new data point lies before start_ts (the beginning of backtrack). If a data point lies
+            # before backtrack window move this data point to the boundary as a corrective action to prevent
+            # calculations of aggregations outside of backtrack
+            if start_ts is not None:
+                start_date_col = af[self._start_date]
+                af[self._start_date] = start_date_col.where((start_date_col >= start_ts), start_ts)
+
             af[self._activity] = activity
 
-            if self.uniqueness_scope == __class__.WITHIN_SINGLE:
-                if self.method == 'preserve_start':
-                    af = self.make_start_dates_unique(af)
-                elif self.method == 'prefer_earliest':
-                    af = self.remove_overlaps(af)
+            if self.remove_gaps == 'within_single':
+                af = self.make_start_dates_unique(af)
 
             dfs.append(af)
             msg = 'Result of sql after duplicated start dates have been removed: %s' % sql
@@ -1878,11 +1855,8 @@ class BaseDBActivityMerge(BaseDataSource):
             cdf = self.empty_dataframe(columns=cols)
         else:
             adf = pd.concat(dfs, sort=False)
-            if self.uniqueness_scope == __class__.ACROSS_ALL:
-                if self.method == 'preserve_start':
-                    adf = self.make_start_dates_unique(adf)
-                elif self.method == 'prefer_earliest':
-                    adf = self.remove_overlaps(adf)
+            if self.remove_gaps == 'across_all':
+                adf = self.make_start_dates_unique(adf)
 
             self.log_df_info(adf, 'After merging activity data from all sources')
             # get shift changes
@@ -1907,26 +1881,26 @@ class BaseDBActivityMerge(BaseDataSource):
             else:
                 self._entity_scd_dict = None
             # merge takes place separately by entity instance
-            if self.uniqueness_scope == __class__.ACROSS_ALL:
+            if self.remove_gaps == 'across_all':
                 group_base = []
-            elif self.uniqueness_scope == __class__.WITHIN_SINGLE:
+            elif self.remove_gaps == 'within_single':
                 group_base = ['activity']
             else:
-                msg = 'Value of %s for uniqueness_scope is invalid. Use across_all or within_single' % self.uniqueness_scope
+                msg = 'Value of %s for remove_gaps is invalid. Use across_all or within_single' % self.remove_gaps
                 raise ValueError(msg)
             levels = []
-
-            if self.execute_by in adf.columns:
-                group_base.append(self.execute_by)
-            else:
-                try:
-                    adf.index.get_level_values(self.execute_by)
-                except KeyError:
-                    raise ValueError(
-                        'This function executes by column %s. This column was not found in columns or index' % self.execute_by)
+            for s in self.execute_by:
+                if s in adf.columns:
+                    group_base.append(s)
                 else:
-                    group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(self.execute_by)))
-            levels.append(self.execute_by)
+                    try:
+                        adf.index.get_level_values(s)
+                    except KeyError:
+                        raise ValueError(
+                            'This function executes by column %s. This column was not found in columns or index' % s)
+                    else:
+                        group_base.append(pd.Grouper(axis=0, level=adf.index.names.index(s)))
+                levels.append(s)
 
             # Combine activities to remove overlaps of maintenance periods
             try:
@@ -1935,23 +1909,22 @@ class BaseDBActivityMerge(BaseDataSource):
                 msg = 'Attempt to execute combine activities by %s. One or more group by column was not found' % levels
                 logger.debug(msg)
                 raise
-
-            try:
-                cdf = group.apply(self._combine_activities)
-            except KeyError:
-                msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' % list(
-                    adf.columns)
-                logger.debug(msg)
-                raise
-
-            # if the original dataframe was empty, the apply() will not run
-            # any columns added by the applied method will be missing. Need to add them
-            if cdf.empty:
-                cdf = self._get_empty_combine_data()
-                self.log_df_info(cdf, 'No data in merge source, processing empty dataframe')
             else:
-                self.log_df_info(cdf, 'combined activity data after removing overlap')
-                cdf['duration'] = round((cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds()) / 60
+                try:
+                    cdf = group.apply(self._combine_activities)
+                except KeyError:
+                    msg = 'combine activities requires deviceid, start_date, end_date and activity. supplied columns are %s' % list(
+                        adf.columns)
+                    logger.debug(msg)
+                    raise
+                # if the original dataframe was empty, the apply() will not run
+                # any columns added by the applied method will be missing. Need to add them
+                if cdf.empty:
+                    cdf = self._get_empty_combine_data()
+                    self.log_df_info(cdf, 'No data in merge source, processing empty dataframe')
+                else:
+                    self.log_df_info(cdf, 'combined activity data after removing overlap')
+                    cdf['duration'] = round((cdf[self._end_date] - cdf[self._start_date]).dt.total_seconds()) / 60
 
             for i, value in enumerate(self.input_activities):
                 cdf[self.activity_duration[i]] = np.where(cdf[self._activity] == value, cdf['duration'], None)
@@ -1966,34 +1939,320 @@ class BaseDBActivityMerge(BaseDataSource):
                 if len(add_cols) > 0:
                     include = []
                     include.extend(add_cols)
-                    include.extend(['start_date', self.execute_by])
+                    include.extend(['start_date', self._entity_type._entity_id])
                     nadf = nadf[include]
-                    cdf = cdf.merge(nadf, on=['start_date', self.execute_by], how='left',
+                    cdf = cdf.merge(nadf, on=['start_date', self._entity_type._entity_id], how='left',
                                     suffixes=('', UNIQUE_EXTENSION_LABEL))
                     self.log_df_info(cdf, 'post merge')
                     cdf = self._coallesce_columns(cdf, add_cols)
                     self.log_df_info(cdf, 'post coallesce')
 
-            # Do the following corrective action after the calculation
-            # 1) Remove all activity phases which completely lie before start_ts to avoid any data in dataframe outside
-            # of backtrack
-            # 2) Move start_date to start_ts for phases which start before start_ts but reaches into backtrack.
-            if start_ts is not None:
-                cdf[self._end_date] = cdf[self._end_date].mask(cdf[self._end_date] <= start_ts, np.nan)
-                cdf = cdf.dropna(subset=[self._end_date], inplace=True)
-                cdf[self._start_date] = cdf[self._start_date].mask(cdf[self._start_date] < start_ts, start_ts)
-
-            # Create new time column; it is moved together with deviceid into index
+            # rename initial outputs
             cdf[self._entity_type._timestamp] = cdf[self._start_date]
-            cdf = self._entity_type.index_df(cdf)
 
-            # Apply name mapping to additional columns from activity table
+            # index
+            cdf = self._entity_type.index_df(cdf)
             cdf = self.rename_cols(cdf, self.additional_items, self.additional_output_names)
 
         return cdf
-#==========================================================================================================
-# V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V V
-# ==========================================================================================================
+
+    def make_start_dates_unique(self, af):
+
+        # Add micro second to start date if we have two maintenance periods with an identical start date.
+        # start_date will be used later as key for merge. Therefore the start date must be a unique key
+
+        if af.size > 0:
+            group_base = []
+            for s in self.execute_by:
+                if s in af.columns:
+                    group_base.append(s)
+                else:
+                    try:
+                        af.index.get_level_values(s)
+                    except KeyError:
+                        raise ValueError('This function groups by column %s. This column was not found in columns or '
+                                         'index. Columns: %s Index: %s' % (s, list(af.columns), list(af.index.names)))
+                    else:
+                        group_base.append(pd.Grouper(axis=0, level=af.index.names.index(s)))
+
+            try:
+                group = af.groupby(group_base)
+            except KeyError:
+                msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were not found' % self.execute_by
+                logger.debug(msg)
+                raise
+
+            try:
+                unique_af = group.apply(self._unique_start_date)
+            except KeyError:
+                msg = 'unique_start_date requires deviceid, start_date, end_date and activity. ' \
+                      'supplied columns are %s' % list(af.columns)
+                logger.debug(msg)
+                raise
+
+            # remove index created by groupby operation
+            unique_af.reset_index(drop=True, inplace=True)
+        else:
+            # return af directly to keep all columns because group.apply() swallows all columns if dataframe is empty!
+            unique_af = af
+
+        return unique_af
+
+    def get_item_values(self, arg, db=None):
+        """
+        Define picklist values
+        """
+        msg = 'Getting item values for arg %s' % arg
+        logger.debug(msg)
+        if arg == 'input_activities':
+            all_activities = []
+            for table_name, activities in list(self.activities_metadata.items()):
+                all_activities.extend(activities)
+                msg = 'Added activity list %s' % activities
+                logger.debug(msg)
+            for activity, sql in list(self.activities_custom_query_metadata.items()):
+                all_activities.append(activity)
+                msg = 'Added to activity list %s' % activity
+                logger.debug(msg)
+            return (all_activities)
+        else:
+            msg = 'No code implemented to gather available values for argument %s' % arg
+            raise NotImplementedError(msg)
+
+    def _get_non_activity_cols(self, df):
+
+        activity_cols = [self._entity_type._timestamp_col, self._entity_type._entity_id, 'start_date', 'end_date',
+                         'activity']
+        cols = [x for x in df.columns if x not in activity_cols]
+        return cols
+
+    def _unique_start_date(self, df):
+        micro_second = pd.Timedelta(milliseconds=1)
+
+        # Get a well defined ordering to avoid ambiguities when start_date is identical
+        df = df.sort_values(by=[self._start_date, self._end_date, self._activity ])
+        start_dates_series = df[self._start_date]
+
+        # Add as many microseconds to start_date that it is unique
+        previous_date = start_dates_series.iat[0]
+        for i in range(1, start_dates_series.size):
+            next_date = start_dates_series.iat[i]
+            if next_date > previous_date:
+                previous_date = next_date
+            else:
+                previous_date = previous_date + micro_second
+                start_dates_series.iat[i] = previous_date
+
+        df[self._start_date] = start_dates_series
+
+        return df
+
+    def _combine_activities(self, df):
+        """
+        incoming dataframe has start date , end date and activity code.
+        activities may overlap.
+        output dataframe corrects overlapping activities.
+        activities with later start dates take precidence over activies with earlier start dates when resolving.
+        """
+        # dataframe expected to contain start_date,end_date,activity for a single deviceid
+        entity = df[self._entity_type._entity_id].max()
+
+        # create a continuous range
+        early_date = pd.Timestamp.min
+        late_date = pd.Timestamp.max
+        # create a new start date for each potential interruption of the continuous range
+        dates = set([early_date, late_date])
+        dates |= set((df[self._start_date].tolist()))
+        dates |= set((df[self._end_date].tolist()))
+        dates |= set(self.add_dates)
+
+        # scd changes are another potential interruption
+        if self._entity_scd_dict is not None:
+            has_scd = {}
+            for scd_property, entity_data in list(self._entity_scd_dict.items()):
+                has_scd[scd_property] = True
+                try:
+                    dates |= set(entity_data[entity][self._start_date])
+                except KeyError:
+                    has_scd[scd_property] = False
+        dates = list(dates)
+        dates.sort()
+
+        # Check for invalid values in dates
+        for date in dates:
+            if pd.isna(date) or not isinstance(date, dt.datetime):
+                msg = 'The data set start date/end date/activity code contains an invalid date value: %s' % date
+                raise TypeError(msg)
+
+        # initialize series to track history of activities
+        c = pd.Series(data='_gap_', index=dates)
+        c.index = pd.to_datetime(c.index)
+        c.name = self._activity
+        c.index.name = self._start_date
+        # use original data to update the new set of intervals in slices.
+        for df_row in df[[self._start_date, self._end_date, self._activity]].itertuples(index=False, name=None):
+            end_date = df_row[1] - dt.timedelta(milliseconds=1)
+            c[df_row[0]:end_date] = df_row[2]
+        df = c.to_frame()
+        df.reset_index(inplace=True)
+        df.index.name = self.auto_index_name
+
+        # add end dates
+        df[self._end_date] = df[self._start_date].shift(-1)
+        df[self._end_date] = df[self._end_date] - dt.timedelta(milliseconds=1)
+
+        # remove gaps
+        if self.remove_gaps:
+            df = df[df[self._activity] != '_gap_']
+
+        # combined activities dataframe has start_date,end_date,device_id, activity
+
+        return df
+
+    def _get_empty_combine_data(self):
+        """
+        In the case where the merged resultset is empty, need a empty dateframe with all of the columns that would have
+        been inlcuded.
+        """
+
+        cols = [self._start_date, self._end_date, self._activity, 'duration']
+        cols.extend(self.execute_by)
+
+        if self._entity_scd_dict is not None:
+            scd_properties = list(self._entity_scd_dict.keys())
+            cols.extend(scd_properties)
+
+        new_df = pd.DataFrame(columns=cols)
+        new_df.index.name = self.auto_index_name
+
+        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
+        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
+        new_df['duration'] = new_df['duration'].astype('float64')
+
+        new_df.set_index(['activity'], drop=False, inplace=True)
+        new_df.set_index(self.execute_by, append=True, inplace=True)
+
+        return new_df
+
+    def read_activity_data(self, table_name, activity_code, start_ts=None, end_ts=None, entities=None):
+        """
+        Issue a query to return a dataframe. Subject is an activity table with columns: deviceid, start_date, end_date, activity
+
+        Parameters
+        ----------
+        table_name: str
+            Name of source table
+        activity_code: str
+            The specific activity code for which to receive data
+        start_ts : datetime (optional)
+            Date filter
+        end_ts : datetime (optional)
+            Date filter
+        entities: list (optional)
+            Filter on list of device ids
+        Returns
+        -------
+        Dataframe
+        """
+
+        (query, table) = self._entity_type.db.query(table_name, schema=self._entity_type._db_schema)
+        query = query.filter(table.c.activity == activity_code)
+        if start_ts is not None:
+            query = query.filter(table.c.end_date >= start_ts)
+        if end_ts is not None:
+            query = query.filter(table.c.start_date < end_ts)
+        if entities is not None:
+            query = query.filter(table.c.deviceid.in_(entities))
+        msg = 'reading activity %s from %s to %s using %s' % (activity_code, start_ts, end_ts, query.statement)
+        logger.debug(msg)
+        parse_dates = [self._start_date, self._end_date]
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=parse_dates)
+
+        return df
+
+
+class BaseDBActivityMerge2(BaseDataSource):
+    """
+    Merge actitivity data with time series data.
+    Activies are events that have a start and end date and generally occur sporadically.
+    Activity tables contain an activity column that indicates the type of activity performed.
+    Activities can also be sourced by means of custom tables.
+    This function flattens multiple activity types from multiple activity tables into columns indicating the duration of each activity.
+    When aggregating activity data the dimenions over which you aggregate may change during the time taken to perform the activity.
+    To make allowance for thise slowly changing dimenions, you may include a customer calendar lookup and one or more resource lookups
+    """
+
+    # automatically build queries to merge in data from one or more db.ActivityTable
+    activities_metadata = None
+    # merge in data from one or more custom sql statement
+    activities_custom_query_metadata = None
+    # column name metadata
+    # the start and end dates for activities are assumed to be designated by specific columns
+    # the type of activity performed on or using an entity is designated by the 'activity' column
+    _activity = 'activity'
+    _allow_empty_df = True
+    allow_projection_list_trim = False
+
+    WITHIN_SINGLE = 'within_single'
+    ACROSS_ALL = 'across_all'
+    PREFER_EARLIEST = 'prefer_earliest'
+    PRESERVE_START = 'preserve_start'
+
+    def __init__(self, input_activities, activity_duration=None, additional_items=None, additional_output_names=None,
+                 dummy_items=None, uniqueness_scope=None, method=None, activity_ranking=None):
+
+        if self.activities_metadata is None:
+            self.activities_metadata = {}
+        if self.activities_custom_query_metadata is None:
+            self.activities_custom_query_metadata = {}
+        self.input_activities = input_activities
+        if additional_items is None:
+            additional_items = []
+        if activity_duration is None:
+            activity_duration = ['duration_%s' % x for x in self.input_activities]
+        self.activity_duration = activity_duration
+        self.additional_items = additional_items
+        if additional_output_names is None:
+            additional_output_names = ['output_%s' % x for x in self.additional_items]
+        self.additional_output_names = additional_output_names
+        self.available_non_activity_cols = []
+
+        # decide on a scope for removing overlapping activity phases: within a single activity or across all activities
+        supported_scopes = [__class__.WITHIN_SINGLE, __class__.ACROSS_ALL]
+        if uniqueness_scope is None:
+            uniqueness_scope = __class__.ACROSS_ALL
+        if uniqueness_scope in supported_scopes:
+            self.uniqueness_scope = uniqueness_scope
+        else:
+            raise Exception(
+                'Activity scope %s is not supported. The following scopes are supported: %s' % (uniqueness_scope,
+                                                                                                str(supported_scopes)))
+
+        # decide on the method to remove overlapping activity phase:
+        # 'preserve_start': A new phase will terminate a preceding phase. Phases with identical start date are shifted
+        #       by 1 ms.
+        # 'prefer_earliest': Take the phase which started earliest for any point in time. For phases with identical
+        #       start dates, the longest is taken
+        supported_methods = [__class__.PRESERVE_START, __class__.PREFER_EARLIEST]
+        if method is None:
+            method = __class__.PREFER_EARLIEST
+        if method in supported_methods:
+            self.method = method
+        else:
+            raise Exception(
+                'Method %s is not supported. The following methods are supported: %s' % (method, str(supported_methods)))
+
+        # Activity_ranking only applies to uniqueness_scope='across_all' and defines the ranking for phases with the
+        # same start date and end date to provide unique reproducible results
+        self.activity_ranking = activity_ranking
+
+        super().__init__(input_items=input_activities, output_items=None, dummy_items=dummy_items)
+
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
+
+        self.execute_by = self._entity_type._entity_id
+        df = super().execute(df, start_ts=start_ts, end_ts=end_ts, entities=entities)
+        return df
 
     def get_data(self, start_ts=None, end_ts=None, entities=None):
 
@@ -2039,8 +2298,9 @@ class BaseDBActivityMerge(BaseDataSource):
                                                           func_args)
 
             if self._activity in combined_dates_df.index.names:
-                # activity shows up as a column and in index (if it was member of group). Remove it from index to avoid name clashes
-                combined_dates_df.index = combined_dates_df.index.drop(self._activity)
+                # activity shows up as a column and in index (if it was member of group). Remove it from index to
+                # avoid name clashes
+                combined_dates_df.index = combined_dates_df.index.droplevel(self._activity)
 
             # Get device id from index
             combined_dates_df.reset_index(level=self.execute_by, inplace=True)
@@ -2053,25 +2313,45 @@ class BaseDBActivityMerge(BaseDataSource):
             # of backtrack
             # 2) Move start_date to start_ts for phases which start before start_ts but reaches into backtrack.
             if start_ts is not None:
-                combined_dates_df[self._end_date] = combined_dates_df[self._end_date].mask(combined_dates_df[self._end_date] <= start_ts, np.nan)
-                combined_dates_df = combined_dates_df.dropna(subset=[self._end_date], inplace=True)
-                combined_dates_df[self._start_date] = combined_dates_df[self._start_date].mask(combined_dates_df[self._start_date] < start_ts, start_ts)
+                combined_dates_df[self._end_date] = combined_dates_df[self._end_date].mask(
+                    combined_dates_df[self._end_date] <= start_ts, np.nan)
+                combined_dates_df.dropna(subset=[self._end_date], inplace=True)
+                combined_dates_df[self._start_date] = combined_dates_df[self._start_date].mask(
+                    combined_dates_df[self._start_date] < start_ts, start_ts)
 
             # Apply name mapping to additional columns from activity table
             combined_dates_df = self.rename_cols(combined_dates_df, self.additional_items, self.additional_output_names)
 
+            # Add index
+            combined_dates_df[self._entity_type._df_index_entity_id] = combined_dates_df[self.execute_by]
+            combined_dates_df[self._entity_type._timestamp] = combined_dates_df[self._start_date]
+            combined_dates_df.set_index(keys=[self._entity_type._df_index_entity_id, self._entity_type._timestamp],
+                                        inplace=True)
+
+            # Drop columns which are not needed anymore
+            combined_dates_df.drop(columns=[self._activity, self._start_date, self._end_date], inplace=True)
+
         else:
             # No activity data to process. Create a empty data frame with the expected columns and index
-            output_columns = [self._start_date, self._end_date, self._activity, self.execute_by].extend(
-                self.additional_output_names)
-            combined_dates_df = pd.DataFrame(columns=output_columns)
-            combined_dates_df.astype(dtype={self._start_date: 'datetime64[ns]', self._end_date: 'datetime64[ns]',
-                                            self._activity: object, self.execute_by: object})
+            output_columns = [self._entity_type._df_index_entity_id, self._entity_type._timestamp, self.execute_by]
+            output_columns.extend(self.additional_items)
 
-        # Add index
-        combined_dates_df[self._entity_type._df_index_entity_id] = combined_dates_df[self.execute_by]
-        combined_dates_df[self._entity_type._timestamp] = combined_dates_df[self._start_date]
-        combined_dates_df.set_index(keys=[self._entity_type._df_index_entity_id, self._entity_type._timestamp])
+            data = [[None, None, None]]
+            for i in self.additional_items:
+                data[0].append(None)
+            for col_name in self.activity_duration:
+                output_columns.append(col_name)
+                data[0].append(None)
+            combined_dates_df = pd.DataFrame(data=np.array(data), columns=output_columns)
+            combined_dates_df = combined_dates_df.astype(dtype={self._entity_type._df_index_entity_id: object,
+                                                                self._entity_type._timestamp: 'datetime64[ns]',
+                                                                self.execute_by: object}, copy=False)
+            combined_dates_df.set_index(keys=[self._entity_type._df_index_entity_id, self._entity_type._timestamp],
+                                        inplace=True)
+            combined_dates_df.dropna(subset=[self.execute_by], inplace=True)
+
+            # Apply name mapping to additional columns from activity table
+            combined_dates_df = self.rename_cols(combined_dates_df, self.additional_items, self.additional_output_names)
 
         return combined_dates_df
 
@@ -2081,7 +2361,8 @@ class BaseDBActivityMerge(BaseDataSource):
         # Each table and each sql statement provides one activity
 
         dfs = []
-        accepted_columns = [self._start_date, self._end_date, self.execute_by].extend(self.additional_items)
+        accepted_columns = [self._start_date, self._end_date, self.execute_by]
+        accepted_columns.extend(self.additional_items)
 
         # Read from user provided tables and append for each table a new dataframe to dfs
         for table_name, activities in list(self.activities_metadata.items()):
@@ -2091,7 +2372,7 @@ class BaseDBActivityMerge(BaseDataSource):
                 # Remove unwanted columns
                 unwanted_columns = list(set(af.columns) - set(accepted_columns))
                 if len(unwanted_columns) > 0:
-                    af.drop(columns=unwanted_columns)
+                    af.drop(columns=unwanted_columns, inplace=True)
 
                 af[self._activity] = activity
 
@@ -2110,6 +2391,14 @@ class BaseDBActivityMerge(BaseDataSource):
                       'column aliases for start_date, end_date and device_id'
                 raise Exception(msg) from ex
 
+            # Remove unwanted columns
+            unwanted_columns = list(set(af.columns) - set(accepted_columns))
+            if len(unwanted_columns) > 0:
+                logger.warning('The retrieval of activity data for activity %s returned columns %s which are '
+                               'not in the list of expected columns. The columns are ignored. '
+                               'Expected Columns: %s' % (activity, str(unwanted_columns), str(accepted_columns)))
+                af.drop(columns=unwanted_columns, inplace=True)
+
             af[self._activity] = activity
 
             self.log_df_info(af, 'Sql statement for activity %s has been executed' % activity)
@@ -2120,18 +2409,26 @@ class BaseDBActivityMerge(BaseDataSource):
 
     def _remove_overlaps(self, df, uniqueness_scope):
 
-        if self.method == 'preserve_start':
+        if self.method == __class__.PRESERVE_START:
             uniqueness_func = self._unique_start_date
             func_args = {}
-        elif self.method == 'prefer_earliest':
+        elif self.method == __class__.PREFER_EARLIEST:
             uniqueness_func = self._prefer_earliest
             if uniqueness_scope == __class__.WITHIN_SINGLE:
                 func_args = {'activity_ranking': self.activity_ranking}
+                if self.activity_ranking is None:
+                    logger.info('No explicit activity ranking has been given. Activities are ranked alphabetically.')
+                else:
+                    logger.info('Activities are ranked according to given ranking: %s' % str(self.activity_ranking))
+
             elif uniqueness_scope == __class__.ACROSS_ALL:
                 func_args = {'activity_ranking': None}
 
         # Make phases_unique
         df = self._apply_func_on_group(df, [], uniqueness_func, func_args)
+
+        # remove index created by groupby operation
+        df.reset_index(drop=True, inplace=True)
 
         return df
 
@@ -2158,7 +2455,8 @@ class BaseDBActivityMerge(BaseDataSource):
             try:
                 group = df.groupby(group_base)
             except KeyError:
-                msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were not found' % self.execute_by
+                msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were ' \
+                      'not found' % self.execute_by
                 logger.debug(msg)
                 raise
 
@@ -2171,8 +2469,6 @@ class BaseDBActivityMerge(BaseDataSource):
                                                                    list(df.columns))
                 raise Exception(msg) from ex
 
-            # remove index created by groupby operation
-            unique_df.reset_index(drop=True, inplace=True)
         else:
             # return df directly to keep all columns because group.apply() swallows all columns if dataframe is empty!
             unique_df = df
@@ -2211,8 +2507,11 @@ class BaseDBActivityMerge(BaseDataSource):
             # hint: key used in sort to avoid exception in sort when activity is None
             missing_ranking.sort(key=lambda x: (x is None, x))
 
-            logger.info('Given activity ranking: %s, ranking of missing activities: %s' % (
-            str(activity_ranking), str(missing_ranking)))
+            if len(missing_ranking) > 0:
+                logger.warning('Some activities are not included in the given activity ranking. They are '
+                               'appended to the given ranking in alphabetical order: Given activity ranking: %s, '
+                               'missing activities in alphabetical order: %s' % (str(activity_ranking),
+                                                                                 str(missing_ranking)))
 
             # Define mapping 'activity ==> rank'; missing activities have lower ranks than explicitly ranked activities
             ranking_dict = {activity_ranking[i]: i for i in range(len(activity_ranking))}
@@ -2222,7 +2521,6 @@ class BaseDBActivityMerge(BaseDataSource):
 
             df[activity_col_name] = df['activity'].map(ranking_dict)
         else:
-            logger.info('No explicit activity ranking has been given. Activities are ranked alphabetically.')
             df[activity_col_name] = df['activity']
 
         df.sort_values(by=[self._start_date, self._end_date, activity_col_name], ascending=[True, False, True],
@@ -2348,12 +2646,15 @@ class BaseDBActivityMerge(BaseDataSource):
         # Initialize Dataframe with all dates as index
         date_index = pd.Index(data=all_dates, dtype='datetime64[ns]', name=self._start_date)
         result_df = pd.DataFrame(columns=df.columns, index=date_index)
-        result_df.astype(dtype=df.dtypes, copy=False)
-        result_df.drop(columns=[self.execute_by, self._start_date, self._end_date])
+        result_df = result_df.astype(dtype=df.dtypes, copy=False)
+        result_df.drop(columns=[self.execute_by, self._start_date, self._end_date], inplace=True)
 
         # fill activity with placeholder (This allows to use None as a valid activity name)
         gap_indicator = '_gap_' + UNIQUE_EXTENSION_LABEL
         result_df[self._activity] = '_gap_' + UNIQUE_EXTENSION_LABEL
+
+        #kohlmann remove
+        timer_start = pd.Timestamp.utcnow()
 
         # Get a well defined order for column names with start date, end date and activity at the beginning
         required_columns = [self._start_date, self._end_date, self._activity]
@@ -2365,9 +2666,11 @@ class BaseDBActivityMerge(BaseDataSource):
         milli_second = dt.timedelta(milliseconds=1)
         for df_row in df[all_columns].itertuples(index=False, name=None):
             end_date = df_row[1] - milli_second
-            result_df[df_row[0]:end_date, self._activity] = df_row[2]
+            result_df.loc[df_row[0]:end_date, self._activity] = df_row[2]
             if len(all_columns) > 3:
-                result_df[df_row[0], additional_columns] = df_row[3:]
+                result_df.loc[df_row[0], additional_columns] = df_row[3:]
+
+        logger.debug('Merge of dates: Elapsed time: %f' % (pd.Timestamp.utcnow() - timer_start).total_seconds())
 
         # Move start date from index to column and give the remaining (integer-)index a name
         result_df.reset_index(inplace=True)
@@ -2385,79 +2688,15 @@ class BaseDBActivityMerge(BaseDataSource):
         return result_df
 
     def _calc_durations(self, df):
-        df['duration'] = round((df[self._end_date] - df[self._start_date]).dt.total_seconds()) / 60
+        duration_name = 'duration' + UNIQUE_EXTENSION_LABEL
+        df[duration_name] = round((df[self._end_date] - df[self._start_date]).dt.total_seconds()) / 60
 
         # Build new columns for duration for each activity
         for i, value in enumerate(self.input_activities):
-            df[self.activity_duration[i]] = np.where(df[self._activity] == value, df['duration'], None)
+            df[self.activity_duration[i]] = np.where(df[self._activity] == value, df[duration_name], None)
             df[self.activity_duration[i]] = df[self.activity_duration[i]].astype(float)
 
-
-#==========================================================================================================
-#==========================================================================================================
-    def make_start_dates_unique(self, af):
-
-        # Add micro second to start date if we have two maintenance periods with an identical start date.
-        # start_date will be used later as key for merge. Therefore the start date must be a unique key
-
-        if af.size > 0:
-            group_base = []
-
-            if self.execute_by in af.columns:
-                group_base.append(self.execute_by)
-            else:
-                try:
-                    af.index.get_level_values(self.execute_by)
-                except KeyError:
-                    raise ValueError('This function groups by column %s. This column was not found in columns or '
-                                     'index. Columns: %s Index: %s' % (self.execute_by, list(af.columns),
-                                                                       list(af.index.names)))
-                else:
-                    group_base.append(pd.Grouper(axis=0, level=af.index.names.index(self.execute_by)))
-
-            try:
-                group = af.groupby(group_base)
-            except KeyError:
-                msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were not found' % self.execute_by
-                logger.debug(msg)
-                raise
-
-            try:
-                unique_af = group.apply(self._unique_start_date)
-            except KeyError:
-                msg = 'unique_start_date requires deviceid, start_date, end_date and activity. ' \
-                      'supplied columns are %s' % list(af.columns)
-                logger.debug(msg)
-                raise
-
-            # remove index created by groupby operation
-            unique_af.reset_index(drop=True, inplace=True)
-        else:
-            # return af directly to keep all columns because group.apply() swallows all columns if dataframe is empty!
-            unique_af = af
-
-        return unique_af
-
-    def get_item_values(self, arg, db=None):
-        """
-        Define picklist values
-        """
-        msg = 'Getting item values for arg %s' % arg
-        logger.debug(msg)
-        if arg == 'input_activities':
-            all_activities = []
-            for table_name, activities in list(self.activities_metadata.items()):
-                all_activities.extend(activities)
-                msg = 'Added activity list %s' % activities
-                logger.debug(msg)
-            for activity, sql in list(self.activities_custom_query_metadata.items()):
-                all_activities.append(activity)
-                msg = 'Added to activity list %s' % activity
-                logger.debug(msg)
-            return (all_activities)
-        else:
-            msg = 'No code implemented to gather available values for argument %s' % arg
-            raise NotImplementedError(msg)
+        df.drop(columns=[duration_name], inplace=True)
 
     def _get_non_activity_cols(self, df):
 
@@ -2466,95 +2705,10 @@ class BaseDBActivityMerge(BaseDataSource):
         cols = [x for x in df.columns if x not in activity_cols]
         return cols
 
-    def _combine_activities(self, df):
-        """
-        incoming dataframe has start date , end date and activity code.
-        activities may overlap.
-        output dataframe corrects overlapping activities.
-        activities with later start dates take precidence over activities with earlier start dates when resolving.
-        """
-        # dataframe expected to contain start_date,end_date,activity for a single deviceid
-        entity = df[self._entity_type._entity_id].max()
-
-        # create a continuous range
-        early_date = pd.Timestamp.min
-        late_date = pd.Timestamp.max
-        # create a new start date for each potential interruption of the continuous range
-        dates = set([early_date, late_date])
-        dates |= set((df[self._start_date].tolist()))
-        dates |= set((df[self._end_date].tolist()))
-        dates |= set(self.add_dates)
-
-        # scd changes are another potential interruption
-        if self._entity_scd_dict is not None:
-            has_scd = {}
-            for scd_property, entity_data in list(self._entity_scd_dict.items()):
-                has_scd[scd_property] = True
-                try:
-                    dates |= set(entity_data[entity][self._start_date])
-                except KeyError:
-                    has_scd[scd_property] = False
-        dates = list(dates)
-        dates.sort()
-
-        # Check for invalid values in dates
-        for date in dates:
-            if pd.isna(date) or not isinstance(date, dt.datetime):
-                msg = 'The data set start date/end date/activity code contains an invalid date value: %s' % date
-                raise TypeError(msg)
-
-        # initialize series to track history of activities
-        c = pd.Series(data='_gap_', index=dates)
-        c.index = pd.to_datetime(c.index)
-        c.name = self._activity
-        c.index.name = self._start_date
-        # use original data to update the new set of intervals in slices.
-        for df_row in df[[self._start_date, self._end_date, self._activity, self.execute_by]].itertuples(index=False, name=None):
-            end_date = df_row[1] - dt.timedelta(milliseconds=1)
-            c[df_row[0]:end_date] = df_row[2]
-        df = c.to_frame()
-        df.reset_index(inplace=True)
-        df.index.name = self.auto_index_name
-
-        # add end dates
-        df[self._end_date] = df[self._start_date].shift(-1)
-        df[self._end_date] = df[self._end_date] - dt.timedelta(milliseconds=1)
-
-        # remove gaps
-        df = df[df[self._activity] != '_gap_']
-
-        # combined activities dataframe has start_date,end_date,device_id, activity
-
-        return df
-
-    def _get_empty_combine_data(self):
-        """
-        In the case where the merged resultset is empty, need a empty dateframe with all of the columns that would have
-        been inlcuded.
-        """
-
-        cols = [self._start_date, self._end_date, self._activity, 'duration']
-        cols.append(self.execute_by)
-
-        if self._entity_scd_dict is not None:
-            scd_properties = list(self._entity_scd_dict.keys())
-            cols.extend(scd_properties)
-
-        new_df = pd.DataFrame(columns=cols)
-        new_df.index.name = self.auto_index_name
-
-        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
-        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
-        new_df['duration'] = new_df['duration'].astype('float64')
-
-        new_df.set_index(['activity'], drop=False, inplace=True)
-        new_df.set_index(self.execute_by, append=True, inplace=True)
-
-        return new_df
-
     def read_activity_data(self, table_name, activity_code, start_ts=None, end_ts=None, entities=None):
         """
-        Issue a query to return a dataframe. Subject is an activity table with columns: deviceid, start_date, end_date, activity
+        Issue a query to return a dataframe. Subject is an activity table with columns: deviceid, start_date,
+        end_date, activity
 
         Parameters
         ----------
