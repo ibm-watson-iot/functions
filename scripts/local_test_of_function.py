@@ -1,9 +1,6 @@
-import datetime as dt
 import json
-import pandas as pd
-import numpy as np
 import logging
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func
+
 from iotfunctions.db import Database
 from iotfunctions.enginelog import EngineLogging
 
@@ -40,14 +37,12 @@ This file will be written to the working directory.
 '''
 
 from custom.functions import HelloWorld
-fn = HelloWorld(
-        name = 'AS_Tester',
-        greeting_col = 'greeting')
-fn.execute_local_test(db=db,db_schema=db_schema)
+
+fn = HelloWorld(name='AS_Tester', greeting_col='greeting')
+fn.execute_local_test(db=db, db_schema=db_schema)
 
 '''
 Register function so that you can see it in the UI
 '''
 
 db.register_functions([HelloWorld])
-

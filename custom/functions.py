@@ -1,13 +1,7 @@
-import inspect
 import logging
-import datetime as dt
-import math
-from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR
-import numpy as np
-import pandas as pd
 
-from iotfunctions.base import BaseTransformer
 from iotfunctions import ui
+from iotfunctions.base import BaseTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +33,9 @@ class HelloWorld(BaseTransformer):
         self.greeting_col = greeting_col
         super().__init__()
 
-        # do not place any business logic in the __init__ method  # all business logic goes into the execute() method or methods called by the  # execute() method
+        # do not place any business logic in the __init__ method
+        # All business logic goes into the execute() method or methods called by the
+        # execute() method
 
     def execute(self, df):
         # the execute() method accepts a dataframe as input and returns a dataframe as output
@@ -61,4 +57,4 @@ class HelloWorld(BaseTransformer):
         inputs = [ui.UISingle(name='name', datatype=str, description='Name of person to greet')]
         outputs = [
             ui.UIFunctionOutSingle(name='greeting_col', datatype=str, description='Output item produced by function')]
-        return (inputs, outputs)
+        return inputs, outputs

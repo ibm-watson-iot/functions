@@ -4,11 +4,20 @@ This package is empty.
 
 To install this package: 
 
-```
-pip install git+git://github.com/ibm-watson-iot/functions@production --upgrade
-```
+1. Create a virtual environment
+    ```
+    python3 -m venv env
+    ```
+2. Activate virtual environment
+    ```
+    source env/bin/activate
+    ```
+3. Install sdk from GitHub
+   ```
+   pip install git+git://github.com/ibm-watson-iot/functions@production --upgrade 
+   ```
 
-Prereqs are:
+Pre requisites are:
 
-iotfunctions. See https://github.com/ibm-watson-iot/functions
+* iotfunctions --> https://github.com/ibm-watson-iot/functions
 
