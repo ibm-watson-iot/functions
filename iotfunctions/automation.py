@@ -8,10 +8,11 @@
 #
 # *****************************************************************************
 
+import datetime as dt
 import inspect
 import logging
-import datetime as dt
 import math
+
 import numpy as np
 import pandas as pd
 
@@ -19,10 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def register(module, db):
-    '''
+    """
     Automatically register all functions in a module. To be regiserable, a function
     must have an class variable containing a dictionary of arguments (auto_register_args)
-    '''
+    """
 
     for (name, cls) in inspect.getmembers(module):
         try:
@@ -39,7 +40,7 @@ def register(module, db):
 
 
 class CategoricalGenerator(object):
-    '''
+    """
     Generate categorical values.
     
     Parameters
@@ -48,7 +49,7 @@ class CategoricalGenerator(object):
         name of categorical item
     categories: list of strings (optional)
         domain of values. if none give, will use defaults or generate random
-    '''
+    """
 
     # most commonly occuring value
     _mode = 5
@@ -68,9 +69,9 @@ class CategoricalGenerator(object):
         self.weights = weights
 
     def get_default_categories(self):
-        '''
+        """
         Return sample categoricals for a few predefined item names or generate
-        '''
+        """
 
         if self.name in ['company', 'company_id', 'company_code']:
             return ['ABC', 'ACME', 'JDI']
@@ -97,17 +98,17 @@ class CategoricalGenerator(object):
             return domain
 
     def get_data(self, rows):
-        '''
+        """
         generate array of random categorical values
-        '''
+        """
         return np.random.choice(self.categories, rows, p=self.weights)
 
 
 class DateGenerator(object):
-    '''
+    """
     Generate a array of random dates
     
-    '''
+    """
     _default_future_days = 0
     _default_past_days = 30
 
@@ -123,13 +124,13 @@ class DateGenerator(object):
 
 
 class MetricGenerator(object):
-    '''
+    """
     Generate a array of random numbers
     
     Will support predefined names in the future with named ranges in case
     you are wondering why this is needed
     
-    '''
+    """
     _default_future_days = 0
     _default_past_days = 30
 
@@ -145,7 +146,7 @@ class MetricGenerator(object):
 
 
 class TimeSeriesGenerator(object):
-    '''
+    """
     Generate random sample time series with trend and seasonality
     
     Parameters
@@ -176,7 +177,7 @@ class TimeSeriesGenerator(object):
         Pandas dataframe as source
     datasourcemetrics : list of strings
         Names of numeric items to take from source
-    '''
+    """
 
     ref_date = dt.datetime(2018, 1, 1, 0, 0, 0, 0)
     _timestamp = 'evt_timestamp'
@@ -258,7 +259,6 @@ class TimeSeriesGenerator(object):
 
         df[self._entity_id] = np.random.choice(self.ids, rows)
         df[self._timestamp] = ts
-        df[self._timestamp] = df[self._timestamp].astype('datetime64[ms]')
 
         days_from_ref = (df[self._timestamp] - self.ref_date).dt.total_seconds() / (60 * 60 * 24)
         day = df[self._timestamp].dt.day
@@ -307,27 +307,27 @@ class TimeSeriesGenerator(object):
         return df
 
     def set_mean(self, metric, mean):
-        '''
+        """
         Set the mean value of generated numeric item
-        '''
+        """
         self.data_item_mean[metric] = mean
 
     def set_sd(self, metric, sd):
-        '''
+        """
         Set the standard deviation of a generated numeric item
-        '''
+        """
         self.data_item_sd[metric] = sd
 
     def set_domain(self, item_name, values):
-        '''
+        """
         Set the values for a generated categorical item
-        '''
+        """
         self.domain[item_name] = values
 
     def set_params(self, **params):
-        '''
+        """
         Set parameters based using supplied dictionary
-        '''
+        """
         for key, value in list(params.items()):
             setattr(self, key, value)
         return self

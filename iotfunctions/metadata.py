@@ -8,36 +8,34 @@
 #
 # *****************************************************************************
 
-import logging
 import datetime as dt
-import numpy as np
-import json
 import importlib
+import json
+import logging
 import time
-import threading
 import warnings
-import traceback
 from collections import OrderedDict
+
+import numpy as np
 import pandas as pd
-from pandas.api.types import is_bool, is_number, is_string_dtype, is_timedelta64_dtype
-from sqlalchemy import Table, Column, Integer, SmallInteger, String, DateTime, Float, func, MetaData
+from sqlalchemy import Column, Integer, String, DateTime, Float
 from sqlalchemy.sql.sqltypes import TIMESTAMP, VARCHAR, FLOAT, INTEGER
 
+import iotfunctions
 from . import db as db_module
 from .automation import (TimeSeriesGenerator, DateGenerator, MetricGenerator, CategoricalGenerator)
-from .pipeline import (CalcPipeline, DropNull, JobController, JobLogNull, Trace, AggregateItems)
-from .util import (MemoryOptimizer, build_grouper, categorize_args, reset_df_index)
-from .stages import (DataReader, DataWriter, DataWriterFile)
 from .exceptions import StageException
-import iotfunctions
+from .pipeline import (CalcPipeline, DropNull, JobController, JobLogNull, Trace, AggregateItems)
+from .stages import (DataReader, DataWriter, DataWriterFile)
+from .util import (MemoryOptimizer, build_grouper, categorize_args, reset_df_index)
 
 logger = logging.getLogger(__name__)
 
 
 def retrieve_entity_type_metadata(raise_error=True, **kwargs):
-    '''
+    """
     Get server metadata for entity type
-    '''
+    """
     db = kwargs['_db']
     # get kpi functions metadata
     meta = db.http_request(object_type='engineInput', object_name=kwargs['logical_name'], request='GET',
@@ -89,7 +87,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
 
 
 class EntityType(object):
-    '''
+    """
     Data is organised around Entity Types. Entity Types have one or more
     physical database object for their data. When creating a new Entity Type,
     it will attempt to connect itself to a table of the same name in the
@@ -145,7 +143,7 @@ class EntityType(object):
         Additional keywork args.
         _timestamp: str
             Overide the timestamp column name from the default of 'evt_timestamp'
-    '''
+    """
 
     is_entity_type = True
     is_local = False
@@ -260,7 +258,7 @@ class EntityType(object):
         if self._granularities_dict is None:
             self._granularities_dict = {}
 
-            # additional params set from kwargs
+        # additional params set from kwargs
         self.set_params(**kwargs)
 
         # Start a trace to record activity on the entity type
@@ -346,7 +344,7 @@ class EntityType(object):
         logger.debug(('Initialized entity type %s'), str(self))
 
     def add_activity_table(self, name, activities, *args, **kwargs):
-        '''
+        """
         add an activity table for this entity type.
 
         parameters
@@ -357,7 +355,7 @@ class EntityType(object):
             activity type codes: these identify the nature of the activity, e.g. PM is Preventative Maintenance
         *args: Column objects
             other columns describing the activity, e.g. materials_cost
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -380,7 +378,7 @@ class EntityType(object):
         self.activity_tables[name] = table
 
     def add_slowly_changing_dimension(self, property_name, datatype, **kwargs):
-        '''
+        """
         add a slowly changing dimension table containing a single property for this entity type
 
         parameters
@@ -388,7 +386,7 @@ class EntityType(object):
         property_name : str
             name of property, e.g. firmware_version (lower case, no database reserved words)
         datatype: sqlalchemy datatype
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -440,7 +438,7 @@ class EntityType(object):
 
     def build_arg_metadata(self, obj):
 
-        '''
+        """
         Examine the metadata provided by build_ui() to understand more about
         the arguments to a function.
 
@@ -452,7 +450,7 @@ class EntityType(object):
         data items required as inputs to a function and the list of data
         items produced by the function.
 
-        '''
+        """
 
         name = obj.__class__.__name__
 
@@ -570,9 +568,9 @@ class EntityType(object):
         return (input_args, output_args, output_meta, input_set, output_list)
 
     def build_ui_constants(self):
-        '''
+        """
         Build attributes for each ui constants declared with the entity type
-        '''
+        """
 
         if self.ui_constants is None:
             logger.debug('No constants declared in entity definition')
@@ -587,9 +585,9 @@ class EntityType(object):
         self.set_params(**params)
 
     def build_flat_stage_list(self):
-        '''
+        """
         Build a flat list of all function objects defined for entity type
-        '''
+        """
 
         stages = []
 
@@ -609,10 +607,10 @@ class EntityType(object):
         return stages
 
     def build_granularities(self, grain_meta, freq_lookup):
-        '''
+        """
         Convert AS granularity metadata to granularity objects.
 
-        '''
+        """
 
         out = {}
         for g in grain_meta:
@@ -652,10 +650,10 @@ class EntityType(object):
         return out
 
     def build_item_metadata(self, table):
-        '''
+        """
         Build a client generated version of AS server metadata from a
         sql alachemy table object.
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -679,7 +677,7 @@ class EntityType(object):
         return self._data_items
 
     def build_schedules(self, metadata):
-        '''
+        """
         Build a dictionary of schedule metadata from the schedules contained
         within function definitions.
 
@@ -697,7 +695,7 @@ class EntityType(object):
         { '5min': [16,3,7] }
         5 minute schedule interval with a start time of 4:03pm and backtrack of 7 days.
 
-        '''
+        """
 
         freqs = {}
 
@@ -711,7 +709,8 @@ class EntityType(object):
                 start_min = start[4]
                 backtrack = f['backtrack']
                 if backtrack is not None:
-                    backtrack_days = (backtrack['days'] + backtrack['hours'] / 24 + backtrack['minutes'] / 1440)
+                    backtrack_days = backtrack.get('days', 0) + (backtrack.get('hours', 0) / 24) + (
+                            backtrack.get('minutes', 0) / 1440)
                 else:
                     backtrack_days = None
 
@@ -745,12 +744,12 @@ class EntityType(object):
         return freqs
 
     def classify_stages(self):
-        '''
+        """
         Create a dictionary of stage objects. Dictionary is keyed by
         stage type and a granularity obj. It contains a list of stage
         objects. Stages are classified by timing of execution, ie: preload,
         get_data, transform, aggregate
-        '''
+        """
         logger.debug('Classifying stages by timing of execution, ie: preload, get_data, transform, aggregate')
         stage_metadata = dict()
         active_granularities = set()
@@ -908,9 +907,9 @@ class EntityType(object):
         return stage_metadata
 
     def build_stage_metadata(self, *args):
-        '''
+        """
         Make a new JobController payload from a list of function objects
-        '''
+        """
         metadata = []
         for f in args:
             # if function is deprecated it may have a replacement
@@ -940,9 +939,9 @@ class EntityType(object):
         return metadata
 
     def index_df(self, df):
-        '''
+        """
         Create an index on the deviceid and the timestamp
-        '''
+        """
 
         if self._df_index_entity_id is None:
             self._df_index_entity_id = self._entity_id
@@ -995,10 +994,10 @@ class EntityType(object):
 
     @classmethod
     def default_stage_type_map(cls):
-        '''
+        """
         Configure how properties of stages are used to set the stage type
         that is used by the job controller to decide how to process a stage
-        '''
+        """
 
         return [('preload', 'is_preload'), ('get_data', 'is_data_source'), ('transform', 'is_transformer'),
                 ('aggregate', 'is_data_aggregator'), ('simple_aggregate', 'is_simple_aggregator'),
@@ -1006,10 +1005,10 @@ class EntityType(object):
 
     def df_sort_timestamp(self, df):
 
-        '''
+        """
         Sort a dataframe on the timestamp column. Returns a tuple containing
         the sorted dataframe and a column_name for the timestamp column.
-        '''
+        """
 
         ts_col_name = self._timestamp
 
@@ -1030,18 +1029,18 @@ class EntityType(object):
         return (df, ts_col_name)
 
     def drop_tables(self, recreate=False):
-        '''
+        """
         Drop tables known to be associated with this entity type
 
-        '''
+        """
 
         self.db.drop_table(self.name, schema=self._db_schema, recreate=recreate)
         self.drop_child_tables(recreate=recreate)
 
     def drop_child_tables(self, recreate=False):
-        '''
+        """
         Drop all child tables
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -1059,16 +1058,16 @@ class EntityType(object):
         logger.info(msg)
 
     def exec_local_pipeline(self, start_ts=None, end_ts=None, entities=None, **kw):
-        '''
+        """
         Test the functions on an entity type
         Test will be run on local metadata. It will not use the server
         job log. Results will be written to file.
-        '''
+        """
 
         params = {'data_writer': DataWriterFile, 'keep_alive_duration': None, 'save_trace_to_file': True,
                   'default_backtrack': 'checkpoint', 'trace_df_changes': True, '_abort_on_fail': True,
                   'job_log_class': JobLogNull, '_auto_save_trace': None, '_start_ts_override': start_ts,
-                  '_end_ts_override': end_ts, '_entity_filter_list': entities}
+                  '_end_ts_override': end_ts, '_entity_filter_list': entities, '_production_mode': False}
 
         kw = {**params, **kw}
 
@@ -1083,9 +1082,9 @@ class EntityType(object):
         job.execute()
 
     def get_attributes_dict(self):
-        '''
+        """
         Produce a dictionary containing all attributes
-        '''
+        """
         c = {}
         for att in dir(self):
             value = getattr(self, att)
@@ -1094,9 +1093,9 @@ class EntityType(object):
         return c
 
     def get_calc_pipeline(self, stages=None):
-        '''
+        """
         Make a new CalcPipeline object. Reset processing variables.
-        '''
+        """
         warnings.warn('get_calc_pipeline() is deprecated. Use build_job()', DeprecationWarning)
         self._scd_stages = []
         self._custom_calendar = None
@@ -1105,10 +1104,10 @@ class EntityType(object):
 
     def get_function_replacement_metadata(self, meta):
 
-        '''
+        """
         replace incoming function metadata for aggregate functions with
         metadata that will be used to build a DataAggregator
-        '''
+        """
 
         replacement = {'Sum': 'sum', 'Minimum': 'min', 'Maximum': 'max', 'Mean': 'mean', 'Median': 'median',
                        'Count': 'count', 'DistinctCount': 'count_distinct', 'StandardDeviation': 'std',
@@ -1128,10 +1127,10 @@ class EntityType(object):
 
     def get_local_column_lists_by_type(self, columns, known_categoricals_set=None):
 
-        '''
+        """
         Examine a list of columns and poduce a tuple containing names
         of metric,dates,categoricals and others
-        '''
+        """
 
         if known_categoricals_set is None:
             known_categoricals_set = set()
@@ -1179,9 +1178,9 @@ class EntityType(object):
         return self._custom_calendar
 
     def get_data(self, start_ts=None, end_ts=None, entities=None, columns=None):
-        '''
+        """
         Retrieve entity data at input grain or preaggregated
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -1254,34 +1253,34 @@ class EntityType(object):
         return df
 
     def get_data_items(self):
-        '''
+        """
         Get the list of data items defined
 
         :return: list of dicts containting data item metadata
-        '''
+        """
         return self._data_items
 
     def get_excluded_cols(self):
-        '''
+        """
         Return a list of physical columns that should be excluded when returning
         the list of data items
-        '''
+        """
 
         return ['logicalinterface_id', 'format', 'updated_utc', 'devicetype', 'eventtype']
 
     def get_grain_freq(self, grain_name, lookup, default):
-        '''
+        """
         Lookup a pandas frequency string from an AS granularity name
-        '''
+        """
         for l in lookup:
             if grain_name == l['name']:
                 return l['alias']
         return default
 
     def get_output_items(self):
-        '''
+        """
         Get a list of non calculated items: outputs from the time series table
-        '''
+        """
 
         items = [x.get('columnName') for x in self._data_items if
                  x.get('type') == 'METRIC' or x.get('type') == 'DIMENSION']
@@ -1289,9 +1288,9 @@ class EntityType(object):
         return items
 
     def get_log(self, rows=100):
-        '''
+        """
         Get KPI execution log info. Returns a dataframe.
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -1300,13 +1299,13 @@ class EntityType(object):
 
         query, log = self.db.query(self.log_table, self._db_schema)
         query = query.filter(log.c.entity_type == self.name).order_by(log.c.timestamp_utc.desc()).limit(rows)
-        df = self.db.get_query_data(query)
+        df = self.db.read_sql_query(query)
         return df
 
     def get_latest_log_entry(self):
-        '''
+        """
         Get the most recent log entry. Returns dict.
-        '''
+        """
         last = self.get_log(rows=1)
         last = last.to_dict('records')[0]
         return last
@@ -1329,7 +1328,7 @@ class EntityType(object):
         return None
 
     def get_stage_type(self, stage):
-        '''
+        """
         Examine the stage object to determine how it should be processed by
         the JobController
 
@@ -1344,7 +1343,7 @@ class EntityType(object):
         if a stage has both an is_data_source = True and
         a is_simple_aggregate = True, the stage type will be returned as
         'get_data'
-        '''
+        """
 
         for (stage_type, prop) in self._stage_type_map:
             try:
@@ -1371,9 +1370,9 @@ class EntityType(object):
         return None
 
     def get_replacement(self, obj):
-        '''
+        """
         Get replacement for deprecated function
-        '''
+        """
         try:
             is_deprecated = obj.is_deprecated
         except AttributeError:
@@ -1398,7 +1397,7 @@ class EntityType(object):
     def generate_data(self, entities=None, days=0, seconds=300, freq='1min', scd_freq='1D', write=True,
                       drop_existing=False, data_item_mean=None, data_item_sd=None, data_item_domain=None, columns=None,
                       start_entity_id=None, auto_entity_count=None, datasource=None, datasourcemetrics=None):
-        '''
+        """
         Generate random time series data for entities
 
         Parameters
@@ -1425,7 +1424,7 @@ class EntityType(object):
             dataframe as data source
         datasourcemetrics : list of strings
             list of relevant column for datasource
-        '''
+        """
         if entities is None:
             if start_entity_id is None:
                 start_entity_id = self._start_entity_id
@@ -1486,7 +1485,6 @@ class EntityType(object):
             df['devicetype'] = self.logical_name
             df['format'] = ''
             df['updated_utc'] = dt.datetime.utcnow()
-            df['updated_utc'] = df['updated_utc'].astype('datetime64[ms]')
             self.db.write_frame(table_name=self.name, df=df, schema=self._db_schema, timestamp_col=self._timestamp)
 
         for (at_name, at_table) in list(self.activity_tables.items()):
@@ -1602,16 +1600,16 @@ class EntityType(object):
             logger.debug('No new entities. Did not generate dimension data.')
 
     def get_entity_filter(self):
-        '''
+        """
         Get the list of entity ids that are valid for pipeline processing.
-        '''
+        """
 
         return self._entity_filter_list
 
     def get_last_checkpoint(self):
-        '''
+        """
         Get the last checkpoint recorded for entity type
-        '''
+        """
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity'
                    ' types do not have a checkpoint')
@@ -1676,9 +1674,9 @@ class EntityType(object):
         return [(s.output_item, s.table_name) for s in self._scd_stages]
 
     def is_base_item(self, item_name):
-        '''
+        """
         Base items are non calculated data items.
-        '''
+        """
 
         item_type = self._data_items[item_name]['columnType']
         if item_type == 'METRIC':
@@ -1687,9 +1685,9 @@ class EntityType(object):
             return False
 
     def is_data_item(self, name):
-        '''
+        """
         Determine whether an item is a data item
-        '''
+        """
 
         if name in [x.name for x in self._data_items]:
             return True
@@ -1697,7 +1695,7 @@ class EntityType(object):
             return False
 
     def make_dimension(self, name=None, *args, **kw):
-        '''
+        """
         Add dimension table by specifying additional columns
 
         Parameters
@@ -1706,7 +1704,7 @@ class EntityType(object):
             dimension table name
         *args: sql alchemchy Column objects
         * kw: : schema
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -1739,9 +1737,9 @@ class EntityType(object):
         warnings.warn(('publish_kpis() is deprecated for EntityType. Instead'
                        ' use an EntityType inherited from BaseCustomEntityType'), DeprecationWarning)
 
-        '''
+        """
         Publish the stages assigned to this entity type to the AS Server
-        '''
+        """
 
         export = []
         stages = self.build_flat_stage_list()
@@ -1777,18 +1775,23 @@ class EntityType(object):
 
         return response
 
-    def raise_error(self, exception, msg='', abort_on_fail=False, stageName=None):
-        '''
+    def raise_error(self, exception, msg=None, abort_on_fail=False, stage_name=None):
+        """
         Raise an exception. Append a message and the current trace to the stacktrace.
-        '''
-        msg = ('Execution of function %s failed due to %s'
-               ' Error message: %s '
-               ' Stack trace : %s '
-               ' Execution trace : %s' % (
-                   stageName, exception.__class__.__name__, msg, traceback.format_exc(), str(self._trace)))
+        """
+
+        err_info = {'AttributeError': 'The function %s makes reference to an object property that does not exist.',
+                    'SyntaxError': 'The function %s contains a syntax error. If the function includes a type-in expression, make sure this is correct.',
+                    'ValueError': 'The function %s is operating on a data that has an unexpected value for its data type.',
+                    'TypeError': 'The function %s is operating on a data that has an unexpected data type.',
+                    'KeyError': 'The function %s is refering to a dictionary key or dataframe column name that doesnt exist.',
+                    'NameError': 'The function %s is refering to an object that doesnt exist. If refering to data items in a pandas dataframe, ensure that you quote them, e.g. df["temperature"].', }
+
+        if msg is None:
+            msg = err_info.get(exception.__class__.__name__, 'The function %s failed to execute.') % stage_name
 
         if abort_on_fail:
-            raise StageException(msg, stageName)
+            raise StageException(error_message=msg, stage_name=stage_name, exception=exception)
         else:
             logger.warning(msg)
 
@@ -1830,8 +1833,8 @@ class EntityType(object):
         except Exception:
             logger.debug('Error populating dm_wiot_entity_list table.')
 
-    def register(self, publish_kpis=False, raise_error=False):
-        '''
+    def register(self, publish_kpis=False, raise_error=False, sample_entity_type=False):
+        """
         Register entity type so that it appears in the UI. Create a table for input data.
 
         Parameters
@@ -1839,7 +1842,7 @@ class EntityType(object):
         credentials: dict
             credentials for the ICS metadata service
 
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -1896,7 +1899,7 @@ class EntityType(object):
                     raise KeyError('No database credentials found. Unable to register table.')
         payload = [table]
         response = self.db.http_request(request='POST', object_type='entityType', object_name=self.name,
-                                        payload=payload, raise_error=raise_error)
+                                        payload=payload, raise_error=raise_error, sample_entity_type=sample_entity_type)
 
         msg = 'Metadata registered for table %s ' % self.name
         logger.debug(msg)
@@ -1907,23 +1910,23 @@ class EntityType(object):
         return response
 
     def trace_append(self, created_by, msg, log_method=None, df=None, **kwargs):
-        '''
+        """
         Write to entity type trace
-        '''
+        """
         self._trace.write(created_by=created_by, log_method=log_method, text=msg, df=df, **kwargs)
 
     def set_custom_calendar(self, custom_calendar):
-        '''
+        """
         Set a custom calendar for the entity type.
-        '''
+        """
         if custom_calendar is not None:
             self._custom_calendar = custom_calendar
 
     def get_server_params(self):
-        '''
+        """
         Retrieve the set of properties assigned through the UI
         Assign to instance variables
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -1979,17 +1982,17 @@ class EntityType(object):
         return out
 
     def set_params(self, **params):
-        '''
+        """
         Set parameters based using supplied dictionary
-        '''
+        """
         for key, value in list(params.items()):
             setattr(self, key, value)
         return self
 
     def write_unmatched_members(self, df):
-        '''
+        """
         Write a row to the dimension table for every entity instance in the dataframe supplied
-        '''
+        """
 
         if df.empty or self.db is None:
             return []
@@ -2015,9 +2018,9 @@ class EntityType(object):
 
 
 class ServerEntityType(EntityType):
-    '''
+    """
     Initialize an entity type using AS Server metadata
-    '''
+    """
 
     def __init__(self, logical_name, db, db_schema):
 
@@ -2067,7 +2070,7 @@ class ServerEntityType(EntityType):
         # turn function metadata into function objects
         (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
 
-        #  map server properties to entitty type properties
+        #  map server properties to entity type properties
         self._entity_type_id = server_meta['entityTypeId']
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
@@ -2120,9 +2123,9 @@ class ServerEntityType(EntityType):
         super().__init__(name=server_meta['metricsTableName'], db=db, **params)
 
     def build_function_objects(self, server_kpis):
-        '''
+        """
         Create function objects from server kpi definitions
-        '''
+        """
 
         functions = []
         invalid = []
@@ -2182,9 +2185,9 @@ class ServerEntityType(EntityType):
 
 
 class LocalEntityType(EntityType):
-    '''
+    """
     Entity type for local testing. No db connection required.
-    '''
+    """
 
     is_local = True
 
@@ -2211,7 +2214,7 @@ class LocalEntityType(EntityType):
 
     def _build_cols_for_fns(self, functions, columns=None):
 
-        '''
+        """
         Get a list of dataframe column names referenced as function
         arguments
 
@@ -2222,7 +2225,7 @@ class LocalEntityType(EntityType):
         This set contains the previously known columns and the
         required columns inferred from function inputs
 
-        '''
+        """
 
         # build a dictionary of the known column objects
         if columns is None:
@@ -2271,9 +2274,9 @@ class LocalEntityType(EntityType):
 
 
 class BaseCustomEntityType(EntityType):
-    '''
+    """
     Base class for custom entity types
-    '''
+    """
 
     timestamp = 'evt_timestamp'
 
@@ -2320,9 +2323,9 @@ class BaseCustomEntityType(EntityType):
 
     def publish_kpis(self, raise_error=True):
 
-        '''
+        """
         Publish the function instances assigned to this entity type to the AS Server
-        '''
+        """
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -2380,7 +2383,7 @@ class BaseCustomEntityType(EntityType):
 
 
 class Granularity(object):
-    '''
+    """
     Describe granularity level in terms of the pandas grouper that is used
     to aggregate to this grain and any custom calendar object that may have
     been used to create it.
@@ -2404,7 +2407,7 @@ class Granularity(object):
     grouper: pandas Grouper object. Optional. If not provided, the
     grouper will be built using other arguments
 
-    '''
+    """
 
     is_granularity = True
 
@@ -2441,14 +2444,14 @@ class Granularity(object):
 
     def align_df_to_start_date(self, df, min_date=None):
 
-        '''
+        """
         Align a dataframe to the granularity by filtering out times periods that
         are incomplete, ie: started before the earliest date in the dataframe.
 
         example: consider a daily grain with a dateframe containing data
         from 2019/08/05 8:09am. After alignment the dataframe will be filtered
         to exclude timestamps before the start of the first complete day (2019/08/06).
-        '''
+        """
 
         if min_date is None:
             min_date = df[self.timestamp].min()
@@ -2460,9 +2463,9 @@ class Granularity(object):
 
     def get_period_end(self, date):
 
-        '''
+        """
         Get the start date of the next period after <date>
-        '''
+        """
 
         if self.custom_calendar is not None:
             result = self.custom_calendar.get_period_end(date)
@@ -2480,12 +2483,13 @@ class Granularity(object):
 
 
 class Model(object):
-    '''
+    """
     Predictive model
-    '''
+    """
 
     def __init__(self, name, estimator, estimator_name, params, features, target, eval_metric_name,
-                 eval_metric_train=None, eval_metric_test=None, shelf_life_days=None, col_name=None):
+                 eval_metric_train=None, eval_metric_test=None, shelf_life_days=None, col_name=None,
+                 col_name_stddev=None):
 
         self.name = name
         self.target = target
@@ -2503,6 +2507,8 @@ class Model(object):
 
         self.col_name = col_name
 
+        self.col_name_stddev = col_name_stddev
+
         if self.estimator is None:
             self.trained_date = None
         else:
@@ -2512,6 +2518,9 @@ class Model(object):
         else:
             self.expiry_date = None
         self.viz = {}
+
+    def has_std_dev(self, pred_stddev):
+        self.col_name_stddev = pred_stddev
 
     def fit(self, df):
         self.estimator = self.estimator.fit(df[self.features], df[self.target])
@@ -2523,11 +2532,23 @@ class Model(object):
         logger.info(msg)
         return self.estimator
 
+    def transform(self, df):
+        result = self.estimator.transform(df[self.features])
+        msg = 'transformed using model %s' % (self.name)
+        logger.info(msg)
+        return result
+
     def predict(self, df):
         result = self.estimator.predict(df[self.features])
         msg = 'predicted using model %s' % (self.name)
         logger.info(msg)
         return result
+
+    def predict_with_std_dev(self, df):
+        mean, stddev = self.estimator.predict(df[self.features], return_std=True)
+        msg = 'predicted using model %s' % (self.name)
+        logger.info(msg)
+        return mean, stddev
 
     def score(self, df):
         result = self.estimator.score(df[self.features], df[self.target])
@@ -2542,7 +2563,7 @@ class Model(object):
     def __str__(self):
         out = {}
         output = ['name', 'target', 'features', 'estimator_name', 'eval_metric_name', 'eval_metric_train',
-                  'eval_metric_test', 'trained_date', 'expiry_date']
+                  'eval_metric_test', 'trained_date', 'expiry_date', 'col_name', 'col_name_stddev']
         for o in output:
             try:
                 out[o] = getattr(self, o)

@@ -8,7 +8,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         'dill==0.3.0',
-        'ibm-cos-sdk==2.1.3',
         'numpy>=1.17.3',
         'pandas>=0.24.0',
         'scikit-learn==0.20.3',
@@ -24,7 +23,8 @@ setup(
         'pyod==0.7.5',
         'scikit-image>=0.16.2',
         'sqlalchemy==1.3.10',
-        'tabulate==0.8.5'
+        'tabulate==0.8.5',
+        'pyarrow==0.17.1'
     ],
     extras_require={
         'kafka':  ['confluent-kafka==0.11.5']

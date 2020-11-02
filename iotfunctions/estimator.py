@@ -9,10 +9,12 @@
 # *****************************************************************************
 
 import logging
+
 from sklearn import metrics
+
 from .base import BaseRegressor, BaseClassifier
 from .bif import AlertHighValue
-from .ui import UIMultiItem, UISingle, UISingleItem, UIFunctionOutSingle, UIFunctionOutMulti
+from .ui import UIMultiItem, UISingle, UIFunctionOutMulti
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +23,11 @@ _IS_PREINSTALLED = False
 
 
 class SimpleAnomaly(BaseRegressor):
-    '''
+    """
     Sample function uses a regression model to predict the value of one or more output
     variables. It compares the actual value to the prediction and generates an alert 
     when the difference between the actual and predicted value is outside of a threshold.
-    '''
+    """
     # class variables
     train_if_no_model = True
     estimators_per_execution = 3
@@ -68,11 +70,11 @@ class SimpleAnomaly(BaseRegressor):
 
 
 class SimpleRegressor(BaseRegressor):
-    '''
+    """
     Sample function that predicts the value of a continuous target variable using the selected list of features.
     This function is intended to demonstrate the basic workflow of training, evaluating, deploying
     using a model. 
-    '''
+    """
     # class variables
     train_if_no_model = True
     estimators_per_execution = 3
@@ -92,11 +94,11 @@ class SimpleRegressor(BaseRegressor):
 
 
 class SimpleClassifier(BaseClassifier):
-    '''
+    """
     Sample function that predicts the value of a discrete target variable using the selected list of features.
     This function is intended to demonstrate the basic workflow of training, evaluating, deploying
     using a model. 
-    '''
+    """
 
     eval_metric = staticmethod(metrics.accuracy_score)
     # class variables
@@ -118,11 +120,11 @@ class SimpleClassifier(BaseClassifier):
 
 
 class SimpleBinaryClassifier(BaseClassifier):
-    '''
+    """
     Sample function that predicts the value of a discrete target variable using the selected list of features.
     This function is intended to demonstrate the basic workflow of training, evaluating, deploying
     using a model. 
-    '''
+    """
 
     eval_metric = staticmethod(metrics.f1_score)
     # class variables

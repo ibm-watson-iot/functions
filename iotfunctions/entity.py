@@ -8,18 +8,16 @@
 #
 # *****************************************************************************
 
-'''
+"""
 The entity module contains sample entity types
-'''
+"""
 
-import logging
 import datetime as dt
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, func, SmallInteger
+import logging
 
-from . import metadata
-from . import bif
-from . import ui
-from . import estimator as est
+from sqlalchemy import Column, String, Float, DateTime, SmallInteger
+
+from . import bif, metadata, ui
 
 logger = logging.getLogger(__name__)
 
@@ -106,11 +104,11 @@ class EmptyEntityType(metadata.EntityType):
 
 
 class SampleBlankEntity(metadata.BaseCustomEntityType):
-    '''
+    """
     This sample shows simulated time series data for an industrial boiler.
     It demostrates how to perform Monte Carlo simulation. It also
     shows how to apply heuristics to detect leaks.
-    '''
+    """
 
     def __init__(self, name, db, db_schema=None, description=None, generate_days=10, drop_existing=False):
         # constants
@@ -134,12 +132,13 @@ class SampleBlankEntity(metadata.BaseCustomEntityType):
                          generate_days=generate_days, drop_existing=drop_existing, description=description,
                          db_schema=db_schema)
 
+
 class Boiler(metadata.BaseCustomEntityType):
-    '''
+    """
     This sample shows simulated time series data for an industrial boiler.
     It demostrates how to perform Monte Carlo simulation. It also
     shows how to apply heuristics to detect leaks.
-    '''
+    """
 
     def __init__(self, name, db, db_schema=None, description=None, generate_days=10, drop_existing=False):
         # constants
@@ -190,11 +189,12 @@ class Boiler(metadata.BaseCustomEntityType):
                          generate_days=generate_days, drop_existing=drop_existing, description=description,
                          db_schema=db_schema)
 
+
 class BuildingWorkstation(metadata.BaseCustomEntityType):
-    '''
+    """
     Sample entity type for monitoring a building. Monitor comfort levels, energy
     consumption and occupany.
-    '''
+    """
 
     def __init__(self, name, db, db_schema=None, description=None, generate_days=10, drop_existing=False):
         # constants
@@ -238,13 +238,14 @@ class BuildingWorkstation(metadata.BaseCustomEntityType):
                          output_items_extended_metadata=output_items_extended_metadata, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
 
+
 class Robot(metadata.BaseCustomEntityType):
-    '''
+    """
     Sample entity type based on data commonly available for industrial robots.
     This sample illustrates the ability to combine timeseries sensor data
     with other data. It shows how to calculate activity durations from an activity
     log, map timestamps to shifts time align changes to slowly changing dimensions
-    '''
+    """
 
     def __init__(self, name, db, db_schema=None, description=None, generate_days=10, drop_existing=False):
         physical_name = name.lower()
@@ -323,11 +324,12 @@ class Robot(metadata.BaseCustomEntityType):
                          output_items_extended_metadata=output_items_extended_metadata, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
 
+
 class PackagingHopper(metadata.BaseCustomEntityType):
-    '''
+    """
     This sample demonstrates anomaly detection on simulated data from a cereal
     packaging plant.
-    '''
+    """
 
     def __init__(self, name, db, db_schema=None, description=None, generate_days=10, drop_existing=False):
         constants = []
@@ -355,9 +357,9 @@ class PackagingHopper(metadata.BaseCustomEntityType):
         functions.append(bif.PythonExpression(expression=('(df["dispensed_mass_predicted"]-'
                                                           ' df["dispensed_mass_actual"]).abs()'),
                                               output_name='prediction_abs_error'))
-        ''' alert
+        """ alert
         functions.append(bif.AlertHighValue(input_item='prediction_abs_error', upper_threshold=3,
-                                            alert_name='anomaly_in_fill_detected', Severity='High', Status='New'))'''
+                                            alert_name='anomaly_in_fill_detected', Severity='High', Status='New'))"""
         # dimension columns
 
         dimension_columns = [Column('firmware', String(50)), Column('manufacturer', String(50)),
@@ -368,11 +370,12 @@ class PackagingHopper(metadata.BaseCustomEntityType):
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
 
+
 class SourdoughLeavening(metadata.BaseCustomEntityType):
-    '''
+    """
     This sample demostrates using AI to make recommendations about the
     leavening process during the production of bread
-    '''
+    """
 
     def __init__(self, name, db, db_schema=None, description=None, generate_days=10, drop_existing=False):
         constants = []
@@ -413,10 +416,11 @@ class SourdoughLeavening(metadata.BaseCustomEntityType):
                          functions=functions, dimension_columns=dimension_columns, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
 
+
 class TestBed(metadata.BaseCustomEntityType):
-    '''
+    """
     Test entity type. Excercises a number of functions.
-    '''
+    """
 
     def __init__(self, name, db, db_schema=None, description=None, generate_days=0, drop_existing=False):
         columns = []

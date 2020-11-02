@@ -7,8 +7,8 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # *****************************************************************************
-import logging
 import datetime as dt
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class BaseUIControl(object):
 
 
 class UIFunctionOutSingle(BaseUIControl):
-    '''
+    """
     Single output item
     
     Parameters
@@ -49,7 +49,7 @@ class UIFunctionOutSingle(BaseUIControl):
         Help text to display in UI
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
-    '''
+    """
 
     type_ = 'OUTPUT_DATA_ITEM'
 
@@ -71,7 +71,7 @@ class UIFunctionOutSingle(BaseUIControl):
 
 
 class UIFunctionOutMulti(BaseUIControl):
-    '''
+    """
     Array of multiple outputs
     
     Parameters
@@ -88,7 +88,7 @@ class UIFunctionOutMulti(BaseUIControl):
         Help text to display in UI
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
-    '''
+    """
 
     type_ = 'OUTPUT_DATA_ITEM'
 
@@ -127,7 +127,7 @@ class UIFunctionOutMulti(BaseUIControl):
 
 
 class UISingleItem(BaseUIControl):
-    '''
+    """
     Choose a single item as a function argument
     
     Parameters
@@ -142,7 +142,7 @@ class UISingleItem(BaseUIControl):
         Help text to display in UI
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
-    '''
+    """
 
     type_ = 'DATA_ITEM'
 
@@ -172,7 +172,7 @@ class UISingleItem(BaseUIControl):
 
 
 class UIMultiItem(BaseUIControl):
-    '''
+    """
     Multi-select list of data items
     
     Parameters
@@ -191,7 +191,7 @@ class UIMultiItem(BaseUIControl):
         Help text to display in UI
     tags: list of strs
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT'] 
-    '''
+    """
 
     type_ = 'DATA_ITEM'
 
@@ -255,7 +255,7 @@ class UIMultiItem(BaseUIControl):
 
 
 class UIMulti(BaseUIControl):
-    '''
+    """
     Multi-select list of constants
     
     Parameters
@@ -276,7 +276,7 @@ class UIMulti(BaseUIControl):
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     values: list
         Values to display in UI picklist        
-    '''
+    """
 
     type_ = 'CONSTANT'
 
@@ -346,7 +346,7 @@ class UIMulti(BaseUIControl):
 
 
 class UISingle(BaseUIControl):
-    '''
+    """
     Single valued constant
     
     Parameters
@@ -363,7 +363,7 @@ class UISingle(BaseUIControl):
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     values: list
         Values to display in UI picklist        
-    '''
+    """
 
     type_ = 'CONSTANT'
 
@@ -395,9 +395,9 @@ class UISingle(BaseUIControl):
 
 
 class UIStatusFlag(UIFunctionOutSingle):
-    '''
+    """
     Output a boolean value indicating that function was executed
-    '''
+    """
 
     def __init__(self, name='is_executed'):
         super().__init__(name=name, datatype=bool, description=('Function returns as boolean status flag indicating'
@@ -405,7 +405,7 @@ class UIStatusFlag(UIFunctionOutSingle):
 
 
 class UIText(UISingle):
-    '''
+    """
     UI control that allows entering multiple lines of text
     
     Parameters
@@ -420,7 +420,7 @@ class UIText(UISingle):
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     default: str
         Optional default
-    '''
+    """
 
     def __init__(self, name='expression', description=None, tags=None, required=True, default=None):
 
@@ -437,14 +437,14 @@ class UIText(UISingle):
 
 
 class UIParameters(UISingle):
-    '''
+    """
     UI control for capturing a json input
 
     Parameters
     ----------
     name : str (optional)
         Name of function argument. Default is "parameters"
-    '''
+    """
 
     def __init__(self, name='parameters', description='enter json parameters', tags=None, required=False, default=None):
         super().__init__(name=name, description=description, tags=tags, required=required, default=default,
@@ -452,7 +452,7 @@ class UIParameters(UISingle):
 
 
 class UIExpression(UIText):
-    '''
+    """
     UI control that allows entering a python expression
     
     Parameters
@@ -467,7 +467,7 @@ class UIExpression(UIText):
         Optional tags, e.g. ['DIMENSION', 'EVENT', 'ALERT']
     default: str
         Optional default
-    '''
+    """
 
     def __init__(self, name='expression', description=None, tags=None, required=True, default=None):
 

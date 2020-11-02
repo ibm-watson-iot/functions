@@ -67,6 +67,7 @@ GTAGS
 *.zip
 
 .pytest_cache
+__pycache__
 env/
 *.irx
 
@@ -80,6 +81,8 @@ _build
 dist
 doc/build
 doc/cdoc/build
+# python virtualenv
+venv
 # Egg metadata
 *.egg-info
 # The shelf plugin uses this dir

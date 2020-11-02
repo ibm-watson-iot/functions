@@ -8,22 +8,24 @@
 #
 # *****************************************************************************
 
-'''
+"""
 The Built In Functions module contains preinstalled functions
-'''
+"""
+
+# import re
+# import pandas as pd
+import logging
 
 # import datetime as dt
 # import time
 # from collections import OrderedDict
 import numpy as np
-# import re
-# import pandas as pd
-import logging
-# import warnings
-# from sqlalchemy import String
 
 from .base import (BaseTransformer)
 from .ui import (UISingle, UIFunctionOutSingle, UISingleItem)
+
+# import warnings
+# from sqlalchemy import String
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -161,7 +163,7 @@ class AnomalyGenerator(BaseTransformer):
         try:
             query, table = db.query(derived_metric_table_name, schema, column_names='KEY',
                                     filters={'KEY': self.output_item})
-            raw_dataframe = db.get_query_data(query)
+            raw_dataframe = db.read_sql_query(query)
             self.key = '_'.join([derived_metric_table_name, self.output_item])
             logger.debug('Check for key {} in derived metric table {}'.format(self.output_item, raw_dataframe.shape))
         except Exception as e:
@@ -211,9 +213,9 @@ class AnomalyGenerator(BaseTransformer):
 
 
 class AnomalyGeneratorExtremeValue(AnomalyGenerator):
-    '''
+    """
     This function generates extreme anomaly.
-    '''
+    """
 
     def __init__(self, input_item, factor, size, output_item):
         super().__init__()
@@ -279,21 +281,22 @@ class AnomalyGeneratorExtremeValue(AnomalyGenerator):
         inputs.append(UISingleItem(name='input_item', datatype=float, description='Item to base anomaly on'))
 
         inputs.append(UISingle(name='factor', datatype=int,
-            description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints', default=5))
+                               description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
+                               default=5))
 
         inputs.append(UISingle(name='size', datatype=int, description='Size of extreme anomalies to be created. e.g. 10 will create 10x size extreme \
                              anomaly compared to the normal variance', default=10))
 
         outputs = []
         outputs.append(UIFunctionOutSingle(name='output_item', datatype=float,
-            description='Generated Item With Extreme anomalies'))
+                                           description='Generated Item With Extreme anomalies'))
         return (inputs, outputs)
 
 
 class AnomalyGeneratorNoData(AnomalyGenerator):
-    '''
+    """
     This function generates nodata anomaly.
-    '''
+    """
 
     def __init__(self, input_item, width, factor, output_item):
         super().__init__()
@@ -356,7 +359,8 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
         inputs.append(UISingleItem(name='input_item', datatype=float, description='Item to base anomaly on'))
 
         inputs.append(UISingle(name='factor', datatype=int,
-            description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints', default=10))
+                               description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
+                               default=10))
 
         inputs.append(UISingle(name='width', datatype=int, description='Width of the anomaly created', default=5))
 
@@ -367,9 +371,9 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
 
 
 class AnomalyGeneratorFlatline(AnomalyGenerator):
-    '''
+    """
     This function generates flatline anomaly.
-    '''
+    """
 
     def __init__(self, input_item, width, factor, output_item):
         super().__init__()
@@ -434,11 +438,12 @@ class AnomalyGeneratorFlatline(AnomalyGenerator):
         inputs.append(UISingleItem(name='input_item', datatype=float, description='Item to base anomaly on'))
 
         inputs.append(UISingle(name='factor', datatype=int,
-            description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints', default=10))
+                               description='Frequency of anomaly e.g. A value of 3 will create anomaly every 3 datapoints',
+                               default=10))
 
         inputs.append(UISingle(name='width', datatype=int, description='Width of the anomaly created', default=5))
 
         outputs = []
         outputs.append(UIFunctionOutSingle(name='output_item', datatype=float,
-            description='Generated Item With Flatline anomalies'))
+                                           description='Generated Item With Flatline anomalies'))
         return (inputs, outputs)

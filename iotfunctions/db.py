@@ -8,29 +8,36 @@
 #
 # *****************************************************************************
 
-import os
-import datetime as dt
-import logging
-import urllib3
-import json
-import inspect
-import sys
-import importlib
 import datetime
-import pandas as pd
+import datetime as dt
+import importlib
+import inspect
+import json
+import logging
+import os
 import subprocess
-from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
+import sys
+from time import time
+
+import ibm_db
+import ibm_db_dbi
+import pandas as pd
+import psycopg2
+import urllib3
+from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
     func, and_, or_
-from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN, NullType
-from sqlalchemy.sql import select
-from sqlalchemy.orm.session import sessionmaker
-from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy import __version__ as sqlalchemy_version_string
-from .util import CosClient, resample, reset_df_index
+from sqlalchemy.exc import NoSuchTableError
+from sqlalchemy.orm.session import sessionmaker
+from sqlalchemy.sql import select
+from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN, NullType
+
+from . import dbtables
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
+from .util import CosClient, resample, reset_df_index
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -45,7 +52,7 @@ except ImportError:
 
 
 class Database(object):
-    '''
+    """
     Use Database objects to establish database connectivity, manage database metadata and sessions, build queries and write DataFrames to tables.
 
     Parameters:
@@ -56,19 +63,22 @@ class Database(object):
         Start a session when establishing connection
     echo: bool
         Output sql to log
-    '''
+    """
 
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
     bif_sql = "V1000-18.sql"
 
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
-                 entity_type=None, model_store=None):
+                 entity_type=None, entity_type_id=None, model_store=None):
 
         self.model_store = model_store
         self.function_catalog = {}  # metadata for functions in catalog
         self.write_chunk_size = 1000
         self.credentials = {}
         self.db_type = None
+        application_name = os.environ.get('AS_APPLICATION_NAME')
+        self.application_name = "" if application_name is None else application_name
+
         if credentials is None:
             credentials = {}
 
@@ -132,8 +142,8 @@ class Database(object):
                 db2_creds['databaseName'] = credentials['database']
                 db2_creds['username'] = credentials['username']
                 self.credentials['db2'] = db2_creds
-                logger.warning(
-                    'Old style credentials still work just fine, but will be depreciated in the future. Check the usage section of the UI for the updated credentials dictionary')
+                logger.warning('Old style credentials still work just fine, but will be depreciated in the future. '
+                               'Check the usage section of the UI for the updated credentials dictionary')
                 self.credentials['as'] = credentials
         else:
             try:
@@ -226,105 +236,137 @@ class Database(object):
         # is sqlite for testing purposes
         connection_string_from_env = os.environ.get('DB_CONNECTION_STRING')
         db_type_from_env = os.environ.get('DB_TYPE')
-        connection_kwargs = {}
-        sqlite_warnung_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
+        db_certificate_file_from_env = os.environ.get('DB_CERTIFICATE_FILE')
+
+        sqlalchemy_connection_kwargs = {}
+        sqlite_warning_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
 
         if 'sqlite' in self.credentials:
             filename = credentials['sqlite']
             if filename is not None and len(filename) > 0:
-                connection_string = 'sqlite:///%s' % (credentials['sqlite'])
-                self.db_type = 'sqlite'
-                self.write_chunk_size = 100
-                logger.warning(sqlite_warnung_msg)
+                sqlalchemy_connection_string = 'sqlite:///%s' % (credentials['sqlite'])
+                native_connection_string = None
             else:
                 msg = 'The credentials for sqlite is just a filename. The given filename is an empty string.'
                 raise ValueError(msg)
 
+            self.db_type = 'sqlite'
+            self.write_chunk_size = 100
+            logger.warning(sqlite_warning_msg)
+
         elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
             try:
-                connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
                     self.credentials['db2']['username'], self.credentials['db2']['password'],
                     self.credentials['db2']['host'], self.credentials['db2']['port'],
                     self.credentials['db2']['databaseName'])
-                if 'security' in self.credentials['db2']:
-                    if self.credentials['db2']['security']:
-                        connection_string += 'SECURITY=ssl;'
-                        if os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                            connection_string += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+
+                native_connection_string = 'DATABASE=%s;HOSTNAME=%s;PORT=%s;PROTOCOL=TCPIP;UID=%s;PWD=%s;' % (
+                    self.credentials['db2']['databaseName'], self.credentials['db2']['host'],
+                    self.credentials['db2']['port'], self.credentials['db2']['username'],
+                    self.credentials['db2']['password'],)
+
+                security_extension = ''
+                if 'security' in self.credentials['db2'] or self.credentials['db2']['port'] == 50001:
+                    security_extension += 'SECURITY=ssl;'
+                    if os.path.exists('/secrets/truststore/db2_certificate.pem'):
+                        security_extension += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                    else:
+                        cwd1 = os.getcwd()
+                        filename1 = cwd1 + "/db2_certificate.pem;"
+                        logger.debug('file name db => %s' % filename1)
+                        if os.path.exists(filename1):
+                            security_extension += ';SSLServerCertificate=' + filename1 + ";"
                         else:
-                            cwd1 = os.getcwd()
-                            filename1 = cwd1 + "/db2_certificate.pem;"
-                            logger.info('file name db => %s' % filename1)
-                            if os.path.exists(filename1):
-                                connection_string += ';SSLServerCertificate=' + filename1 + ";"
-                            else:
-                                db_certificate_file = os.environ.get('DB_CERTIFICATE_FILE')
-                                if db_certificate_file is not None:
-                                    if os.path.exists(db_certificate_file):
-                                        connection_string += ';SSLServerCertificate=' + db_certificate_file + ";"
+                            if db_certificate_file_from_env is not None:
+                                if os.path.exists(db_certificate_file_from_env):
+                                    security_extension += ';SSLServerCertificate=' + db_certificate_file_from_env + ";"
+
+                sqlalchemy_connection_string += security_extension
+                native_connection_string += security_extension
+
             except KeyError as ex:
                 msg = 'The credentials for DB2 are incomplete. You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
 
             self.db_type = 'db2'
-            connection_kwargs['pool_size'] = 1
+            sqlalchemy_connection_kwargs['pool_size'] = 1
 
         elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
             try:
-                connection_string = 'postgresql+psycopg2://%s:%s@%s:%s/%s' % (
+                native_connection_string = '%s:%s@%s:%s/%s' % (
                     self.credentials['postgresql']['username'], self.credentials['postgresql']['password'],
                     self.credentials['postgresql']['host'], self.credentials['postgresql']['port'],
                     self.credentials['postgresql']['databaseName'])
-                self.db_type = 'postgresql'
+
+                sqlalchemy_connection_string = 'postgresql+psycopg2://' + native_connection_string
+
             except KeyError as ex:
                 msg = 'The credentials for PostgreSql are incomplete. ' \
                       'You need username/password/host/port/databaseName.'
                 raise ValueError(msg) from ex
 
+            self.db_type = 'postgresql'
+
         elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
-            logger.debug('Found connection string in os variables: %s' % connection_string_from_env)
-            # ##############################
-            # kohlmann: Temporary fix until db_type is enabled in cronjob by API code
-            if db_type_from_env is None:
-                db_type_from_env = 'DB2'
-            # ########## ####################
             if db_type_from_env is not None and len(db_type_from_env) > 0:
-                logger.debug('Found database type in os variables: %s' % db_type_from_env)
+                logger.debug('Found database type in os variable DB_TYPE: %s' % db_type_from_env)
                 db_type_from_env = db_type_from_env.upper()
                 if db_type_from_env == 'DB2':
                     if connection_string_from_env.endswith(';'):
                         connection_string_from_env = connection_string_from_env[:-1]
                     try:
                         ev = dict(item.split("=") for item in connection_string_from_env.split(";"))
-                        connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
+                        sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
                             ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+
+                        native_connection_string = connection_string_from_env + ';'
+
                         if 'SECURITY' in ev:
-                            connection_string += 'SECURITY=%s;' % ev['SECURITY']
-                            cwd = os.getcwd()
-                            filename = cwd + "/db2_certificate.pem";
-                            if os.path.exists(filename):
-                                connection_string += ';SSLServerCertificate=' + filename + ";"
+                            sqlalchemy_connection_string += 'SECURITY=%s;' % ev['SECURITY']
+
+                            if 'SSLSERVERCERTIFICATE' in ev:
+                                sqlalchemy_connection_string += 'SSLServerCertificate=' + ev[
+                                    'SSLSERVERCERTIFICATE'] + ";"
+                            else:
+                                cwd = os.getcwd()
+                                filename = cwd + "/db2_certificate.pem";
+                                if os.path.exists(filename):
+                                    tmp_string = 'SSLServerCertificate=' + filename + ";"
+                                    sqlalchemy_connection_string += tmp_string
+                                    native_connection_string += tmp_string
+                                elif db_certificate_file_from_env is not None:
+                                    logger.debug(
+                                        'Found certificate filename in os variable DB_CERTIFICATE_FILE: %s' % db_certificate_file_from_env)
+                                    if os.path.exists(db_certificate_file_from_env):
+                                        tmp_string = 'SSLServerCertificate=' + db_certificate_file_from_env + ";"
+                                        sqlalchemy_connection_string += tmp_string
+                                        native_connection_string += tmp_string
+
                         self.credentials['db2'] = {"username": ev['UID'], "password": ev['PWD'],
-                                                   "database": ev['DATABASE'], "port": ev['PORT'],
+                                                   "databaseName": ev['DATABASE'], "port": ev['PORT'],
                                                    "host": ev['HOSTNAME']}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for DB2 is '
                                          'DATABASE=xxx;HOSTNAME=xxx;PORT=xxx;UID=xxx;PWD=xxx[;SECURITY=xxx]' % connection_string_from_env)
                     self.db_type = 'db2'
+
                 elif db_type_from_env == 'POSTGRESQL':
-                    connection_string = 'postgresql+psycopg2://' + connection_string_from_env
+                    sqlalchemy_connection_string = 'postgresql+psycopg2://' + connection_string_from_env
+                    native_connection_string = connection_string_from_env
                     try:
                         # Split connection string according to user:password@hostname:port/database
                         first, last = connection_string_from_env.split("@")
                         uid, pwd = first.split(":", 1)
                         hostname_port, database = last.split("/", 1)
                         hostname, port = hostname_port.split(":", 1)
-                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "database": database,
+                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "databaseName": database,
                                                           "port": port, "host": hostname}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for POSTGRESQL is '
                                          'user:password@hostname:port/database' % connection_string_from_env)
                     self.db_type = 'postgresql'
+
                 else:
                     raise ValueError(
                         'The database type \'%s\' is unknown. Supported types are DB2 and POSTGRESQL' % db_type_from_env)
@@ -332,14 +374,13 @@ class Database(object):
                 raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
                                  'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
-            connection_string = 'sqlite:///sqldb.db'
+            sqlalchemy_connection_string = 'sqlite:///sqldb.db'
+            native_connection_string = None
             self.write_chunk_size = 100
             self.db_type = 'sqlite'
             msg = 'Created a default sqlite database. Database file is in your working directory. Filename is sqldb.db.'
-            logger.info(msg)
-            logger.warning(sqlite_warnung_msg)
-
-        # logger.info('Connection string for SqlAlchemy => %s): %s' % (self.db_type, connection_string))
+            logger.debug(msg)
+            logger.warning(sqlite_warning_msg)
 
         self.http = urllib3.PoolManager(timeout=30.0)
         try:
@@ -376,41 +417,59 @@ class Database(object):
                     break
 
             if meets_requirement:
-                dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
-                                  'executemany_values_page_size': 1000}
+                sqlalchemy_dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
+                                             'executemany_values_page_size': 1000, 'connect_args': {
+                        'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
             else:
                 # 'use_batch_mode=True' is about 20 % slower than 'execute_many_mode=values'
-                dialect_kwargs = {'use_batch_mode': True}
+                sqlalchemy_dialect_kwargs = {'use_batch_mode': True, 'connect_args': {
+                    'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
         else:
-            dialect_kwargs = {}
+            sqlalchemy_dialect_kwargs = {}
 
-        connection_kwargs = {**dialect_kwargs, **connection_kwargs}
-        self.connection = create_engine(connection_string, echo=echo, **connection_kwargs)
+        # Establish database connection via sqlalchemy
+        sqlalchemy_connection_kwargs = {**sqlalchemy_dialect_kwargs, **sqlalchemy_connection_kwargs}
+        self.connection = create_engine(sqlalchemy_connection_string, echo=echo, **sqlalchemy_connection_kwargs)
 
         self.Session = sessionmaker(bind=self.connection)
 
         # this method should be invoked before the get Metadata()
+        logger.debug('Set isolation')
         self.set_isolation_level(self.connection)
+        logger.debug('Isolation level set')
 
         if start_session:
             self.session = self.Session()
         else:
             self.session = None
         self.metadata = MetaData(self.connection)
-        logger.debug('Db connection established')
+        logger.debug('Database connection via SqlAlchemy established.')
+
+        # Establish native database connection (for DB2 and PostgreSQL only)
+        if self.db_type == 'db2':
+            self.native_connection = ibm_db.connect(native_connection_string, '', '')
+            self.native_connection_dbi = ibm_db_dbi.Connection(self.native_connection)
+            logger.debug('Native database connection to DB2 established.')
+
+        elif self.db_type == 'postgresql':
+            cred = self.credentials['postgresql']
+            self.native_connection = psycopg2.connect(user=cred['username'], password=cred['password'],
+                                                      host=cred['host'], port=cred['port'],
+                                                      database=cred['databaseName'],
+                                                      application_name="AS %s Native Connection" % self.application_name)
+            self.native_connection_dbi = self.native_connection
+            logger.debug('Native database connection to PostgreSQL established.')
+        else:
+            self.native_connection = None
+            self.native_connection_dbi = None
 
         # cache entity types
         self.entity_type_metadata = {}
-        metadata = None
 
         if entity_metadata is None:
 
-            if entity_type is not None:
-                metadata = self.http_request(object_type='entityType', object_name=entity_type, request='GET',
-                                             payload={}, object_name_2='')
-            else:
-                metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
-                                             object_name_2='')
+            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
+                                         object_name_2='')
             if metadata is not None:
                 try:
                     metadata = json.loads(metadata)
@@ -424,6 +483,33 @@ class Database(object):
         else:
             metadata = entity_metadata
             self.entity_type_metadata[entity_type] = metadata
+
+        # Figure out entity_type, entity_type_id and schema
+        self.entity_type_id = None
+        self.entity_type = None
+        self.schema = None
+        if entity_type is not None:
+            self.entity_type = entity_type
+
+            metadata = self.entity_type_metadata.get(entity_type)
+            if metadata is not None:
+                self.entity_type_id = metadata.get('entityTypeId')
+                self.schema = metadata.get('schemaName')
+
+        elif entity_type_id is not None:
+            self.entity_type_id = entity_type_id
+
+            for name, metadata in self.entity_type_metadata.items():
+                if metadata.get('entityTypeId') == entity_type_id:
+                    self.entity_type = name
+                    self.schema = metadata.get('schemaName')
+                    break
+
+        # Create DBModelStore if it was not handed in
+        if self.model_store is None and self.db_type in ['db2',
+                                                         'postgresql'] and self.entity_type_id is not None and self.schema is not None:
+            self.model_store = dbtables.DBModelStore(self.tenant_id, self.entity_type_id, self.schema,
+                                                     self.native_connection, self.db_type)
 
     def _aggregate_item(self, table, column_name, aggregate, alias_column=None, dimension_table=None,
                         timestamp_col=None):
@@ -466,9 +552,9 @@ class Database(object):
         return (alias_column, col, agg_function)
 
     def _is_not_null(self, table, dimension_table, column):
-        '''
+        """
         build an is not null condition for the column pointing to the table or dimension table
-        '''
+        """
 
         try:
             return (self.get_column_object(table, column)).isnot(None)  # return table.c[column].isnot(None)
@@ -498,9 +584,17 @@ class Database(object):
 
         return query
 
+    def check_row_count_limit(self, query, row_limit=None):
+        row_count = query.count()
+        logger.debug('Total no. of rows fetched {} by query {}'.format(row_count, str(query.statement)))
+        limit = int(row_limit) if row_limit is not None and row_limit.isdigit() else 10 ** 6
+        if row_count > limit:
+            return True, row_count
+        return False, row_count
+
     def calc_time_interval(self, start_ts, end_ts, period_type, period_count):
 
-        '''
+        """
 
         Infer a missing start or end date from a number of periods and a period type.
         If a start_date is provided, calculate the end date
@@ -512,7 +606,7 @@ class Database(object):
         :param period_count: float
         :return: tuple (start_ts,end_ts)
 
-        '''
+        """
 
         if period_type == 'mtd':
             if end_ts is None:
@@ -564,7 +658,7 @@ class Database(object):
         else:
             ret = None
         if ret is None:
-            logger.info('Not able to PUT %s to COS bucket %s', filename, bucket)
+            logger.debug('Not able to PUT %s to COS bucket %s', filename, bucket)
         return ret
 
     def cos_delete(self, filename, bucket=None):
@@ -575,44 +669,44 @@ class Database(object):
         else:
             ret = None
         if ret is None:
-            logger.info('Not able to DELETE %s to COS bucket %s', (filename, bucket))
+            logger.debug('Not able to DELETE %s to COS bucket %s', (filename, bucket))
         return ret
 
     def commit(self):
-        '''
+        """
         Commit the active session
-        '''
+        """
         if not self.session is None:
             self.session.commit()
             self.session.close()
             self.session = None
 
     def create(self, tables=None, checkfirst=True):
-        '''
+        """
         Create database tables for logical tables defined in the database metadata
-        '''
+        """
 
         self.metadata.create_all(tables=tables, checkfirst=checkfirst)
 
     def cos_create_bucket(self, bucket=None):
-        '''
+        """
         Create a bucket in cloud object storage
-        '''
+        """
 
         if bucket is None:
-            logger.info('Not able to CREATE the bucket. A name should be provided.')
+            logger.debug('Not able to CREATE the bucket. A name should be provided.')
         if self.cos_client is not None:
             ret = self.cos_client.cos_put(key=None, payload=None, bucket=bucket)
         else:
             ret = None
         if ret is None:
-            logger.info('Not able to CREATE the bucket %s.' % bucket)
+            logger.debug('Not able to CREATE the bucket %s.' % bucket)
         return ret
 
     def delete_data(self, table_name, schema=None, timestamp=None, older_than_days=None):
-        '''
+        """
         Delete data from table. Optional older_than_days parameter deletes old data only.
-        '''
+        """
         try:
             table = self.get_table(table_name, schema=schema)
         except KeyError:
@@ -664,10 +758,10 @@ class Database(object):
         job.execute()
 
     def get_as_datatype(self, column_object):
-        '''
+        """
         Get the datatype of a sql alchemy column object and convert it to an
         AS server datatype string
-        '''
+        """
 
         data_type = column_object.type
 
@@ -696,10 +790,10 @@ class Database(object):
         return (package, module, class_name)
 
     def get_entity_type(self, name):
-        '''
+        """
         Get an EntityType instance by name. Name may be the logical name shown in the UI or the table name.'
 
-        '''
+        """
         metadata = None
         try:
             metadata = self.entity_type_metadata[name]
@@ -736,16 +830,16 @@ class Database(object):
         return entity
 
     def get_table(self, table_name, schema=None):
-        '''
+        """
         Get sql alchemchy table object for table name
-        '''
+        """
 
         if not table_name is None:
 
             if isinstance(table_name, str):
                 kwargs = {'schema': schema}
                 try:
-                    logger.info('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
+                    logger.debug('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
                     table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
                     table.indexes = set()
                 except NoSuchTableError:
@@ -831,8 +925,9 @@ class Database(object):
 
         return [column.key for column in table.columns]
 
-    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False, ):
-        '''
+    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False, 
+                     sample_entity_type=False):
+        """
         Make an api call to AS.
 
         Warning: This is a low level API that closley maps to the AS Server API.
@@ -851,8 +946,9 @@ class Database(object):
             GET, POST, DELETE, PUT
         payload : dict
             Dictionary will be encoded as JSON
-
-        '''
+        sample_entity_type : boolean
+            When true calls meta api will additional parameter
+        """
         if object_name is None:
             object_name = ''
         if payload is None:
@@ -884,12 +980,19 @@ class Database(object):
             [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
-        self.url[('entityType', 'POST')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
+        if sample_entity_type:
+            self.url[('entityType', 'POST')] = '/'.join(
+                [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true&sampleEntityType=true'
+        else:
+            self.url[('entityType', 'POST')] = '/'.join(
+                [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
         self.url[('entityType', 'GET')] = '/'.join(
             [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
         self.url[('engineInput', 'GET')] = '/'.join(
             [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+        self.url[('engineInputByEntityId', 'GET')] = '/'.join(
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'engineInput', object_name])
 
         self.url[('function', 'GET')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
@@ -964,9 +1067,9 @@ class Database(object):
         return response
 
     def if_exists(self, table_name, schema=None):
-        '''
+        """
         Return True if table exists in the database
-        '''
+        """
         try:
             self.get_table(table_name, schema)
         except KeyError:
@@ -975,9 +1078,9 @@ class Database(object):
         return True
 
     def install_package(self, url):
-        '''
+        """
         Install python package located at URL
-        '''
+        """
 
         msg = 'running pip install for url %s' % url
         logger.debug(msg)
@@ -1003,10 +1106,10 @@ class Database(object):
                 raise ImportError('pip install for url %s failed: \n %s.', url, completedProcess.stdout)
 
     def import_target(self, package, module, target, url=None):
-        '''
+        """
         from package.module import target
         if a url is specified import missing packages
-        '''
+        """
 
         if module is not None:
             impstr = 'from %s.%s import %s' % (package, module, target)
@@ -1031,13 +1134,13 @@ class Database(object):
             return (target, 'ok')
 
     def load_catalog(self, install_missing=True, unregister_invalid_target=False, function_list=None):
-        '''
+        """
         Import all functions from the AS function catalog.
 
         Returns:
         --------
         dict keyed on function name
-        '''
+        """
 
         result = {}
 
@@ -1083,7 +1186,7 @@ class Database(object):
                 if status == 'target_error' and unregister_invalid_target:
                     self.unregister_functions([function_name])
                     msg = 'Unregistered invalid function %s' % function_name
-                    logger.info(msg)
+                    logger.debug(msg)
                 else:
                     msg = 'The class %s for function %s could not be imported from repository %s.' % (
                         package_module_class_name, function_name, url)
@@ -1106,13 +1209,13 @@ class Database(object):
         return fn
 
     def subquery_join(self, left_query, right_query, *args, **kwargs):
-        '''
+        """
         Perform an equijoin between two sql alchemy query objects, filtering the left query by the keys in the right query
         args are the names of the keys to join on, e.g 'deviceid', 'timestamp'.
         Use string args for joins on common names. Use tuples like ('timestamp','evt_timestamp') for joins on different column names.
         By default the join acts as a filter. It does not return columns from the right query. To return a custom projection list
         specify **kwargs as a dict keyed on column name with an alias names.
-        '''
+        """
         left_query = left_query.subquery('a')
         right_query = right_query.subquery('b')
         joins = []
@@ -1145,13 +1248,13 @@ class Database(object):
         return result_query
 
     def subquery_join_with_filters(self, left_query, right_query, filters, table, *args, **kwargs):
-        '''
+        """
         Perform an equijoin between two sql alchemy query objects, filtering the left query by the keys in the right query
         args are the names of the keys to join on, e.g 'deviceid', 'timestamp'.
         Use string args for joins on common names. Use tuples like ('timestamp','evt_timestamp') for joins on different column names.
         By default the join acts as a filter. It does not return columns from the right query. To return a custom projection list
         specify **kwargs as a dict keyed on column name with an alias names.
-        '''
+        """
         left_query = left_query.subquery('a')
         right_query = right_query.subquery('b')
         joins = []
@@ -1202,24 +1305,10 @@ class Database(object):
             with conn.connect() as con:
                 con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2; dirty read does not exist for postgres
 
-    def get_query_data(self, query):
-        '''
-        Execute a query and a return a dataframe containing results
-
-        Parameters
-        ----------
-        query : sqlalchemy Query object
-            query to execute
-
-        '''
-
-        df = pd.read_sql_query(sql=query.statement, con=self.connection)
-        return df
-
     def start_session(self):
-        '''
+        """
         Start a database session.
-        '''
+        """
         if self.session is None:
             self.session = self.Session()
 
@@ -1239,25 +1328,23 @@ class Database(object):
 
     def read_dimension(self, dimension, schema, entities=None, columns=None, parse_dates=None):
 
-        '''
+        """
 
         Read a dimension table. Return a dataframe.
         Optionally filter on a list of entity ids.
         Optionally specify specific column names
         Optionally specify date columns to parse
 
-        '''
+        """
 
         df = self.read_table(table_name=dimension, schema=schema, entities=entities, columns=columns,
                              parse_dates=parse_dates)
-        if parse_dates is not None:
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
         return df
 
     def read_table(self, table_name, schema, parse_dates=None, columns=None, timestamp_col=None, start_ts=None,
                    end_ts=None, entities=None, dimension=None):
-        '''
+        """
         Read whole table and return as dataframe
 
         Parameters
@@ -1282,20 +1369,55 @@ class Database(object):
             Column names to parse as dates
 
 
-        '''
+        """
         q, table = self.query(table_name, schema=schema, column_names=columns, column_aliases=columns,
                               timestamp_col=timestamp_col, start_ts=start_ts, end_ts=end_ts, entities=entities,
                               dimension=dimension)
-        df = pd.read_sql_query(sql=q.statement, con=self.connection, parse_dates=parse_dates)
-        if parse_dates is not None:
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
 
-        return (df)
+        df = self.read_sql_query(sql=q.statement, parse_dates=parse_dates)
+
+        return df
+
+    def read_sql_query(self, sql, parse_dates=None, index_col=None, requested_col_names=None, log_message=None,
+                       **kwargs):
+
+        if log_message is None:
+            logger.info('The following sql statement is executed: %s' % sql)
+        else:
+            logger.info('%s: %s' % (log_message, sql))
+
+        # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
+        parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
+        index_col = None if index_col is None else [col.lower() for col in index_col]
+
+        # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
+        # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
+        # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
+        # to avoid type mismatches later on
+        tic = time()
+        df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
+        toc = time()
+        logger.info(f'query execution time: {toc - tic} seconds')
+
+        if parse_dates is not None and len(parse_dates) > 0:
+            df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
+
+        col_name_map = None
+        if requested_col_names is not None and len(requested_col_names) > 0:
+            col_name_map = {name_df: req_name for name_df, req_name in zip(df.columns, requested_col_names)}
+            df = df.rename(columns=col_name_map, copy=False)
+
+        if index_col is not None and len(index_col) > 0:
+            if col_name_map is not None:
+                index_col = [col_name_map.get(col_name, col_name) for col_name in index_col]
+            df.set_index(keys=index_col, inplace=True)
+
+        return df
 
     def read_agg(self, table_name, schema, agg_dict, agg_outputs=None, groupby=None, timestamp=None, time_grain=None,
                  dimension=None, start_ts=None, end_ts=None, period_type='days', period_count=1, entities=None,
                  to_csv=False, filters=None, deviceid_col='deviceid'):
-        '''
+        """
         Pandas style aggregate function against db table
 
         Parameters
@@ -1322,7 +1444,7 @@ class Database(object):
             Keyed on dimension name. List of members.
         deviceid_col: str
             Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
-        '''
+        """
 
         # process special aggregates (first and last)
 
@@ -1364,11 +1486,9 @@ class Database(object):
                                                                                            filters=filters,
                                                                                            deviceid_col=deviceid_col)
             # sql = query.statement.compile(compile_kwargs={"literal_binds": True})
-            df = pd.read_sql_query(query.statement, con=self.connection)
-            logger.debug(query.statement)
+            df = self.read_sql_query(query.statement)
 
             # combine special aggregates with regular database aggregates
-
             if df_special is not None:
                 join_cols = []
                 join_cols.extend(groupby)
@@ -1381,7 +1501,6 @@ class Database(object):
                     df = pd.merge(df, df_special, left_index=True, right_index=True)
 
             # apply pandas aggregate if required
-
             if pandas_aggregate is not None:
                 df = resample(df=df, time_frequency=pandas_aggregate, timestamp=timestamp, dimensions=groupby,
                               agg=agg_dict)
@@ -1397,12 +1516,12 @@ class Database(object):
         return df
 
     def register_constants(self, constants, raise_error=True):
-        '''
+        """
         Register one or more server properties that can be used as entity type
         properties in the AS UI
 
         Constants are UI objects.
-        '''
+        """
 
         if not isinstance(constants, list):
             constants = [constants]
@@ -1421,9 +1540,9 @@ class Database(object):
                           raise_error=True)
 
     def register_functions(self, functions, url=None, raise_error=True, force_preinstall=False):
-        '''
+        """
         Register one or more class for use with AS
-        '''
+        """
 
         if not isinstance(functions, list):
             functions = [functions]
@@ -1514,7 +1633,7 @@ class Database(object):
             payload = {'name': name, 'description': f.__doc__, 'category': category,
                        'moduleAndTargetName': module_and_target, 'url': package_url, 'input': input_list,
                        'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None,
-                       'tags': tags}
+                       'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
 
@@ -1531,7 +1650,7 @@ class Database(object):
         for p in pre_installed:
             query = "INSERT INTO CATALOG_FUNCTION (FUNCTION_ID, TENANT_ID," \
                     " NAME, DESCRIPTION, MODULE_AND_TARGET_NAME, URL, CATEGORY," \
-                    " INPUT, OUTPUT, INCREMENTAL_UPDATE, IMAGE)" \
+                    " INPUT, OUTPUT, INCREMENTAL_UPDATE, IMAGE, SCOPE)" \
                     " VALUES( CATALOG_FUNCTION_SEQ.nextval,'###_IBM_###',"
             query = query + "'%s'," % p['name']
             query = query + "'%s'," % p['description'].replace("'", '"')
@@ -1541,7 +1660,8 @@ class Database(object):
             query = query + "'%s'," % json.dumps(p['input'])
             query = query + "'%s'," % json.dumps(p['output'])
             query = query + str(p['incremental_update']) + ', '
-            query = query + 'NULL)'
+            query = query + "NULL,"
+            query = query + "'%s')" % json.dumps(p['scope'])
 
             sql = sql + query
             sql = sql + '\n'
@@ -1549,9 +1669,9 @@ class Database(object):
         return sql
 
     def register_module(self, module, url=None, raise_error=True, force_preinstall=False):
-        '''
+        """
         Register all of the functions contained within a python module
-        '''
+        """
 
         registered = set()
         sql = ''
@@ -1599,7 +1719,7 @@ class Database(object):
     def process_special_agg(self, table_name, schema, agg_dict, timestamp, agg_outputs=None, groupby=None,
                             time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None, filters=None,
                             deviceid_col='deviceid'):
-        '''
+        """
         Strip out the special aggregates (first and last) from the an agg
         dict and execute each as separate query.
 
@@ -1633,7 +1753,7 @@ class Database(object):
         agg_outputs: dict
         df: dataframe
 
-        '''
+        """
 
         if agg_outputs is None:
             agg_outputs = {}
@@ -1742,7 +1862,7 @@ class Database(object):
                         query = self.subquery_join(query, filter_query, *keys, **project)
                         logger.debug(query)
                     # execute
-                    df_result = pd.read_sql_query(query, con=self.connection)
+                    df_result = self.read_sql_query(query)
 
                     if pandas_aggregate is not None:
                         df_result = resample(df=df_result, time_frequency=pandas_aggregate, timestamp=timestamp,
@@ -1774,39 +1894,39 @@ class Database(object):
         return (agg_dict, agg_outputs, df)
 
     def _ts_col_rounded_to_minutes(self, table_name, schema, column_name, minutes, label):
-        '''
+        """
         Returns a column expression that rounds the timestamp to the specified number of minutes
-        '''
+        """
 
         a = self.get_table(table_name, schema)
         # col = a.c[column_name]
         col = self.get_column_object(a, column_name)
         exp = func.date_trunc('minute', col)
-        '''
+        """
         hour = func.add_hours(func.timestamp(func.date(col)), func.hour(col))
         min_col = (func.minute(col) / minutes) * minutes
         exp = (func.add_minutes(hour, min_col)).label(label)
-        '''
+        """
         return exp
 
     def _ts_col_rounded_to_hours(self, table_name, schema, column_name, hours, label):
-        '''
+        """
         Returns a column expression that rounds the timestamp to the specified number of minutes
-        '''
+        """
         a = self.get_table(table_name, schema)
         # col = a.c[column_name]
         col = self.get_column_object(a, column_name)
         exp = func.date_trunc('hour', col)
-        '''
+        """
         date_col = func.timestamp(func.date(col))
         hour_col = (func.hour(col) / hours) * hours
         exp = (func.add_hours(date_col, hour_col)).label(label)
-        '''
+        """
         return exp
 
     def query(self, table_name, schema, column_names=None, column_aliases=None, timestamp_col=None, start_ts=None,
               end_ts=None, entities=None, dimension=None, filters=None, deviceid_col='deviceid'):
-        '''
+        """
         Build a sqlalchemy query object for a table. You can further manipulate the query object using standard
         sqlalchemcy operations to do things like filter and join.
 
@@ -1835,7 +1955,7 @@ class Database(object):
         Returns
         -------
         tuple containing a sqlalchemy query object and a sqlalchemy table object
-        '''
+        """
 
         if filters is None:
             filters = {}
@@ -1881,7 +2001,7 @@ class Database(object):
         query = self.session.query(*query_args)
 
         if dim is not None:
-            query = query.join(dim, dim.c.deviceid == table.c[deviceid_col])
+            query = query.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
 
         if not start_ts is None:
             if timestamp_col is None:
@@ -1913,7 +2033,9 @@ class Database(object):
             elif len(members) == 0:
                 logger.debug('Ignored query filter on %s with no members', d)
             else:
-                query = query.filter(col_obj.in_(members[0]))
+                query = query.filter(col_obj.in_(members))
+
+        logger.debug('query statement: %s', query)
 
         return (query, table)
 
@@ -1928,10 +2050,6 @@ class Database(object):
                     col_obj = table.c[column.upper()]
                 except KeyError:
                     raise KeyError
-
-        # cast NULLTYPE to boolean
-        if self.get_as_datatype(col_obj) == 'BOOLEAN':
-            col_obj = col_obj.cast(Boolean)
 
         return col_obj
 
@@ -1968,7 +2086,7 @@ class Database(object):
                   dimension=None, start_ts=None, end_ts=None, entities=None, auto_null_filter=False, filters=None,
                   deviceid_col='deviceid', kvp_device_id_col='entity_id', kvp_key_col='key',
                   kvp_timestamp_col='timestamp'):
-        '''
+        """
         Pandas style aggregate function against db table
 
         Parameters
@@ -1993,7 +2111,7 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         deviceid_col: str
             Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
-        '''
+        """
 
         if agg_outputs is None:
             agg_outputs = {}
@@ -2164,7 +2282,7 @@ class Database(object):
             subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
-                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
@@ -2199,7 +2317,7 @@ class Database(object):
                 elif len(members) == 0:
                     logger.debug('Ignored query filter on %s with no members', d)
                 else:
-                    subquery = subquery.filter(col_obj.in_(members[0]))
+                    subquery = subquery.filter(col_obj.in_(members))
 
             if auto_null_filter:
                 subquery = subquery.filter(or_(*metric_filter))
@@ -2231,7 +2349,7 @@ class Database(object):
                           time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None,
                           auto_null_filter=False, filters=None, deviceid_col='deviceid', kvp_device_id_col='entity_id',
                           kvp_key_col='key', kvp_timestamp_col='timestamp', item=None):
-        '''
+        """
         Pandas style aggregate function against db table
 
         Parameters
@@ -2256,7 +2374,7 @@ class Database(object):
             Table name for dimension table. Dimension table will be joined on deviceid.
         deviceid_col: str
             Name of the device id column in the table used to filter by entities. Defaults to 'deviceid'
-        '''
+        """
 
         if agg_outputs is None:
             agg_outputs = {}
@@ -2427,7 +2545,7 @@ class Database(object):
             subquery = self.prepare_aggregate_query(group_by=group_by_cols, aggs=agg_functions)
 
             if requires_dim_join:
-                subquery = subquery.join(dim, dim.c.deviceid == table.c[deviceid_col])
+                subquery = subquery.outerjoin(dim, dim.c.deviceid == table.c[deviceid_col])
             if not start_ts is None:
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
@@ -2462,7 +2580,7 @@ class Database(object):
                 elif len(members) == 0:
                     logger.debug('Ignored query filter on %s with no members', d)
                 else:
-                    subquery = subquery.filter(col_obj.in_(members[0]))
+                    subquery = subquery.filter(col_obj.in_(members))
 
             if auto_null_filter:
                 subquery = subquery.filter(or_(*metric_filter))
@@ -2496,7 +2614,7 @@ class Database(object):
 
     def query_column_aggregate(self, table_name, schema, column, aggregate, start_ts=None, end_ts=None, entities=None):
 
-        '''
+        """
         Perform a single aggregate operation against a table to return a scalar value
 
         Parameters
@@ -2515,7 +2633,7 @@ class Database(object):
             Retrieve data up until date
         entities: list of strs
             Retrieve data for a list of deviceids
-        '''
+        """
 
         agg_dict = {column: aggregate}
 
@@ -2530,9 +2648,9 @@ class Database(object):
 
     def query_time_agg(self, table_name, schema, column, regular_agg, time_agg, groupby=None, timestamp=None,
                        time_grain=None, dimension=None, start_ts=None, end_ts=None, entities=None, output_item=None):
-        '''
+        """
         Build a query with separate aggregation functions for regular rollup and timestate rollup.
-        '''
+        """
 
         if isinstance(groupby, str):
             groupby = [groupby]
@@ -2551,8 +2669,8 @@ class Database(object):
                                                                                          entities=entities)
 
         if pandas_aggregate:
-            raise ValueError(
-                'Attempting to db time aggregation on a query cannot be pushed to the database. Perform the time aggregation in Pandas.')
+            raise ValueError('Attempting to db time aggregation on a query cannot be pushed to the database. '
+                             'Perform the time aggregation in Pandas.')
 
         if time_agg == 'first':
             time_agg_dict = {timestamp: "min"}
@@ -2582,9 +2700,9 @@ class Database(object):
         return (query, table)
 
     def unregister_functions(self, function_names):
-        '''
+        """
         Unregister functions by name. Accepts a list of function names.
-        '''
+        """
         if not isinstance(function_names, list):
             function_names = [function_names]
 
@@ -2595,12 +2713,12 @@ class Database(object):
                 msg = 'Function registration deletion status: %s' % (r.data.decode('utf-8'))
             except AttributeError:
                 msg = 'Function registration deletion status: %s' % r
-            logger.info(msg)
+            logger.debug(msg)
 
     def unregister_constants(self, constant_names):
-        '''
+        """
         Unregister constants by name.
-        '''
+        """
 
         if not isinstance(constant_names, list):
             constant_names = [constant_names]
@@ -2614,11 +2732,11 @@ class Database(object):
             msg = 'Constants deletion status: %s' % (r.data.decode('utf-8'))
         except AttributeError:
             msg = 'Constants deletion status: %s' % r
-        logger.info(msg)
+        logger.debug(msg)
 
     def write_frame(self, df, table_name, version_db_writes=False, if_exists='append', timestamp_col=None, schema=None,
                     chunksize=None, auto_index_name='_auto_index_'):
-        '''
+        """
         Write a dataframe to a database table
 
         Parameters
@@ -2637,7 +2755,7 @@ class Database(object):
         -----------
         numerical status. 1 for successful write.
 
-        '''
+        """
 
         if chunksize is None:
             chunksize = self.write_chunk_size
@@ -2677,8 +2795,8 @@ class Database(object):
                 cols = [column.key for column in table.columns]
                 extra_cols = set([x for x in df.columns if x != 'index']) - set(cols)
                 if len(extra_cols) > 0:
-                    logger.warning(
-                        'Dataframe includes column/s %s that are not present in the table. They will be ignored.' % extra_cols)
+                    logger.warning('Dataframe includes column/s %s that are not present in the table. '
+                                   'They will be ignored.' % extra_cols)
                 try:
                     df = df[cols]
                 except KeyError:
@@ -2690,12 +2808,36 @@ class Database(object):
                       chunksize=chunksize, dtype=dtypes)
         except:
             self.session.rollback()
-            logger.info('Attempted write of %s data to table %s ' % (cols, table_name))
+            logger.debug('Attempted write of %s data to table %s ' % (cols, table_name))
             raise
         finally:
             self.commit()
-            logger.info('Wrote data to table %s ' % table_name)
+            logger.debug('Wrote data to table %s ' % table_name)
         return 1
+
+    def release_resource(self):
+        if self.connection is not None:
+            try:
+                self.connection.dispose()
+            except Exception:
+                logger.warning('Error while closing sqlalchemy database connection.', exc_info=True)
+            finally:
+                self.connection = None
+                logger.debug('SQLAlchemy database connection successfully closed.')
+
+        if self.native_connection is not None:
+            try:
+                if self.db_type == 'postgresql':
+                    self.native_connection.close()
+                    self.native_connection_dbi.close()
+                else:
+                    ibm_db.close(self.native_connection)
+
+            except Exception:
+                logger.warning('Error while closing native database connection.', exc_info=True)
+            finally:
+                self.native_connection = None
+                logger.debug('Native database connection successfully closed.')
 
 
 class BaseTable(object):
@@ -2736,9 +2878,8 @@ class BaseTable(object):
         else:
             self.name = name.lower()
         self.table = Table(self.name, self.database.metadata, *args, **kw)
-        self.id_col = Column(self._entity_id.lower(), String(50))
-        # Should be created using the create method available -> self.db.create()
-        #self.table.create(checkfirst=True)
+        self.id_col = Column(self._entity_id.lower(), String(
+            50))  # Should be created using the create method available -> self.db.create()  # self.table.create(checkfirst=True)
 
     def create(self):
         self.table.create(checkfirst=True)
@@ -2790,9 +2931,9 @@ class BaseTable(object):
             self.database.session.close()
 
     def set_params(self, **params):
-        '''
+        """
         Set parameters based using supplied dictionary
-        '''
+        """
         for key, value in list(params.items()):
             setattr(self, key, value)
         return self

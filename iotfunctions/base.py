@@ -8,33 +8,35 @@
 #
 # *****************************************************************************
 
-'''
+"""
 Base classes for functions. Inhertit from these base classes when building custom functions.
-'''
+"""
 
-import os
-import urllib3
-import numbers
 import datetime as dt
-import logging
-import warnings
 import json
+import logging
+import numbers
+import os
 import re
+import warnings
+from collections import OrderedDict
+from inspect import getargspec, signature
+
 import numpy as np
-import scipy as sp
 import pandas as pd
+import scipy as sp
+import urllib3
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-from sklearn.preprocessing import StandardScaler
 # from sklearn.covariance import MinCovDet
 from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
-from inspect import getargspec, signature
-from collections import OrderedDict
+from sklearn.preprocessing import StandardScaler
+
 from .db import Database
 from .metadata import EntityType, Model, LocalEntityType
 from .pipeline import CalcPipeline, PipelineExpression
-from .util import log_df_info
 from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
+from .util import log_df_info, UNIQUE_EXTENSION_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,8 @@ class BaseFunction(object):
     requires_input_items = True
     produces_output_items = True
     _allow_empty_df = False
+    is_scope_enabled = False  # enables filtering by scope
+    scope = None  # stores scope filtering values
     # internal work variables set by AS job processing
     name = None  # name of function
     _entity_type = None  # EntityType object that this function belongs to
@@ -233,10 +237,10 @@ class BaseFunction(object):
         raise NotImplementedError(
             'Class %s is not defined correctly. It should override the _calc() method of the base class.' % self.__class__.__name__)
 
-    def _coallesce_columns(self, df, cols, rsuffix='_new_'):
-        '''
+    def _coallesce_columns(self, df, cols, rsuffix=UNIQUE_EXTENSION_LABEL):
+        """
         Coallesce 2 columns into a single by replacing cols with a suffixed version of themselves when null
-        '''
+        """
         done = []
         for i, o in enumerate(cols):
             try:
@@ -252,9 +256,9 @@ class BaseFunction(object):
         return df
 
     def convertStrArgToList(self, string, argument, check_non_empty=False):
-        '''
+        """
         Convert a comma delimited string to a list
-        '''
+        """
         out = string
         if string is not None and isinstance(string, str):
             out = [n.strip() for n in string.split(',') if len(string.strip()) > 0]
@@ -264,11 +268,11 @@ class BaseFunction(object):
         return out
 
     def conform_index(self, df, entity_id_col=None, timestamp_col=None):
-        '''
+        """
         Dataframes that contain timeseries data are expected to be indexed on an id and timestamp.
         The name on the id column will be id. The name of the timestamp col is the timestamp of the entity_type.
         Another deviceid and another column called timestamp will be added to the dataframe as a convenience.
-        '''
+        """
 
         warnings.warn('conform_index() is deprecated. Use EntityType.index_df', DeprecationWarning)
 
@@ -344,9 +348,9 @@ class BaseFunction(object):
 
     def generate_model_name(self, target_name, prefix='model', suffix=None):
 
-        '''
+        """
         Generate a model name
-        '''
+        """
 
         name = []
         if prefix is not None:
@@ -359,7 +363,7 @@ class BaseFunction(object):
 
     def get_column_map(self):
 
-        '''
+        """
         A column map is dictionary that is used for renaming columns
         in a dataframe.
 
@@ -373,16 +377,16 @@ class BaseFunction(object):
         need for a column map. Columns must be ordered in the same order
         as the outputs of the get_outputs_list() method.
 
-        '''
+        """
 
         return None
 
     def _get_arg_metadata(self, isoformat_dates=True):
 
-        '''
+        """
         Return a dictionary keyed on the argument name containing
         the argument value.
-        '''
+        """
 
         metadata = {}
         args = (getargspec(self.__init__))[0][1:]
@@ -401,15 +405,15 @@ class BaseFunction(object):
         return metadata
 
     def get_custom_calendar(self):
-        '''
+        """
         Get the customer calendar from the entity type
-        '''
+        """
         return self._entity_type._custom_calendar
 
     def _get_data_scope(self, df):
-        '''
+        """
         Return the start, end and set of entity ids contained in a dataframe as a tuple
-        '''
+        """
         ts_series = self.get_timestamp_series(df=df)
         start_ts = ts_series.min()
         end_ts = ts_series.max()
@@ -418,12 +422,12 @@ class BaseFunction(object):
         return (start_ts, end_ts, entities)
 
     def get_db(self, credentials=None, tenant_id=None):
-        '''
+        """
         Get the Database object associciated with the function's assigned entity type.
         If there is no entity type, get a new database object using optionally supplied
         credentials and tenant id. If no credentials are supplied, credentials will be
         derived from environment variables
-        '''
+        """
         try:
             db = self._entity_type.db
         except AttributeError:
@@ -435,16 +439,16 @@ class BaseFunction(object):
         return db
 
     def get_entity_id_series(self, df):
-        '''
+        """
         Return a series containing entity ids
-        '''
+        """
         series = self._get_series(df, [self._entity_type._entity_id, self._entity_type._df_index_entity_id])
         return series
 
     def get_entity_type(self):
-        '''
+        """
         Get the EntityType object assigned to the function instance
-        '''
+        """
 
         if self._entity_type is None:
             raise ValueError(('Function %s has no entity type associated with it.'
@@ -456,9 +460,9 @@ class BaseFunction(object):
         return self._entity_type
 
     def get_entity_type_param(self, param):
-        '''
+        """
         Get a metadata parameter from the entity type
-        '''
+        """
         entity_type = self.get_entity_type()
         out = entity_type.get_param(param)
         return out
@@ -520,17 +524,17 @@ class BaseFunction(object):
         return column_metadata
 
     def get_timestamp_series(self, df):
-        '''
+        """
         Return a series containing timestamps
-        '''
+        """
         series = self._get_series(df, [self._entity_type._timestamp, self._entity_type._timestamp_col])
         return series
 
     def get_trace(self):
 
-        '''
+        """
         Return the current active trace object for entity type
-        '''
+        """
 
         try:
             trace = self.get_entity_type_param('_trace')
@@ -540,9 +544,9 @@ class BaseFunction(object):
         return trace
 
     def _get_series(self, df, col_names):
-        '''
+        """
         Always return a series with the same (multi-)index as the input dataframe !!!
-        '''
+        """
         if isinstance(col_names, str):
             col_names = [col_names]
         for col in col_names:
@@ -565,11 +569,11 @@ class BaseFunction(object):
         raise KeyError(msg)
 
     def get_input_items(self):
-        '''
+        """
         Implement this method to return a set of data items that should be
         retrieved when executing a KPI pipeline. By default only items that
         are explicly referenced in function inputs are included.
-        '''
+        """
         return (set())
 
     def get_item_values(self, arg, db=None):
@@ -857,9 +861,9 @@ class BaseFunction(object):
         return (metadata_inputs, metadata_outputs)
 
     def get_bucket_name(self):
-        '''
+        """
         Get the name of the cos bucket used to store models
-        '''
+        """
         try:
             bucket = self._entity_type.db.credentials['config']['bos_runtime_bucket']
         except KeyError:
@@ -872,10 +876,16 @@ class BaseFunction(object):
             bucket = '_unknown_'
         return bucket
 
-    def get_scd_data(self, table_name, start_ts, end_ts, entities):
-        '''
+    def get_scd_data(self, table_name, start_ts, end_ts, entities, start_name=None, end_name=None):
+        """
         Retrieve a slowly changing dimension property as a dataframe
-        '''
+        """
+        if start_name is None:
+            start_name = self._start_date
+
+        if end_name is None:
+            end_name = self._end_date
+
         (query, table) = self._entity_type.db.query(table_name, schema=self._entity_type._db_schema)
         if start_ts is not None:
             query = query.filter(table.c.end_date >= start_ts)
@@ -885,11 +895,7 @@ class BaseFunction(object):
             query = query.filter(table.c.deviceid.in_(entities))
         msg = 'reading scd %s from %s to %s using %s' % (table_name, start_ts, end_ts, query.statement)
         logger.debug(msg)
-        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection,
-                               parse_dates=[self._start_date, self._end_date])
-
-        df[self._start_date] = df[self._start_date].astype('datetime64[ms]')
-        df[self._end_date] = df[self._end_date].astype('datetime64[ms]')
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=[start_name, end_name])
 
         return df
 
@@ -957,9 +963,9 @@ class BaseFunction(object):
         return df
 
     def _get_scd_history(self, start_ts, end_ts, entities):
-        '''
+        """
         Build a dict keyed on scd property and entity id
-        '''
+        """
         x = {}
         scd_metadata = self._entity_type._get_scd_list()
         if len(scd_metadata) == 0:
@@ -971,18 +977,18 @@ class BaseFunction(object):
             return x
 
     def log_df_info(self, df, msg, include_data=False):
-        '''
+        """
         Log a debugging entry showing first row and index structure
         This is a default logger. You can implement a custom one if
         there is something specific that you want to include.
-        '''
+        """
         msg = log_df_info(df=df, msg=msg, include_data=include_data)
         return msg
 
     def _infer_array_source(self, candidate_inputs, output_length):
-        '''
+        """
         Look for the last input array with the same length as the target
-        '''
+        """
         source = None
 
         for input_parm, input_length in candidate_inputs:
@@ -994,9 +1000,9 @@ class BaseFunction(object):
         return source
 
     def _inferOutputs(self, before_df, after_df):
-        '''
+        """
         Work out which columns were added to the test dataframe by executing the function. These are the outputs.
-        '''
+        """
         outputs = list(set(after_df.columns) - set(before_df.columns))
         outputs.sort()
         msg = 'Columns added to the pipeline by the function are %s' % outputs
@@ -1067,9 +1073,9 @@ class BaseFunction(object):
         return datatype
 
     def parse_expression(self, expression):
-        '''
+        """
         Convert a string expression into a form where it is ready to be executed
-        '''
+        """
         expression = expression.replace("'", '"')
         if '${' in expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
@@ -1083,9 +1089,9 @@ class BaseFunction(object):
         return expr
 
     def _partition_df_by_id(self, df):
-        '''
+        """
         Partition dataframe into a dictionary keyed by _entity_id
-        '''
+        """
         d = {x: table for x, table in df.groupby(self._entity_type._entity_id)}
         return d
 
@@ -1114,9 +1120,9 @@ class BaseFunction(object):
         return itemDescriptions
 
     def _remove_cols_from_df(self, df, cols):
-        '''
+        """
         Remove list of columns from a dataframe. Return dataframe.
-        '''
+        """
         before = set(df.columns)
         cols = [x for x in list(df.columns) if x not in cols]
         df = df[cols]
@@ -1129,9 +1135,9 @@ class BaseFunction(object):
 
     def register(self, df, credentials=None, new_df=None, name=None, url=None, constants=None, module=None,
                  description=None, incremental_update=None, outputs=None, show_metadata=False, metadata_only=False):
-        '''
+        """
         Register the function type with AS
-        '''
+        """
 
         if self._entity_type is None:
             self._entity_type = EntityType(name='<Null Entity Type>', db=None)
@@ -1241,9 +1247,9 @@ class BaseFunction(object):
             logger.debug(msg)
 
     def rename_cols(self, df, input_names, output_names):
-        '''
+        """
         Rename columns using a list or original input names and a list of required output names.
-        '''
+        """
         if len(input_names) != len(output_names):
             raise ValueError(
                 'Error in function configuration. The number of values in an array output must match the inputs')
@@ -1267,18 +1273,18 @@ class BaseFunction(object):
                                            log_method=logger.debug, **self._metadata_params)
 
     def set_params(self, **params):
-        '''
+        """
         Set parameters based using supplied dictionary
-        '''
+        """
         for key, value in list(params.items()):
             setattr(self, key, value)
         return self
 
     def execute_local_test(self, generate_days=1, columns=None, to_csv=True, db=None, db_schema=None, **params):
-        '''
+        """
         Run an automated test of the function using generated data.
         Automated test will run using a local entity type
-        '''
+        """
 
         et = self._build_entity_type(generate_days=generate_days, functions=[self], columns=columns, db=db,
                                      db_schema=db_schema, **params)
@@ -1297,20 +1303,20 @@ class BaseFunction(object):
         return df
 
     def trace_append(self, msg, log_method=None, df=None, **kwargs):
-        '''
+        """
         Add to the trace info collected during function execution
-        '''
+        """
 
         et = self.get_entity_type()
         et.trace_append(created_by=self, msg=msg, log_method=log_method, df=df, **kwargs)
 
     @classmethod
     def _transform_metadata(cls, metadata_input, metadata_output, db=None):
-        '''
+        """
         legacy metadata structure is a dict containing a metadata dict
         new metadata structure is a list containing ui objects
         convert to a list containing a metadata dict to use legacy code
-        '''
+        """
 
         if not isinstance(metadata_input, list):
             metadata_input = list(metadata_input.values())
@@ -1369,7 +1375,7 @@ class BaseFunction(object):
         return (input_list, output_list)
 
     def write_frame(self, df, table_name=None, version_db_writes=None, if_exists=None):
-        '''
+        """
         Write a dataframe to a database table
 
         Parameters
@@ -1385,7 +1391,7 @@ class BaseFunction(object):
         -----------
         numerical status. 1 for successful write.
 
-        '''
+        """
         df = df.copy()
 
         if if_exists is None:
@@ -1464,36 +1470,53 @@ class BaseDataSource(BaseTransformer):
         return self.dms
 
     def get_data(self, start_ts=None, end_ts=None, entities=None):
-        '''
+        """
         The get_data() method is used to retrieve additional time series data that will be
         combined with existing pipeline data during pipeline execution.
-        '''
+        """
         raise NotImplementedError('You must implement a get_data() method for any class that acts as a data source')
 
     def execute(self, df, start_ts=None, end_ts=None, entities=None):
-        '''
+        """
         Retrieve data and combine with pipeline data
-        '''
+        """
         new_df = self.get_data(start_ts=start_ts, end_ts=end_ts, entities=entities)
         try:
             new_df = self._entity_type.index_df(new_df)
         except AttributeError:
             pass
-        if df is None or len(df.index) == 0:
+
+        # The type of the levels in index can be flipped, especially if the data frame is empty because the
+        # sequence set_index() ==> reset_index() converts column type  ['str','datetime64[ns]'] to
+        # ['float64','float64']. Therefore we explicitly cast the levels in index to avoid a type mismatch in the
+        # subsequent merge function. Float64 cannot be cast to datetime64[ns] directly; therefore cast to int64 first.
+        if new_df is not None:
+            if (new_df.index.levels[0].dtype_str != 'object') | (new_df.index.levels[1].dtype_str != 'datetime64[ns]'):
+                new_df_index_names = new_df.index.names
+                new_df.reset_index(inplace=True)
+                new_df = new_df.astype({new_df_index_names[0]: 'int64', new_df_index_names[1]: 'int64'}, copy=False)
+                new_df = new_df.astype({new_df_index_names[0]: 'str', new_df_index_names[1]: 'datetime64[ns]'},
+                                       copy=False)
+                new_df.set_index(keys=new_df_index_names, inplace=True)
+
+        if df is None:
             df = new_df
-            logger.debug('Incoming dataframe is empty. Replaced with data from %s', self.name)
-        elif new_df is None or len(new_df.index) == 0:
-            logger.debug('No data retrieved from data source %s', self.name)
+            logger.debug('Incoming dataframe is None. Replaced with data frame from %s', self.name)
+        elif new_df is None:
+            logger.debug('No dataframe returned by data source %s. Nothing is merged', self.name)
         else:
-            # both dataframes have data. Merge them.
+            # Merge dataframes, even if they are empty to preserve the columns
+            if len(new_df.index) == 0:
+                logger.debug('No data retrieved from data source %s', self.name)
             self.log_df_info(df, 'source dataframe before merge')
             self.log_df_info(new_df, 'additional data source to be merged')
             overlapping_columns = list(set(new_df.columns.intersection(set(df.columns))))
             if self.merge_method == 'outer':
                 # new_df is expected to be indexed on id and timestamp
                 index_names = df.index.names
-                df = df.join(new_df, how='outer', sort=True,
-                             on=[self._entity_type._df_index_entity_id, self._entity_type._timestamp], rsuffix='_new_')
+                df = df.merge(new_df, how='outer', sort=True,
+                              on=[self._entity_type._df_index_entity_id, self._entity_type._timestamp],
+                              suffixes=['', UNIQUE_EXTENSION_LABEL])
                 df.index.rename(index_names, inplace=True)
                 df = self._coallesce_columns(df=df, cols=overlapping_columns)
             elif self.merge_method == 'nearest':
@@ -1502,18 +1525,18 @@ class BaseDataSource(BaseTransformer):
                 try:
                     df = pd.merge_asof(left=df, right=new_df, by=self._entity_type._entity_id,
                                        on=self._entity_type._timestamp, tolerance=self.merge_nearest_tolerance,
-                                       suffixes=[None, '_new_'])
+                                       suffixes=[None, UNIQUE_EXTENSION_LABEL])
                 except ValueError:
                     new_df = new_df.sort_values([self._entity_type._timestamp, self._entity_type._entity_id])
                     try:
                         df = pd.merge_asof(left=df, right=new_df, by=self._entity_type._entity_id,
                                            on=self._entity_type._timestamp, tolerance=self.merge_nearest_tolerance,
-                                           suffixes=[None, '_new_'])
+                                           suffixes=[None, UNIQUE_EXTENSION_LABEL])
                     except ValueError:
                         df = df.sort_values([self._entity_type._timestamp_col, self._entity_type._entity_id])
                         df = pd.merge_asof(left=df, right=new_df, by=self._entity_type._entity_id,
                                            on=self._entity_type._timestamp_col, tolerance=self.merge_nearest_tolerance,
-                                           suffixes=[None, '_new_'])
+                                           suffixes=[None, UNIQUE_EXTENSION_LABEL])
                 df = self._coallesce_columns(df=df, cols=overlapping_columns)
             elif self.merge_method == 'concat':
                 df = pd.concat([df, new_df], sort=True)
@@ -1562,17 +1585,17 @@ class BaseFilter(BaseTransformer):
         self.optionalItems.extend([self.dependent_items])
 
     def execute(self, df):
-        '''
+        """
         The execute method for a filter calls a filter method. Define filter logic in the filter method.
-        '''
+        """
         df = self.filter(df).copy()
         df[self.output_item] = True
         return df
 
     def filter(self, df):
-        '''
+        """
         Define your custom filter logic in a filter() method
-        '''
+        """
         raise NotImplementedError(
             'This function has no filter method defined. You must implement a custom filter method for a filter function')
 
@@ -1613,11 +1636,11 @@ class BaseDatabaseLookup(BaseTransformer):
     """
     Base class for lookup functions.
     """
-    '''
+    """
     Optionally provide sample data for lookup
     this data will be used to create a new lookup function
     data should be provided as a dictionary and used to create a DataFrame
-    '''
+    """
     data = None
     # Even this function returns new data to the pipeline, it is not considered a data source
     # as it behaves like any other transformer, ie: adds columns not rows to the pipeline
@@ -1653,13 +1676,12 @@ class BaseDatabaseLookup(BaseTransformer):
         Get list of columns from lookup table, Create lookup table from self.data if it doesn't exist.
         """
         if arg == 'lookup_items':
-            '''
+            """
             Get a list of columns returned by the lookup
-            '''
+            """
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
             df = pd.read_sql_query(self.sql, con=self.db, index_col=lup_keys, parse_dates=date_cols)
-            df = df.astype(dtype={col: 'datetime64[ms]' for col in date_cols}, errors='ignore')
 
             df.columns = [x.lower() for x in list(df.columns)]
             return (list(df.columns))
@@ -1669,9 +1691,9 @@ class BaseDatabaseLookup(BaseTransformer):
             raise NotImplementedError(msg)
 
     def execute(self, df):
-        '''
+        """
         Execute transformation function of DataFrame to return a DataFrame
-        '''
+        """
         self.db = self.get_db()
         if self._auto_create_lookup_table:
             self.create_lookup_table(df=None, table_name=self.lookup_table_name)
@@ -1683,10 +1705,7 @@ class BaseDatabaseLookup(BaseTransformer):
 
         msg = ' function attempted to excecute sql %s. ' % self.sql
         self.trace_append(msg)
-        df_sql = pd.read_sql_query(self.sql, self.db.connection, index_col=self.lookup_keys,
-                                   parse_dates=self.parse_dates)
-        if self.parse_dates is not None:
-            df_sql = df_sql.astype(dtype={col: 'datetime64[ms]' for col in self.parse_dates}, errors='ignore')
+        df_sql = self.db.read_sql_query(self.sql, index_col=self.lookup_keys, parse_dates=self.parse_dates)
 
         msg = 'Lookup returned columns %s. ' % ','.join(list(df_sql.columns))
         self.trace_append(msg)
@@ -1704,9 +1723,9 @@ class BaseDatabaseLookup(BaseTransformer):
         return df
 
     def create_lookup_table(self, df=None, table_name=None):
-        '''
+        """
         Create and populate lookup table
-        '''
+        """
         if self.db is None:
             self.get_db()
         if df is None:
@@ -1723,14 +1742,14 @@ class BaseDatabaseLookup(BaseTransformer):
         logger.warning(msg)
 
     def get_input_items(self):
-        '''
+        """
         Lookup must always include the lookup keys
-        '''
+        """
         return set(self.lookup_keys)
 
 
 class BaseDBActivityMerge(BaseDataSource):
-    '''
+    """
     Merge actitivity data with time series data.
     Activies are events that have a start and end date and generally occur sporadically.
     Activity tables contain an activity column that indicates the type of activity performed.
@@ -1738,14 +1757,12 @@ class BaseDBActivityMerge(BaseDataSource):
     This function flattens multiple activity types from multiple activity tables into columns indicating the duration of each activity.
     When aggregating activity data the dimenions over which you aggregate may change during the time taken to perform the activity.
     To make allowance for thise slowly changing dimenions, you may include a customer calendar lookup and one or more resource lookups
-    '''
+    """
 
     # automatically build queries to merge in data from one or more db.ActivityTable
     activities_metadata = None
     # merge in data from one or more custom sql statement
     activities_custom_query_metadata = None
-    # decide on a strategy for removing gaps
-    remove_gaps = 'within_single'  # 'across_all'
     # column name metadata
     # the start and end dates for activities are assumed to be designated by specific columns
     # the type of activity performed on or using an entity is designated by the 'activity' column
@@ -1754,7 +1771,7 @@ class BaseDBActivityMerge(BaseDataSource):
     allow_projection_list_trim = False
 
     def __init__(self, input_activities, activity_duration=None, additional_items=None, additional_output_names=None,
-                 dummy_items=None):
+                 dummy_items=None, remove_gaps='within_single'):
 
         if self.activities_metadata is None:
             self.activities_metadata = {}
@@ -1771,6 +1788,9 @@ class BaseDBActivityMerge(BaseDataSource):
             additional_output_names = ['output_%s' % x for x in self.additional_items]
         self.additional_output_names = additional_output_names
         self.available_non_activity_cols = []
+
+        # decide on a strategy for removing gaps
+        self.remove_gaps = remove_gaps
 
         super().__init__(input_items=input_activities, output_items=None, dummy_items=dummy_items)
 
@@ -1789,21 +1809,21 @@ class BaseDBActivityMerge(BaseDataSource):
                 af = self.read_activity_data(table_name=table_name, activity_code=a, start_ts=start_ts, end_ts=end_ts,
                                              entities=entities)
 
-                unique_af = self.make_start_dates_unique(af)
+                af[self._activity] = a
 
-                unique_af[self._activity] = a
+                if self.remove_gaps == 'within_single':
+                    af = self.make_start_dates_unique(af)
 
                 msg = 'Read activity table %s' % table_name
-                self.log_df_info(unique_af, msg)
-                dfs.append(unique_af)
-                self.available_non_activity_cols.append(self._get_non_activity_cols(unique_af))
+                self.log_df_info(af, msg)
+                dfs.append(af)
+                self.available_non_activity_cols.append(self._get_non_activity_cols(af))
 
         # execute sql provided explicitly
         for activity, sql in list(self.activities_custom_query_metadata.items()):
             try:
                 parse_dates = [self._start_date, self._end_date]
-                af = pd.read_sql_query(sql, con=self._entity_type.db.connection, parse_dates=parse_dates)
-                af = af.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
+                af = self._entity_type.db.read_sql_query(sql, parse_dates=parse_dates)
             except:
                 logger.warning('Function attempted to retrieve data for a merge operation using custom sql. There was '
                                'a problem with this retrieval operation. Confirm that the sql is valid and contains '
@@ -1818,13 +1838,15 @@ class BaseDBActivityMerge(BaseDataSource):
                 start_date_col = af[self._start_date]
                 af[self._start_date] = start_date_col.where((start_date_col >= start_ts), start_ts)
 
-            unique_af = self.make_start_dates_unique(af)
+            af[self._activity] = activity
 
-            unique_af[self._activity] = activity
+            if self.remove_gaps == 'within_single':
+                af = self.make_start_dates_unique(af)
 
-            dfs.append(unique_af)
-            self.log_df_info(unique_af, msg)
-            self.available_non_activity_cols.append(self._get_non_activity_cols(unique_af))
+            dfs.append(af)
+            msg = 'Result of sql after duplicated start dates have been removed: %s' % sql
+            self.log_df_info(af, msg)
+            self.available_non_activity_cols.append(self._get_non_activity_cols(af))
 
         if len(dfs) == 0:
             cols = []
@@ -1833,6 +1855,9 @@ class BaseDBActivityMerge(BaseDataSource):
             cdf = self.empty_dataframe(columns=cols)
         else:
             adf = pd.concat(dfs, sort=False)
+            if self.remove_gaps == 'across_all':
+                adf = self.make_start_dates_unique(adf)
+
             self.log_df_info(adf, 'After merging activity data from all sources')
             # get shift changes
             self.add_dates = []
@@ -1917,7 +1942,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     include.extend(['start_date', self._entity_type._entity_id])
                     nadf = nadf[include]
                     cdf = cdf.merge(nadf, on=['start_date', self._entity_type._entity_id], how='left',
-                                    suffixes=('', '_new_'))
+                                    suffixes=('', UNIQUE_EXTENSION_LABEL))
                     self.log_df_info(cdf, 'post merge')
                     cdf = self._coallesce_columns(cdf, add_cols)
                     self.log_df_info(cdf, 'post coallesce')
@@ -1974,9 +1999,9 @@ class BaseDBActivityMerge(BaseDataSource):
         return unique_af
 
     def get_item_values(self, arg, db=None):
-        '''
+        """
         Define picklist values
-        '''
+        """
         msg = 'Getting item values for arg %s' % arg
         logger.debug(msg)
         if arg == 'input_activities':
@@ -2004,7 +2029,8 @@ class BaseDBActivityMerge(BaseDataSource):
     def _unique_start_date(self, df):
         micro_second = pd.Timedelta(milliseconds=1)
 
-        df = df.sort_values(by=self._start_date)
+        # Get a well defined ordering to avoid ambiguities when start_date is identical
+        df = df.sort_values(by=[self._start_date, self._end_date, self._activity ])
         start_dates_series = df[self._start_date]
 
         # Add as many microseconds to start_date that it is unique
@@ -2022,12 +2048,12 @@ class BaseDBActivityMerge(BaseDataSource):
         return df
 
     def _combine_activities(self, df):
-        '''
+        """
         incoming dataframe has start date , end date and activity code.
         activities may overlap.
         output dataframe corrects overlapping activities.
         activities with later start dates take precidence over activies with earlier start dates when resolving.
-        '''
+        """
         # dataframe expected to contain start_date,end_date,activity for a single deviceid
         entity = df[self._entity_type._entity_id].max()
 
@@ -2084,10 +2110,10 @@ class BaseDBActivityMerge(BaseDataSource):
         return df
 
     def _get_empty_combine_data(self):
-        '''
+        """
         In the case where the merged resultset is empty, need a empty dateframe with all of the columns that would have
         been inlcuded.
-        '''
+        """
 
         cols = [self._start_date, self._end_date, self._activity, 'duration']
         cols.extend(self.execute_by)
@@ -2099,8 +2125,8 @@ class BaseDBActivityMerge(BaseDataSource):
         new_df = pd.DataFrame(columns=cols)
         new_df.index.name = self.auto_index_name
 
-        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ms]')
-        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ms]')
+        new_df[self._start_date] = new_df[self._start_date].astype('datetime64[ns]')
+        new_df[self._end_date] = new_df[self._end_date].astype('datetime64[ns]')
         new_df['duration'] = new_df['duration'].astype('float64')
 
         new_df.set_index(['activity'], drop=False, inplace=True)
@@ -2140,16 +2166,15 @@ class BaseDBActivityMerge(BaseDataSource):
         msg = 'reading activity %s from %s to %s using %s' % (activity_code, start_ts, end_ts, query.statement)
         logger.debug(msg)
         parse_dates = [self._start_date, self._end_date]
-        df = pd.read_sql_query(query.statement, con=self._entity_type.db.connection, parse_dates=parse_dates)
-        df = df.astype(dtype={col: 'datetime64[ms]' for col in parse_dates}, errors='ignore')
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=parse_dates)
 
         return df
 
 
 class BaseSCDLookup(BaseTransformer):
-    '''
+    """
     Lookup a slowly changing property
-    '''
+    """
     _start_date = 'start_date'
     _end_date = 'end_date'
     merge_nearest_tolerance = None  # or something like pd.Timedelta('1D')
@@ -2167,7 +2192,7 @@ class BaseSCDLookup(BaseTransformer):
     def execute(self, df, start_ts=None, end_ts=None, entities=None):
 
         msg = 'Starting scd lookup of %s from table %s for time interval [%s, %s]. ' % (
-        self.output_item, self.table_name, start_ts, end_ts)
+            self.output_item, self.table_name, start_ts, end_ts)
         msg = self.log_df_info(df, msg)
         self.trace_append(msg)
 
@@ -2222,6 +2247,124 @@ class BaseSCDLookup(BaseTransformer):
         return (inputs, outputs)
 
 
+class BaseSCDLookupWithDefault(BaseTransformer):
+    """
+    Lookup a slowly changing property
+    """
+    is_scd_lookup = True
+
+    def __init__(self, table_name, output_item, default_value, dimension_name=None, entity_name=None, start_name=None,
+                 end_name=None):
+
+        super().__init__()
+
+        self.table_name = table_name
+
+        self.df_dim_name = dimension_name.lower() if dimension_name is not None else None
+        self.df_entity_name = entity_name.lower() if entity_name is not None else 'deviceid'
+        self.df_start_name = start_name.lower() if start_name is not None else self._start_date
+        self.df_end_name = end_name.lower() if end_name is not None else self._end_date
+
+        self.dim_default_value = default_value
+        self.output_item = output_item
+
+        self.itemTags['output_item'] = ['DIMENSION']
+
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
+
+        logger.info('Starting scd lookup of %s from table %s for time interval [%s, %s]. ' % (
+            self.output_item, self.table_name, start_ts, end_ts))
+
+        # Get dimension value from a database table
+        dim_df = self.get_scd_data(table_name=self.table_name, start_ts=start_ts, end_ts=end_ts, entities=entities,
+                                   start_name=self.df_start_name, end_name=self.df_end_name)
+
+        if self.df_dim_name is None:
+            # Determine name of dimension column because it has not been defined as input parameter
+            # Assumption: The set of available columns in table minus the columns for device id, start date and
+            # end date leaves exactly one column - the dimension column.
+            remaining_columns = list(set(dim_df.columns) - {self.df_entity_name, self.df_start_name, self.df_end_name})
+            if len(remaining_columns) != 1:
+                raise Exception(('The dimension column cannot be determined in table %s. Potential candidates are %s. '
+                                 'The columns for device id/start date/end date are %s/%s/%s.') % (
+                                    self.table_name, remaining_columns, self.df_entity_name, self.df_start_name,
+                                    self.df_end_name))
+            else:
+                self.df_dim_name = remaining_columns[0]
+
+        # Warning: Do not change order of columns in required_df_cols because function fill_in() relies on it!
+        required_df_cols = [self.df_dim_name, self.df_entity_name, self.df_start_name, self.df_end_name]
+        missing_df_cols = []
+        for req_col_name in required_df_cols:
+            if req_col_name not in dim_df.columns:
+                missing_df_cols.append(req_col_name)
+
+        if len(missing_df_cols) > 0:
+            raise Exception(('The dimension table %s does not contain the expected columns %s. The following columns '
+                             'are available: %s') % (self.table_name, missing_df_cols, list(dim_df.columns)))
+
+        # Reduce dataframe to required columns in a well defined order. Function fill_in() relies on this order!!!
+        dim_df = dim_df[required_df_cols]
+
+        # Remove all rows in dim_df with an incompletely defined start-end interval
+        dim_df.dropna(subset=[self.df_start_name, self.df_end_name], how='any', inplace=True)
+
+        # Add a new column filled with default value of dimension
+        df[self.output_item] = self.dim_default_value
+
+        # Group df on entity_id (first level in MultiIndex) and apply fill-in function
+        groups = df.groupby(level=0, sort=False)
+        df = groups.apply(func=self._fill_in, dim_df=dim_df, dim_col=self.df_dim_name, start_col=self.df_start_name,
+                          output_col=self.output_item)
+
+        return df
+
+    def _fill_in(self, group_df, dim_df, dim_col, start_col, output_col):
+
+        # Find out entity_id for this group
+        group_entity_id = group_df.index.get_level_values(0)[0]
+
+        # Get vector with timestamps for this group
+        group_timestamps = group_df.index.get_level_values(1)
+
+        # Strip off all entries in dimension dataframe that do not refer to the entity id of the current group
+        dim_df = dim_df[(dim_df[self.df_entity_name] == group_entity_id)]
+
+        # Sort dataframe ascending with respect to start date. As a consequence, the record with the later start date
+        # will overwrite any earlier record in case of an overlap of their start-end intervals.
+        # Additionally, sort on dimension column for the case there is the same start timestamp for different dimensions
+        # values to achieve reproducibility with respect to order of rows in dim_df
+        dim_df.sort_values(by=[start_col, dim_col], inplace=True)
+
+        for row in dim_df.itertuples(index=False, name=None):
+            # Condition 1: Timestamp >= start_date
+            condition1 = (group_timestamps >= row[2])
+
+            # Condition 2: Timestamp < end_date
+            condition2 = (group_timestamps < row[3])
+
+            # Replace entries in dimension column with current dimension value
+            group_df[output_col] = group_df[output_col].mask((condition1 & condition2), row[0])
+
+        return group_df
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = [
+            UISingle(name='table_name', datatype=str, description='Table name to use as source for dimension look-up'),
+            UISingle(name='dimension_name', datatype=str,
+                     description='The name of the dimension column in dimension table'),
+            UISingle(name='entity_name', datatype=str, description='The name of the entity column in dimension table'),
+            UISingle(name='start_name', datatype=str, description='The name of the start column in dimension table'),
+            UISingle(name='end_name', datatype=str, description='The name of the end column in dimension table'),
+            UISingle(name='default_value', datatype=str,
+                     description='Default value to use when the look-up on dimension table does not return a value')]
+        # define arguments that behave as function outputs
+        outputs = [UIFunctionOutSingle(name='output_item')]
+        return inputs, outputs
+
+
 class BasePreload(BaseTransformer):
     """
     Preload functions execute before loading entity data into the pipeline
@@ -2245,16 +2388,16 @@ class BasePreload(BaseTransformer):
         self.itemDatatypes['output_items'] = 'BOOLEAN'
 
     def execute(self, df, start_ts=None, end_ts=None, entities=None):
-        '''
+        """
         Execute function may optionally use a start_ts,end_ts and entities passed to the pipeline for processing
-        '''
+        """
         raise NotImplementedError(
             'This function has no execute method defined. You must implement a custom execute for any preload function')
 
     def _getMetadata(self, df=None, new_df=None, inputs=None, outputs=None, constants=None):
-        '''
+        """
         Preload function has no dataframe in or out so standard _getMetadata() does not work
-        '''
+        """
         # define arguments that behave as function inputs
         inputs = {}
         inputs['dummy_items'] = UIMultiItem(name='dummy_items', datatype=None).to_metadata()
@@ -2278,19 +2421,19 @@ class BaseMetadataProvider(BasePreload):
         self._metadata_params = kwargs
 
     def execute(self, df, start_ts=None, end_ts=None, entities=None):
-        '''
+        """
         A metadata provider does not do anything except set _metadata_params
         _metadata_params are automatically copied to the _entity_type when the
         function is added to an AS job
-        '''
+        """
         return True
 
 
 class BaseEstimatorFunction(BaseTransformer):
-    '''
+    """
     Base class for functions that train, evaluate and predict using sklearn
     compatible estimators.
-    '''
+    """
     shelf_life_days = None
     # Train automatically
     auto_train = True
@@ -2304,7 +2447,10 @@ class BaseEstimatorFunction(BaseTransformer):
     eval_metric = None
 
     # Test Train split
-    test_size = 0.2  # Use 20 % of the data for testing
+    test_size = 0.2  # Use 20 % of the data for testing by default
+    # Selecting 0 means no search and no test !
+    # simplified flow for scalers: no search with cross validation
+    is_scaler = False
 
     # Correlation check
     correlation_threshold = 0.5  # only train when feature and target data are sufficiently correlated - spearman rank
@@ -2315,13 +2461,20 @@ class BaseEstimatorFunction(BaseTransformer):
     greater_is_better = True
     version_model_writes = False
 
-    def __init__(self, features, targets, predictions, keep_current_models=False):
+    def __init__(self, features, targets, predictions, stddev=False, keep_current_models=False):
         self.features = features
         self.targets = targets
+
         # Name predictions based on targets if predictions is None
         if predictions is None:
             predictions = ['predicted_%s' % x for x in self.targets]
         self.predictions = predictions
+
+        # if stddev is True we predict means and stddev instead of a single value
+        self.pred_stddev = None
+        if stddev:
+            self.pred_stddev = ['stddev_%s' % x for x in self.targets]
+
         super().__init__()
         self._preprocessors = OrderedDict()
         self.estimators = OrderedDict()
@@ -2331,22 +2484,22 @@ class BaseEstimatorFunction(BaseTransformer):
             self.active_models = None
 
     def add_preprocessor(self, stage):
-        '''
+        """
         Add a pre-processor stage
-        '''
+        """
         self._preprocessors[stage.name] = stage
 
     def add_training_expression(self, name, expression):
-        '''
+        """
         Add a new pre-processor stage using an expression
-        '''
+        """
         stage = PipelineExpression(name=name, expression=expression, entity_type=self.get_entity_type())
         self.add_preprocessor(stage)
 
     def get_models_for_training(self, db, df, bucket=None, entity_name=None):
-        '''
+        """
         Get a list of models that require training
-        '''
+        """
         if bucket is None:
             bucket = self.get_bucket_name()
         models = []
@@ -2356,7 +2509,14 @@ class BaseEstimatorFunction(BaseTransformer):
             results = {}
             trace_message = 'predicting target %s' % target
             logger.info(trace_message)
-            features = self.make_feature_list(features=self.features, df=df, unprocessed_targets=unprocessed_targets)
+
+            # allow target feature overlap for scalers
+            if not self.is_scaler:
+                features = self.make_feature_list(features=self.features, df=df,
+                                                  unprocessed_targets=unprocessed_targets)
+            else:
+                features = self.features
+
             model_name = self.get_model_name(target, suffix=entity_name)
 
             # retrieve existing model
@@ -2378,6 +2538,8 @@ class BaseEstimatorFunction(BaseTransformer):
                     model = Model(name=model_name, estimator=None, estimator_name=None, params=None, features=features,
                                   target=target, eval_metric_name=self.eval_metric.__name__, eval_metric_train=None,
                                   shelf_life_days=None, col_name=self.predictions[i])
+                    if self.pred_stddev is not None:
+                        model.has_std_dev(self.pred_stddev[i])
                 models.append(model)
             else:
                 results['use_existing_model'] = True
@@ -2389,14 +2551,14 @@ class BaseEstimatorFunction(BaseTransformer):
         return (models)
 
     def get_model_info(self, db):
-        '''
+        """
         Display model metdata
-        '''
+        """
 
     def get_models_for_predict(self, db, bucket=None, entity_name=None):
-        '''
+        """
         Get a list of models
-        '''
+        """
         if bucket is None:
             bucket = self.get_bucket_name()
         models = []
@@ -2438,9 +2600,9 @@ class BaseEstimatorFunction(BaseTransformer):
             return False, 'Automatic model training is disabled using the auto_train = False'
 
     def delete_models(self, model_names=None, entity_name=None):
-        '''
+        """
         Delete models stored in ModelStore for this estimator
-        '''
+        """
         if model_names is None:
             model_names = []
             for target in self.targets:
@@ -2474,12 +2636,12 @@ class BaseEstimatorFunction(BaseTransformer):
         rho_max = 0
         if len(required_models) > 0:
             df = self.execute_preprocessing(df)
-            if self.correlation_threshold > 0:
+            if not self.is_scaler and self.correlation_threshold > 0:
                 rho_max = self.correlation_analysis(df)
             df_train, df_test = self.execute_train_test_split(df)
 
         # training
-        if rho_max < self.correlation_threshold:
+        if not self.is_scaler and rho_max < self.correlation_threshold:
             # no models for training - doesn't make any sense according to threshold and correlation
             required_models = []
             msg = 'Correlation between features and targets is not high enough for training: \
@@ -2490,8 +2652,8 @@ class BaseEstimatorFunction(BaseTransformer):
         for model in required_models:
             msg = 'Prepare to train model %s' % model
             logger.info(msg)
-            best_model = self.find_best_model(df_train=df_train, df_test=df_test, target=model.target,
-                                              features=model.features, existing_model=model, col_name=model.col_name,
+
+            best_model = self.find_best_model(df_train=df_train, df_test=df_test, existing_model=model,
                                               entity_name=entity_name)
             msg = 'Trained model: %s' % best_model
             logger.debug(msg)
@@ -2503,9 +2665,9 @@ class BaseEstimatorFunction(BaseTransformer):
             if best_model is None:
                 msg = 'Failed training models'
             else:
-                best_model.test(df_test)
+                # best_model.test(df_test)  - already stored in results.eval_metric_test
                 if self.active_models is not None:
-                    self.active_models[best_model.name]=(best_model, df_train)
+                    self.active_models[best_model.name] = (best_model, df_train)
 
                 self.evaluate_and_write_model(new_model=best_model, current_model=model, db=db, bucket=bucket)
                 msg = 'Finished training model %s' % model.name
@@ -2515,7 +2677,20 @@ class BaseEstimatorFunction(BaseTransformer):
         required_models = self.get_models_for_predict(db=db, bucket=bucket, entity_name=entity_name)
         for model in required_models:
             if model is not None:
-                df[model.col_name] = model.predict(df)
+                has_stddev = False
+                try:
+                    if model.col_name_stddev is not None:
+                        has_stddev = True
+                except Exception:
+                    pass
+
+                if self.is_scaler:
+                    df[model.col_name] = 0
+                    df[model.col_name] = model.transform(df)
+                elif has_stddev:
+                    df[model.col_name], df[model.col_name_stddev] = model.predict_with_std_dev(df)
+                else:
+                    df[model.col_name] = model.predict(df)
                 self.log_df_info(df, 'After adding predictions for target %s' % model.target)
 
         # add null columns for when no model
@@ -2526,9 +2701,9 @@ class BaseEstimatorFunction(BaseTransformer):
         return df
 
     def execute_preprocessing(self, df):
-        '''
+        """
         Execute training specific pre-processing transformation stages
-        '''
+        """
         self.set_preprocessors()
         preprocessors = list(self._preprocessors.values())
         pl = CalcPipeline(stages=preprocessors, entity_type=self._entity_type)
@@ -2538,9 +2713,9 @@ class BaseEstimatorFunction(BaseTransformer):
         return df
 
     def correlation_analysis(self, df):
-        '''
+        """
         Perform MCD (>2 dim) or spearman (== 2 dim)
-        '''
+        """
         scalef = StandardScaler().fit_transform(df[self.features]).copy()
         scalet = StandardScaler().fit_transform(df[self.targets]).copy()
 
@@ -2560,49 +2735,73 @@ class BaseEstimatorFunction(BaseTransformer):
 
     def execute_train_test_split(self, df):
 
-        '''
+        """
         Split dataframe into test and training sets
-        '''
+        """
 
-        df_train, df_test = train_test_split(df, test_size=self.test_size)
+        if self.is_scaler or self.test_size == 0:
+            df_train = df.copy()
+            df_test = pd.DataFrame()
+        else:
+            df_train, df_test = train_test_split(df, test_size=self.test_size)
         self.log_df_info(df_train, msg='training set', include_data=False)
         self.log_df_info(df_test, msg='test set', include_data=False)
         logger.info('Split data - training set ' + str(df_train.shape) + '  test set ' + str(df_test.shape))
         return (df_train, df_test)
 
-    def find_best_model(self, df_train, df_test, target, features, existing_model, col_name, entity_name=None):
+    def find_best_model(self, df_train, df_test, existing_model, entity_name=None):
 
-        '''
+        """
 
         Attempt to train a better model than the current existing model.
 
         :param df_train: DataFrame containing training data
         :param df_test: DataFrame containing test data
-        :param target: str
-        :param features: list of strs
-        :param existing_model: Model object
+        :param existing_model: Model object - could be uninitialized but needs to hold features, target and column names
         :return: Model object
-        '''
+        """
 
         metric_name = self.eval_metric.__name__
 
         # build a list of estimators to fit as experiments
-
         estimators = self.make_estimators(names=None, count=self.experiments_per_execution)
         if existing_model is None:
+            logger.error('Find best model called with empty existing model')
+            raise ValueError('Find best model called with empty existing model')
             trained_models = []
             best_test_metric = None
             best_model = None
         else:
             trained_models = [existing_model]
+
+            col_name = existing_model.col_name
+            col_name_stddev = existing_model.col_name_stddev
+            features = existing_model.features
+            target = existing_model.target
+
             best_test_metric = existing_model.eval_metric_test
             best_model = existing_model
 
-        # fit a model for each estimator
+        # short cut for scalers
+        if self.is_scaler:
+            (name, est, params) = estimators[0]
+            est.fit(df_train[features])
+            est_score = 1
 
+            results = {'name': self.get_model_name(target_name=target, suffix=entity_name), 'target': target,
+                       'features': features, 'params': params, 'eval_metric_name': metric_name,
+                       'eval_metric_train': est_score, 'eval_metric_test': 1, 'estimator_name': name,
+                       'shelf_life_days': self.shelf_life_days, 'col_name': col_name}  # no stddev for scalers
+
+            best_model = Model(estimator=est, **results)
+            trained_models.append(best_model)
+
+            return best_model
+
+        # fit a model for each estimator
         for counter, (name, estimator, params) in enumerate(estimators):
-            estimator, search = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train, target=target,
-                                                features=features)
+            estimator, search = self.fit_with_search_cv(estimator=estimator, params=params, df_train=df_train,
+                                                        target=target, features=features)
             # in case of a failure to train and cross validate then try next
             if estimator is None:
                 continue
@@ -2623,7 +2822,7 @@ class BaseEstimatorFunction(BaseTransformer):
             results = {'name': self.get_model_name(target_name=target, suffix=entity_name), 'target': target,
                        'features': features, 'params': estimator.best_params_, 'eval_metric_name': metric_name,
                        'eval_metric_train': est_score, 'estimator_name': name, 'shelf_life_days': self.shelf_life_days,
-                       'col_name': col_name}
+                       'col_name': col_name, 'col_name_stddev': col_name_stddev}
 
             # search.best_estimator_ and search.best_params_ contain best choice after refit
 
@@ -2661,9 +2860,9 @@ class BaseEstimatorFunction(BaseTransformer):
         return best_model
 
     def evaluate_and_write_model(self, new_model, current_model, db, bucket):
-        '''
+        """
         Decide whether new model is an improvement over current model and write new model
-        '''
+        """
         write_model = False
         if current_model.trained_date != new_model.trained_date:
             if self.greater_is_better and new_model.eval_metric_test > self.acceptable_score_for_model_acceptance:
@@ -2690,6 +2889,11 @@ class BaseEstimatorFunction(BaseTransformer):
 
         scorer = self.make_scorer()
         print(self.parameter_tuning_iterations)
+
+        if self.cv is not None and self.cv < 2:
+            print('here')
+            self.cv = 2
+
         search = RandomizedSearchCV(estimator=estimator, param_distributions=params,
                                     n_iter=self.parameter_tuning_iterations, scoring=scorer, refit=True, cv=self.cv,
                                     return_train_score=False)
@@ -2717,24 +2921,24 @@ class BaseEstimatorFunction(BaseTransformer):
         return estimator, search
 
     def set_estimators(self):
-        '''
+        """
         Set the list of candidate estimators and associated parameters
-        '''
+        """
         # populate the estimators dict with a list of tuples containing instance of an estimator and parameters for estimator
         raise NotImplementedError('You must implement a set estimator method')
 
     def set_preprocessors(self):
-        '''
+        """
         Add the preprocessing stages that will transform data prior to training, evaluation or making prediction
-        '''  # self.add_preprocessor(ClassName(args))
+        """  # self.add_preprocessor(ClassName(args))
 
     def get_model_name(self, target_name, suffix=None):
         return self.generate_model_name(target_name=target_name, suffix=suffix)
 
     def make_estimators(self, names=None, count=None):
-        '''
+        """
         Make a list of candidate estimators based on available estimator classes
-        '''
+        """
         self.set_estimators()
         if names is None:
             estimators = list(self.estimators.keys())
@@ -2752,30 +2956,31 @@ class BaseEstimatorFunction(BaseTransformer):
         out = []
         for e in names:
             (e_cls, parameters) = self.estimators[e]
+            print('make_estimators ', e_cls, parameters)
             out.append((e, e_cls(), parameters))
 
         return out
 
     def make_scorer(self):
-        '''
+        """
         Make a scorer
-        '''
+        """
         return metrics.make_scorer(self.eval_metric, greater_is_better=self.greater_is_better)
 
     def make_feature_list(self, df, features, unprocessed_targets):
-        '''
+        """
         Simple feature selector. Includes all candidate features that to not
         involve targets that have not yet been processed. Use a custom implementation
         of this method to do more advanced feature selection.
-        '''
+        """
         features = [x for x in features if x not in unprocessed_targets]
         return features
 
 
 class BaseRegressor(BaseEstimatorFunction):
-    '''
+    """
     Base class for building regression models
-    '''
+    """
     eval_metric = staticmethod(metrics.r2_score)
 
     def set_estimators(self):
@@ -2789,9 +2994,9 @@ class BaseRegressor(BaseEstimatorFunction):
 
 
 class BaseClassifier(BaseEstimatorFunction):
-    '''
+    """
     Base class for building classification models
-    '''
+    """
     eval_metric = staticmethod(metrics.f1_score)
 
     def set_estimators(self):

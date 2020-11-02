@@ -9,13 +9,15 @@
 # *****************************************************************************
 
 import logging
-import ibm_db
-from pathlib import Path
-import pyarrow as pa
-import pandas as pd
 import os
-import psycopg2
+from pathlib import Path
+
 import dill as pickle
+import ibm_db
+import pandas as pd
+import psycopg2
+import pyarrow
+import pyarrow.parquet
 
 from iotfunctions import dbhelper
 
@@ -45,7 +47,7 @@ class DBDataCache:
             self.cache_tablename = DBDataCache.CACHE_TABLENAME.lower()
         else:
             raise Exception('Initialization of %s failed because the database type %s is unknown.' % (
-            self.__class__.__name__, self.db_type))
+                self.__class__.__name__, self.db_type))
 
         self.quoted_schema = dbhelper.quotingSchemaName(self.schema, self.is_postgre_sql)
         self.quoted_cache_tablename = dbhelper.quotingTableName(self.cache_tablename, self.is_postgre_sql)
@@ -61,7 +63,7 @@ class DBDataCache:
                             "PARQUET_NAME VARCHAR(2048) NOT NULL, " \
                             "PARQUET_FILE BLOB(2G), " \
                             "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
-                            "CONSTRAINT %s UNIQUE(entity_type_id, parquet_name)) " \
+                            "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, PARQUET_NAME) ENFORCED ) " \
                             "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_cache_tablename,
                                                  dbhelper.quotingTableName('uc_%s' % self.cache_tablename,
                                                                            self.is_postgre_sql))
@@ -77,8 +79,8 @@ class DBDataCache:
                             "parquet_file BYTEA, " \
                             "updated_ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " \
                             "CONSTRAINT %s UNIQUE(entity_type_id, parquet_name))" % (
-                            self.quoted_schema, self.quoted_cache_tablename,
-                            dbhelper.quotingTableName('uc_%s' % self.cache_tablename, self.is_postgre_sql))
+                                self.quoted_schema, self.quoted_cache_tablename,
+                                dbhelper.quotingTableName('uc_%s' % self.cache_tablename, self.is_postgre_sql))
             try:
                 dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement)
             except Exception as ex:
@@ -105,7 +107,7 @@ class DBDataCache:
                 'Error while probing for table %s.%s' % (self.quoted_schema, self.quoted_cache_tablename)) from ex
 
         logger.debug('Table %s.%s %s.' % (
-        self.quoted_schema, self.quoted_cache_tablename, 'exists' if exists else 'does not exist'))
+            self.quoted_schema, self.quoted_cache_tablename, 'exists' if exists else 'does not exist'))
 
         return exists
 
@@ -141,7 +143,7 @@ class DBDataCache:
                     ibm_db.free_result(stmt)
             except Exception as ex:
                 raise Exception('Storing cache file %s under name %s failed with sql statement "%s"' % (
-                cache_pathname, cache_filename, sql_statement)) from ex
+                    cache_pathname, cache_filename, sql_statement)) from ex
 
         else:
             try:
@@ -154,7 +156,7 @@ class DBDataCache:
                 raise Exception('The cache file %s could not be read from disc.' % cache_pathname) from ex
             else:
                 statement1 = "INSERT INTO %s.%s (entity_type_id, parquet_name, parquet_file, updated_ts) " % (
-                self.quoted_schema, self.quoted_cache_tablename)
+                    self.quoted_schema, self.quoted_cache_tablename)
 
                 statement3 = "ON CONFLICT ON CONSTRAINT %s DO update set entity_type_id = EXCLUDED.entity_type_id, " \
                              "parquet_name = EXCLUDED.parquet_name, parquet_file = EXCLUDED.parquet_file, " \
@@ -168,10 +170,10 @@ class DBDataCache:
                                                        (self.entity_type_id, cache_filename, psycopg2.Binary(blob)))
                 except Exception as ex:
                     raise Exception('Storing cache under name %s failed with sql statement "%s"' % (
-                    cache_filename, sql_statement)) from ex
+                        cache_filename, sql_statement)) from ex
 
         logger.info('Cache has been stored under name %s in table %s.%s' % (
-        cache_filename, self.quoted_schema, self.quoted_cache_tablename))
+            cache_filename, self.quoted_schema, self.quoted_cache_tablename))
 
     def _get_cache(self, cache_filename, cache_pathname):
         # Remove file on disc if there is one
@@ -183,7 +185,7 @@ class DBDataCache:
 
         if not self.is_postgre_sql:
             sql_statement = "SELECT PARQUET_FILE FROM %s.%s WHERE ENTITY_TYPE_ID = ? AND PARQUET_NAME = ?" % (
-            self.quoted_schema, self.quoted_cache_tablename)
+                self.quoted_schema, self.quoted_cache_tablename)
 
             stmt = ibm_db.prepare(self.db_connection, sql_statement)
 
@@ -211,7 +213,9 @@ class DBDataCache:
                 raise Exception(
                     'Retrieval of cache %s failed with sql statement "%s"' % (cache_filename, sql_statement)) from ex
 
+        cache_found = False
         if row is not None:
+            cache_found = True
             parquet = row[0]
             if parquet is not None and len(parquet) > 0:
                 try:
@@ -219,7 +223,7 @@ class DBDataCache:
                     try:
                         f.write(parquet)
                         logger.info('Cache %s has been retrieved from table %s.%s and stored under %s' % (
-                        cache_filename, self.quoted_schema, self.quoted_cache_tablename, cache_pathname))
+                            cache_filename, self.quoted_schema, self.quoted_cache_tablename, cache_pathname))
                     finally:
                         f.close()
                 except Exception as ex:
@@ -229,18 +233,28 @@ class DBDataCache:
         else:
             logger.info('No cache found for %s' % cache_filename)
 
-    def _get_cache_filename(self, dep_grain, grain):
+        return cache_found
+
+    def _get_cache_filename(self, dep_grain, grain, old_name=False):
 
         # Create local path for cache file on disk.
         base_path = '%s/%s/%d' % (DBDataCache.PARQUET_DIRECTORY, self.tenant_id, self.entity_type_id)
         Path(base_path).mkdir(parents=True, exist_ok=True)
 
         # Assemble filename and full pathname of cache file
-        src = '%s_%s_%s' % (
-        str(dep_grain[0]), str('_'.join(dep_grain[1])), str(dep_grain[2])) if dep_grain is not None else str(None)
-        tar = '%s_%s_%s' % (str(grain[0]), str('_'.join(grain[1])), str(grain[2])) if grain is not None else str(None)
-        filename = '%s__%s__%s' % (DBDataCache.CACHE_FILE_STEM, src, tar)
-        local_path = '%s/%s' % (base_path, filename)
+        if old_name is False:
+            filename = '%s__%s__%s' % (
+                DBDataCache.CACHE_FILE_STEM, str(dep_grain[3]) if dep_grain is not None else str(None),
+                str(grain[3]) if grain is not None else str(None))
+            local_path = '%s/%s' % (base_path, filename)
+        else:
+            src = '%s_%s_%s' % (
+                str(dep_grain[0]), str('_'.join(dep_grain[1])), str(dep_grain[2])) if dep_grain is not None else str(
+                None)
+            tar = '%s_%s_%s' % (str(grain[0]), str('_'.join(grain[1])), str(grain[2])) if grain is not None else str(
+                None)
+            filename = '%s__%s__%s' % (DBDataCache.CACHE_FILE_STEM, src, tar)
+            local_path = '%s/%s' % (base_path, filename)
 
         return filename, local_path, base_path
 
@@ -250,10 +264,11 @@ class DBDataCache:
 
         if df is not None:
             try:
-                df.to_parquet(cache_pathname)
+                pyarrow_table = pyarrow.Table.from_pandas(df, schema=pyarrow.Schema.from_pandas(df))
+                pyarrow.parquet.write_table(pyarrow_table, cache_pathname, version='2.0')
                 logger.info(
                     'Cache %s of size %s has been saved to file %s' % (cache_filename, str(df.shape), cache_pathname))
-            except pa.lib.ArrowInvalid as ex:
+            except pyarrow.lib.ArrowInvalid as ex:
                 raise Exception(
                     'The dataframe could not be saved to file %s because pyarrow threw an exception.' % cache_pathname) from ex
             except Exception as ex:
@@ -263,9 +278,9 @@ class DBDataCache:
         else:
             logger.warning('Dataframe is None. Therefore no cache has been stored in database.')
 
-    def retrieve_cache(self, dep_grain, grain):
+    def retrieve_cache(self, dep_grain, grain, old_name=False):
 
-        cache_filename, cache_pathname, base_path = self._get_cache_filename(dep_grain, grain)
+        cache_filename, cache_pathname, base_path = self._get_cache_filename(dep_grain, grain, old_name)
         self._get_cache(cache_filename, cache_pathname)
         df_loaded = None
         if os.path.exists(cache_pathname):
@@ -273,11 +288,51 @@ class DBDataCache:
                 df_loaded = pd.read_parquet(cache_pathname)
                 if df_loaded is not None:
                     logger.info('Cache %s of size %s has been retrieved from file %s' % (
-                    cache_filename, str(df_loaded.shape), cache_pathname))
+                        cache_filename, str(df_loaded.shape), cache_pathname))
             except Exception as ex:
                 raise Exception('The dataframe could not be loaded from parquet file %s' % cache_pathname) from ex
 
         return df_loaded
+
+    def delete_cache(self, dep_grain, grain, old_name=False):
+        # Delete single cache entry locally
+        cache_filename, cache_pathname, base_path = self._get_cache_filename(dep_grain, grain, old_name)
+        if os.path.exists(cache_pathname):
+            try:
+                os.remove(cache_pathname)
+            except Exception as ex:
+                raise Exception('Removal of cache file %s failed' % cache_pathname) from ex
+
+        # Delete single cache entry in database
+        if not self.is_postgre_sql:
+            sql_statement = "DELETE FROM %s.%s WHERE ENTITY_TYPE_ID = ? AND PARQUET_NAME = ?" % (
+                self.quoted_schema, self.quoted_cache_tablename)
+
+            try:
+                stmt = ibm_db.prepare(self.db_connection, sql_statement)
+
+                try:
+                    ibm_db.bind_param(stmt, 1, self.entity_type_id)
+                    ibm_db.bind_param(stmt, 2, cache_filename)
+                    ibm_db.execute(stmt)
+                finally:
+                    ibm_db.free_result(stmt)
+            except Exception as ex:
+                raise Exception('Deletion of cache file %s failed with sql statement "%s"' % (
+                    cache_filename, sql_statement)) from ex
+        else:
+            sql_statement = "DELETE FROM %s.%s" % (self.quoted_schema, self.quoted_cache_tablename)
+            sql_statement += ' where entity_type_id = %s and parquet_name = %s'
+
+            try:
+                dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement,
+                                                   (self.entity_type_id, cache_filename))
+            except Exception as ex:
+                raise Exception(
+                    'Deletion of cache file %s failed with sql statement %s' % (cache_filename, sql_statement)) from ex
+
+        logger.info('Cache file %s has been deleted from table %s.%s' % (
+            cache_filename, self.quoted_schema, self.quoted_cache_tablename))
 
     def delete_all_caches(self):
         # Delete all cache entries for this entity type locally
@@ -299,7 +354,7 @@ class DBDataCache:
         # Delete all cache entries for this entity type in database
         if not self.is_postgre_sql:
             sql_statement = "DELETE FROM %s.%s where ENTITY_TYPE_ID = ?" % (
-            self.quoted_schema, self.quoted_cache_tablename)
+                self.quoted_schema, self.quoted_cache_tablename)
 
             try:
                 stmt = ibm_db.prepare(self.db_connection, sql_statement)
@@ -321,7 +376,7 @@ class DBDataCache:
                 raise Exception('Deletion of cache files failed with sql statement %s' % sql_statement) from ex
 
         logger.info('All caches have been deleted from table %s.%s for entity type id %d' % (
-        self.quoted_schema, self.quoted_cache_tablename, self.entity_type_id))
+            self.quoted_schema, self.quoted_cache_tablename, self.entity_type_id))
 
 
 class FileModelStore:
@@ -357,7 +412,7 @@ class FileModelStore:
 
         if model is not None:
             logger.info('Model %s of size %d bytes has been retrieved from filesystem' % (
-            model_name, len(model) if model is not None else 0))
+                model_name, len(model) if model is not None else 0))
         else:
             logger.info('Model %s does not exist in filesystem' % (model_name))
 
@@ -400,7 +455,7 @@ class DBModelStore:
             self.store_tablename = DBModelStore.STORE_TABLENAME.lower()
         else:
             raise Exception('Initialization of %s failed because the database type %s is unknown.' % (
-            self.__class__.__name__, self.db_type))
+                self.__class__.__name__, self.db_type))
 
         self.quoted_schema = dbhelper.quotingSchemaName(self.schema, self.is_postgre_sql)
         self.quoted_store_tablename = dbhelper.quotingTableName(self.store_tablename, self.is_postgre_sql)
@@ -411,12 +466,12 @@ class DBModelStore:
 
         if not self.is_postgre_sql:
             sql_statement = "CREATE TABLE %s.%s ( " \
-                            "ENTITY_TYPE_ID VARCHAR(2048) NOT NULL, " \
+                            "ENTITY_TYPE_ID BIGINT NOT NULL, " \
                             "MODEL_NAME VARCHAR(2048) NOT NULL, " \
                             "MODEL BLOB(2G), " \
                             "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
                             "LAST_UPDATED_BY VARCHAR(256), " \
-                            "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, MODEL_NAME) ) " \
+                            "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, MODEL_NAME) ENFORCED) " \
                             "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_store_tablename,
                                                  dbhelper.quotingTableName('uc_%s' % self.store_tablename,
                                                                            self.is_postgre_sql))
@@ -433,8 +488,8 @@ class DBModelStore:
                             "updated_ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " \
                             "last_updated_by VARCHAR(256), " \
                             "CONSTRAINT %s UNIQUE(entity_type_id, model_name))" % (
-                            self.quoted_schema, self.quoted_store_tablename,
-                            dbhelper.quotingTableName('uc_%s' % self.store_tablename, self.is_postgre_sql))
+                                self.quoted_schema, self.quoted_store_tablename,
+                                dbhelper.quotingTableName('uc_%s' % self.store_tablename, self.is_postgre_sql))
             try:
                 dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement)
             except Exception as ex:
@@ -461,7 +516,7 @@ class DBModelStore:
                 'Error while probing for table %s.%s' % (self.quoted_schema, self.quoted_store_tablename)) from ex
 
         logger.debug('Table %s.%s %s.' % (
-        self.quoted_schema, self.quoted_store_tablename, 'exists' if exists else 'does not exist'))
+            self.quoted_schema, self.quoted_store_tablename, 'exists' if exists else 'does not exist'))
 
         return exists
 
@@ -491,7 +546,7 @@ class DBModelStore:
                             "INSERT (ENTITY_TYPE_ID, MODEL_NAME, MODEL, UPDATED_TS, LAST_UPDATED_BY) " \
                             "VALUES (SOURCE.ENTITY_TYPE_ID, SOURCE.MODEL_NAME, SOURCE.MODEL, " \
                             "SOURCE.UPDATED_TS, SOURCE.LAST_UPDATED_BY)" % (
-                            self.quoted_schema, self.quoted_store_tablename)
+                                self.quoted_schema, self.quoted_store_tablename)
             try:
                 stmt = ibm_db.prepare(self.db_connection, sql_statement)
 
@@ -507,7 +562,7 @@ class DBModelStore:
                 raise Exception('Storing model %s failed with sql statement "%s"' % (model_name, sql_statement)) from ex
         else:
             statement1 = "INSERT INTO %s.%s (entity_type_id, model_name, model, updated_ts, last_updated_by) " % (
-            self.quoted_schema, self.quoted_store_tablename)
+                self.quoted_schema, self.quoted_store_tablename)
 
             statement3 = "ON CONFLICT ON CONSTRAINT %s DO update set entity_type_id = EXCLUDED.entity_type_id, " \
                          "model_name = EXCLUDED.model_name, model = EXCLUDED.model, " \
@@ -523,13 +578,13 @@ class DBModelStore:
                 raise Exception('Storing model %s failed with sql statement "%s"' % (model_name, sql_statement)) from ex
 
         logger.info('Model %s of size %d bytes has been stored in table %s.%s.' % (
-        model_name, len(model) if model is not None else 0, self.quoted_schema, self.quoted_store_tablename))
+            model_name, len(model) if model is not None else 0, self.quoted_schema, self.quoted_store_tablename))
 
     def retrieve_model(self, model_name, deserialize=True):
 
         if not self.is_postgre_sql:
             sql_statement = "SELECT MODEL FROM %s.%s WHERE ENTITY_TYPE_ID = ? AND MODEL_NAME = ?" % (
-            self.quoted_schema, self.quoted_store_tablename)
+                self.quoted_schema, self.quoted_store_tablename)
 
             stmt = ibm_db.prepare(self.db_connection, sql_statement)
 
@@ -564,10 +619,10 @@ class DBModelStore:
 
         if model is not None:
             logger.info('Model %s of size %d bytes has been retrieved from table %s.%s' % (
-            model_name, len(model) if model is not None else 0, self.quoted_schema, self.quoted_store_tablename))
+                model_name, len(model) if model is not None else 0, self.quoted_schema, self.quoted_store_tablename))
         else:
             logger.info('Model %s does not exist in table %s.%s' % (
-            model_name, self.quoted_schema, self.quoted_store_tablename))
+                model_name, self.quoted_schema, self.quoted_store_tablename))
 
         if model is not None and deserialize:
             try:
@@ -581,7 +636,7 @@ class DBModelStore:
     def delete_model(self, model_name):
         if not self.is_postgre_sql:
             sql_statement = "DELETE FROM %s.%s where ENTITY_TYPE_ID = ? and MODEL_NAME = ?" % (
-            self.quoted_schema, self.quoted_store_tablename)
+                self.quoted_schema, self.quoted_store_tablename)
 
             try:
                 stmt = ibm_db.prepare(self.db_connection, sql_statement)
@@ -606,4 +661,4 @@ class DBModelStore:
                     'Deletion of model %s failed with sql statement "%s"' % (model_name, sql_statement)) from ex
 
         logger.info('Model %s has been deleted from table %s.%s' % (
-        model_name, self.quoted_schema, self.quoted_store_tablename))
+            model_name, self.quoted_schema, self.quoted_store_tablename))
