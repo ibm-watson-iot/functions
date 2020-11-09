@@ -31,6 +31,7 @@ import dill as pickle
 import pandas as pd
 import requests
 from lxml import etree
+from tabulate import tabulate
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +483,30 @@ def log_df_info(df, msg, include_data=False):
     except Exception:
         logger.warning('dataframe contents not logged due to an unknown logging error')
         return ''
+
+
+def log_data_frame(message=None, df=None):
+    try:
+        log_message = None
+        if message is not None:
+            log_message = message
+        if df is not None:
+            df_copy = df.copy()
+            if not df_copy.empty:
+                # Replace all True/False values in columns of type 'object' by 'true'/false' respectively because
+                # of a bug in tabulate that tries to handle 'object' columns as 'float' columns whenever possible.
+                # Unfortunately, 'True'/'False' is considered a numeric value ( bool('True') = 1) although the conversion
+                # to float (float('True')) fails with 'ValueError: could not convert string to float: 'True''
+                for col_name, col_type in df_copy.dtypes.iteritems():
+                    if col_type.name == 'object':
+                        df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'True', 'true')
+                        df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'False', 'false')
+            log_message = log_message + '= \n%s' % tabulate(df_copy, headers='keys', tablefmt='psql')
+        logger.debug(log_message)
+    except Exception as ex:
+        logger.debug("Error while pretty printing the dataframe.", ex)
+        log_message = message + '= \n%s' % df.head()
+        logger.debug(log_message)
 
 
 def asList(x):
