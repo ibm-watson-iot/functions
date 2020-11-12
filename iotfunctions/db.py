@@ -297,13 +297,13 @@ class Database(object):
                 native_connection_string = '%s:%s@%s:%s/%s' % (
                     self.credentials['postgresql']['username'], self.credentials['postgresql']['password'],
                     self.credentials['postgresql']['host'], self.credentials['postgresql']['port'],
-                    self.credentials['postgresql']['databaseName'])
+                    self.credentials['postgresql']['db'])
 
                 sqlalchemy_connection_string = 'postgresql+psycopg2://' + native_connection_string
 
             except KeyError as ex:
                 msg = 'The credentials for PostgreSql are incomplete. ' \
-                      'You need username/password/host/port/databaseName.'
+                      'You need username/password/host/port/db.'
                 raise ValueError(msg) from ex
 
             self.db_type = 'postgresql'
@@ -360,7 +360,7 @@ class Database(object):
                         uid, pwd = first.split(":", 1)
                         hostname_port, database = last.split("/", 1)
                         hostname, port = hostname_port.split(":", 1)
-                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "databaseName": database,
+                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "db": database,
                                                           "port": port, "host": hostname}
                     except Exception:
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for POSTGRESQL is '
@@ -455,7 +455,7 @@ class Database(object):
             cred = self.credentials['postgresql']
             self.native_connection = psycopg2.connect(user=cred['username'], password=cred['password'],
                                                       host=cred['host'], port=cred['port'],
-                                                      database=cred['databaseName'],
+                                                      database=cred['db'],
                                                       application_name="AS %s Native Connection" % self.application_name)
             self.native_connection_dbi = self.native_connection
             logger.debug('Native database connection to PostgreSQL established.')
