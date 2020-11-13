@@ -454,8 +454,7 @@ class Database(object):
         elif self.db_type == 'postgresql':
             cred = self.credentials['postgresql']
             self.native_connection = psycopg2.connect(user=cred['username'], password=cred['password'],
-                                                      host=cred['host'], port=cred['port'],
-                                                      database=cred['db'],
+                                                      host=cred['host'], port=cred['port'], database=cred['db'],
                                                       application_name="AS %s Native Connection" % self.application_name)
             self.native_connection_dbi = self.native_connection
             logger.debug('Native database connection to PostgreSQL established.')
@@ -925,7 +924,7 @@ class Database(object):
 
         return [column.key for column in table.columns]
 
-    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False, 
+    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False,
                      sample_entity_type=False):
         """
         Make an api call to AS.
@@ -968,8 +967,9 @@ class Database(object):
 
         self.url[('constants', 'GET')] = '/'.join(
             [base_kpi_url, 'constants', 'v1', '%s?entityType=%s' % (self.tenant_id, object_name)])
-        self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1'])
-        self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1'])
+        self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        self.url[('constants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
 
         self.url[('defaultConstants', 'GET')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('defaultConstants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
@@ -980,12 +980,14 @@ class Database(object):
             [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
+
         if sample_entity_type:
             self.url[('entityType', 'POST')] = '/'.join(
                 [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true&sampleEntityType=true'
         else:
             self.url[('entityType', 'POST')] = '/'.join(
                 [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
+
         self.url[('entityType', 'GET')] = '/'.join(
             [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
@@ -1039,17 +1041,17 @@ class Database(object):
             logger.debug('http request successful. status %s', r.status)
         elif (request == 'POST' and object_type in ['kpiFunction', 'defaultConstants', 'constants'] and (
                 500 <= r.status <= 599)):
-            logger.debug(('htpp POST failed. attempting PUT. status:%s'), r.status)
+            logger.debug('htpp POST failed. attempting PUT. status:%s', r.status)
             response = self.http_request(object_type=object_type, object_name=object_name, request='PUT',
                                          payload=payload, object_name_2=object_name_2, raise_error=raise_error)
-        elif (400 <= r.status <= 499):
+        elif 400 <= r.status <= 499:
             logger.debug('Http request client error. status: %s', r.status)
             logger.debug('url: %s', url)
             logger.debug('payload: %s', encoded_payload)
             logger.debug('http response: %s', r.data)
             if raise_error:
                 raise urllib3.exceptions.HTTPError(r.data)
-        elif (500 <= r.status <= 599):
+        elif 500 <= r.status <= 599:
             logger.debug('Http request server error. status: %s', r.status)
             logger.debug('url: %s', url)
             logger.debug('payload: %s', encoded_payload)
