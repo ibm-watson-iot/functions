@@ -19,10 +19,18 @@ These instructions will get you up and running in your local environment or in W
 
 ### Installing
 
-To install in your local environment:
-```
-pip install git+git://github.com/ibm-watson-iot/functions.git@production --upgrade
-```
+1. Create a virtual environment
+    ```
+    python3 -m venv env
+    ```
+2. Activate virtual environment
+    ```
+    source env/bin/activate
+    ```
+3. Install in your local environment from GitHub
+   ```
+   pip install git+git://github.com/ibm-watson-iot/functions@production --upgrade 
+   ```
 
 To install in IBM Watson Studio from another Jupyter notebook:
 
@@ -30,20 +38,14 @@ To install in IBM Watson Studio from another Jupyter notebook:
 !pip install git+git://github.com/ibm-watson-iot/functions.git@production --upgrade
 ```
 
-Test for sucessful install:
+Test for successful install:
 
 ```~~~python3
 import iotfunctions as fn
 print(fn.__version__) 
 ```
 
-### Testing locally
 
-```~~~bash
-python3 -m venv env
-source env/bin/activate
-pip3 install .
-```
 
 ### Changelog
 
