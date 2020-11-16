@@ -966,13 +966,13 @@ class Database(object):
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function?customFunctionsOnly=false'])
 
         self.url[('constants', 'GET')] = '/'.join(
-            [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % self.object_name])
+            [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
         self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
 
         self.url[('defaultConstants', 'GET')] = '/'.join(
-            [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % self.object_name])
+            [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
         self.url[('defaultConstants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('defaultConstants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('defaultConstants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
