@@ -1681,11 +1681,15 @@ class JobController(object):
         """
 
         err_info = {'AttributeError': 'The function makes reference to an object property that does not exist',
-                    'SyntaxError': 'The function contains a syntax error. If the function includes a type-in expression, make sure this is correct',
+                    'SyntaxError': 'The function contains a syntax error. If the function includes a type-in '
+                                   'expression, make sure this is correct',
                     'ValueError': 'The function is operating on a data that has an unexpected value for its data type',
                     'TypeError': 'The function is operating on a data that has an unexpected data type',
-                    'KeyError': 'The function is refering to a dictionary key or dataframe column name that doesnt exist',
-                    'NameError': 'The function is refering to an object that doesnt exist. If refering to data items in a pandas dataframe, ensure that you quote them, e.g. df["temperature"]', }
+                    'KeyError': 'The function is referring to a dictionary key or dataframe column name that '
+                                'doesn\'t exist',
+                    'NameError': 'An object like a function or a parameter is referenced but it does not exist. If '
+                                 'referring to data items in a pandas dataframe, ensure that you quote them, '
+                                 'e.g. df["temperature"]', }
 
         if message is None:
             message = 'Execution of stage %s failed. ' % stage.name

@@ -25,9 +25,10 @@ from sqlalchemy import String
 
 from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithDefault, BaseMetadataProvider,
                    BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
+from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
-from .util import adjust_probabilities, reset_df_index
+from .util import adjust_probabilities, reset_df_index, asList
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -1819,7 +1820,6 @@ class TimestampCol(BaseTransformer):
 
 
 # Renamed functions
-
 IoTExpression = PythonExpression
 IoTRandomChoice = RandomChoiceString
 IoTRandonNormal = RandomNormal
@@ -1846,7 +1846,6 @@ IoTTraceConstants = TraceConstants
 
 
 # Deprecated functions
-
 class IoTEntityDataGenerator(BasePreload):
     """
     Automatically load the entity input data table using new generated data.
@@ -2025,3 +2024,797 @@ class IoTCosFunction(BaseTransformer):
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle('output_item'))
+
+
+# All of below functions are moved from calc.py file in Analytics Service.
+class Alert:
+
+    @classmethod
+    def metadata(cls):
+        return _generate_metadata(cls, {
+            'description': 'Create alerts that are triggered when data values reach a particular range.', 'input': [
+                {'name': 'sources', 'description': 'Select one or more data items to build your alert.',
+                 'type': 'DATA_ITEM', 'required': True, 'dataType': 'ARRAY',
+                 'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "sources",
+                                "type": "array", "minItems": 1, "items": {"type": "string"}}}, {'name': 'expression',
+                                                                                                'description': 'Build the expression for your alert by using Python script. To reference a data item, use the format ${DATA_ITEM}.',
+                                                                                                'type': 'CONSTANT',
+                                                                                                'required': True,
+                                                                                                'dataType': 'LITERAL'}],
+            'output': [{'name': 'name', 'description': 'The name of the new alert.', 'dataType': 'BOOLEAN',
+                        'tags': ['ALERT', 'EVENT']}], 'tags': ['EVENT']})
+
+    def __init__(self, name=None, sources=None, expression=None):
+        warnings.warn('Alert function is deprecated. Use AlertExpression.', DeprecationWarning)
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if name is None or not isinstance(name, str):
+            raise RuntimeError("argument name must be provided and must be a string")
+        if expression is None or not isinstance(expression, str):
+            raise RuntimeError("argument expression must be provided and must be a string")
+
+        self.name = name
+        self.expression = expression
+        self.sources = sources
+
+    def execute(self, df):
+        c = self._entity_type.get_attributes_dict()
+
+        sources_not_in_column = df.index.names
+        df = df.reset_index()
+
+        expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
+        self.logger.debug('alert_expression=%s' % str(expr))
+
+        df[self.name] = np.where(eval(expr), True, None)
+
+        self.logger.debug('alert_name {}'.format(self.name))
+        if 'test' in self.name:
+            self.logger.debug('alert_dataframe {}'.format(df[self.name]))
+
+        df = df.set_index(keys=sources_not_in_column)
+
+        return df
+
+
+class NewColFromCalculation:
+
+    @classmethod
+    def metadata(cls):
+        return _generate_metadata(cls, {'description': 'Create a new data item by expression.', 'input': [
+            {'name': 'sources', 'description': 'Select one or more data items to be used in the expression.',
+             'type': 'DATA_ITEM', 'required': True, 'dataType': 'ARRAY',
+             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "sources", "type": "array",
+                            "minItems": 1, "items": {"type": "string"}}}, {'name': 'expression',
+                                                                           'description': 'Build the expression by using Python script. To reference a data item, use the format ${DATA_ITEM}.',
+                                                                           'type': 'CONSTANT', 'required': True,
+                                                                           'dataType': 'LITERAL'}],
+                                        'output': [{'name': 'name', 'description': 'The name of the new data item.'}],
+                                        'tags': ['EVENT', 'JUPYTER']})
+
+    def __init__(self, name=None, sources=None, expression=None):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if name is None or not isinstance(name, str):
+            raise RuntimeError("argument name must be provided and must be a string")
+        if expression is None or not isinstance(expression, str):
+            raise RuntimeError("argument expression must be provided and must be a string")
+
+        self.name = name
+        self.expression = expression
+        self.sources = sources
+
+    def execute(self, df):
+        c = self._entity_type.get_attributes_dict()
+        sources_not_in_column = df.index.names
+        df = df.reset_index()
+
+        expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
+        self.logger.debug('new_column_expression=%s' % str(expr))
+
+        df[self.name] = eval(expr)
+
+        df = df.set_index(keys=sources_not_in_column)
+
+        return df
+
+
+class Filter:
+
+    @classmethod
+    def metadata(cls):
+        return _generate_metadata(cls, {'description': 'Filter data by expression.', 'input': [
+            {'name': 'sources', 'description': 'Select one or more data items to be used in the expression.',
+             'type': 'DATA_ITEM', 'required': True, 'dataType': 'ARRAY',
+             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "sources", "type": "array",
+                            "minItems": 1, "items": {"type": "string"}}}, {'name': 'expression',
+                                                                           'description': 'Build the filtering expression by using Python script. To reference a data item, use the format ${DATA_ITEM}.',
+                                                                           'type': 'CONSTANT', 'required': True,
+                                                                           'dataType': 'LITERAL'},
+            {'name': 'filtered_sources',
+             'description': 'Data items to be kept when expression is evaluated to be true.', 'type': 'DATA_ITEM',
+             'required': True, 'dataType': 'ARRAY',
+             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "filtered_sources",
+                            "type": "array", "minItems": 1, "items": {"type": "string"}}}], 'output': [
+            {'name': 'names', 'description': 'The names of the new data items.', 'dataTypeFrom': 'filtered_sources',
+             'cardinalityFrom': 'filtered_sources'}], 'tags': ['EVENT', 'JUPYTER']})
+
+    def __init__(self, names=None, filtered_sources=None, sources=None, expression=None):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if names is not None and isinstance(names, str):
+            names = [n.strip() for n in names.split(',') if len(n.strip()) > 0]
+
+        if names is None or not isinstance(names, list):
+            raise RuntimeError("argument names must be provided and must be a list")
+        if filtered_sources is None or not isinstance(filtered_sources, list) or len(filtered_sources) != len(names):
+            raise RuntimeError(
+                "argument filtered_sources must be provided and must be a list and of the same length of names")
+        if filtered_sources is not None and not set(names).isdisjoint(set(filtered_sources)):
+            raise RuntimeError("argument filtered_sources must not have overlapped items with names")
+        if expression is None or not isinstance(expression, str):
+            raise RuntimeError("argument expression must be provided and must be a string")
+
+        self.names = {}
+        for name, source in list(zip(names, filtered_sources)):
+            self.names[source] = name
+        self.expression = expression
+        self.sources = sources
+        self.filtered_sources = filtered_sources
+
+    def execute(self, df):
+        c = self._entity_type.get_attributes_dict()
+
+        # Make index levels available as columns
+        sources_not_in_column = df.index.names
+        df = df.reset_index()
+
+        # remove conflicting column names
+        cleaned_names = {}
+        for name, new_name in self.names.items():
+            if name in df.columns:
+                if new_name not in df.columns:
+                    cleaned_names[name] = new_name
+                else:
+                    self.logger.warning('The filter cannot be applied to column %s because the destination column %s '
+                                        'already exists in the dataframe. Available columns in the dataframe are %s' % (
+                                            name, new_name, list(df.columns)))
+            else:
+                self.logger.warning('The filter cannot be applied to column %s because this column is not available '
+                                    'in the dataframe. Therefore column %s cannot be calculated. Available columns '
+                                    'in the dataframe are %s' % (name, new_name, list(df.columns)))
+
+        # execute given expression
+        expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
+        self.logger.debug('filter_expression=%s' % str(expr))
+        mask = eval(expr)
+
+        # copy columns and apply mask
+        for name, new_name in self.names.items():
+            df[new_name] = df[name].where(mask)
+
+        df.set_index(keys=sources_not_in_column, drop=True, inplace=True)
+
+        return df
+
+
+class NewColFromSql:
+
+    def _set_dms(self, dms):
+        self.dms = dms
+
+    def _get_dms(self):
+        return self.dms
+
+    @classmethod
+    def metadata(cls):
+        return _generate_metadata(cls, {'description': 'Create new data items by joining SQL query result.', 'input': [
+            {'name': 'sql', 'description': 'The SQL query.', 'type': 'CONSTANT', 'required': True,
+             'dataType': 'LITERAL'}, {'name': 'index_col',
+                                      'description': 'Columns in the SQL query result to be joined (multiple items are comma separated).',
+                                      'type': 'CONSTANT', 'required': True, 'dataType': 'ARRAY',
+                                      'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#",
+                                                     "title": "index_col", "type": "array", "minItems": 1,
+                                                     "items": {"type": "string"}}}, {'name': 'parse_dates',
+                                                                                     'description': 'Columns in the SQL query result to be parsed as dates (multiple items are comma separated).',
+                                                                                     'type': 'CONSTANT',
+                                                                                     'required': True,
+                                                                                     'dataType': 'ARRAY',
+                                                                                     'jsonSchema': {
+                                                                                         "$schema": "http://json-schema.org/draft-07/schema#",
+                                                                                         "title": "parse_dates",
+                                                                                         "type": "array", "minItems": 1,
+                                                                                         "items": {"type": "string"}}},
+            {'name': 'join_on', 'description': 'Data items to join the query result to.', 'type': 'DATA_ITEM',
+             'required': True, 'dataType': 'ARRAY',
+             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "join_on", "type": "array",
+                            "minItems": 1, "items": {"type": "string"}}}], 'output': [
+            {'name': 'names', 'description': 'The names of the new data items.'}], 'tags': ['JUPYTER']})
+
+    def __init__(self, names=None, sql=None, index_col=None, parse_dates=None, join_on=None):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if names is not None and isinstance(names, str):
+            names = [n.strip() for n in names.split(',') if len(n.strip()) > 0]
+        if index_col is not None and isinstance(index_col, str):
+            index_col = [n.strip() for n in index_col.split(',') if len(n.strip()) > 0]
+        if parse_dates is not None and isinstance(parse_dates, str):
+            parse_dates = [n.strip() for n in parse_dates.split(',') if len(n.strip()) > 0]
+
+        if names is None or not isinstance(names, list):
+            raise RuntimeError("argument names must be provided and must be a list")
+        if sql is None or not isinstance(sql, str) or len(sql) == 0:
+            raise RuntimeError('argument sql must be given as a non-empty string')
+        if index_col is None or not isinstance(index_col, list):
+            raise RuntimeError('argument index_col must be provided and must be a list')
+        if join_on is None:
+            raise RuntimeError('argument join_on must be given')
+        if parse_dates is not None and not isinstance(parse_dates, list):
+            raise RuntimeError('argument parse_dates must be a list')
+
+        self.names = names
+        self.sql = sql
+        self.index_col = index_col
+        self.parse_dates = parse_dates
+        self.join_on = asList(join_on)
+
+    def execute(self, df):
+        df_sql = self._get_dms().db.read_sql_query(self.sql, index_col=self.index_col, parse_dates=self.parse_dates)
+
+        if len(self.names) > len(df_sql.columns):
+            raise RuntimeError(
+                'length of names (%d) is larger than the length of query result (%d)' % (len(self.names), len(df_sql)))
+
+        # in case the join_on is in index, reset first then set back after join
+        sources_not_in_column = df.index.names
+        df = df.reset_index()
+        df = df.merge(df_sql, left_on=self.join_on, right_index=True, how='left')
+        df = df.set_index(keys=sources_not_in_column)
+
+        renamed_cols = {df_sql.columns[idx]: name for idx, name in enumerate(self.names)}
+        df = df.rename(columns=renamed_cols)
+
+        return df
+
+
+class NewColFromScalarSql:
+
+    def _set_dms(self, dms):
+        self.dms = dms
+
+    def _get_dms(self):
+        return self.dms
+
+    @classmethod
+    def metadata(cls):
+        return _generate_metadata(cls, {
+            'description': 'Create a new data item from a scalar SQL query returning a single value.', 'input': [
+                {'name': 'sql', 'description': 'The SQL query.', 'type': 'CONSTANT', 'required': True,
+                 'dataType': 'LITERAL'}], 'output': [{'name': 'name', 'description': 'The name of the new data item.'}],
+            'tags': ['JUPYTER']})
+
+    def __init__(self, name=None, sql=None):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if name is None or not isinstance(name, str):
+            raise RuntimeError('argument name must be given')
+        if sql is None or not isinstance(sql, str) or len(sql) == 0:
+            raise RuntimeError('argument sql must be given as a non-empty string')
+
+        self.name = name
+        self.sql = sql
+
+    def execute(self, df):
+        df_sql = self._get_dms().db.read_sql_query(self.sql)
+        if df_sql.shape != (1, 1):
+            raise RuntimeError(
+                'the scalar sql=%s does not return single value, but the shape=%s' % (len(self.sql), len(df_sql.shape)))
+        df[self.name] = df_sql.iloc[0, 0]
+        return df
+
+
+class Shift:
+    def __init__(self, name, start, end, cross_day_to_next=True):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        self.name = name
+        self.ranges = [start, end]
+        self.cross_day_to_next = cross_day_to_next
+        self.cross_day = (start > end)
+        if self.cross_day:
+            self.ranges.insert(1, dt.time(0, 0, 0))
+            self.ranges.insert(1, dt.time(23, 59, 59, 999999))
+        self.ranges = list(pairwise(self.ranges))
+
+    def within(self, datetime):
+        if isinstance(datetime, dt.datetime):
+            date = dt.date(datetime.year, datetime.month, datetime.day)
+            time = dt.time(datetime.hour, datetime.minute, datetime.second, datetime.microsecond)
+        elif isinstance(datetime, dt.time):
+            date = None
+            time = datetime
+        else:
+            logger.debug('unknown datetime value type::%s' % datetime)
+            raise ValueError('unknown datetime value type')
+
+        for idx, range in enumerate(self.ranges):
+            if range[0] <= time and time < range[1]:
+                if self.cross_day and date is not None:
+                    if self.cross_day_to_next and idx == 0:
+                        date += dt.timedelta(days=1)
+                    elif not self.cross_day_to_next and idx == 1:
+                        date -= dt.timedelta(days=1)
+                return (date, True)
+
+        return False
+
+    def start_time(self, shift_day=None):
+        if shift_day is None:
+            return self.ranges[0][0]
+        else:
+            if self.cross_day and self.cross_day_to_next:
+                shift_day -= dt.timedelta(days=1)
+            return dt.datetime.combine(shift_day, self.ranges[0][0])
+
+    def end_time(self, shift_day=None):
+        if shift_day is None:
+            return self.ranges[-1][-1]
+        else:
+            if self.cross_day and not self.cross_day_to_next:
+                shift_day += dt.timedelta(days=1)
+            return dt.datetime.combine(shift_day, self.ranges[-1][-1])
+
+    def __eq__(self, other):
+        return self.name == other.name and self.ranges == other.ranges
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return "%s: (%s, %s)" % (self.name, self.ranges[0][0], self.ranges[-1][1])
+
+
+class ShiftPlan:
+    def __init__(self, shifts, cross_day_to_next=True):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        shifts = {shift: [dt.time(*tuple(time)) for time in list(pairwise(time_range))] for shift, time_range in
+                  shifts.items()}
+
+        # validation: shifts cannot overlap, gaps are allowed though
+
+        self.shifts = []
+        for shift, time_range in shifts.items():
+            self.shifts.append(Shift(shift, time_range[0], time_range[1], cross_day_to_next=cross_day_to_next))
+
+        self.shifts.sort(key=lambda x: x.ranges[0][0])
+
+        if cross_day_to_next and self.shifts[-1].cross_day:
+            self.shifts.insert(0, self.shifts[-1])
+            del self.shifts[-1]
+        self.cross_day_to_next = cross_day_to_next
+
+        self.logger.debug("ShiftPlan: shifts=%s, cross_day_to_next=%s" % (self.shifts, self.cross_day_to_next))
+
+    def get_shift(self, datetime):
+        for shift in self.shifts:
+            ret = shift.within(datetime)
+            if ret:
+                return (ret[0], shift)
+
+        return None
+
+    def next_shift(self, shift_day, shift):
+        shift_idx = None
+
+        for idx, shft in enumerate(self.shifts):
+            if shift == shft:
+                shift_idx = idx
+                break
+
+        if shift_idx is None:
+            logger.debug("unknown shift: %s" % str(shift))
+            raise ValueError("unknown shift: %s" % str(shift))
+
+        shift_idx = shift_idx + 1
+        if shift_idx >= len(self.shifts):
+            shift_idx %= len(self.shifts)
+            shift_day += dt.timedelta(days=1)
+
+        return (shift_day, self.shifts[shift_idx])
+
+    def get_real_datetime(self, shift_day, shift, time):
+        if shift.cross_day == False:
+            return dt.datetime.combine(shift_day, time)
+
+        if self.cross_day_to_next and time > shift.ranges[-1][-1]:
+            # cross day shift the part before midnight
+            return dt.datetime.combine(shift_day - dt.timedelta(days=1), time)
+        elif self.cross_day_to_next == False and time < shift.ranges[0][0]:
+            # cross day shift the part after midnight
+            return dt.datetime.combine(shift_day + dt.timedelta(days=1), time)
+        else:
+            return dt.datetime.combine(shift_day, time)
+
+    def split(self, start, end):
+        start_shift = self.get_shift(start)
+        end_shift = self.get_shift(end)
+
+        if start_shift is None:
+            raise ValueError("starting time not fit in any shift: start_shift is None")
+        if end_shift is None:
+            raise ValueError("ending time not fit in any shift: end_shift is None")
+
+        if start > end:
+            logger.warning('starting time must not be after ending time %s %s. Ignoring end date.' % (start, end))
+            return [(start_shift, start, start)]
+
+        if start_shift == end_shift:
+            return [(start_shift, start, end)]
+
+        splits = []
+        shift_day, shift = start_shift
+        splits.append((start_shift, start, self.get_real_datetime(shift_day, shift, shift.ranges[-1][-1])))
+        start_shift = self.next_shift(shift_day, shift)
+        while start_shift != end_shift:
+            shift_day, shift = start_shift
+            splits.append((start_shift, self.get_real_datetime(shift_day, shift, shift.ranges[0][0]),
+                           self.get_real_datetime(shift_day, shift, shift.ranges[-1][-1])))
+            start_shift = self.next_shift(shift_day, shift)
+        shift_day, shift = end_shift
+        splits.append((end_shift, self.get_real_datetime(shift_day, shift, shift.ranges[0][0]), end))
+
+        return splits
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return str(self.shifts)
+
+
+class IdentifyShiftFromTimestamp:
+
+    @classmethod
+    def metadata(cls):
+        return _generate_metadata(cls, {
+            'description': 'Identifies the shift that was active when data was received by using the timestamp on the data.',
+            'input': [{'name': 'timestamp',
+                       'description': 'Specify the timestamp data item on which to base your calculation.',
+                       'type': 'DATA_ITEM', 'required': True, 'dataType': 'TIMESTAMP'}, {'name': 'shifts',
+                                                                                         'description': 'Specify the shift plan in JSON syntax. For example, {"1": [7, 30, 16, 30]} Where 1 is the shift ID, 7 is the start hour, 30 is the start minutes, 16 is the end hour, and 30 is the end minutes. You can enter multiple shifts separated by commas.',
+                                                                                         'type': 'CONSTANT',
+                                                                                         'required': True,
+                                                                                         'dataType': 'JSON'},
+                      {'name': 'cross_day_to_next',
+                       'description': 'If a shift extends past midnight, count it as the first shift of the next calendar day.',
+                       'type': 'CONSTANT', 'required': False, 'dataType': 'BOOLEAN'}], 'output': [{'name': 'shift_day',
+                                                                                                   'description': 'The staring timestamp of a day, as identified by the timestamp and the shift plan.',
+                                                                                                   'dataType': 'TIMESTAMP',
+                                                                                                   'tags': [
+                                                                                                       'DIMENSION']},
+                                                                                                  {'name': 'shift_id',
+                                                                                                   'description': 'The shift ID, as identified by the timestamp and the shift plan.',
+                                                                                                   'dataType': 'LITERAL',
+                                                                                                   'tags': [
+                                                                                                       'DIMENSION']}, {
+                                                                                                      'name': 'shift_start',
+                                                                                                      'description': 'The starting time of the shift, as identified by the timestamp and the shift plan.',
+                                                                                                      'dataType': 'TIMESTAMP',
+                                                                                                      'tags': [
+                                                                                                          'DIMENSION']},
+                                                                                                  {'name': 'shift_end',
+                                                                                                   'description': 'The ending time of the shift, as identified by the timestamp and the shift plan.',
+                                                                                                   'dataType': 'TIMESTAMP',
+                                                                                                   'tags': [
+                                                                                                       'DIMENSION']},
+                                                                                                  {'name': 'hour_no',
+                                                                                                   'description': 'The hour of the day, as identified by the timestamp and the shift plan.',
+                                                                                                   'dataType': 'NUMBER',
+                                                                                                   'tags': [
+                                                                                                       'DIMENSION']}],
+            'tags': ['JUPYTER']})
+
+    def __init__(self, shift_day=None, shift_id=None, shift_start=None, shift_end=None, hour_no=None,
+                 timestamp="timestamp", shifts=None, cross_day_to_next=True):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if shift_day is None:
+            raise RuntimeError("argument shift_day must be provided: shift_day is None")
+        if shift_id is None:
+            raise RuntimeError("argument shift_id must be provided: shift_id is None")
+        if shift_start is not None and not isinstance(shift_start, str):
+            raise RuntimeError("argument shift_start must be a string")
+        if shift_end is not None and not isinstance(shift_end, str):
+            raise RuntimeError("argument shift_end must be a string")
+        if hour_no is not None and not isinstance(hour_no, str):
+            raise RuntimeError("argument hour_no must be a string")
+        if timestamp is None:
+            raise RuntimeError("argument timestamp must be provided: timestamp is None")
+        if shifts is None or not isinstance(shifts, dict) and len(shifts) > 0:
+            raise RuntimeError("argument shifts must be provided and is a non-empty dict")
+
+        self.shift_day = shift_day
+        self.shift_id = shift_id
+        self.shift_start = shift_start if shift_start is not None and len(shift_start.strip()) > 0 else None
+        self.shift_end = shift_end if shift_end is not None and len(shift_end.strip()) > 0 else None
+        self.hour_no = hour_no if hour_no is not None and len(hour_no.strip()) > 0 else None
+        self.timestamp = timestamp
+
+        self.shifts = ShiftPlan(shifts, cross_day_to_next=cross_day_to_next)
+
+    def execute(self, df):
+        generated_values = {self.shift_day: [], self.shift_id: [], 'self.shift_start': [], 'self.shift_end': [],
+                            'self.hour_no': [], }
+        df[self.shift_day] = self.shift_day
+        df[self.shift_id] = self.shift_id
+        if self.shift_start is not None:
+            df[self.shift_start] = self.shift_start
+        if self.shift_end is not None:
+            df[self.shift_end] = self.shift_end
+        if self.hour_no is not None:
+            df[self.hour_no] = self.hour_no
+
+        timestampIndex = df.index.names.index(self.timestamp) if self.timestamp in df.index.names else None
+        if timestampIndex is not None:
+            # Timestamp is a index level
+            for idx in df.index:
+                t = idx[timestampIndex]
+                if isinstance(t, str):
+                    t = pd.to_datetime(t)
+
+                ret = self.shifts.get_shift(t)
+                if ret is None:
+                    continue
+
+                shift_day, shift = ret
+
+                generated_values[self.shift_day].append(
+                    pd.Timestamp(year=shift_day.year, month=shift_day.month, day=shift_day.day))
+                generated_values[self.shift_id].append(shift.name)
+                generated_values['self.shift_start'].append(shift.start_time(shift_day))
+                generated_values['self.shift_end'].append(shift.end_time(shift_day))
+                generated_values['self.hour_no'].append(t.hour)
+        else:
+            # Timestamp is a column
+            for idx, value in df[self.timestamp].items():
+                t = value
+                if isinstance(t, str):
+                    t = pd.to_datetime(t)
+
+                ret = self.shifts.get_shift(t)
+                if ret is None:
+                    continue
+
+                shift_day, shift = ret
+
+                generated_values[self.shift_day].append(
+                    pd.Timestamp(year=shift_day.year, month=shift_day.month, day=shift_day.day))
+                generated_values[self.shift_id].append(shift.name)
+                generated_values['self.shift_start'].append(shift.start_time(shift_day))
+                generated_values['self.shift_end'].append(shift.end_time(shift_day))
+                generated_values['self.hour_no'].append(t.hour)
+
+        df[self.shift_day] = generated_values[self.shift_day]
+        df[self.shift_id] = generated_values[self.shift_id]
+        if self.shift_start is not None:
+            df[self.shift_start] = generated_values['self.shift_start']
+        if self.shift_end is not None:
+            df[self.shift_end] = generated_values['self.shift_end']
+        if self.hour_no is not None:
+            df[self.hour_no] = generated_values['self.hour_no']
+
+        return df
+
+
+class SplitDataByActiveShifts:
+
+    @classmethod
+    def metadata(cls):
+        return _generate_metadata(cls, {
+            'description': 'Identifies the shift that was active when data was received by using the timestamp on the data.',
+            'input': [{'name': 'start_timestamp',
+                       'description': 'Specify the timestamp data item on which the data to be split must be based.',
+                       'type': 'DATA_ITEM', 'required': True, 'dataType': 'TIMESTAMP'}, {'name': 'end_timestamp',
+                                                                                         'description': 'Specify the timestamp data item on which the data to be split must be based.',
+                                                                                         'type': 'DATA_ITEM',
+                                                                                         'required': True,
+                                                                                         'dataType': 'TIMESTAMP'},
+                      {'name': 'shifts',
+                       'description': 'Specify the shift plan in JSON syntax. For example, {"1": [7, 30, 16, 30]} Where 1 is the shift ID, 7 is the start hour, 30 is the start minutes, 16 is the end hour, and 30 is the end minutes. You can enter multiple shifts separated by commas.',
+                       'type': 'CONSTANT', 'required': True, 'dataType': 'JSON'}, {'name': 'cross_day_to_next',
+                                                                                   'description': 'If a shift extends past midnight, count it as the first shift of the next calendar day.',
+                                                                                   'type': 'CONSTANT',
+                                                                                   'required': False,
+                                                                                   'dataType': 'BOOLEAN'}], 'output': [
+                {'name': 'shift_day',
+                 'description': 'The staring timestamp of a day, as identified by the timestamp and the shift plan.',
+                 'dataType': 'TIMESTAMP', 'tags': ['DIMENSION']},
+                {'name': 'shift_id', 'description': 'The shift ID, as identified by the timestamp and the shift plan.',
+                 'dataType': 'LITERAL', 'tags': ['DIMENSION']}, {'name': 'shift_start',
+                                                                 'description': 'The starting time of the shift, as identified by the timestamp and the shift plan.',
+                                                                 'dataType': 'TIMESTAMP', 'tags': ['DIMENSION']},
+                {'name': 'shift_end',
+                 'description': 'The ending time of the shift, as identified by the timestamp and the shift plan.',
+                 'dataType': 'TIMESTAMP', 'tags': ['DIMENSION']}], 'tags': ['JUPYTER']})
+
+    def __init__(self, start_timestamp, end_timestamp, ids='id', shift_day=None, shift_id=None, shift_start=None,
+                 shift_end=None, shifts=None, cross_day_to_next=True):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if ids is None:
+            raise RuntimeError("argument ids must be provided")
+        if start_timestamp is None:
+            raise RuntimeError("argument start_timestamp must be provided")
+        if end_timestamp is None:
+            raise RuntimeError("argument end_timestamp must be provided")
+        if shift_day is None:
+            raise RuntimeError("argument shift_day must be provided")
+        if shift_id is None:
+            raise RuntimeError("argument shift_id must be provided")
+        if shift_start is not None and not isinstance(shift_start, str):
+            raise RuntimeError("argument shift_start must be a string")
+        if shift_end is not None and not isinstance(shift_end, str):
+            raise RuntimeError("argument shift_end must be a string")
+        if shifts is None or not isinstance(shifts, dict) and len(shifts) > 0:
+            raise RuntimeError("argument shifts must be provided and is a non-empty dict")
+
+        self.ids = ids
+        self.start_timestamp = start_timestamp
+        self.end_timestamp = end_timestamp
+
+        self.shift_day = shift_day
+        self.shift_id = shift_id
+        self.shift_start = shift_start if shift_start is not None and len(shift_start.strip()) > 0 else None
+        self.shift_end = shift_end if shift_end is not None and len(shift_end.strip()) > 0 else None
+
+        self.shifts = ShiftPlan(shifts, cross_day_to_next=cross_day_to_next)
+
+    def execute(self, df):
+        generated_rows = []
+        generated_values = {self.shift_day: [], self.shift_id: [], 'self.shift_start': [], 'self.shift_end': [], }
+        append_generated_values = {self.shift_day: [], self.shift_id: [], 'self.shift_start': [],
+                                   'self.shift_end': [], }
+        df[self.shift_day] = self.shift_day
+        df[self.shift_id] = self.shift_id
+        if self.shift_start is not None:
+            df[self.shift_start] = self.shift_start
+        if self.shift_end is not None:
+            df[self.shift_end] = self.shift_end
+
+        # self.logger.debug('df_index_before_move=%s' % str(df.index.to_frame().dtypes.to_dict()))
+        indexes_moved_to_columns = df.index.names
+        df = df.reset_index()
+        # self.logger.debug('df_index_after_move=%s, df_columns=%s' % (str(df.index.to_frame().dtypes.to_dict()), str(df.dtypes.to_dict())))
+
+        # Remember positions of columns in dataframe (position starts with 1 because df_row will contain index of
+        # dataframe at position 0)
+        position_column = {}
+        for pos, col_name in enumerate(df.columns, 1):
+            position_column[col_name] = pos
+
+        cnt = 0
+        cnt2 = 0
+        for df_row in df.itertuples(index=True, name=None):
+            idx = df_row[0]
+            if cnt % 1000 == 0:
+                self.logger.debug('%d rows processed, %d rows added' % (cnt, cnt2))
+
+            cnt += 1
+            row_start_timestamp = df_row[position_column[self.start_timestamp]]
+            row_end_timestamp = df_row[position_column[self.end_timestamp]]
+            if pd.notna(row_start_timestamp) and pd.notna(row_end_timestamp):
+                result_rows = self.shifts.split(pd.to_datetime(row_start_timestamp), pd.to_datetime(row_end_timestamp))
+            elif pd.notna(row_start_timestamp):
+                shift_day, shift = self.shifts.get_shift(pd.to_datetime(row_start_timestamp))
+                generated_values[self.shift_day].append(pd.to_datetime(shift_day.strftime('%Y-%m-%d')))
+                generated_values[self.shift_id].append(shift.name)
+                generated_values['self.shift_start'].append(shift.start_time(shift_day))
+                generated_values['self.shift_end'].append(shift.end_time(shift_day))
+                continue
+            else:
+                generated_values[self.shift_day].append(None)
+                generated_values[self.shift_id].append(None)
+                generated_values['self.shift_start'].append(None)
+                generated_values['self.shift_end'].append(None)
+                continue
+            # self.logger.debug(result_rows)
+
+            for i, result_row in enumerate(result_rows):
+                shift_day, shift = result_row[0]
+                start_timestamp = result_row[1]
+                end_timestamp = result_row[2]
+
+                if i == 0:
+                    # accessing original row must not be through the itterrows's row since that's a copy
+                    # but accessing by loc slicing is really slow, so we only do it when needed, and it is
+                    # assumed cross-shift is relatively rare
+                    if len(result_rows) > 1:
+                        df.loc[idx, self.start_timestamp] = start_timestamp
+                        df.loc[idx, self.end_timestamp] = end_timestamp
+
+                    generated_values[self.shift_day].append(pd.to_datetime(shift_day.strftime('%Y-%m-%d')))
+                    generated_values[self.shift_id].append(shift.name)
+                    generated_values['self.shift_start'].append(shift.start_time(shift_day))
+                    generated_values['self.shift_end'].append(shift.end_time(shift_day))
+                else:
+                    cnt2 += 1
+                    new_row = pd.Series(df_row[1:], index=df.columns)
+                    new_row[self.start_timestamp] = start_timestamp
+                    new_row[self.end_timestamp] = end_timestamp
+                    generated_rows.append(new_row)
+
+                    append_generated_values[self.shift_day].append(pd.to_datetime(shift_day.strftime('%Y-%m-%d')))
+                    append_generated_values[self.shift_id].append(shift.name)
+                    append_generated_values['self.shift_start'].append(shift.start_time(shift_day))
+                    append_generated_values['self.shift_end'].append(shift.end_time(shift_day))
+
+        self.logger.debug('original_rows=%d, rows_added=%d' % (cnt, cnt2))
+        if len(generated_rows) > 0:
+            # self.logger.debug('df_shape=%s' % str(df.shape))
+            df = df.append(generated_rows, ignore_index=True)
+            self.logger.debug('df_shape=%s' % str(df.shape))
+
+            generated_values[self.shift_day].extend(append_generated_values[self.shift_day])
+            generated_values[self.shift_id].extend(append_generated_values[self.shift_id])
+            generated_values['self.shift_start'].extend(append_generated_values['self.shift_start'])
+            generated_values['self.shift_end'].extend(append_generated_values['self.shift_end'])
+
+        self.logger.debug('length_generated_values=%s, length_generated_rows=%s' % (
+            len(generated_values[self.shift_day]), len(generated_rows)))
+
+        df[self.shift_day] = generated_values[self.shift_day]
+        df[self.shift_id] = generated_values[self.shift_id]
+        if self.shift_start is not None:
+            df[self.shift_start] = generated_values['self.shift_start']
+        if self.shift_end is not None:
+            df[self.shift_end] = generated_values['self.shift_end']
+
+        df = df.set_index(keys=indexes_moved_to_columns, drop=True, append=False)
+
+        return df
+
+
+class MergeByFirstValid:
+
+    @classmethod
+    def metadata(cls):
+        return _generate_metadata(cls, {
+            'description': 'Create alerts that are triggered when data values reach a particular range.', 'input': [
+                {'name': 'sources', 'description': 'Select one or more data items to be merged.', 'type': 'DATA_ITEM',
+                 'required': True, 'dataType': 'ARRAY',
+                 'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "sources",
+                                "type": "array", "minItems": 1, "items": {"type": "string"}}}], 'output': [
+                {'name': 'name', 'description': 'The new data item name for the merge result to create.',
+                 'dataTypeFrom': 'sources'}], 'tags': ['EVENT', 'JUPYTER']})
+
+    def __init__(self, name=None, sources=None):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if name is None or not isinstance(name, str):
+            raise RuntimeError("argument name must be provided and must be a string")
+
+        self.name = name
+        self.sources = sources
+
+    def execute(self, df):
+        sources_not_in_column = df.index.names
+        df = df.reset_index()
+
+        df[self.name] = df[self.sources].bfill(axis=1).iloc[:, 0]
+        msg = 'MergeByFirstValid %s' % df[self.name].unique()[0:50]
+        self.logger.debug(msg)
+
+        msg = 'Null merge key: %s' % df[df[self.name].isna()].head(1).transpose()
+        self.logger.debug(msg)
+
+        # move back index
+        df = df.set_index(keys=sources_not_in_column)
+
+        return df
+
+
+def pairwise(iterable):
+    "s -> (s0, s1), (s2, s3), (s4, s5), ..."
+    a = iter(iterable)
+    return zip(a, a)
