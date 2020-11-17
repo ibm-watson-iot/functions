@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 from setuptools import setup, find_packages
+import iotfunctions
 
 setup(
     name='iotfunctions',
-    version='8.2.1',
+    version=iotfunctions.__version__,
     packages=find_packages(),
     install_requires=[
         'dill==0.3.0',

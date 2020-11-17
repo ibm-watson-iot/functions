@@ -27,7 +27,6 @@ import pandas as pd
 import scipy as sp
 import urllib3
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-# from sklearn.covariance import MinCovDet
 from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.preprocessing import StandardScaler
@@ -2030,7 +2029,7 @@ class BaseDBActivityMerge(BaseDataSource):
         micro_second = pd.Timedelta(milliseconds=1)
 
         # Get a well defined ordering to avoid ambiguities when start_date is identical
-        df = df.sort_values(by=[self._start_date, self._end_date, self._activity ])
+        df = df.sort_values(by=[self._start_date, self._end_date, self._activity])
         start_dates_series = df[self._start_date]
 
         # Add as many microseconds to start_date that it is unique

@@ -12,13 +12,8 @@
 The Built In Functions module contains preinstalled functions
 """
 
-# import re
-# import pandas as pd
 import logging
 
-# import datetime as dt
-# import time
-# from collections import OrderedDict
 import numpy as np
 
 from .base import (BaseTransformer)
