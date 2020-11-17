@@ -501,11 +501,12 @@ def log_data_frame(message=None, df=None):
                     if col_type.name == 'object':
                         df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'True', 'true')
                         df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'False', 'false')
-            log_message = log_message + '= \n%s' % tabulate(df_copy, headers='keys', tablefmt='psql')
+            log_message = log_message + ' = %s \n%s' % (
+                str(df_copy.shape), tabulate(df_copy, headers='keys', tablefmt='psql'))
         logger.debug(log_message)
     except Exception as ex:
         logger.debug("Error while pretty printing the dataframe.", ex)
-        log_message = message + '= \n%s' % df.head()
+        log_message = message + ' = %s \n%s' % (str(df.shape), df.head())
         logger.debug(log_message)
 
 
