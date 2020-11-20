@@ -64,12 +64,12 @@ MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 UNIQUE_EXTENSION_LABEL = '_###IBM_Temporary###'
 
 
-def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
+def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG, filename='main.log'):
     logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
         'simple': {'format': '%(asctime)s [PID %(process)d] [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
                    'datefmt': '%Y-%m-%d %I:%M:%S %p'}}, 'handlers': {
         'console': {'class': 'logging.StreamHandler', 'formatter': 'simple', 'stream': 'ext://sys.stdout'},
-        'file': {'class': 'logging.FileHandler', 'filename': 'main.log', 'mode': 'w', 'formatter': 'simple'}},
+        'file': {'class': 'logging.FileHandler', 'filename': filename, 'mode': 'w', 'formatter': 'simple'}},
                                'loggers': {'analytics_service': {'level': log_level}},
                                'root': {'level': root_log_level, 'handlers': ['console', 'file']}})
 
