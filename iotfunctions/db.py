@@ -65,7 +65,7 @@ class Database(object):
         Output sql to log
     """
 
-    system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git@'
+    system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git'
     bif_sql = "V1000-18.sql"
 
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
@@ -1003,6 +1003,8 @@ class Database(object):
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
         self.url[('function', 'PUT')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
+        self.url[('function', 'POST')] = '/'.join(
+            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type])
 
         self.url[('granularitySet', 'POST')] = '/'.join(
             [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
@@ -1639,10 +1641,7 @@ class Database(object):
                        'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
-
-                self.http_request(object_type='function', object_name=name, request="DELETE", payload=payload,
-                                  raise_error=False)
-                self.http_request(object_type='function', object_name=name, request="PUT", payload=payload,
+                self.http_request(object_type='function', object_name=name, request="POST", payload=payload,
                                   raise_error=raise_error)
 
             else:
