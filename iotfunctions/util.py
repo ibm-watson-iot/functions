@@ -31,6 +31,7 @@ import dill as pickle
 import pandas as pd
 import requests
 from lxml import etree
+from tabulate import tabulate
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +64,12 @@ MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 UNIQUE_EXTENSION_LABEL = '_###IBM_Temporary###'
 
 
-def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG):
+def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG, filename='main.log'):
     logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
         'simple': {'format': '%(asctime)s [PID %(process)d] [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
                    'datefmt': '%Y-%m-%d %I:%M:%S %p'}}, 'handlers': {
         'console': {'class': 'logging.StreamHandler', 'formatter': 'simple', 'stream': 'ext://sys.stdout'},
-        'file': {'class': 'logging.FileHandler', 'filename': 'main.log', 'mode': 'w', 'formatter': 'simple'}},
+        'file': {'class': 'logging.FileHandler', 'filename': filename, 'mode': 'w', 'formatter': 'simple'}},
                                'loggers': {'analytics_service': {'level': log_level}},
                                'root': {'level': root_log_level, 'handlers': ['console', 'file']}})
 
@@ -482,6 +483,31 @@ def log_df_info(df, msg, include_data=False):
     except Exception:
         logger.warning('dataframe contents not logged due to an unknown logging error')
         return ''
+
+
+def log_data_frame(message=None, df=None):
+    try:
+        log_message = None
+        if message is not None:
+            log_message = message
+        if df is not None:
+            df_copy = df.copy()
+            if not df_copy.empty:
+                # Replace all True/False values in columns of type 'object' by 'true'/false' respectively because
+                # of a bug in tabulate that tries to handle 'object' columns as 'float' columns whenever possible.
+                # Unfortunately, 'True'/'False' is considered a numeric value ( bool('True') = 1) although the conversion
+                # to float (float('True')) fails with 'ValueError: could not convert string to float: 'True''
+                for col_name, col_type in df_copy.dtypes.iteritems():
+                    if col_type.name == 'object':
+                        df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'True', 'true')
+                        df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'False', 'false')
+            log_message = log_message + ' = %s \n%s' % (
+                str(df_copy.shape), tabulate(df_copy, headers='keys', tablefmt='psql'))
+        logger.debug(log_message)
+    except Exception as ex:
+        logger.debug("Error while pretty printing the dataframe.", ex)
+        log_message = message + ' = %s \n%s' % (str(df.shape), df.head())
+        logger.debug(log_message)
 
 
 def asList(x):
