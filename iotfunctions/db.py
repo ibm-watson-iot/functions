@@ -2818,6 +2818,7 @@ class Database(object):
         return 1
 
     def release_resource(self):
+        self.commit()
         if self.connection is not None:
             try:
                 self.connection.dispose()
