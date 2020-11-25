@@ -38,6 +38,7 @@ from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
 from .util import CosClient, resample, reset_df_index
+from . import dbhelper
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -3035,3 +3036,143 @@ class SlowlyChangingDimension(BaseTable):
         self.property_name = Column(property_name.lower(), datatype)
         self.id_col = Column(self._entity_id.lower(), String(50))
         super().__init__(name, database, self.id_col, self.start_date, self.end_date, self.property_name, **kw)
+
+
+class NativeDatabase:
+    TYPE_DB2 = 'db2'
+    TYPE_POSTGRESQL = 'postgresql'
+
+    LOGGING_TABLE_NAME = 'KPI_LOGGING'
+
+    QUOTE = '\"'
+    TWO_QUOTES = '\"\"'
+
+    def __init__(self, db_type, schema, connection_string):
+        self.logger = logging.getLogger(__name__ + '.' + __class__.__name__)
+        self.db_type = db_type.lower()
+
+        if self.db_type == self.TYPE_DB2:
+            self.quoted_schema = dbhelper.quotingSchemaName(schema)
+            self.quoted_tablename = dbhelper.quotingTableName(__class__.LOGGING_TABLE_NAME.upper())
+        elif self.db_type == self.TYPE_POSTGRESQL:
+            self.quoted_schema = dbhelper.quotingSchemaName(schema, is_postgre_sql=True)
+            self.quoted_tablename = dbhelper.quotingTableName(__class__.LOGGING_TABLE_NAME.lower(), is_postgre_sql=True)
+        else:
+            raise Exception("The type '%s' of the database is not recognized. Supported types are "
+                            "'db2' and 'postgresql'" % self.db_type)
+
+        self.connection_string = connection_string
+        self.db_connection = None
+
+    def establish_connection(self):
+
+        if self.db_connection is None:
+            if self.db_type == self.TYPE_DB2:
+                try:
+                    self.db_connection = ibm_db.connect(self.connection_string, '', '')
+                    self.logger.debug('Native database connection to DB2 established.')
+                except Exception() as ex:
+                    raise Exception('The connection to DB2 could not be established.') from ex
+
+            elif self.db_type == self.TYPE_POSTGRESQL:
+
+                # Parse connection string to pick username, password, hostname etc.
+                if isinstance(self.connection_string, str):
+
+                    user, password, hostname, port, db_name = self._parse_connection_string_postgresql()
+
+                    try:
+                        self.db_connection = psycopg2.connect(user=user, password=password, host=hostname, port=port,
+                                                              database=db_name,
+                                                              application_name="AS Pipeline Controller")
+                        self.logger.debug('Native database connection to PostgreSQL established.')
+
+                    except Exception as ex:
+                        raise Exception('Connection to PostgreSql database could not be established: user=%s, '
+                                        'password=%s, hostname=%s, port=%s, db_name=%s' % (user, '*******', hostname,
+                                                                                           port, db_name)) from ex
+
+                else:
+                    raise Exception('The connection string for the database has an invalid '
+                                    'type: %s' % self.connection_string.__class__.__name__)
+            else:
+                raise Exception("The type '%s' of the database is not recognized. Supported types are "
+                                "'db2' and 'postgresql'" % self.db_type)
+
+        return self.db_connection
+
+    def release_connection(self):
+        if self.db_connection is not None:
+            if self.db_type == self.TYPE_POSTGRESQL:
+                self.db_connection.close()
+            elif self.db_type == self.TYPE_DB2:
+                ibm_db.close(self.db_connection)
+
+            logger.info('Native database connection successfully closed.')
+
+    def add_log_snippet(self, transaction_id, entity_type_id, log_snippet):
+
+        if self.db_connection is None:
+            self.establish_connection()
+
+        sql_params = (transaction_id, entity_type_id, log_snippet)
+        # Concatenate log_snippet with already existing content in column LOGFILE of KPI_LOGGING
+        if self.db_type == self.TYPE_DB2:
+            append_log_statement = f"MERGE INTO {self.quoted_schema}.{self.quoted_tablename} AS t " \
+                                   "USING TABLE(VALUES (CAST(? AS BIGINT) , CAST(? AS BIGINT), CAST(? AS CLOB)))" \
+                                   "s(TRANSACTION_ID, ENTITY_TYPE_ID, LOGFILE) " \
+                                   "ON t.TRANSACTION_ID = s.TRANSACTION_ID " \
+                                   "WHEN MATCHED THEN " \
+                                   "UPDATE SET LOGFILE = t.LOGFILE CONCAT s.LOGFILE " \
+                                   "WHEN NOT MATCHED THEN " \
+                                   "INSERT (TRANSACTION_ID, ENTITY_TYPE_ID, LOGFILE, UPDATED_TS, STARTED_TS, " \
+                                   "OPERATION) " \
+                                   "VALUES (s.TRANSACTION_ID, s.ENTITY_TYPE_ID, s.LOGFILE, CURRENT_TIMESTAMP, " \
+                                   "CURRENT_TIMESTAMP, 'PIPELINE') "
+
+            sql_statement = ibm_db.prepare(self.db_connection, append_log_statement)
+            self.logger.debug(f'Executing SQL statement to append logs to {self.quoted_tablename} : '
+                              f'{append_log_statement}')
+            self.logger.debug(f'Parameters: transaction_id {sql_params[0]}; entity_type_id {sql_params[1]}')
+            ibm_db.bind_param(sql_statement, 1, sql_params[0])
+            ibm_db.bind_param(sql_statement, 2, sql_params[1])
+            ibm_db.bind_param(sql_statement, 3, sql_params[2])
+
+            ibm_db.execute(sql_statement)
+
+        elif self.db_type == self.TYPE_POSTGRESQL:
+            sql_statement = f"INSERT INTO {self.quoted_schema}.{self.quoted_tablename} " \
+                            "(TRANSACTION_ID, ENTITY_TYPE_ID, LOGFILE, UPDATED_TS, STARTED_TS, OPERATION) " \
+                            "VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'PIPELINE') " \
+                            "ON CONFLICT (TRANSACTION_ID) DO UPDATE " \
+                            "SET LOGFILE = CONCAT('', excluded.LOGFILE) "
+            self.logger.debug(f'Executing SQL statement to append logs to {self.quoted_tablename} : '
+                              f'{sql_statement}')
+            self.logger.debug(f'Parameters: transaction_id {sql_params[0]}; entity_type_id {sql_params[1]}')
+            dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement, sql_params)
+        else:
+            raise Exception(f"The type '{self.db_type}' of the database is not recognized. Supported types are "
+                            "'db2' and 'postgresql'")
+
+    def _parse_connection_string_postgresql(self):
+
+        start_position = 0
+        end_position = self.connection_string.find(':')
+        user = self.connection_string[start_position:end_position]
+
+        start_position = end_position + 1
+        end_position = self.connection_string.find('@', start_position)
+        password = self.connection_string[start_position:end_position]
+
+        start_position = end_position + 1
+        end_position = self.connection_string.find(':', start_position)
+        hostname = self.connection_string[start_position:end_position]
+
+        start_position = end_position + 1
+        end_position = self.connection_string.find('/', start_position)
+        port = self.connection_string[start_position:end_position]
+
+        start_position = end_position + 1
+        db_name = self.connection_string[start_position:]
+
+        return user, password, hostname, port, db_name
