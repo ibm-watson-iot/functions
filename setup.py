@@ -13,7 +13,7 @@ setup(
         'pandas>=0.24.0',
         'scikit-learn==0.20.3',
         'scipy>=1.1.0',
-        'requests==2.23.0',
+        'requests==2.25.0',
         'urllib3==1.26.2',
         'ibm_db==3.0.1',
         'ibm_db_sa==0.3.3',
