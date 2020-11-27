@@ -33,7 +33,7 @@ import requests
 from lxml import etree
 from tabulate import tabulate
 
-logger = logging.getLogger(__name__)
+logger= logging.getLogger(__name__)
 
 try:
     from confluent_kafka import Producer
