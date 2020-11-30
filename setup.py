@@ -28,6 +28,6 @@ setup(
         'pyarrow==0.17.1'
     ],
     extras_require={
-        'kafka':  ['confluent-kafka==0.11.5']
+        'kafka':  ['confluent-kafka==1.0.0']
     }
 )
