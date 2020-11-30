@@ -3123,7 +3123,7 @@ class NativeDatabase:
                                    "s(TRANSACTION_ID, ENTITY_TYPE_ID, LOGFILE) " \
                                    "ON t.TRANSACTION_ID = s.TRANSACTION_ID " \
                                    "WHEN MATCHED THEN " \
-                                   "UPDATE SET LOGFILE = t.LOGFILE CONCAT s.LOGFILE " \
+                                   "UPDATE SET LOGFILE = CONCAT(isnull(t.LOGFILE, ''), s.LOGFILE) " \
                                    "WHEN NOT MATCHED THEN " \
                                    "INSERT (TRANSACTION_ID, ENTITY_TYPE_ID, LOGFILE, UPDATED_TS, STARTED_TS, " \
                                    "OPERATION) " \
@@ -3141,11 +3141,11 @@ class NativeDatabase:
             ibm_db.execute(sql_statement)
 
         elif self.db_type == self.TYPE_POSTGRESQL:
-            sql_statement = f"INSERT INTO {self.quoted_schema}.{self.quoted_tablename} " \
+            sql_statement = f"INSERT INTO {self.quoted_schema}.{self.quoted_tablename} AS t" \
                             "(TRANSACTION_ID, ENTITY_TYPE_ID, LOGFILE, UPDATED_TS, STARTED_TS, OPERATION) " \
                             "VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'PIPELINE') " \
                             "ON CONFLICT (TRANSACTION_ID) DO UPDATE " \
-                            "SET LOGFILE = CONCAT('', excluded.LOGFILE) "
+                            "SET LOGFILE = CONCAT(COALESCE(t.LOGFILE, ''), excluded.LOGFILE) "
             self.logger.debug(f'Executing SQL statement to append logs to {self.quoted_tablename} : '
                               f'{sql_statement}')
             self.logger.debug(f'Parameters: transaction_id {sql_params[0]}; entity_type_id {sql_params[1]}')
