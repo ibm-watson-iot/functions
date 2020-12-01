@@ -27,7 +27,6 @@ import pandas as pd
 import scipy as sp
 import urllib3
 from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype, is_dict_like
-# from sklearn.covariance import MinCovDet
 from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.preprocessing import StandardScaler
@@ -2030,7 +2029,7 @@ class BaseDBActivityMerge(BaseDataSource):
         micro_second = pd.Timedelta(milliseconds=1)
 
         # Get a well defined ordering to avoid ambiguities when start_date is identical
-        df = df.sort_values(by=[self._start_date, self._end_date, self._activity ])
+        df = df.sort_values(by=[self._start_date, self._end_date, self._activity])
         start_dates_series = df[self._start_date]
 
         # Add as many microseconds to start_date that it is unique
@@ -2137,6 +2136,578 @@ class BaseDBActivityMerge(BaseDataSource):
     def read_activity_data(self, table_name, activity_code, start_ts=None, end_ts=None, entities=None):
         """
         Issue a query to return a dataframe. Subject is an activity table with columns: deviceid, start_date, end_date, activity
+
+        Parameters
+        ----------
+        table_name: str
+            Name of source table
+        activity_code: str
+            The specific activity code for which to receive data
+        start_ts : datetime (optional)
+            Date filter
+        end_ts : datetime (optional)
+            Date filter
+        entities: list (optional)
+            Filter on list of device ids
+        Returns
+        -------
+        Dataframe
+        """
+
+        (query, table) = self._entity_type.db.query(table_name, schema=self._entity_type._db_schema)
+        query = query.filter(table.c.activity == activity_code)
+        if start_ts is not None:
+            query = query.filter(table.c.end_date >= start_ts)
+        if end_ts is not None:
+            query = query.filter(table.c.start_date < end_ts)
+        if entities is not None:
+            query = query.filter(table.c.deviceid.in_(entities))
+        msg = 'reading activity %s from %s to %s using %s' % (activity_code, start_ts, end_ts, query.statement)
+        logger.debug(msg)
+        parse_dates = [self._start_date, self._end_date]
+        df = self._entity_type.db.read_sql_query(query.statement, parse_dates=parse_dates)
+
+        return df
+
+
+class BaseDBActivityMerge2(BaseDataSource):
+    """
+    Merge actitivity data with time series data.
+    Activies are events that have a start and end date and generally occur sporadically.
+    Activity tables contain an activity column that indicates the type of activity performed.
+    Activities can also be sourced by means of custom tables.
+    This function flattens multiple activity types from multiple activity tables into columns indicating the duration of each activity.
+    When aggregating activity data the dimenions over which you aggregate may change during the time taken to perform the activity.
+    To make allowance for thise slowly changing dimenions, you may include a customer calendar lookup and one or more resource lookups
+    """
+
+    # automatically build queries to merge in data from one or more db.ActivityTable
+    activities_metadata = None
+    # merge in data from one or more custom sql statement
+    activities_custom_query_metadata = None
+    # column name metadata
+    # the start and end dates for activities are assumed to be designated by specific columns
+    # the type of activity performed on or using an entity is designated by the 'activity' column
+    _activity = 'activity'
+    _allow_empty_df = True
+    allow_projection_list_trim = False
+
+    WITHIN_SINGLE = 'within_single'
+    ACROSS_ALL = 'across_all'
+    PREFER_EARLIEST = 'prefer_earliest'
+    PRESERVE_START = 'preserve_start'
+
+    def __init__(self, input_activities, activity_duration=None, additional_items=None, additional_output_names=None,
+                 dummy_items=None, uniqueness_scope=None, method=None, activity_ranking=None):
+
+        if self.activities_metadata is None:
+            self.activities_metadata = {}
+        if self.activities_custom_query_metadata is None:
+            self.activities_custom_query_metadata = {}
+        self.input_activities = input_activities
+        if additional_items is None:
+            additional_items = []
+        if activity_duration is None:
+            activity_duration = ['duration_%s' % x for x in self.input_activities]
+        self.activity_duration = activity_duration
+        self.additional_items = additional_items
+        if additional_output_names is None:
+            additional_output_names = ['output_%s' % x for x in self.additional_items]
+        self.additional_output_names = additional_output_names
+        self.available_non_activity_cols = []
+
+        # decide on a scope for removing overlapping activity phases: within a single activity or across all activities
+        supported_scopes = [__class__.WITHIN_SINGLE, __class__.ACROSS_ALL]
+        if uniqueness_scope is None:
+            uniqueness_scope = __class__.ACROSS_ALL
+        if uniqueness_scope in supported_scopes:
+            self.uniqueness_scope = uniqueness_scope
+        else:
+            raise Exception(
+                'Activity scope %s is not supported. The following scopes are supported: %s' % (uniqueness_scope,
+                                                                                                str(supported_scopes)))
+
+        # decide on the method to remove overlapping activity phase:
+        # 'preserve_start': A new phase will terminate a preceding phase. Phases with identical start date are shifted
+        #       by 1 ms.
+        # 'prefer_earliest': Take the phase which started earliest for any point in time. For phases with identical
+        #       start dates, the longest is taken
+        supported_methods = [__class__.PRESERVE_START, __class__.PREFER_EARLIEST]
+        if method is None:
+            method = __class__.PREFER_EARLIEST
+        if method in supported_methods:
+            self.method = method
+        else:
+            raise Exception(
+                'Method %s is not supported. The following methods are supported: %s' % (method, str(supported_methods)))
+
+        # Activity_ranking only applies to uniqueness_scope='across_all' and defines the ranking for phases with the
+        # same start date and end date to provide unique reproducible results
+        self.activity_ranking = activity_ranking
+
+        super().__init__(input_items=input_activities, output_items=None, dummy_items=dummy_items)
+
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
+
+        self.execute_by = self._entity_type._entity_id
+        df = super().execute(df, start_ts=start_ts, end_ts=end_ts, entities=entities)
+        return df
+
+    def get_data(self, start_ts=None, end_ts=None, entities=None):
+
+        # Get the activities as a list of dataframes: one dataframe for each activity
+        activities = self._read_activities(start_ts=start_ts, end_ts=end_ts, entities=entities)
+
+        if self.uniqueness_scope == __class__.WITHIN_SINGLE:
+
+            # Remove overlaps of activity phases for each activity separately, then put all activities into
+            # one dataframe
+            result = []
+            for activity in activities:
+                result.append(self._remove_overlaps(activity, self.uniqueness_scope))
+
+            activities = result
+            joined_activities = pd.concat(activities, sort=False)
+
+            combine_group = [self._activity]
+
+        if self.uniqueness_scope == __class__.ACROSS_ALL:
+
+            # Put all activities into one dataframe first, then remove overlaps
+            joined_activities = pd.concat(activities, sort=False)
+            joined_activities = self._remove_overlaps(joined_activities, self.uniqueness_scope)
+
+            combine_group = []
+
+        self.log_df_info(joined_activities, 'Activity data from all sources have been merged into one dataframe')
+
+        if joined_activities.shape[0] > 0:
+            min_start_date = joined_activities[self._start_date].min()
+            max_end_date = joined_activities[self._end_date].max()
+
+            # Get shift dates (start dates and end dates) of all shifts covered by activities
+            shift_dates = self._get_shift_dates(min_start_date, max_end_date)
+
+            # Read scd data
+            scd_data = self._get_scd_history(start_ts=min_start_date, end_ts=max_end_date, entities=entities)
+
+            # Combine dates of activities with shift dates and dates of scd
+            func_args = {'shift_dates': shift_dates, 'scd_data': scd_data}
+            combined_dates_df = self._apply_func_on_group(joined_activities, combine_group, self._combine_dates,
+                                                          func_args)
+
+            if self._activity in combined_dates_df.index.names:
+                # activity shows up as a column and in index (if it was member of group). Remove it from index to
+                # avoid name clashes
+                combined_dates_df.index = combined_dates_df.index.droplevel(self._activity)
+
+            # Get device id from index
+            combined_dates_df.reset_index(level=self.execute_by, inplace=True)
+
+            # Calculate durations of activities and distribute duration in different columns according to activity
+            self._calc_durations(combined_dates_df)
+
+            # Do the following corrective action after the calculation
+            # 1) Remove all activity phases which completely lie before start_ts to avoid any data in dataframe outside
+            # of backtrack
+            # 2) Move start_date to start_ts for phases which start before start_ts but reaches into backtrack.
+            if start_ts is not None:
+                combined_dates_df[self._end_date] = combined_dates_df[self._end_date].mask(
+                    combined_dates_df[self._end_date] <= start_ts, np.nan)
+                combined_dates_df.dropna(subset=[self._end_date], inplace=True)
+                combined_dates_df[self._start_date] = combined_dates_df[self._start_date].mask(
+                    combined_dates_df[self._start_date] < start_ts, start_ts)
+
+            # Apply name mapping to additional columns from activity table
+            combined_dates_df = self.rename_cols(combined_dates_df, self.additional_items, self.additional_output_names)
+
+            # Add index
+            combined_dates_df[self._entity_type._df_index_entity_id] = combined_dates_df[self.execute_by]
+            combined_dates_df[self._entity_type._timestamp] = combined_dates_df[self._start_date]
+            combined_dates_df.set_index(keys=[self._entity_type._df_index_entity_id, self._entity_type._timestamp],
+                                        inplace=True)
+
+            # Drop columns which are not needed anymore
+            combined_dates_df.drop(columns=[self._activity, self._start_date, self._end_date], inplace=True)
+
+        else:
+            # No activity data to process. Create a empty data frame with the expected columns and index
+            output_columns = [self._entity_type._df_index_entity_id, self._entity_type._timestamp, self.execute_by]
+            output_columns.extend(self.additional_items)
+
+            data = [[None, None, None]]
+            for i in self.additional_items:
+                data[0].append(None)
+            for col_name in self.activity_duration:
+                output_columns.append(col_name)
+                data[0].append(None)
+            combined_dates_df = pd.DataFrame(data=np.array(data), columns=output_columns)
+            combined_dates_df = combined_dates_df.astype(dtype={self._entity_type._df_index_entity_id: object,
+                                                                self._entity_type._timestamp: 'datetime64[ns]',
+                                                                self.execute_by: object}, copy=False)
+            combined_dates_df.set_index(keys=[self._entity_type._df_index_entity_id, self._entity_type._timestamp],
+                                        inplace=True)
+            combined_dates_df.dropna(subset=[self.execute_by], inplace=True)
+
+            # Apply name mapping to additional columns from activity table
+            combined_dates_df = self.rename_cols(combined_dates_df, self.additional_items, self.additional_output_names)
+
+        return combined_dates_df
+
+    def _read_activities(self, start_ts=None, end_ts=None, entities=None):
+
+        # Read activities from user provided tables and by user provided sql statements
+        # Each table and each sql statement provides one activity
+
+        dfs = []
+        accepted_columns = [self._start_date, self._end_date, self.execute_by]
+        accepted_columns.extend(self.additional_items)
+
+        # Read from user provided tables and append for each table a new dataframe to dfs
+        for table_name, activities in list(self.activities_metadata.items()):
+            for activity in activities:
+                af = self.read_activity_data(table_name=table_name, activity_code=activity, start_ts=start_ts,
+                                             end_ts=end_ts, entities=entities)
+                # Remove unwanted columns
+                unwanted_columns = list(set(af.columns) - set(accepted_columns))
+                if len(unwanted_columns) > 0:
+                    af.drop(columns=unwanted_columns, inplace=True)
+
+                af[self._activity] = activity
+
+                self.log_df_info(af, 'Activity %s has been read from table %s' % (activity, table_name))
+                dfs.append(af)
+                self.available_non_activity_cols.append(self._get_non_activity_cols(af))
+
+        # Read activities by executing user provided sql statements
+        for activity, sql in list(self.activities_custom_query_metadata.items()):
+            try:
+                parse_dates = [self._start_date, self._end_date]
+                af = self._entity_type.db.read_sql_query(sql, parse_dates=parse_dates)
+            except Exception as ex:
+                msg = 'Function attempted to retrieve data for a merge operation using custom sql. There was ' \
+                      'a problem with this retrieval operation. Confirm that the sql is valid and contains ' \
+                      'column aliases for start_date, end_date and device_id'
+                raise Exception(msg) from ex
+
+            # Remove unwanted columns
+            unwanted_columns = list(set(af.columns) - set(accepted_columns))
+            if len(unwanted_columns) > 0:
+                logger.warning('The retrieval of activity data for activity %s returned columns %s which are '
+                               'not in the list of expected columns. The columns are ignored. '
+                               'Expected Columns: %s' % (activity, str(unwanted_columns), str(accepted_columns)))
+                af.drop(columns=unwanted_columns, inplace=True)
+
+            af[self._activity] = activity
+
+            self.log_df_info(af, 'Sql statement for activity %s has been executed' % activity)
+            dfs.append(af)
+            self.available_non_activity_cols.append(self._get_non_activity_cols(af))
+
+        return dfs
+
+    def _remove_overlaps(self, df, uniqueness_scope):
+
+        if self.method == __class__.PRESERVE_START:
+            uniqueness_func = self._unique_start_date
+            func_args = {}
+        elif self.method == __class__.PREFER_EARLIEST:
+            uniqueness_func = self._prefer_earliest
+            if uniqueness_scope == __class__.WITHIN_SINGLE:
+                func_args = {'activity_ranking': self.activity_ranking}
+                if self.activity_ranking is None:
+                    logger.info('No explicit activity ranking has been given. Activities are ranked alphabetically.')
+                else:
+                    logger.info('Activities are ranked according to given ranking: %s' % str(self.activity_ranking))
+
+            elif uniqueness_scope == __class__.ACROSS_ALL:
+                func_args = {'activity_ranking': None}
+
+        # Make phases_unique
+        df = self._apply_func_on_group(df, [], uniqueness_func, func_args)
+
+        # remove index created by groupby operation
+        df.reset_index(drop=True, inplace=True)
+
+        return df
+
+    def _apply_func_on_group(self, df, group_base, uniqueness_func, func_args):
+
+        # Group on self.execute_by (device_id) and apply uniqueness function
+
+        if df.size > 0:
+            if group_base is None:
+                group_base = []
+
+            if self.execute_by in df.columns:
+                group_base.append(self.execute_by)
+            else:
+                try:
+                    df.index.get_level_values(self.execute_by)
+                except KeyError:
+                    raise ValueError('This function groups by column %s. This column was not found in columns or '
+                                     'index. Columns: %s Index: %s' % (self.execute_by, list(df.columns),
+                                                                       list(df.index.names)))
+                else:
+                    group_base.append(pd.Grouper(axis=0, level=df.index.names.index(self.execute_by)))
+
+            try:
+                group = df.groupby(group_base)
+            except KeyError:
+                msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were ' \
+                      'not found' % self.execute_by
+                logger.debug(msg)
+                raise
+
+            try:
+                unique_df = group.apply(uniqueness_func, **func_args)
+            except KeyError as ex:
+                msg = 'Function %s requires columns %s, %s, %s and %s but at least one column is missing. ' \
+                      'The following columns are available: %s' % (uniqueness_func.__name__, self.execute_by,
+                                                                   self._start_date, self._end_date, self._activity,
+                                                                   list(df.columns))
+                raise Exception(msg) from ex
+
+        else:
+            # return df directly to keep all columns because group.apply() swallows all columns if dataframe is empty!
+            unique_df = df
+
+        return unique_df
+
+    def _prefer_earliest(self, df, activity_ranking):
+
+        # For a point in time, take the activity which started earlier. If several phases start at the same point in
+        # time take the longest phase. If phases start at the same point in time and have the same length use the user
+        # provided ranking of the activities to determine the phase.
+
+        # Step 0: Data cleansing: Remove all entries with start_date and/or end_date equal to None, or
+        # start_date > end_date
+        #
+        # Caution: Make sure end_date = np.nan if start_date == None
+        df[self._end_date] = df[self._end_date].where(df[self._start_date] <= df[self._end_date], np.nan)
+        # Hint: no drop on start_date necessary because end_date = np.nan if start_date == None
+        df = df.dropna(subset=[self._end_date])
+
+        # Step 1: Order rows in dataframe: start_date ascending, end_date descending, activity ascending
+        # ==> For each start date the longest phase comes first
+        # Example:
+        #  start_date        end_date
+        #  2020-10-15 01:00  2020-10-15 06:00
+        #  2020-10-15 01:00  2020-10-15 05:00
+        #  2020-10-15 02:00  2020-10-15 03:00
+        #  2020-10-15 03:00  2020-10-15 10:00
+        #  2020-10-15 03:00  2020-10-15 04:00
+        #  2020-10-15 03:00  2020-10-15 03:00
+        activity_col_name = 'activity' + UNIQUE_EXTENSION_LABEL
+        if activity_ranking is not None:
+            # Find all activities which are not listed in ranking and sort them alphabetically
+            existing_activities = set(df['activity'].unique())
+            missing_ranking = list(existing_activities - set(activity_ranking))
+            # hint: key used in sort to avoid exception in sort when activity is None
+            missing_ranking.sort(key=lambda x: (x is None, x))
+
+            if len(missing_ranking) > 0:
+                logger.warning('Some activities are not included in the given activity ranking. They are '
+                               'appended to the given ranking in alphabetical order: Given activity ranking: %s, '
+                               'missing activities in alphabetical order: %s' % (str(activity_ranking),
+                                                                                 str(missing_ranking)))
+
+            # Define mapping 'activity ==> rank'; missing activities have lower ranks than explicitly ranked activities
+            ranking_dict = {activity_ranking[i]: i for i in range(len(activity_ranking))}
+            offset = len(activity_ranking)
+            for i in range(len(missing_ranking)):
+                ranking_dict[missing_ranking[i]] = offset + i
+
+            df[activity_col_name] = df['activity'].map(ranking_dict)
+        else:
+            df[activity_col_name] = df['activity']
+
+        df.sort_values(by=[self._start_date, self._end_date, activity_col_name], ascending=[True, False, True],
+                       na_position='last', inplace=True)
+
+        # Step2: Replace end_date in such a way that end_date is monotonically increasing, i.e. if the next end-date is
+        # smaller than previous end_date replace next end_date with previous end_date
+        # ==> Phases that are completely covered by another phase are extended to the end of the covering phase
+        # Example:
+        #  start_date        end_date          tmp_col_name
+        #  2020-10-15 01:00  2020-10-15 06:00  2020-10-15 06:00
+        #  2020-10-15 01:00  2020-10-15 05:00  2020-10-15 06:00
+        #  2020-10-15 02:00  2020-10-15 03:00  2020-10-15 06:00
+        #  2020-10-15 03:00  2020-10-15 10:00  2020-10-15 10:00
+        #  2020-10-15 03:00  2020-10-15 04:00  2020-10-15 10:00
+        #  2020-10-15 03:00  2020-10-15 03:00  2020-10-15 10:00
+        #
+        # Function 'expanding()' does not work with datatype datetime64. Therefore convert to int64
+        tmp_col1_name = self._end_date + UNIQUE_EXTENSION_LABEL
+        df[tmp_col1_name] = df[self._end_date].astype(np.int64)
+        df[tmp_col1_name] = df[tmp_col1_name].expanding(1).max()
+
+        # Step3: Only keep first occurrence of an end date in tmp_col_name
+        # ==> Only keep the covering phase
+        # Example:
+        #  start_date        end_date          tmp_col1_name
+        #  2020-10-15 01:00  2020-10-15 06:00  2020-10-15 06:00
+        #  2020-10-15 01:00  2020-10-15 05:00  None
+        #  2020-10-15 02:00  2020-10-15 03:00  None
+        #  2020-10-15 03:00  2020-10-15 10:00  2020-10-15 10:00
+        #  2020-10-15 03:00  2020-10-15 04:00  None
+        #  2020-10-15 03:00  2020-10-15 03:00  None
+        tmp_col2_name = self._start_date + UNIQUE_EXTENSION_LABEL
+        df[tmp_col2_name] = df[tmp_col1_name].shift(1)
+        # Caution: First element of column 'tmp' is None. 'xxx != None' evaluates to True (for all xxx != None). Keep
+        # this in mind when changing condition in next line!
+        df[tmp_col1_name] = np.where(df[tmp_col1_name] != df[tmp_col2_name], df[tmp_col1_name], np.nan)
+        df.dropna(subset=[tmp_col1_name], inplace=True)
+
+        # Step4: Set start_date of next phase to end_date of previous phase if overlapping
+        # ==> Remove overlaps; the phase with the earlier start_date takes the overlap
+        # Example:
+        #  start_date        end_date          new start_date
+        #  2020-10-15 01:00  2020-10-15 06:00  2020-10-15 01:00
+        #  2020-10-15 03:00  2020-10-15 10:00  2020-10-15 06:00
+        #
+        # Caution: First element of column 'tmp' is None. Keep this in mind when changing condition in next line!
+        df[tmp_col1_name] = df[self._end_date].shift(1)
+        # Caution: First element of column 'tmp' is None. 'xxx < None' evaluates to False. Keep this in mind when
+        # changing condition in next line!
+        df[self._start_date] = np.where((df[self._start_date] < df[tmp_col1_name]), df[tmp_col1_name],
+                                        df[self._start_date])
+
+        df.drop(columns=[tmp_col1_name, tmp_col2_name, activity_col_name], inplace=True)
+
+        return df
+
+    def _unique_start_date(self, df):
+        micro_second = pd.Timedelta(milliseconds=1)
+
+        # Get a well defined order to avoid ambiguities when start_date is identical
+        df = df.sort_values(by=[self._start_date, self._end_date, self._activity])
+        start_dates_series = df[self._start_date]
+
+        # Add as many microseconds to start_date that it is unique
+        previous_date = start_dates_series.iat[0]
+        for i in range(1, start_dates_series.size):
+            next_date = start_dates_series.iat[i]
+            if next_date > previous_date:
+                previous_date = next_date
+            else:
+                previous_date = previous_date + micro_second
+                start_dates_series.iat[i] = previous_date
+
+        df[self._start_date] = start_dates_series
+
+        return df
+
+    def _get_shift_dates(self, min_start_date, max_end_date):
+
+        # Explicitly calculate shift start and shift end dates in the range given by activity data
+        dates = set()
+        custom_calendar = self.get_custom_calendar()
+        if custom_calendar is not None:
+            dates_df = custom_calendar.get_data(start_date=min_start_date, end_date=max_end_date)
+            dates = set(dates_df[custom_calendar.period_start_date].tolist())
+            dates |= set(dates_df[custom_calendar.period_end_date].tolist())
+
+        return dates
+
+    def _combine_dates(self, df, shift_dates, scd_data):
+
+        # Incoming dataframe has start date , end date, activity code, device id and additional user defined columns.
+        # Device id is the same for all rows in dataframe. The activity code can be the same for all rows depending on
+        # the group definition. The activity phases must not overlap anymore
+
+        entity = df[self.execute_by].iat[0]
+
+        # create a complete list of start dates from all activities (or activity depending on group definition), shifts
+        # and scd data
+        all_dates = set([pd.Timestamp.min, pd.Timestamp.max])
+        all_dates |= set((df[self._start_date].tolist()))
+        all_dates |= set((df[self._end_date].tolist()))
+        all_dates |= shift_dates
+
+        # scd changes are another potential interruption
+        if scd_data is not None:
+            has_scd = {}
+            for scd_property, entity_data in list(scd_data.items()):
+                has_scd[scd_property] = True
+                try:
+                    scd_dates = set(entity_data[entity][self._start_date])
+                    for date in scd_dates:
+                        if pd.isna(date) or not isinstance(date, dt.datetime):
+                            raise TypeError('The data set start date/end date/activity code contains an invalid '
+                                            'date value: %s' % date)
+                    all_dates |= scd_dates
+                except KeyError:
+                    has_scd[scd_property] = False
+        all_dates = list(all_dates)
+        all_dates.sort()
+
+        # Initialize Dataframe with all dates as index
+        date_index = pd.Index(data=all_dates, dtype='datetime64[ns]', name=self._start_date)
+        result_df = pd.DataFrame(columns=df.columns, index=date_index)
+        result_df = result_df.astype(dtype=df.dtypes, copy=False)
+        result_df.drop(columns=[self.execute_by, self._start_date, self._end_date], inplace=True)
+
+        # fill activity with placeholder (This allows to use None as a valid activity name)
+        gap_indicator = '_gap_' + UNIQUE_EXTENSION_LABEL
+        result_df[self._activity] = '_gap_' + UNIQUE_EXTENSION_LABEL
+
+        #kohlmann remove
+        timer_start = pd.Timestamp.utcnow()
+
+        # Get a well defined order for column names with start date, end date and activity at the beginning
+        required_columns = [self._start_date, self._end_date, self._activity]
+        additional_columns = list(set(result_df.columns) - set(required_columns))
+        all_columns = required_columns[:]
+        all_columns.extend(additional_columns)
+        # Take activity phases from df and spread them over result series. Add the additional columns of
+        # activities as well
+        milli_second = dt.timedelta(milliseconds=1)
+        for df_row in df[all_columns].itertuples(index=False, name=None):
+            end_date = df_row[1] - milli_second
+            result_df.loc[df_row[0]:end_date, self._activity] = df_row[2]
+            if len(all_columns) > 3:
+                result_df.loc[df_row[0], additional_columns] = df_row[3:]
+
+        logger.debug('Merge of dates: Elapsed time: %f' % (pd.Timestamp.utcnow() - timer_start).total_seconds())
+
+        # Move start date from index to column and give the remaining (integer-)index a name
+        result_df.reset_index(inplace=True)
+        result_df.index.name = self.auto_index_name
+
+        # Add column for end_date: Because we have all dates in index the end date is the next start date
+        result_df[self._end_date] = result_df[self._start_date].shift(-1)
+        result_df[self._end_date] = result_df[self._end_date] - milli_second
+
+        # remove gaps
+        result_df = result_df[result_df[self._activity] != gap_indicator]
+
+        # result_df has start_date, end_date and activity
+
+        return result_df
+
+    def _calc_durations(self, df):
+        duration_name = 'duration' + UNIQUE_EXTENSION_LABEL
+        df[duration_name] = round((df[self._end_date] - df[self._start_date]).dt.total_seconds()) / 60
+
+        # Build new columns for duration for each activity
+        for i, value in enumerate(self.input_activities):
+            df[self.activity_duration[i]] = np.where(df[self._activity] == value, df[duration_name], None)
+            df[self.activity_duration[i]] = df[self.activity_duration[i]].astype(float)
+
+        df.drop(columns=[duration_name], inplace=True)
+
+    def _get_non_activity_cols(self, df):
+
+        activity_cols = [self._entity_type._timestamp_col, self._entity_type._entity_id, self._start_date,
+                         self._end_date, self._activity]
+        cols = [x for x in df.columns if x not in activity_cols]
+        return cols
+
+    def read_activity_data(self, table_name, activity_code, start_ts=None, end_ts=None, entities=None):
+        """
+        Issue a query to return a dataframe. Subject is an activity table with columns: deviceid, start_date,
+        end_date, activity
 
         Parameters
         ----------

@@ -24,7 +24,6 @@ from pyod.models.cblof import CBLOF
 #  for Spectral Analysis
 from scipy import signal, fftpack
 #   for KMeans
-#  import skimage as ski
 from skimage import util as skiutil  # for nifty windowing
 from sklearn import ensemble
 from sklearn import linear_model
@@ -91,7 +90,6 @@ def min_delta(df):
 
 
 def set_window_size_and_overlap(windowsize, trim_value=2 * DefaultWindowSize):
-
     # make sure it exists
     if windowsize is None:
         windowsize = DefaultWindowSize
