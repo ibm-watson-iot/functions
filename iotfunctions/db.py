@@ -964,9 +964,7 @@ class Database(object):
         self.url = {}
         self.url[('allFunctions', 'GET')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function?customFunctionsOnly=false'])
-        
-        logger.debug('tenantid: %s', self.tenant_id)
-        
+
         self.url[('constants', 'GET')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id]) + '?entityType=%s' % object_name
         self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
