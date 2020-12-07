@@ -13,8 +13,8 @@ setup(
         'pandas>=0.24.0',
         'scikit-learn==0.20.3',
         'scipy>=1.1.0',
-        'requests==2.23.0',
-        'urllib3==1.24.3',
+        'requests==2.25.0',
+        'urllib3==1.26.2',
         'ibm_db==3.0.1',
         'ibm_db_sa==0.3.3',
         'lxml==4.3.4',
@@ -28,6 +28,6 @@ setup(
         'pyarrow==0.17.1'
     ],
     extras_require={
-        'kafka':  ['confluent-kafka==0.11.5']
+        'kafka':  ['confluent-kafka==1.0.0']
     }
 )
