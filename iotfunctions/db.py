@@ -1041,7 +1041,7 @@ class Database(object):
         response = r.data.decode('utf-8')
 
         if 200 <= r.status <= 299:
-            logger.debug('http request successful. status %s', r.status)
+            logger.debug(f'http request {url} successful. status {r.status}')
         elif (request == 'POST' and object_type in ['kpiFunction', 'defaultConstants', 'constants'] and (
                 500 <= r.status <= 599)):
             logger.debug('htpp POST failed. attempting PUT. status:%s', r.status)
