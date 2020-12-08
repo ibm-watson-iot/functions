@@ -33,7 +33,7 @@ import requests
 from lxml import etree
 from tabulate import tabulate
 
-logger = logging.getLogger(__name__)
+logger= logging.getLogger(__name__)
 
 try:
     from confluent_kafka import Producer
@@ -63,15 +63,35 @@ MH_CLIENT_ID = 'as-pipeline-alerts-producer'
 
 UNIQUE_EXTENSION_LABEL = '_###IBM_Temporary###'
 
+ANALYTICS_SERVICE_TOP_LOGGER = 'analytics_service'
+IOTFUNCTIONS_TOP_LOGGER = __package__
 
-def setup_logging(log_level=logging.INFO, root_log_level=logging.DEBUG, filename='main.log'):
-    logging.config.dictConfig({'version': 1, 'disable_existing_loggers': False, 'formatters': {
-        'simple': {'format': '%(asctime)s [PID %(process)d] [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
-                   'datefmt': '%Y-%m-%d %I:%M:%S %p'}}, 'handlers': {
-        'console': {'class': 'logging.StreamHandler', 'formatter': 'simple', 'stream': 'ext://sys.stdout'},
-        'file': {'class': 'logging.FileHandler', 'filename': filename, 'mode': 'w', 'formatter': 'simple'}},
-                               'loggers': {'analytics_service': {'level': log_level}},
-                               'root': {'level': root_log_level, 'handlers': ['console', 'file']}})
+
+def setup_logging(as_log_level=logging.INFO, root_log_level=logging.DEBUG, filename=None):
+
+    as_formatter = logging.Formatter(
+        fmt='%(asctime)s [PID %(process)d] [%(levelname)-7s] %(name)s.%(funcName)s : %(message)s ',
+        datefmt='%Y-%m-%d %I:%M:%S %p')
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(as_formatter)
+
+    file_handler = None
+    if filename is not None:
+        file_handler = logging.FileHandler(filename=filename, mode='w')
+        file_handler.setFormatter(as_formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(root_log_level)
+    root_logger.addHandler(console_handler)
+    if file_handler is not None:
+        root_logger.addHandler(file_handler)
+
+    as_logger = logging.getLogger(ANALYTICS_SERVICE_TOP_LOGGER)
+    as_logger.setLevel(as_log_level)
+
+    iot_logger = logging.getLogger(IOTFUNCTIONS_TOP_LOGGER)
+    iot_logger.setLevel(as_log_level)
 
 
 def adjust_probabilities(p_list):
