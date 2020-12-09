@@ -1231,8 +1231,7 @@ class MatrixProfileAnomalyScore(BaseTransformer):
     """
     An unsupervised anomaly detection function.
      Applies matrix profile analysis on time series data.
-     Moves a sliding window across the data signal to calculate the euclidean distance from one window to all others to 
-     build a distance profile.
+     Moves a sliding window across the data signal to calculate the euclidean distance from one window to all others to build a distance profile.
      The window size is typically set to 12 data points.
      Try several anomaly models on your data and use the one that fits your data best.
     """
