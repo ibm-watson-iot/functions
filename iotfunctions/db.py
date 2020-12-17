@@ -23,6 +23,7 @@ import ibm_db
 import ibm_db_dbi
 import pandas as pd
 import psycopg2
+import certifi
 import urllib3
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
@@ -382,7 +383,7 @@ class Database(object):
             logger.debug(msg)
             logger.warning(sqlite_warning_msg)
 
-        self.http = urllib3.PoolManager(timeout=30.0)
+        self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
         try:
             self.cos_client = CosClient(self.credentials)
         except KeyError:
