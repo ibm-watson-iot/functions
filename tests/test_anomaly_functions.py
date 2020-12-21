@@ -79,9 +79,12 @@ def test_anomaly_scores():
     print(comp2)
 
     # assert_true(comp2[spectral] > 0.9)
+    numba_logger.info('fft check')
     assert_true(comp2[fft] > 0.9)
+    numba_logger.info('sal check')
     assert_true(comp2[sal] > 0.9)
-    # assert_true(comp2[kmeans] > 0.9)
+    numba_logger.info('kmeans check')
+    assert_true(comp2[kmeans] > 0.9)
 
     df_agg = df_i.copy()
 
