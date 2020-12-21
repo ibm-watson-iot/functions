@@ -64,9 +64,9 @@ Generalized_normalizer = 1 / 300
 def view_as_windows(temperature, length, step):
     logger.info('VIEW ' + str(temperature.shape) + ' ' + str(length) + ' ' + str(step))
 
-    def moving_window(x, length, step=1):
+    def moving_window(x, length, _step=1):
         streams = it.tee(x, length)
-        return zip(*[it.islice(stream, i, None, step) for stream, i in zip(streams, it.count(step=1))])
+        return zip(*[it.islice(stream, i, None, step=_step) for stream, i in zip(streams, it.count(step=1))])
 
     x_=list(moving_window(temperature, length, step))
     return np.asarray(x_)
