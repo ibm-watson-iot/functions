@@ -62,9 +62,9 @@ Generalized_normalizer = 1 / 300
 # from
 # https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
 def view_as_windows(temperature, length, step):
-    print(temperature.shape, length, step)
+    logger.info('VIEW ' + str(temperature.shape) + ' ' + str(length) + ' ' + str(step))
 
-    def moving_window(x, length, step):
+    def moving_window(x, length, step=1):
         streams = it.tee(x, length)
         return zip(*[it.islice(stream, i, None, step) for stream, i in zip(streams, it.count(step=1))])
 
