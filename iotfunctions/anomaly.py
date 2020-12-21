@@ -12,6 +12,7 @@
 The Built In Functions module contains preinstalled functions
 """
 
+import itertools as it
 import datetime as dt
 import logging
 
@@ -24,20 +25,21 @@ from pyod.models.cblof import CBLOF
 #  for Spectral Analysis
 from scipy import signal, fftpack
 #   for KMeans
-from skimage import util as skiutil  # for nifty windowing
+#from skimage import util as skiutil  # for nifty windowing
 from sklearn import ensemble
 from sklearn import linear_model
 from sklearn import metrics
 from sklearn.covariance import MinCovDet
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler, minmax_scale
+from sklearn.preprocessing import (StandardScaler, RobustScaler, MinMaxScaler,
+                                   minmax_scale, PowerTransformer)
 from sklearn.utils import check_array
 # for Matrix Profile
 import stumpy
 
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
-from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
+from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -55,6 +57,19 @@ Spectral_normalizer = 100 / 2.8
 FFT_normalizer = 1
 Saliency_normalizer = 1
 Generalized_normalizer = 1 / 300
+
+
+# from
+# https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
+def view_as_windows(temperature, length, step):
+    print(temperature.shape, length, step)
+
+    def moving_window(x, length, step):
+        streams = it.tee(x, length)
+        return zip(*[it.islice(stream, i, None, step) for stream, i in zip(streams, it.count(step=1))])
+
+    x_=list(moving_window(temperature, length, step))
+    return np.asarray(x_)
 
 
 def custom_resampler(array_like):
@@ -875,7 +890,8 @@ class KMeansAnomalyScore(BaseTransformer):
                 logger.debug(str(temperature.size) + ',' + str(self.windowsize))
 
                 # Chop into overlapping windows
-                slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+                #slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+                slices = view_as_windows(temperature, self.windowsize, self.step)
 
                 if self.windowsize > 1:
                     n_cluster = 40
@@ -990,7 +1006,9 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
         logger.debug(self.whoami + ': feature extract')
 
-        slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices = view_as_windows(temperature, self.windowsize, self.step)
+
         return slices
 
     def execute(self, df):
@@ -1197,7 +1215,9 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
     def feature_extract(self, temperature):
         logger.debug(self.whoami + ': feature extract')
 
-        slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices_ = view_as_windows(temperature, self.windowsize, self.step)
+
         slicelist = []
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
@@ -1356,7 +1376,9 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
     def feature_extract(self, temperature):
         logger.debug(self.whoami + ': feature extract')
 
-        slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices_ = view_as_windows(temperature, self.windowsize, self.step)
+
         slicelist = []
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
@@ -1414,7 +1436,9 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
 
         temperature_saliency = self.saliency.transform_spectral_residual(temperature)
 
-        slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
+        #slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
+        slices = view_as_windows(temperature, self.windowsize, self.step)
+
         return slices
 
     def execute(self, df):
@@ -1510,7 +1534,8 @@ class KMeansAnomalyScoreV2(Standard_Scaler):
             logger.debug(str(temperature.size) + ',' + str(self.windowsize))
 
             # Chop into overlapping windows
-            slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+            #slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+            slices = view_as_windows(temperature, self.windowsize, self.step)
 
             if self.windowsize > 1:
                 n_cluster = 40
@@ -1611,7 +1636,9 @@ class GeneralizedAnomalyScoreV2(Standard_Scaler):
 
         logger.debug(self.whoami + ': feature extract')
 
-        slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices = view_as_windows(temperature, self.windowsize, self.step)
+
         return slices
 
     def kexecute(self, entity, df_copy):
@@ -1741,7 +1768,9 @@ class FFTbasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
     def feature_extract(self, temperature):
         logger.debug(self.whoami + ': feature extract')
 
-        slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices_ = view_as_windows(temperature, self.windowsize, self.step)
+
         slicelist = []
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
@@ -1792,7 +1821,9 @@ class SaliencybasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
 
         temperature_saliency = self.saliency.transform_spectral_residual(temperature)
 
-        slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
+        #slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
+        slices = view_as_windows(temperature, self.windowsize, self.step)
+
         return slices
 
     def execute(self, df):
@@ -1844,8 +1875,10 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         logger.info('Bayesian Ridge Regressor start searching for best model')
 
-    def __init__(self, features, targets, predictions=None):
+    def __init__(self, features, targets, predictions=None, deviations=None):
         super().__init__(features=features, targets=targets, predictions=predictions, stddev=True)
+        if deviations is not None:
+            self.pred_stddev = deviations
 
         self.experiments_per_execution = 1
         self.auto_train = True
@@ -1856,7 +1889,8 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         df_copy = df.copy()
         entities = np.unique(df_copy.index.levels[0])
-        logger.debug(str(entities))
+        logger.debug(str(entities) + ' predicting ' + str(self.targets) + ' from ' + str(self.features) +\
+                     ' to appear in ' + str(self.predictions) + ' with confidence interval ' + str(self.pred_stddev))
 
         missing_cols = [x for x in self.predictions + self.pred_stddev if x not in df_copy.columns]
         for m in missing_cols:
@@ -1864,9 +1898,16 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         for entity in entities:
             try:
-                check_array(df_copy.loc[[entity]][self.features].values)
+                #check_array(df_copy.loc[[entity]][self.features].values, allow_nd=2)
+                logger.debug('check passed')
                 dfe = super()._execute(df_copy.loc[[entity]], entity)
                 print(df_copy.columns)
+
+                print('BayesianRidge: Entity ', entity, ' Type of pred, stddev arrays ',
+                      type(dfe[self.predictions]), type(dfe[self.pred_stddev].values))
+
+                #print('BayesianRidge: Entity ', entity, ' stddev elements', dfe[self.pred_stddev].values)
+                dfe.fillna(0, inplace=True)
 
                 df_copy.loc[entity, self.predictions] = dfe[self.predictions]
                 df_copy.loc[entity, self.pred_stddev] = dfe[self.pred_stddev]
@@ -1875,13 +1916,15 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
             except Exception as e:
                 logger.info('Bayesian Ridge regressor for entity ' + str(entity) + ' failed with: ' + str(e))
                 df_copy.loc[entity, self.predictions] = 0
+                df_copy.loc[entity, self.pred_stddev] = 0
         return df_copy
 
     @classmethod
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True, output_item='deviations',
+                                  is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
                                   is_output_datatype_derived=True))
 
@@ -2087,6 +2130,256 @@ class SimpleAnomaly(BaseRegressor):
         outputs.append(
             UIFunctionOutMulti(name='alerts', datatype=bool, cardinality_from='targets', is_datatype_derived=False, ))
 
+        return (inputs, outputs)
+
+#######################################################################################
+# Forecasting
+#######################################################################################
+
+class FeatureBuilder(BaseTransformer):
+
+    def __init__(self, features, lag, method, lagged_features):
+        super().__init__()
+
+        self.features = features
+        self.lagged_features = lagged_features
+
+        self.lag = lag   # list of integers (days) to define lags
+
+        self.method = method   #
+
+        self.whoami = 'FeatureBuilder'
+
+        print(self.whoami, self.features, self.lagged_features, self.lag, self.method)
+
+
+    def execute(self, df):
+
+        df_copy = df.copy()
+        entities = np.unique(df_copy.index.levels[0])
+        logger.debug(str(entities))
+
+        missing_cols = [x for x in self.lagged_features if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        for entity in entities:
+            # per entity - copy for later inplace operations
+            try:
+                check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
+                dfe = df_copy.loc[[entity]]
+            except Exception as e:
+                logger.error(
+                    'Found Nan or infinite value in feature columns for entity ' + str(entity) + ' error: ' + str(e))
+                continue
+
+            dfroll = dfe[self.features].rolling(window=self.lag, min_periods=0)
+            if self.method == 'mean':
+                dfe[self.lagged_features] = dfroll.mean().shift(1)
+            elif self.method == 'stddev':
+                dfe[self.lagged_features] = dfroll.std().shift(1)
+            else:
+                dfe[self.lagged_features] = dfe[self.features].shift(1)
+
+            #dfe = super()._execute(df_copy.loc[[entity]], entity)
+            df_copy.loc[entity, self.lagged_features] = dfe[self.lagged_features]
+
+        return df_copy
+
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True, output_item='lagged_features',
+                                  is_output_datatype_derived=True))
+        inputs.append(UISingle(name='lag', datatype=int, description='Lag for each input_item'))
+        inputs.append(UISingle(name='method', datatype=str, description='Method: Plain, Mean, Stddev'))
+        # define arguments that behave as function outputs
+        outputs = []
+        return (inputs, outputs)
+
+
+class GBMForecaster(BaseEstimatorFunction):
+    """
+    Forecasting regressor based on gradient boosting method as provided by lightGBM
+    """
+    eval_metric = staticmethod(metrics.r2_score)
+
+    # class variables
+    train_if_no_model = True
+
+    def GBMPipeline(self):
+        steps = [('scaler', StandardScaler()), ('gbm', lightgbm.LGBMRegressor())]
+        return Pipeline(steps=steps)
+
+    def set_estimators(self):
+        # gradient_boosted
+        self.estimators['light_gradient_boosted_regressor'] = (self.GBMPipeline, self.params)
+        logger.info('GBMRegressor start searching for best model')
+
+    #
+    # return list of new columns for the lagged features and dataframe extended with these new columns
+    #
+    def lag_features(self, df=None, Train=True):
+        print ('lags ' + str(self.lags) + '  lagged_features ' + str(self.lagged_features) + ' Train mode: ' + str(Train))
+        create_feature_triplets = []
+        new_features = []
+
+        if self.lags is None or self.lagged_features is None:
+            return (new_features, None)
+
+        for lagged_feature in self.lagged_features:
+            for lag in self.lags:
+                # collect triple of new column, original column and lag
+                if Train:
+                    create_feature_triplets.append((lagged_feature + '_' + str(lag), lagged_feature, lag))
+                else:
+                    create_feature_triplets.append((lagged_feature + '_' + str(lag), lagged_feature, lag - self.forecast))
+
+                new_features.append(lagged_feature + '_' + str(lag))
+
+        # add day of week and month of year as two feature pairs
+        new_features = np.concatenate((new_features, ['_DayOfWeekCos_', '_DayOfWeekSin_', '_DayOfYearCos_', '_DayOfYearSin_']))
+
+        if df is not None:
+            df_copy = df.copy()
+            missing_cols = [x[0] for x in create_feature_triplets if x not in df_copy.columns]
+            for m in missing_cols:
+                df_copy[m] = None
+
+            # I hope I can do that for all entities in one fell swoop
+            for new_feature in create_feature_triplets:
+                df_copy[new_feature[0]] = df[new_feature[1]].shift(new_feature[2])
+
+            # get rid of NaN as result of shifting columns
+            df_copy.dropna(inplace=True)
+
+            # add day of week and month of year as two feature pairs
+            # operate on simple timestamp index
+            df_copy['_DayOfWeekCos_'] = np.cos(df_copy.index.get_level_values(1).dayofweek / 7)
+            df_copy['_DayOfWeekSin_'] = np.sin(df_copy.index.get_level_values(1).dayofweek / 7)
+            df_copy['_DayOfYearCos_'] = np.cos(df_copy.index.get_level_values(1).dayofyear / 365)
+            df_copy['_DayOfYearSin_'] = np.sin(df_copy.index.get_level_values(1).dayofyear / 365)
+
+            #df = df[df[df.columns.intersection(new_features)].notna()]   # drop NaNs
+        else:
+            df_copy = df
+
+        return (new_features, df_copy)
+
+
+    def __init__(self, features, targets, predictions=None, lags=None):
+        #
+        # from https://github.com/ashitole/Time-Series-Project/blob/main/Auto-Arima%20and%20LGBM.ipynb
+        #   as taken from https://www.kaggle.com/rohanrao/ashrae-half-and-half
+        #
+        n_estimators = 500
+        num_leaves = 40
+        #learning_rate = 0.001
+        learning_rate = 0.2   # default 0.001
+        feature_fraction = 0.85  # default 1.0
+        reg_lambda = 2  # default 0
+        metric = "rmse"
+        max_depth = -1
+        self.lagged_features = features
+        self.lags = lags
+
+        self.forecast = min(lags)  # forecast = number to shift features back is the negative minimum lag
+
+        newfeatures,_ = self.lag_features()
+
+        super().__init__(features=newfeatures, targets=targets, predictions=predictions, keep_current_models=True)
+
+        self.experiments_per_execution = 1
+        self.correlation_threshold = 0
+        self.auto_train = True
+
+        self.num_rounds_per_estimator = 1
+        self.parameter_tuning_iterations = 1
+        self.cv = 1
+
+        if n_estimators is not None or num_leaves is not None or learning_rate is not None:
+            self.params = {'gbm__n_estimators': [n_estimators], 'gbm__num_leaves': [num_leaves],
+                           'gbm__reg_lambda' : [reg_lambda], 'gbm__feature_fraction': [feature_fraction],
+                           'gbm__learning_rate': [learning_rate], 'gbm__max_depth': [max_depth], 'gbm__verbosity': [2]}
+        else:
+            self.params = {'gbm__n_estimators': [500], 'gbm__num_leaves': [50], 'gbm__learning_rate': [0.001],
+                           'gbm__verbosity': [2]}
+
+        self.stop_auto_improve_at = -2
+
+    def execute(self, df):
+
+        #df_copy = df.copy()
+        _, df_copy = self.lag_features(df=df, Train=True)
+
+        print('Here 1', type(df_copy))
+
+        entities = np.unique(df_copy.index.levels[0])
+        logger.debug(str(entities))
+
+        missing_cols = [x for x in self.predictions if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        # make sure to train a model
+        for entity in entities:
+            # per entity - copy for later inplace operations
+            try:
+                print (self.features)
+                check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
+            except Exception as e:
+                logger.error(
+                    'Found Nan or infinite value in feature columns for entity ' + str(entity) + ' error: ' + str(e))
+                #print(df_copy.loc[[entity]][self.features].head(20))
+                continue
+
+            dfe = super()._execute(df_copy.loc[[entity]], entity)
+            df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+
+        # preserve predictions based on full lag
+        df_pred = df_copy[self.predictions].rename(columns={self.predictions[0] : '__forecast__'})
+
+        # use the model for inferencing - with less lag
+        strip_features, df_copy = self.lag_features(df=df, Train=False)
+
+        missing_cols = [x for x in self.predictions if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        for entity in entities:
+            # per entity - copy for later inplace operations
+            try:
+                print (self.features)
+                check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
+            except Exception as e:
+                logger.error(
+                    'Found Nan or infinite value in feature columns for entity ' + str(entity) + ' error: ' + str(e))
+                #print(df_copy.loc[[entity]][self.features].head(20))
+                continue
+
+            dfe = super()._execute(df_copy.loc[[entity]], entity)
+            df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+
+            #df_copy = pd.merge(df_copy, df_pred, left_index=True, right_index=True, how='outer')
+
+        logger.debug('Drop artificial features ' + str(strip_features))
+        df_copy.drop(columns = strip_features, inplace=True)
+
+        return df_copy
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
+                                  is_output_datatype_derived=True))
+        inputs.append(UIMulti(name='lags', datatype=int, description='Comma separated list of lags'))
+
+        # define arguments that behave as function outputs
+        outputs = []
         return (inputs, outputs)
 
 
