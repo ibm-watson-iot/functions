@@ -1575,7 +1575,9 @@ class KMeansAnomalyScoreV2(Standard_Scaler):
             idx = pd.IndexSlice
             df_copy.loc[idx[entity, :], self.output_item] = z_score_ii
 
-            return df_copy
+        msg = "KMeansAnomalyScore"
+        self.trace_append(msg)
+        return df_copy
 
     @classmethod
     def build_ui(cls):
