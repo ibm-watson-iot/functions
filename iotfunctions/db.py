@@ -23,6 +23,7 @@ import ibm_db
 import ibm_db_dbi
 import pandas as pd
 import psycopg2
+import certifi
 import urllib3
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
@@ -382,7 +383,7 @@ class Database(object):
             logger.debug(msg)
             logger.warning(sqlite_warning_msg)
 
-        self.http = urllib3.PoolManager(timeout=30.0)
+        self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
         try:
             self.cos_client = CosClient(self.credentials)
         except KeyError:
@@ -1041,7 +1042,7 @@ class Database(object):
         response = r.data.decode('utf-8')
 
         if 200 <= r.status <= 299:
-            logger.debug('http request successful. status %s', r.status)
+            logger.debug(f'http request {url} successful. status {r.status}')
         elif (request == 'POST' and object_type in ['kpiFunction', 'defaultConstants', 'constants'] and (
                 500 <= r.status <= 599)):
             logger.debug('htpp POST failed. attempting PUT. status:%s', r.status)

@@ -12,7 +12,7 @@ setup(
         'numpy>=1.17.3',
         'pandas>=0.24.0',
         'scikit-learn==0.20.3',
-        'scipy>=1.1.0',
+        'scipy==1.5.0',
         'requests==2.25.0',
         'urllib3==1.26.2',
         'ibm_db==3.0.1',
@@ -25,7 +25,8 @@ setup(
         'scikit-image>=0.16.2',
         'sqlalchemy==1.3.10',
         'tabulate==0.8.5',
-        'pyarrow==0.17.1'
+        'pyarrow==0.17.1',
+        'stumpy==1.5.1'
     ],
     extras_require={
         'kafka':  ['confluent-kafka==1.0.0']
