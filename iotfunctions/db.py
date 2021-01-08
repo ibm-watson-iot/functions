@@ -383,7 +383,7 @@ class Database(object):
             logger.debug(msg)
             logger.warning(sqlite_warning_msg)
 
-        self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+        self.http = urllib3.PoolManager(timeout=30.0)
         try:
             self.cos_client = CosClient(self.credentials)
         except KeyError:
