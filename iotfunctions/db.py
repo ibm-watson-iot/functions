@@ -389,7 +389,7 @@ class Database(object):
             if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
                 self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
             else:
-                self.cos_client = CosClient(self.credentials)
+                self.http = urllib3.PoolManager(timeout=30.0)
         else:
             self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
