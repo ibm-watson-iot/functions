@@ -2,7 +2,7 @@
 
 from setuptools import setup, find_packages
 
-setup(name='iotfunctions', version='8.2.1',  # Update the version in iotfunction/__init__.py file.
+setup(name='iotfunctions', version='8.3.0',  # Update the version in iotfunction/__init__.py file.
       packages=find_packages(),
       install_requires=['dill==0.3.0', 'numpy>=1.18.5', 'pandas>=0.24.0', 'scikit-learn==0.23.1', 'scipy==1.5.0',
                         'requests==2.25.0', 'urllib3==1.26.2', 'ibm_db==3.0.2', 'ibm_db_sa==0.3.5', 'lxml==4.3.4',
