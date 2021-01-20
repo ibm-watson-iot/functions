@@ -392,6 +392,10 @@ class Database(object):
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
                                                     ca_certs='/var/www/as-pipeline/ca_public_cert.pem')
+                else:
+                    if os.path.exists('/project_data/data_asset/ca_public_cert.pem'):
+                        self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                                                        ca_certs='/project_data/data_asset/ca_public_cert.pem')
         else:
             self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
