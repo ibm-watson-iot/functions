@@ -1053,6 +1053,7 @@ class Database(object):
                               ' object_type (%s) is not supported by the'
                               ' python api') % (object_type, request))
 
+        logger.debug('URL: %s', url)
         r = self.http.request(request, url, body=encoded_payload, headers=headers)
         response = r.data.decode('utf-8')
 
