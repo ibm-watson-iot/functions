@@ -12,6 +12,7 @@
 The Built In Functions module contains preinstalled functions
 """
 
+import itertools as it
 import datetime as dt
 import logging
 
