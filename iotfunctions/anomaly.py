@@ -12,6 +12,7 @@
 The Built In Functions module contains preinstalled functions
 """
 
+import itertools as it
 import datetime as dt
 import logging
 
@@ -24,7 +25,7 @@ from pyod.models.cblof import CBLOF
 #  for Spectral Analysis
 from scipy import signal, fftpack
 #   for KMeans
-from skimage import util as skiutil  # for nifty windowing
+#from skimage import util as skiutil  # for nifty windowing
 from sklearn import ensemble
 from sklearn import linear_model
 from sklearn import metrics
@@ -34,6 +35,9 @@ from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler, mi
 from sklearn.utils import check_array
 # for Matrix Profile
 import stumpy
+
+# for KDEAnomalyScorer
+from statsmodels.nonparametric.kernel_density import KDEMultivariate
 
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
@@ -55,6 +59,22 @@ Spectral_normalizer = 100 / 2.8
 FFT_normalizer = 1
 Saliency_normalizer = 1
 Generalized_normalizer = 1 / 300
+
+
+# from
+# https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
+def view_as_windows(temperature, length, step):
+    logger.info('VIEW ' + str(temperature.shape) + ' ' + str(length) + ' ' + str(step))
+
+    def moving_window(x, length, _step=1):
+        if type(step) != 'int' or _step < 1:
+            logger.info('MOVE ' + str(_step))
+            _step = 1
+        streams = it.tee(x, length)
+        return zip(*[it.islice(stream, i, None, _step) for stream, i in zip(streams, it.count(step=1))])
+
+    x_=list(moving_window(temperature, length, step))
+    return np.asarray(x_)
 
 
 def custom_resampler(array_like):
@@ -154,6 +174,7 @@ def series_filter(values, kernel_size=3):
     :return: The list of filtered average
     """
     filter_values = np.cumsum(values, dtype=float)
+    logger.info('SERIES_FILTER: ' + str(values.shape) + ',' + str(filter_values.shape) + ',' + str(kernel_size))
 
     filter_values[kernel_size:] = filter_values[kernel_size:] - filter_values[:-kernel_size]
     filter_values[kernel_size:] = filter_values[kernel_size:] / kernel_size
@@ -421,19 +442,28 @@ class Standard_Scaler(BaseEstimatorFunction):
             df_copy[m] = None
 
         for entity in entities:
+
+            normalize_entity = self.normalize
+
             try:
                 check_array(df_copy.loc[[entity]][self.features].values, allow_nd=True)
             except Exception as e:
+                normalize_entity = False
                 logger.error(
                     'Found Nan or infinite value in feature columns for entity ' + str(entity) + ' error: ' + str(e))
-                continue
+                pass
 
             # support for optional scaling in subclasses
-            if self.normalize:
+            if normalize_entity:
                 dfe = super()._execute(df_copy.loc[[entity]], entity)
                 df_copy.loc[entity, self.predictions] = dfe[self.predictions]
+            else:
+                self.prediction = self.features[0]
 
             df_copy = self.kexecute(entity, df_copy)
+            self.prediction = self.predictions[0]
+
+        logger.info('Standard_Scaler: Found columns ' + str(df_copy.columns))
 
         return df_copy
 
@@ -875,7 +905,8 @@ class KMeansAnomalyScore(BaseTransformer):
                 logger.debug(str(temperature.size) + ',' + str(self.windowsize))
 
                 # Chop into overlapping windows
-                slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+                #slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+                slices = view_as_windows(temperature, self.windowsize, self.step)
 
                 if self.windowsize > 1:
                     n_cluster = 40
@@ -990,7 +1021,9 @@ class GeneralizedAnomalyScore(BaseTransformer):
 
         logger.debug(self.whoami + ': feature extract')
 
-        slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices = view_as_windows(temperature, self.windowsize, self.step)
+
         return slices
 
     def execute(self, df):
@@ -1183,7 +1216,7 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
      Applies the GeneralizedAnomalyScore to the features to detect outliers.
      Moves a sliding window across the data signal and applies the anomaly models to each window.
      The window size is typically set to 12 data points.
-     Try several anomaly detectors on your data and use the one that best fits your data.
+     Try several anomaly detectors on your data and use the one that fits your data best.
     """
 
     def __init__(self, input_item, windowsize, output_item):
@@ -1197,7 +1230,9 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
     def feature_extract(self, temperature):
         logger.debug(self.whoami + ': feature extract')
 
-        slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices_ = view_as_windows(temperature, self.windowsize, self.step)
+
         slicelist = []
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
@@ -1341,7 +1376,7 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
      Applies the GeneralizedAnomalyScore to the features to detect outliers.
      Moves a sliding window across the data signal and applies the anomaly models to each window.
      The window size is typically set to 12 data points.
-     Try several anomaly detectors on your data and use the one that best fits your data.
+     Try several anomaly detectors on your data and use the one that fits your data best.
     """
 
     def __init__(self, input_item, windowsize, dampening, output_item):
@@ -1356,7 +1391,9 @@ class FFTbasedGeneralizedAnomalyScore2(GeneralizedAnomalyScore):
     def feature_extract(self, temperature):
         logger.debug(self.whoami + ': feature extract')
 
-        slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices_ = view_as_windows(temperature, self.windowsize, self.step)
+
         slicelist = []
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
@@ -1397,7 +1434,7 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
      It applies GeneralizedAnomalyScore to the reconstructed signal.
      The function moves a sliding window across the data signal and applies its analysis to each window.
      The window size is typically set to 12 data points.
-     Try several anomaly detectors on your data and use the one that fits your data.
+     Try several anomaly detectors on your data and use the one that fits your data best.
     """
 
     def __init__(self, input_item, windowsize, output_item):
@@ -1414,7 +1451,9 @@ class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
 
         temperature_saliency = self.saliency.transform_spectral_residual(temperature)
 
-        slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
+        #slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
+        slices = view_as_windows(temperature, self.windowsize, self.step)
+
         return slices
 
     def execute(self, df):
@@ -1450,7 +1489,7 @@ class KMeansAnomalyScoreV2(Standard_Scaler):
      Moves a sliding window across the data signal and applies the anomaly model to each window.
      The window size is typically set to 12 data points.
      The normalize switch allows to learn and apply a standard scaler prior to computing the anomaly score.
-     Try several anomaly models on your data and use the one that fits your databest.
+     Try several anomaly models on your data and use the one that fits your data best.
     """
     eval_metric = staticmethod(metrics.r2_score)
 
@@ -1510,7 +1549,8 @@ class KMeansAnomalyScoreV2(Standard_Scaler):
             logger.debug(str(temperature.size) + ',' + str(self.windowsize))
 
             # Chop into overlapping windows
-            slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+            #slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+            slices = view_as_windows(temperature, self.windowsize, self.step)
 
             if self.windowsize > 1:
                 n_cluster = 40
@@ -1547,7 +1587,7 @@ class KMeansAnomalyScoreV2(Standard_Scaler):
             idx = pd.IndexSlice
             df_copy.loc[idx[entity, :], self.output_item] = z_score_ii
 
-            return df_copy
+        return df_copy
 
     @classmethod
     def build_ui(cls):
@@ -1611,7 +1651,9 @@ class GeneralizedAnomalyScoreV2(Standard_Scaler):
 
         logger.debug(self.whoami + ': feature extract')
 
-        slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices = view_as_windows(temperature, self.windowsize, self.step)
+
         return slices
 
     def kexecute(self, entity, df_copy):
@@ -1727,7 +1769,7 @@ class FFTbasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
      Moves a sliding window across the data signal and applies the anomaly models to each window.
      The window size is typically set to 12 data points.
      The normalize switch allows to learn and apply a standard scaler prior to computing the anomaly score.
-     Try several anomaly detectors on your data and use the one that best fits your data.
+     Try several anomaly detectors on your data and use the one that fits your data best.
     """
 
     def __init__(self, input_item, windowsize, normalize, output_item):
@@ -1741,7 +1783,9 @@ class FFTbasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
     def feature_extract(self, temperature):
         logger.debug(self.whoami + ': feature extract')
 
-        slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        #slices_ = skiutil.view_as_windows(temperature, window_shape=(self.windowsize,), step=self.step)
+        slices_ = view_as_windows(temperature, self.windowsize, self.step)
+
         slicelist = []
         for slice in slices_:
             slicelist.append(fftpack.rfft(slice))
@@ -1775,13 +1819,15 @@ class SaliencybasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
      The function moves a sliding window across the data signal and applies its analysis to each window.
      The window size is typically set to 12 data points.
      The normalize switch allows to learn and apply a standard scaler prior to computing the anomaly score.
-     Try several anomaly detectors on your data and use the one that fits your data.
+     Try several anomaly detectors on your data and use the one that fits your data best.
     """
 
     def __init__(self, input_item, windowsize, normalize, output_item):
         super().__init__(input_item, windowsize, normalize, output_item)
 
         self.whoami = 'SaliencyV2'
+        if windowsize is None:
+            windowsize = 12
         self.saliency = Saliency(windowsize, 0, 0)
         self.normalizer = Saliency_normalizer
 
@@ -1792,7 +1838,9 @@ class SaliencybasedGeneralizedAnomalyScoreV2(GeneralizedAnomalyScoreV2):
 
         temperature_saliency = self.saliency.transform_spectral_residual(temperature)
 
-        slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
+        #slices = skiutil.view_as_windows(temperature_saliency, window_shape=(self.windowsize,), step=self.step)
+        slices = view_as_windows(temperature, self.windowsize, self.step)
+
         return slices
 
     def execute(self, df):
@@ -1844,8 +1892,11 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         logger.info('Bayesian Ridge Regressor start searching for best model')
 
-    def __init__(self, features, targets, predictions=None):
+    def __init__(self, features, targets, predictions=None, deviations=None):
         super().__init__(features=features, targets=targets, predictions=predictions, stddev=True)
+
+        if deviations is not None:
+            self.pred_stddev = deviations
 
         self.experiments_per_execution = 1
         self.auto_train = True
@@ -1856,7 +1907,9 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         df_copy = df.copy()
         entities = np.unique(df_copy.index.levels[0])
-        logger.debug(str(entities))
+
+        logger.debug(str(entities) + ' predicting ' + str(self.targets) + ' from ' + str(self.features) +\
+                     ' to appear in ' + str(self.predictions) + ' with confidence interval ' + str(self.pred_stddev))
 
         missing_cols = [x for x in self.predictions + self.pred_stddev if x not in df_copy.columns]
         for m in missing_cols:
@@ -1864,24 +1917,31 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         for entity in entities:
             try:
-                check_array(df_copy.loc[[entity]][self.features].values)
+                #check_array(df_copy.loc[[entity]][self.features].values, allow_nd=2)
+                logger.debug('check passed')
                 dfe = super()._execute(df_copy.loc[[entity]], entity)
-                print(df_copy.columns)
+
+                logger.debug('BayesianRidge: Entity ' + str(entity) + ' Type of pred, stddev arrays ' + \
+                             str(type(dfe[self.predictions])) + str(type(dfe[self.pred_stddev].values)))
+
+                dfe.fillna(0, inplace=True)
 
                 df_copy.loc[entity, self.predictions] = dfe[self.predictions]
                 df_copy.loc[entity, self.pred_stddev] = dfe[self.pred_stddev]
 
-                print(df_copy.columns)
             except Exception as e:
                 logger.info('Bayesian Ridge regressor for entity ' + str(entity) + ' failed with: ' + str(e))
                 df_copy.loc[entity, self.predictions] = 0
+                df_copy.loc[entity, self.pred_stddev] = 0
+
         return df_copy
 
     @classmethod
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
-        inputs.append(UIMultiItem(name='features', datatype=float, required=True))
+        inputs.append(UIMultiItem(name='features', datatype=float, required=True, output_item='deviations',
+                                  is_output_datatype_derived=True))
         inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
                                   is_output_datatype_derived=True))
 
