@@ -23,6 +23,7 @@ import ibm_db
 import ibm_db_dbi
 import pandas as pd
 import psycopg2
+import certifi
 import urllib3
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
@@ -382,7 +383,18 @@ class Database(object):
             logger.debug(msg)
             logger.warning(sqlite_warning_msg)
 
-        self.http = urllib3.PoolManager(timeout=30.0)
+        is_icp = os.environ.get("isICP")
+        if is_icp is not None and is_icp == 'true':
+            logger.debug("inside icp for poolmanager3")
+            if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
+                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
+            else:
+                if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
+                    self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                                                    ca_certs='/var/www/as-pipeline/ca_public_cert.pem')
+        else:
+            self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+
         try:
             self.cos_client = CosClient(self.credentials)
         except KeyError:
@@ -965,7 +977,8 @@ class Database(object):
         self.url[('allFunctions', 'GET')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function?customFunctionsOnly=false'])
 
-        self.url[('constants', 'GET')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id]) + '?entityType=%s' % object_name
+        self.url[('constants', 'GET')] = '/'.join(
+            [base_kpi_url, 'constants', 'v1', self.tenant_id]) + '?entityType=%s' % object_name
         self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
@@ -1039,7 +1052,7 @@ class Database(object):
         response = r.data.decode('utf-8')
 
         if 200 <= r.status <= 299:
-            logger.debug('http request successful. status %s', r.status)
+            logger.debug(f'http request {url} successful. status {r.status}')
         elif (request == 'POST' and object_type in ['kpiFunction', 'defaultConstants', 'constants'] and (
                 500 <= r.status <= 599)):
             logger.debug('htpp POST failed. attempting PUT. status:%s', r.status)

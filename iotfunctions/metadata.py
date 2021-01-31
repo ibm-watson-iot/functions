@@ -1839,9 +1839,8 @@ class EntityType(object):
 
         Parameters
         ----------
-        credentials: dict
-            credentials for the ICS metadata service
-
+        sample_entity_type: bool
+            When true calls meta api will additional parameter that skips creation on `rcv_timestamp_utc` column
         """
 
         if self.db is None:
