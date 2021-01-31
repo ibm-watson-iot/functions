@@ -983,8 +983,7 @@ class Database(object):
         self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
 
-        self.url[('defaultConstants', 'GET')] = '/'.join(
-            [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
+        self.url[('defaultConstants', 'GET')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
         self.url[('defaultConstants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('defaultConstants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('defaultConstants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
