@@ -387,7 +387,8 @@ class Database(object):
         if is_icp is not None and is_icp == 'true':
             logger.debug("inside icp for poolmanager3")
             if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
-                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
+                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                                                ca_certs='/secrets/truststore/ca_public_cert.pem')
             else:
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
@@ -1414,7 +1415,7 @@ class Database(object):
         tic = time()
         df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
         toc = time()
-        logger.info(f'query execution time: {toc - tic} seconds')
+        logger.info(f"exec_time_secs={toc - tic:.2f}s sql={' '.join(str(sql).split())}")
 
         if parse_dates is not None and len(parse_dates) > 0:
             df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
