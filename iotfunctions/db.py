@@ -393,6 +393,10 @@ class Database(object):
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
                                                     ca_certs='/var/www/as-pipeline/ca_public_cert.pem')
+                else:
+                    if os.path.exists('/project_data/data_asset/ca_public_cert.pem'):
+                        self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                                                        ca_certs='/project_data/data_asset/ca_public_cert.pem')
         else:
             self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
@@ -979,7 +983,7 @@ class Database(object):
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function?customFunctionsOnly=false'])
 
         self.url[('constants', 'GET')] = '/'.join(
-            [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
+            [base_kpi_url, 'constants', 'v1', self.tenant_id]) + '?entityType=%s' % object_name
         self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
@@ -1050,6 +1054,7 @@ class Database(object):
                               ' object_type (%s) is not supported by the'
                               ' python api') % (object_type, request))
 
+        logger.debug('URL: %s', url)
         r = self.http.request(request, url, body=encoded_payload, headers=headers)
         response = r.data.decode('utf-8')
 
