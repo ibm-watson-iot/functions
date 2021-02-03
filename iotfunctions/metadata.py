@@ -2535,7 +2535,16 @@ class Model(object):
         return self.estimator
 
     def transform(self, df):
-        result = self.estimator.transform(df[self.features])
+        result = None
+        # support sklearn 0.20 to 0.23
+        try:
+            result = self.estimator.transform(df[self.features])
+        except Exception as trex:
+            logger.info('0.20 !!!')
+            self.estimator._check_n_features(df[self.features], reset=True)
+            result = self.estimator.transform(df[self.features])
+            pass
+
         msg = 'transformed using model %s' % (self.name)
         logger.info(msg)
         return result
