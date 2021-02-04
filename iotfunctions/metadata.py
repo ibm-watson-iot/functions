@@ -2540,7 +2540,8 @@ class Model(object):
         try:
             result = self.estimator.transform(df[self.features])
         except Exception as trex:
-            logger.info('0.20 !!!')
+            logmsg = 'Caught exception likely caused by a model generated with sklearn of version < 0.22. Exception: '
+            logger.warning((logmsg + str(trex)))
             self.estimator._check_n_features(df[self.features], reset=True)
             result = self.estimator.transform(df[self.features])
             pass
