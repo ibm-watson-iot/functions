@@ -404,6 +404,7 @@ class Database(object):
                         self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
                                                         ca_certs='/project_data/data_asset/ca_public_cert.pem')
         else:
+            logger.debug("PATH 6 inside icp for poolmanager for APM ")
             self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
         try:
