@@ -384,20 +384,27 @@ class Database(object):
             logger.warning(sqlite_warning_msg)
 
         is_icp = os.environ.get("isICP")
+        logger.debug("PATH -1 inside icp for poolmanager for APM ")
         if is_icp is not None and is_icp == 'true':
-            logger.debug("inside icp for poolmanager3")
+            logger.debug("PATH 0 : inside icp for poolmanager for APM ")
             if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
-                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
-                                                ca_certs='/secrets/truststore/ca_public_cert.pem')
+                logger.debug("PATH 1 : inside icp for poolmanager for APM ")
+                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
             else:
+                logger.debug("PATH 2 inside icp for poolmanager for APM ")
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
+                    logger.debug("PATH 3 inside icp for poolmanager for APM ")
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
                                                     ca_certs='/var/www/as-pipeline/ca_public_cert.pem')
                 else:
+                    logger.debug("PATH 4 inside icp for poolmanager for APM ")
                     if os.path.exists('/project_data/data_asset/ca_public_cert.pem'):
+                        logger.debug("PATH 5 : inside icp for poolmanager for APM ")
+                        logger.debug("Using project ca public cert file from APM")
                         self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
                                                         ca_certs='/project_data/data_asset/ca_public_cert.pem')
         else:
+            logger.debug("PATH 6 inside icp for poolmanager for APM ")
             self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
         try:
