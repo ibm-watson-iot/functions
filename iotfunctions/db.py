@@ -1427,7 +1427,7 @@ class Database(object):
         tic = time()
         df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
         toc = time()
-        logger.info(f'query execution time: {toc - tic} seconds')
+        logger.info(f"exec_time_secs={toc - tic:.2f}s sql={' '.join(str(sql).split())}")
 
         if parse_dates is not None and len(parse_dates) > 0:
             df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
