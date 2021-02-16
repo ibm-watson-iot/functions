@@ -19,11 +19,11 @@ import subprocess
 import sys
 from time import time
 
+import certifi
 import ibm_db
 import ibm_db_dbi
 import pandas as pd
 import psycopg2
-import certifi
 import urllib3
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
@@ -274,7 +274,7 @@ class Database(object):
                         security_extension += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
                     else:
                         cwd1 = os.getcwd()
-                        filename1 = cwd1 + "/db2_certificate.pem;"
+                        filename1 = cwd1 + "/db2_certificate.pem"
                         logger.debug('file name db => %s' % filename1)
                         if os.path.exists(filename1):
                             security_extension += ';SSLServerCertificate=' + filename1 + ";"
@@ -1027,8 +1027,7 @@ class Database(object):
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
         self.url[('function', 'PUT')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
-        self.url[('function', 'POST')] = '/'.join(
-            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type])
+        self.url[('function', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type])
 
         self.url[('granularitySet', 'POST')] = '/'.join(
             [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
