@@ -3262,6 +3262,13 @@ class BaseEstimatorFunction(BaseTransformer):
                 except Exception:
                     pass
 
+                if self.active_models is not None:
+                    if model.name not in self.active_models:
+                        try:
+                            self.active_models[model.name] = (model, None)
+                        except Exception as eeee:
+                            print(eeee)
+
                 if self.is_scaler:
                     df[model.col_name] = 0
                     df[model.col_name] = model.transform(df)
