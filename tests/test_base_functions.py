@@ -20,7 +20,7 @@ def test_base_functions():
     # Run on the good pump first
     # Get stuff in
     print('Read Anomaly Sample data in')
-    df_i = pd.read_csv('./AzureAnomalysample.csv', index_col=False, parse_dates=['timestamp'])
+    df_i = pd.read_csv('./data/AzureAnomalysample.csv', index_col=False, parse_dates=['timestamp'])
 
     df_i['entity'] = 'MyRoom'
     df_i[Temperature] = df_i['value'] + 20
