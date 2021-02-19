@@ -21,7 +21,7 @@ logger = logging.getLogger('Test Regressor')
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
-    model_store = FileModelStore('/tmp')
+    model_store = FileModelStore('./data')
     def _init(self):
         return
 
@@ -55,8 +55,21 @@ def test_bayes_ridge():
     print (db.model_store)
 
     #####
+    print('Bayes ridge - testing training pipeline with sklearn 0.21.3')
 
-    print('Bayes ridge - testing training pipeline')
+    jobsettings = { 'db': db, '_db_schema': 'public'}
+
+    brgi = BayesRidgeRegressor(features=[Temperature, Humidity], targets=[KW], predictions=['KW_pred'])
+    brgi.stop_auto_improve_at = 0.4
+    brgi.active_models = dict()
+
+    et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    brgi._entity_type = et
+
+    df_i = brgi.execute(df=df_i)
+
+    print('Bayes ridge - testing training pipeline with recent sklearn')
+    db.model_store = FileModelStore('/tmp')
 
     print('Bayes ridge - first time training')
     jobsettings = { 'db': db, '_db_schema': 'public'}

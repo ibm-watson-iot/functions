@@ -27,7 +27,7 @@ logger = logging.getLogger('Test Regressor')
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
-    model_store = FileModelStore('/tmp')
+    model_store = FileModelStore('./data')
     def _init(self):
         return
 
@@ -106,7 +106,28 @@ def test_base_estimator_function():
 
     #####
 
-    print('Base regressor - testing training pipeline')
+    print('Base regressor - testing model generated with sklearn 0.21.3')
+
+    jobsettings = { 'db': db, '_db_schema': 'public'} #, 'save_trace_to_file' : True}
+
+    brgi = TestRegressor(features=[Temperature, Humidity], targets=[KW], predictions=['KW_pred'])
+    brgi.stop_auto_improve_at = 0.4
+
+    et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    brgi._entity_type = et
+    df_i = brgi.execute(df=df_i)
+    print('Base regressor done')
+
+    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
+    print ('Trained model r2 ', mtrc)
+    assert_true(mtrc > 0.4)
+
+    print('Base regressor - testing training pipeline done ')
+
+
+    db.model_store = FileModelStore('/tmp')
+
+    print('Base regressor - testing training pipeline with recent sklearn')
 
     print('Base regressor - first time training')
     jobsettings = { 'db': db, '_db_schema': 'public'} #, 'save_trace_to_file' : True}

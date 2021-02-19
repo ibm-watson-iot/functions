@@ -25,9 +25,10 @@ logger = logging.getLogger('Test Regressor')
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
-    model_store = FileModelStore('/tmp')
+    model_store = FileModelStore('./data')
     def _init(self):
         return
+
 
 
 def test_anomaly_scores():
@@ -35,8 +36,7 @@ def test_anomaly_scores():
     numba_logger = logging.getLogger('numba')
     numba_logger.setLevel(logging.ERROR)
 
-
-    #####
+    ####
     print('Create dummy database')
     db_schema=None
     db = DatabaseDummy()
@@ -64,6 +64,30 @@ def test_anomaly_scores():
         print(str(df_i.index.get_level_values(i)))
 
     #####
+    print('Use scaling model generated with sklearn 0.21.3')
+
+    print('Compute Saliency Anomaly Score')
+    sali = SaliencybasedGeneralizedAnomalyScoreV2(Temperature, 12, True, sal)
+    et = sali._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    sali._entity_type = et
+    df_i = sali.execute(df=df_i)
+
+    print('Compute FFT Anomaly Score')
+    ffti = FFTbasedGeneralizedAnomalyScoreV2(Temperature, 12, True, fft)
+    et = ffti._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    ffti._entity_type = et
+    df_i = ffti.execute(df=df_i)
+
+    print('Compute K-Means Anomaly Score')
+    kmi = KMeansAnomalyScoreV2(Temperature, 12, True, kmeans)
+    et = kmi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    kmi._entity_type = et
+    df_comp = kmi.execute(df=df_i)
+
+    print("Executed Anomaly functions on sklearn 0.21.3")
+
+    print("Now generate new scalings with recent sklearn")
+    db.model_store = FileModelStore('/tmp')
 
     print('Compute Spectral Anomaly Score')
     spsi = SpectralAnomalyScoreExt(Temperature, 12, spectral, spectralinv)

@@ -21,7 +21,7 @@ logger = logging.getLogger('Test Regressor')
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
-    model_store = FileModelStore('/tmp')
+    model_store = FileModelStore('./data')
     def _init(self):
         return
 
@@ -56,7 +56,23 @@ def test_light_gbm():
 
     #####
 
-    print('lightGBM regressor - testing training pipeline')
+    print('lightGBM regressor - testing training pipeline with sklearn 0.21.3')
+    db.model_store = FileModelStore('/tmp')
+
+    jobsettings = { 'db': db, '_db_schema': 'public'}
+
+    brgi = GBMRegressor(features=[Temperature, Humidity], targets=[KW], predictions=['KW_pred'],
+                        n_estimators=500, num_leaves=40, learning_rate=0.2, max_depth=-1)
+
+    brgi.stop_auto_improve_at = 0.4
+    brgi.active_models = dict()
+
+    et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    brgi._entity_type = et
+
+    df_i = brgi.execute(df=df_i)
+
+    print('lightGBM regressor - testing training pipeline with recent sklearn and lightgbm')
 
     print('lightGBM regressor - first time training')
     jobsettings = { 'db': db, '_db_schema': 'public'}
