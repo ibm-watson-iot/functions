@@ -17,6 +17,25 @@ These instructions will get you up and running in your local environment or in W
  + ibm_cos_sdk (pip install ibm-cos-sdk)
  + lxml (pip install lxml)
 
+### Build and Shipment
+
+**Caveat**
+- Shipping to pypi or test-pypi requires a token
+- Version numbers can never be reused.
+
+1. Build a distribution first
+    ```
+    python3 setup.py sdist bdist_wheel
+    ```
+2. Upload to test-pypi
+    ```
+    twine upload --verbose --repository testpypi dist/*
+    ```
+3. When everything appears to be okay upload to pypi
+    ```
+    twine upload --verbose --repository pypi dist/*
+    ```
+
 ### Installing
 
 1. Create a virtual environment
