@@ -155,7 +155,7 @@ class TestPythonExpression():
 
         py_exp = bif.PythonExpression(expression=EXPRESSION, output_name=test_output_name)
 
-        mocked_parse_expression.assert_called_once_with(EXPRESSION) 
+        mocked_parse_expression.assert_called_once_with(EXPRESSION)
         assert py_exp.output_name == test_output_name
         assert py_exp.expression == EXPRESSION
         assert py_exp.constants == ['expression']
@@ -170,7 +170,7 @@ class TestPythonExpression():
         sample_df_copy = sample_df.copy()
         py_exp = bif.PythonExpression(expression=expression, output_name=output_name)
         py_exp._entity_type = MagicMock()
-        
+
         df = py_exp.execute(sample_df)
 
         assert py_exp._entity_type.get_attributes_dict.call_count == 1

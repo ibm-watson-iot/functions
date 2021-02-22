@@ -19,11 +19,11 @@ import subprocess
 import sys
 from time import time
 
+import certifi
 import ibm_db
 import ibm_db_dbi
 import pandas as pd
 import psycopg2
-import certifi
 import urllib3
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
@@ -274,7 +274,7 @@ class Database(object):
                         security_extension += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
                     else:
                         cwd1 = os.getcwd()
-                        filename1 = cwd1 + "/db2_certificate.pem;"
+                        filename1 = cwd1 + "/db2_certificate.pem"
                         logger.debug('file name db => %s' % filename1)
                         if os.path.exists(filename1):
                             security_extension += ';SSLServerCertificate=' + filename1 + ";"
@@ -384,15 +384,27 @@ class Database(object):
             logger.warning(sqlite_warning_msg)
 
         is_icp = os.environ.get("isICP")
+        logger.debug("PATH -1 inside icp for poolmanager for APM ")
         if is_icp is not None and is_icp == 'true':
-            logger.debug("inside icp for poolmanager3")
+            logger.debug("PATH 0 : inside icp for poolmanager for APM ")
             if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
+                logger.debug("PATH 1 : inside icp for poolmanager for APM ")
                 self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
             else:
+                logger.debug("PATH 2 inside icp for poolmanager for APM ")
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
+                    logger.debug("PATH 3 inside icp for poolmanager for APM ")
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
                                                     ca_certs='/var/www/as-pipeline/ca_public_cert.pem')
+                else:
+                    logger.debug("PATH 4 inside icp for poolmanager for APM ")
+                    if os.path.exists('/project_data/data_asset/ca_public_cert.pem'):
+                        logger.debug("PATH 5 : inside icp for poolmanager for APM ")
+                        logger.debug("Using project ca public cert file from APM")
+                        self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                                                        ca_certs='/project_data/data_asset/ca_public_cert.pem')
         else:
+            logger.debug("PATH 6 inside icp for poolmanager for APM ")
             self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
         try:
@@ -1014,8 +1026,7 @@ class Database(object):
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
         self.url[('function', 'PUT')] = '/'.join(
             [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
-        self.url[('function', 'POST')] = '/'.join(
-            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type])
+        self.url[('function', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type])
 
         self.url[('granularitySet', 'POST')] = '/'.join(
             [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
@@ -1048,6 +1059,7 @@ class Database(object):
                               ' object_type (%s) is not supported by the'
                               ' python api') % (object_type, request))
 
+        logger.debug('URL: %s', url)
         r = self.http.request(request, url, body=encoded_payload, headers=headers)
         response = r.data.decode('utf-8')
 
@@ -1413,7 +1425,7 @@ class Database(object):
         tic = time()
         df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
         toc = time()
-        logger.info(f'query execution time: {toc - tic} seconds')
+        logger.info(f"exec_time_secs={toc - tic:.2f}s sql={' '.join(str(sql).split())}")
 
         if parse_dates is not None and len(parse_dates) > 0:
             df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')
@@ -2025,7 +2037,7 @@ class Database(object):
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                 raise ValueError(msg)
-            query = query.filter(self.get_column_object(table, timestamp_col) < end_ts)
+            query = query.filter(self.get_column_object(table, timestamp_col) <= end_ts)
         if not entities is None:
             query = query.filter(table.c[deviceid_col].in_(entities))
 
@@ -2305,7 +2317,7 @@ class Database(object):
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(self.get_column_object(table, timestamp) < end_ts)
+                subquery = subquery.filter(self.get_column_object(table, timestamp) <= end_ts)
             if not entities is None:
                 subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
@@ -2568,7 +2580,7 @@ class Database(object):
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(self.get_column_object(table, timestamp) < end_ts)
+                subquery = subquery.filter(self.get_column_object(table, timestamp) <= end_ts)
             if not entities is None:
                 subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
