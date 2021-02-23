@@ -2038,7 +2038,7 @@ class Database(object):
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                 raise ValueError(msg)
-            query = query.filter(self.get_column_object(table, timestamp_col) < end_ts)
+            query = query.filter(self.get_column_object(table, timestamp_col) <= end_ts)
         if not entities is None:
             query = query.filter(table.c[deviceid_col].in_(entities))
 
@@ -2318,7 +2318,7 @@ class Database(object):
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(self.get_column_object(table, timestamp) < end_ts)
+                subquery = subquery.filter(self.get_column_object(table, timestamp) <= end_ts)
             if not entities is None:
                 subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
@@ -2581,7 +2581,7 @@ class Database(object):
                 if timestamp is None:
                     msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                     raise ValueError(msg)
-                subquery = subquery.filter(self.get_column_object(table, timestamp) < end_ts)
+                subquery = subquery.filter(self.get_column_object(table, timestamp) <= end_ts)
             if not entities is None:
                 subquery = subquery.filter(table.c[deviceid_col].in_(entities))
             for d, members in list(filters.items()):
