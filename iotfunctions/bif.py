@@ -172,6 +172,14 @@ class AlertExpressionWithFilter(BaseEvent):
     def _calc(self, df):
         c = self._entity_type.get_attributes_dict()
         df = df.copy()
+        # Adding entity_id in the df as default for entity level filter
+        id_idx = 'id'
+        entity_id_col = 'entity_id'
+        remove_entity_id_col = False
+        if id_idx in df.index.names and entity_id_col not in df.columns:
+            df[entity_id_col] = df.index.get_level_values(id_idx)
+            remove_entity_id_col = True
+
         logger.info('AlertExpressionWithFilter  exp: ' + self.expression + '  input: ' + str(df.columns))
 
         expr = self.expression
@@ -229,6 +237,9 @@ class AlertExpressionWithFilter(BaseEvent):
             df[self.alert_name] = None
             pass
 
+        # Removing entity_id added for filtering from the final df
+        if remove_entity_id_col:
+            df.drop(columns=entity_id_col, inplace=True)
         return df
 
     def execute(self, df):
