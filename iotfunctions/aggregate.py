@@ -4,15 +4,279 @@
 # US Government Users Restricted Rights - Use, duplication, or disclosure
 # restricted by GSA ADP Schedule Contract with IBM Corp.
 import re
+import logging
+from collections import defaultdict
+from functools import partial
 
 import pandas as pd
+import numpy as np
 
-from iotfunctions.base import BaseAggregator
+from iotfunctions.base import (BaseAggregator, BaseFunction)
+from iotfunctions.util import log_data_frame
+
+
+def asList(x):
+    if not isinstance(x, list):
+        x = [x]
+    return x
+
+
+def add_simple_aggregator_execute(cls, func_name):
+    def fn(self, group):
+        return self.aggregate(group)
+
+    setattr(cls, func_name, fn)
+    fn.__name__ = func_name
+
+
+class Aggregation(BaseFunction):
+
+    def __init__(self, dms, ids=None, timestamp=None, granularity=None, simple_aggregators=None,
+                 complex_aggregators=None, direct_aggregators=None):
+        """
+        Keyword arguments:
+        ids -- the names of entity id columns, can be a string or a list of
+               string. aggregation is always done first by entities unless
+               this is not given (None) and it is not allowed to include any
+               of entity id columns in sources
+        """
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        self.dms = dms
+
+        if simple_aggregators is None:
+            simple_aggregators = []
+
+        if complex_aggregators is None:
+            complex_aggregators = []
+
+        if direct_aggregators is None:
+            direct_aggregators = []
+
+        self.simple_aggregators = simple_aggregators
+        self.complex_aggregators = complex_aggregators
+        self.direct_aggregators = direct_aggregators
+
+        self.ids = ids
+        if self.ids is not None:
+            # if not set(self.ids).isdisjoint(set([sa[0] for sa in self.simple_aggregators])):
+            #     raise RuntimeError('sources (%s) must not include any columns in ids (%s), use grain entityFirst attribute to have that' % (str(self.sources), str(self.ids)))
+            self.ids = asList(self.ids)
+        else:
+            self.ids = list()
+
+        self.timestamp = timestamp
+
+        self.logger.debug('aggregation_input_granularity=%s' % str(granularity))
+
+        if granularity is not None and not isinstance(granularity, tuple):
+            raise RuntimeError('argument granularity must be a tuple')
+
+        self.frequency = None
+        self.groupby = None
+        self.entityFirst = True
+        if granularity is not None:
+            self.frequency, self.groupby, self.entityFirst, dummy = granularity
+
+        if self.groupby is None:
+            self.groupby = ()
+
+        if self.groupby is not None and not isinstance(self.groupby, tuple):
+            raise RuntimeError('argument granularity[1] must be a tuple')
+
+        self.logger.debug(
+            'aggregation_ids=%s, aggregation_timestamp=%s, aggregation_simple_aggregators=%s, aggregation_complex_aggregators=%s, aggregation_direct_aggregators=%s, aggregation_frequency=%s, aggregation_groupby=%s, aggregation_entityFirst=%s' % (
+                str(self.ids), str(self.timestamp), str(self.simple_aggregators), str(self.complex_aggregators),
+                str(self.direct_aggregators), str(self.frequency), str(self.groupby), str(self.entityFirst)))
+
+    def _agg_dict(self, df, simple_aggregators):
+        numerics = df.select_dtypes(include=[np.number, bool]).columns.values
+
+        agg_dict = defaultdict(list)
+        for srcs, agg, name in simple_aggregators:
+            srcs = asList(srcs)
+            for src in srcs:
+                if src in numerics:
+                    agg_dict[src].append(agg)
+                else:
+                    numeric_only_funcs = set(['sum', 'mean', 'std', 'var', 'prod', aggregate.Sum, aggregate.Mean,
+                                              aggregate.StandardDeviation, aggregate.Variance, aggregate.Product])
+                    if agg not in numeric_only_funcs:
+                        agg_dict[src].append(agg)
+
+        return agg_dict
+
+    def execute(self, df):
+        agg_dict = self._agg_dict(df, self.simple_aggregators)
+
+        self.logger.debug('aggregation_column_methods=%s' % dict(agg_dict))
+
+        df = df.reset_index()
+
+        group_base = []
+        if len(self.ids) > 0 and self.entityFirst:
+            group_base.extend(self.ids)
+
+        if self.timestamp is not None and self.frequency is not None:
+            if self.frequency == 'W':
+                # 'W' by default use right label and right closed
+                group_base.append(pd.Grouper(key=self.timestamp, freq=self.frequency, label='left', closed='left'))
+            else:
+                # other alias seems to not needing to special handle
+                group_base.append(pd.Grouper(key=self.timestamp, freq=self.frequency))
+
+        if self.groupby is not None and len(self.groupby) > 0:
+            group_base.extend(self.groupby)
+
+        self.logger.debug('aggregation_groupbase=%s' % str(group_base))
+
+        groups = df.groupby(group_base)
+
+        all_dfs = []
+
+        # simple aggregators
+
+        df_agg = groups.agg(agg_dict)
+
+        log_data_frame('aggregation_after_groupby_df_agg', df_agg.head())
+
+        renamed_cols = {}
+        for srcs, agg, names in self.simple_aggregators:
+            for src, name in zip(asList(srcs), asList(names)):
+                func_name = agg.func.__name__ if hasattr(agg, 'func') else agg.__name__ if hasattr(agg,
+                                                                                                   '__name__') else agg
+                renamed_cols['%s|%s' % (src, func_name)] = name if name is not None else src
+        for name in (
+                set(agg_dict.keys()) - set([item for sa in self.simple_aggregators for item in asList(sa[0])])):
+            for agg in agg_dict[name]:
+                func_name = agg.func.__name__ if hasattr(agg, 'func') else agg.__name__ if hasattr(agg,
+                                                                                                   '__name__') else agg
+                renamed_cols['%s|%s' % (name, func_name)] = name
+
+        self.logger.info('after simple aggregation function - sources %s' % str(renamed_cols))
+
+        new_columns = []
+        for col in df_agg.columns:
+            if len(col[-1]) == 0 or col[0] in ([self.timestamp] + list(self.groupby)):
+                new_columns.append('|'.join(col[:-1]))
+            else:
+                new_columns.append('|'.join(col))
+        df_agg.columns = new_columns
+
+        if len(renamed_cols) > 0:
+            df_agg.rename(columns=renamed_cols, inplace=True)
+
+        all_dfs.append(df_agg)
+
+        log_data_frame('aggregation_df_agg', df_agg.head())
+
+        # complex aggregators
+
+        for srcs, func, names in self.complex_aggregators:
+
+            self.logger.info('executing complex aggregation function - sources %s' % str(srcs))
+            self.logger.info('executing complex aggregation function - output %s' % str(names))
+            df_apply = groups.apply(func)
+
+            if df_apply.empty and df_apply.columns.empty:
+                for name in names:
+                    df_apply[name] = None
+
+                    source_metadata = self.dms.data_items.get(name)
+                    if source_metadata is None:
+                        continue
+
+                    if source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_NUMBER:
+                        df_apply = df_apply.astype({name: float})
+                    elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_BOOLEAN:
+                        df_apply = df_apply.astype({name: bool})
+                    elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_TIMESTAMP:
+                        df_apply = df_apply.astype({name: 'datetime64[ns]'})
+                    else:
+                        df_apply = df_apply.astype({name: str})
+
+            all_dfs.append(df_apply)
+
+            log_data_frame('func=%s, aggregation_df_apply' % str(func), df_apply.head())
+
+        # direct aggregators
+
+        for srcs, func, names in self.direct_aggregators:
+
+            self.logger.info('executing direct aggregation function - sources %s' % str(srcs))
+            self.logger.info('executing direct aggregation function - output %s' % str(names))
+
+            df_direct = func(df=df, group_base=group_base)
+            if df_direct.empty and df_direct.columns.empty:
+                for name in names:
+                    df_direct[name] = None
+
+                    source_metadata = self.dms.data_items.get(name)
+                    if source_metadata is None:
+                        continue
+
+                    if source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_NUMBER:
+                        df_direct = df_direct.astype({name: float})
+                    elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_BOOLEAN:
+                        df_direct = df_direct.astype({name: bool})
+                    elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_TIMESTAMP:
+                        df_direct = df_direct.astype({name: 'datetime64[ns]'})
+                    else:
+                        df_direct = df_direct.astype({name: str})
+
+            all_dfs.append(df_direct)
+
+            log_data_frame('func=%s, aggregation_df_direct' % str(func), df_direct.head())
+
+        # concat all results
+        df = pd.concat(all_dfs, axis=1)
+
+        log_data_frame('aggregation_final_df', df.head())
+
+        return df
 
 
 def _general_aggregator_input():
     return {'name': 'source', 'description': 'Select the data item that you want to use as input for your calculation.',
             'type': 'DATA_ITEM', 'required': True, }.copy()
+
+'''
+# How to run
+
+# import stuff in this file
+from iotfunctions.aggregate import (Aggregation, add_simple_aggregator_execute)
+
+# choose aggrator function
+func = bif.AggregateWithExpression
+
+# set up parameter list
+params_dict = {}
+params_dict['input_items'] = 'score'  # input column
+params_dict['output_items'] = 'score_out'  # output_column
+params_dict['expression'] = 'x.max()'
+
+# set name for the function pandas grouper should run
+func_name = 'execute_AggregateWithExpression'
+# add func_name as alias for the aggregate method
+add_simple_aggregator_execute(func, func_name)
+# turn func into a closure
+func_clos = getattr(func(**params_dict), func_name)
+
+# instatiate an Aggregation object with entity index, timestamp index,
+# desired granularity and a (short) chain of aggregators
+# granularity is a quadruple with frequency, list of columns to group, boolean whether to go by entity and
+#   entity id (which seems to be ignored)
+# simple aggregator is a list of triplets with column name, closure as above and a name
+agg_fct = Aggregation(None, ids=['entity'], timestamp='timestamp', granularity=('T', ('score',), True, 16623),
+                    simple_aggregators=[('score', func_clos, 'AggWithExpr')])
+
+# Execute the aggregator
+jobsettings = { 'db': db, '_db_schema': 'public', 'save_trace_to_file' : True}
+et = agg_fct._build_entity_type(columns = [Column('score',Float())], **jobsettings)
+df_agg = agg_fct.execute(df=df_input)
+
+
+'''
 
 
 def _number_aggregator_input():
