@@ -23,7 +23,7 @@ def asList(x):
 
 def add_simple_aggregator_execute(cls, func_name):
     def fn(self, group):
-        return self.aggregate(group)
+        return self.execute(group)
 
     setattr(cls, func_name, fn)
     fn.__name__ = func_name
@@ -31,15 +31,16 @@ def add_simple_aggregator_execute(cls, func_name):
 
 class Aggregation(BaseFunction):
 
+    """
+    Keyword arguments:
+    ids -- the names of entity id columns, can be a string or a list of
+           string. aggregation is always done first by entities unless
+           this is not given (None) and it is not allowed to include any
+           of entity id columns in sources
+    """
     def __init__(self, dms, ids=None, timestamp=None, granularity=None, simple_aggregators=None,
                  complex_aggregators=None, direct_aggregators=None):
-        """
-        Keyword arguments:
-        ids -- the names of entity id columns, can be a string or a list of
-               string. aggregation is always done first by entities unless
-               this is not given (None) and it is not allowed to include any
-               of entity id columns in sources
-        """
+
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
 
         self.dms = dms
@@ -99,8 +100,8 @@ class Aggregation(BaseFunction):
                 if src in numerics:
                     agg_dict[src].append(agg)
                 else:
-                    numeric_only_funcs = set(['sum', 'mean', 'std', 'var', 'prod', aggregate.Sum, aggregate.Mean,
-                                              aggregate.StandardDeviation, aggregate.Variance, aggregate.Product])
+                    numeric_only_funcs = set(['sum', 'mean', 'std', 'var', 'prod', Sum, Mean,
+                                              StandardDeviation, Variance, Product])
                     if agg not in numeric_only_funcs:
                         agg_dict[src].append(agg)
 
