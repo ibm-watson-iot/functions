@@ -1,0 +1,3 @@
+include iotfunctions/*.py
+include tests/test_*.py
+include data/*
