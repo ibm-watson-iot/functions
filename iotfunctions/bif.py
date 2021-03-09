@@ -82,28 +82,35 @@ class AggregateWithExpression(BaseSimpleAggregator):
     x.max() - x.min()
 
     """
-
-    def __init__(self, input_items, expression=None, output_items=None):
+    def __init__(self, source=None, expression=None, name=None):
         super().__init__()
+        logger.info('AggregateWithExpression _init')
 
-        self.input_items = input_items
+        self.source = source
         self.expression = expression
-        self.output_items = output_items
+        self.name = name
 
     @classmethod
     def build_ui(cls):
         inputs = []
-        inputs.append(UIMultiItem(name='input_items', datatype=None, description=('Choose the data items'
-                                                                                  ' that you would like to'
-                                                                                  ' aggregate'),
-                                  output_item='output_items', is_output_datatype_derived=True))
-
+        inputs.append(UIMultiItem(name='source', datatype=None,
+                                  description=('Choose the data items that you would like to aggregate'),
+                                  output_item='name', is_output_datatype_derived=True))
         inputs.append(UIExpression(name='expression', description='Paste in or type an AS expression'))
-
         return (inputs, [])
 
-    def aggregate(self, x):
-        return eval(self.expression)
+    def execute(self, x):
+        logger.info('Execute AggregateWithExpression')
+        logger.debug('Source ' + str(self.source) +  'Expression ' +  str(self.expression) + 'Name ' + str(self.name))
+        y = None
+        try:
+            y = eval(self.expression)
+        except Exception as e:
+            logger.error('Evaluating AggregateWithExpression failed with ' + str(e))
+            pass
+
+        logger.info('AggregateWithExpression returns ' + str(y))
+        return y
 
 
 class AlertExpression(BaseEvent):
@@ -1930,7 +1937,7 @@ class IoTCalcSettings(BaseMetadataProvider):
 
     def _apply_pre_agg_metadata(self, aggregate, items, outputs):
         """
-        convert UI inputs into a pandas aggregate dictionary and 
+        convert UI inputs into a pandas aggregate dictionary and
         a separate dictionary containing names of aggregate items
         """
         if items is not None:
@@ -2135,7 +2142,12 @@ class NewColFromCalculation:
         expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
         self.logger.debug('new_column_expression=%s' % str(expr))
 
-        df[self.name] = eval(expr)
+        df[self.name] = None
+        try:
+            df[self.name] = eval(expr)
+        except Exception as e:
+            logger.error('evaluating NewColFromCalculation failed with ' + str(e))
+            pass
 
         df = df.set_index(keys=sources_not_in_column)
 
