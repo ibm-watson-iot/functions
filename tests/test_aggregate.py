@@ -53,6 +53,7 @@ def test_aggregation():
 
     # make sure timestamp is a datetime (aggregations are very picky about datetime indices)
     df_i['timestamp'] = pd.to_datetime(df_i['timestamp']) #pd.to_datetime(df_rst.index, format="%Y-%m-%d-%H.%M.%S.%f")
+    df_i['TEMP_AIR'] = df_i['TEMP_AIR'].astype(float)
 
     # and sort it by timestamp
     df_i = df_i.sort_values(by='timestamp')
@@ -81,7 +82,7 @@ def test_aggregation():
     params_dict = {}
     params_dict['source'] = 'TEMP_AIR'
     params_dict['name'] = 'Temp_diff'
-    params_dict['expression'] = 'x.max() - x.min()'
+    params_dict['expression'] = 'x.max()-x.min()'
 
     # replace aggregate call with 'execute_AggregateWithExpression'
     func_name = 'execute_AggregateTimeInState'
@@ -94,7 +95,7 @@ def test_aggregation():
     # set up an Aggregation thingy with the entity index, timestamp index,
     # desired granularity and a (short) chain of aggregators
     # granularity = frequency, dimension(s), include entity, entity id
-    aggobj = Aggregation(None, ids=['entity'], timestamp='timestamp', granularity=('T', None, True, 0),
+    aggobj = Aggregation(None, ids=['entity'], timestamp='timestamp', granularity=('D', None, True, 0),
                     simple_aggregators=[(['TEMP_AIR'], func_clos, 'x.max() - x.min()')])
 
     print(aggobj)
@@ -103,6 +104,10 @@ def test_aggregation():
     et = aggobj._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
 
     df_agg = aggobj.execute(df=df_i)
+    df_agg_comp = pd.read_csv('./data/aggregated.csv', index_col=False, parse_dates=['timestamp'])
+
+    assert_true(np.allclose(df_agg['x.max() - x.min()'].values, df_agg_comp['x.max() - x.min()'].values))
+
     print('Aggregation done', df_agg)
 
     pass
