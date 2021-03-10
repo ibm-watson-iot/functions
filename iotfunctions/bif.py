@@ -107,7 +107,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
             y = eval(self.expression)
         except Exception as e:
             logger.error('Evaluating AggregateWithExpression failed with ' + str(e))
-            pass
+            raise('AggregateWithExpression failed in the evaluation step with ' + str(e))
 
         logger.info('AggregateWithExpression returns ' + str(y))
         return y
@@ -2147,7 +2147,7 @@ class NewColFromCalculation:
             df[self.name] = eval(expr)
         except Exception as e:
             logger.error('evaluating NewColFromCalculation failed with ' + str(e))
-            pass
+            raise('NewColFromCalculation failed in the evaluation step with ' + str(e))
 
         df = df.set_index(keys=sources_not_in_column)
 
