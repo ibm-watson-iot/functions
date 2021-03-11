@@ -23,14 +23,19 @@ _IS_PREINSTALLED = True
 
 class DataQualityChecks(BaseComplexAggregator):
     """
-    Brief description of class
-    Brief description of the metrics
-
+    Data Quality module will help asses the quality of incoming sensor data, using the provided metrics.
+    constant_value is a boolean indicator for unchanging time series signal
+    sample_entropy asses the complexity of information in the data; a number closer to zero indicates
+    patterns that can be learnt easily
+    staionarity asses if the mean, variance, co-variance of time series signal are changing over time; A signal can 
+    be Stationary, Non Stationary, Trend Stationary, and Difference Stationary
+    stuck_at_zero is a boolean indicator for unchanging time series signal that is stuck at 0
+    white_noise is a boolean indicator for a time series signal that is random and contains no pattern
     """
     # define check name in QUALITY_CHECK same as corresponding staticmethod that executes the function
     QUALITY_CHECKS = ['constant_value',
                       'sample_entropy',
-                      'stationary',
+                      'stationarity',
                       'stuck_at_zero',
                       'white_noise'
                       ]
@@ -48,7 +53,7 @@ class DataQualityChecks(BaseComplexAggregator):
     def build_ui(cls):
         inputs = [UISingleItem(name='source', datatype=None,
                                description='Choose data item to run data quality checks on'),
-                  UIMulti(name='quality_checks', datatype=str, description='Choose quality checks to run',
+                  UIMulti(name='quality_checks', datatype=str, description='Choose quality checks to run.',
                           values=cls.QUALITY_CHECKS, output_item='name',
                           is_output_datatype_derived=True, output_datatype=float)]
 
@@ -68,7 +73,7 @@ class DataQualityChecks(BaseComplexAggregator):
     @staticmethod
     def constant_value(series):
         """
-        A time series signal stuck at a constant value contains no information, and is higly likely to be due to an
+        A time series signal stuck at a constant value contains no information, and is highly likely to be due to an
         error in data collection
 
         :returns bool True when series has constant_value
@@ -114,10 +119,10 @@ class DataQualityChecks(BaseComplexAggregator):
         return sampen(series.to_list(), m=2, r=0.2 * series.std())
 
     @staticmethod
-    def stationary(series):
+    def stationarity(series):
         """
         A time series is Stationary when it's mean, variance, co-variance do not change over time.
-        Time-invariant process are requiremetns of statistical models for forecasting problems
+        Time-invariant process are requirements of statistical models for forecasting problems
         Can indicate spurious causation between variable dependent on time
 
         Reference:
