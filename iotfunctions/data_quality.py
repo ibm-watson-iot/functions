@@ -163,7 +163,9 @@ class DataQualityChecks(BaseComplexAggregator):
 
         :returns bool
         """
-        return bool(np.count_nonzero(series.to_numpy()) < 1)
+        tolerance = 10e-8
+        is_close_to_zero = np.all((series.to_numpy() <= tolerance))
+        return bool(is_close_to_zero)
 
     @staticmethod
     def white_noise(series):
