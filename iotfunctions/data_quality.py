@@ -38,6 +38,7 @@ class DataQualityChecks(BaseComplexAggregator):
                       'stuck_at_zero',
                       'white_noise'
                       ]
+    SERIES_LEN_ERROR = 'Series len < 1'
 
     def __init__(self, source=None, quality_checks=None, name=None):
         super().__init__()
@@ -63,9 +64,13 @@ class DataQualityChecks(BaseComplexAggregator):
         Called on df.groupby
         """
         ret_dict = {}
+        group.dropna(inplace=True)
         for check, output in zip(self.quality_checks, self.output_items):
             agg_func = getattr(self, check)
-            ret_dict[output] = group[self.input_items].agg(agg_func)
+            if len(group[self.input_items]) > 1:
+                ret_dict[output] = group[self.input_items].agg(agg_func)
+            else:
+                ret_dict[output] = self.SERIES_LEN_ERROR
 
         return pd.Series(ret_dict, index=self.output_items)
 
