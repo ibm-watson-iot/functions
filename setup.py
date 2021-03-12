@@ -2,10 +2,34 @@
 
 from setuptools import setup, find_packages
 
-setup(name='iotfunctions', version='8.3.1',  # Update the version in iotfunction/__init__.py file.
-      packages=find_packages(),
-      install_requires=['dill==0.3.0', 'numpy>=1.18.5', 'pandas>=1.0.5', 'scikit-learn==0.23.1', 'scipy==1.5.0',
-                        'requests==2.25.0', 'urllib3==1.26.2', 'ibm_db==3.0.3', 'ibm_db_sa==0.3.6', 'lxml==4.6.2',
-                        'lightgbm>=3.1.1', 'nose>=1.3.7', 'psycopg2-binary==2.8.6', 'pyod==0.7.5',
-                        'sqlalchemy==1.3.17', 'statsmodels==0.11.1', 'tabulate==0.8.5', 'pyarrow==3.0.0',
-                        'stumpy==1.5.1'], extras_require={'kafka': ['confluent-kafka==1.6.0']})
+with open('requirements.txt') as f:
+    requirements = f.read().splitlines()
+    f.close()
+
+with open('iotfunctions/__init__.py') as f:
+    version_ = f.read()
+    exec(version_)
+    f.close()
+
+with open('README.md', encoding='utf-8') as f:
+    long_description = f.read()
+
+setup(
+    name='iotfunctions',
+    version=__version__,
+    author='Sivakumar Rajendren',
+    author_email='rsiva@us.ibm.com',
+    description='Open source component of the Maximo Asset Manager pipeline',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
+    url='https://github.com/ibm-watson-iot/iotfunctions',
+    packages=find_packages(),
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: Apache Software License",
+        "Operating System :: OS Independent",
+    ],
+    python_requires='>=3.6',
+    install_requires=requirements,
+    extras_require={'kafka': ['confluent-kafka==1.0.0']}
+)
