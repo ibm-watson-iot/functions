@@ -11,7 +11,7 @@ from iotfunctions.ui import (UISingleItem,
 import math
 import pandas as pd
 import numpy as np
-from statsmodels.tsa.stattools import (kpss, adfuller, acf, q_stat)
+from statsmodels.tsa.stattools import (kpss, adfuller)
 from statsmodels.stats.diagnostic import acorr_ljungbox
 
 logger = logging.getLogger(__name__)
@@ -23,22 +23,27 @@ _IS_PREINSTALLED = True
 class DataQualityChecks(BaseComplexAggregator):
     """
     Data Quality module will help assess the quality of incoming sensor data, using the provided metrics.
+
     constant_value is a boolean indicator for unchanging time series signal
+
     sample_entropy assess the complexity of information in the data; a number closer to zero indicates
     patterns that can be learnt easily
+
     staionarity assess if the mean, variance, co-variance of time series signal are changing over time; A signal can 
     be Stationary, Non Stationary, Trend Stationary, and Difference Stationary
+
     stuck_at_zero is a boolean indicator for unchanging time series signal that is stuck at 0
+
     white_noise is a boolean indicator for a time series signal that is random and contains no pattern
     """
     # define check name in QUALITY_CHECK same as corresponding staticmethod that executes the function
-    QUALITY_CHECKS = ['constant_value',
-                      'sample_entropy',
-                      'stationarity',
-                      'stuck_at_zero',
-                      'white_noise'
-                      ]
-    SERIES_LEN_ERROR = 'Series len < 1'
+    ALL_QUALITY_CHECKS = ['constant_value',
+                          'sample_entropy',
+                          'stationarity',
+                          'stuck_at_zero',
+                          'white_noise'
+                         ]
+    SERIES_LEN_ERROR = {str: 'Series len < 1', float: -1, bool: False}
 
     def __init__(self, source=None, quality_checks=None, name=None):
         super().__init__()
@@ -53,9 +58,8 @@ class DataQualityChecks(BaseComplexAggregator):
     def build_ui(cls):
         inputs = [UISingleItem(name='source', datatype=None,
                                description='Choose data item to run data quality checks on'),
-                  UIMulti(name='quality_checks', datatype=str, description='Choose quality checks to run.',
-                          values=cls.QUALITY_CHECKS, output_item='name',
-                          is_output_datatype_derived=True, output_datatype=float)]
+                  UIMulti(name='quality_checks', datatype=str, description='Choose quality checks to run',
+                          values=cls.ALL_QUALITY_CHECKS, output_item='name')]
 
         return inputs, []
 
@@ -64,18 +68,20 @@ class DataQualityChecks(BaseComplexAggregator):
         Called on df.groupby
         """
         ret_dict = {}
-        group.dropna(inplace=True)
+        group_no_nan = group.dropna()
         for check, output in zip(self.quality_checks, self.output_items):
             agg_func = getattr(self, check)
-            if len(group[self.input_items]) > 1:
-                ret_dict[output] = group[self.input_items].agg(agg_func)
+            if len(group_no_nan[self.input_items]) > 1:
+                ret_dict[output] = group_no_nan[self.input_items].agg(agg_func)
+            #length of incoming data is too short for meaningful computation
             else:
-                ret_dict[output] = self.SERIES_LEN_ERROR
+                logger.warning('Not enough data to perform data quality checks')
+                ret_dict[output] = self.SERIES_LEN_ERROR[agg_func.__annotations__['return']]
 
         return pd.Series(ret_dict, index=self.output_items)
 
     @staticmethod
-    def constant_value(series):
+    def constant_value(series) -> bool:
         """
         A time series signal stuck at a constant value contains no information, and is highly likely to be due to an
         error in data collection
@@ -86,7 +92,7 @@ class DataQualityChecks(BaseComplexAggregator):
         return bool(series.nunique() <= 1)
 
     @staticmethod
-    def sample_entropy(series):
+    def sample_entropy(series) -> float:
         """
         Measure of signal complexity/randomness in signal
         A value closer to 0 indicates repeated patterns in data/ease of prediction
@@ -101,6 +107,7 @@ class DataQualityChecks(BaseComplexAggregator):
 
         :returns float
         """
+
         def sampen(L, m, r):
             N = len(L)
 
@@ -123,7 +130,7 @@ class DataQualityChecks(BaseComplexAggregator):
         return sampen(series.to_list(), m=2, r=0.2 * series.std())
 
     @staticmethod
-    def stationarity(series):
+    def stationarity(series) -> str:
         """
         A time series is Stationary when it's mean, variance, co-variance do not change over time.
         Time-invariant process are requirements of statistical models for forecasting problems
@@ -162,7 +169,7 @@ class DataQualityChecks(BaseComplexAggregator):
         return stationary_type[adf_stationary, kpss_stationary]
 
     @staticmethod
-    def stuck_at_zero(series):
+    def stuck_at_zero(series) -> bool:
         """
         A time series signal stuck at zero contains no information
 
@@ -173,18 +180,19 @@ class DataQualityChecks(BaseComplexAggregator):
         return bool(is_close_to_zero)
 
     @staticmethod
-    def white_noise(series):
+    def white_noise(series) -> bool:
         """
         A white noise time series signal is random signal that cannot be reasonably predicted
         (Additional use) Forecasting error should be white nose
 
         :returns bool
         """
-
         # ljung box test; H0: data is iid/random/white noise
+        white_noise = True  # accept Null Hypothesis
         significance_level = 0.05  # p < 0.05 rejects null hypothesis
-        ljung_box_q_statitic, ljung_box_p_value = acorr_ljungbox(series, lags=len(series) - 1)
+        ljung_box_q_statitic, ljung_box_p_value = acorr_ljungbox(series, lags=len(series) - 1, return_df=False)
 
         if all([p_value < significance_level for p_value in ljung_box_p_value]):
-            return False  # reject Null Hypothesis
-        return True  # accept Null Hypothesis
+            white_noise = False  # reject Null Hypothesis
+
+        return white_noise
