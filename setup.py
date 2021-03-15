@@ -31,5 +31,5 @@ setup(
     ],
     python_requires='>=3.6',
     install_requires=requirements,
-    extras_require={'kafka': ['confluent-kafka==1.0.0']}
+    extras_require={'kafka': ['confluent-kafka==1.6.0']}
 )
