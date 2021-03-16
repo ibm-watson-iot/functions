@@ -127,14 +127,6 @@ class AlertExpression(BaseEvent):
     def execute(self, df):
         c = self._entity_type.get_attributes_dict()
         df = df.copy()
-        # Adding entity_id in the df as default for entity level filter
-        id_idx = 'id'
-        entity_id_col = 'entity_id'
-        remove_entity_id_col = False
-        if id_idx in df.index.names and entity_id_col not in df.columns:
-            df[entity_id_col] = df.index.get_level_values(id_idx)
-            remove_entity_id_col = True
-
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
             msg = 'Expression converted to %s. ' % expr
@@ -143,10 +135,6 @@ class AlertExpression(BaseEvent):
             msg = 'Expression (%s). ' % expr
         self.trace_append(msg)
         df[self.alert_name] = np.where(eval(expr), True, None)
-
-        # Removing entity_id added for filtering from the final df
-        if remove_entity_id_col:
-            df.drop(columns=entity_id_col, inplace=True)
         return df
 
     def get_input_items(self):
