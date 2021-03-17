@@ -7,7 +7,8 @@
 import logging
 from iotfunctions.base import (BaseComplexAggregator)
 from iotfunctions.ui import (UISingleItem,
-                             UIMulti)
+                             UIMulti,
+                             UIFunctionOutMulti)
 import math
 import pandas as pd
 import numpy as np
@@ -37,31 +38,51 @@ class DataQualityChecks(BaseComplexAggregator):
     white_noise is a boolean indicator for a time series signal that is random and contains no pattern
     """
     # define check name in QUALITY_CHECK same as corresponding staticmethod that executes the function
-    ALL_QUALITY_CHECKS = ['constant_value',
-                          'sample_entropy',
-                          'stationarity',
-                          'stuck_at_zero',
-                          'white_noise'
-                         ]
+    STR_QUALITY_CHECKS = ['stationarity']
+    NUMERICAL_QUALITY_CHECKS = ['sample_entropy']
+    BOOLEAN_QUALITY_CHECKS = ['constant_value', 'stuck_at_zero', 'white_noise']
+
     SERIES_LEN_ERROR = {str: 'Series len < 1', float: -1, bool: False}
 
-    def __init__(self, source=None, quality_checks=None, name=None):
+    def __init__(self, source=None, quality_checks_with_string_output=None, quality_checks_with_numerical_output=None,
+                 quality_checks_with_boolean_output=None, name=None):
         super().__init__()
 
         self.input_items = source
-        self.quality_checks = quality_checks
+        self.quality_checks = []
+        if quality_checks_with_string_output:
+            self.quality_checks.extend(quality_checks_with_string_output)
+        if quality_checks_with_numerical_output:
+            self.quality_checks.extend(quality_checks_with_numerical_output)
+        if quality_checks_with_boolean_output:
+            self.quality_checks.extend(quality_checks_with_boolean_output)
+
         self.output_items = name
         logger.debug(f'Data Quality Checks will be performed for : {source}')
-        logger.debug(f'quality checks selected: {quality_checks}  corresponding output: {name}')
+        logger.debug(f'quality checks selected: {self.quality_checks}  corresponding output: {name}')
 
     @classmethod
     def build_ui(cls):
         inputs = [UISingleItem(name='source', datatype=None,
                                description='Choose data item to run data quality checks on'),
-                  UIMulti(name='quality_checks', datatype=str, description='Choose quality checks to run',
-                          values=cls.ALL_QUALITY_CHECKS, output_item='name')]
+                  UIMulti(name='quality_checks_with_string_output', datatype=str, description='Select quality checks '
+                          'to run. These checks return string output ', values=cls.STR_QUALITY_CHECKS, required=False),
+                  UIMulti(name='quality_checks_with_numerical_output', datatype=str, description='Select quality '
+                          'checks to run. These checks return numerical output ', values=cls.NUMERICAL_QUALITY_CHECKS,
+                          required=False),
+                  UIMulti(name='quality_checks_with_boolean_output', datatype=str, description='Select quality checks '
+                          'to run. These checks return boolean output', values=cls.BOOLEAN_QUALITY_CHECKS,
+                          required=False)
+                  ]
+        outputs = [UIFunctionOutMulti('name', cardinality_from='quality_checks_with_string_output', datatype=str,
+                                      description='quality check returns string output'),
+                   UIFunctionOutMulti('name', cardinality_from='quality_checks_with_numerical_output', datatype=float,
+                                      description='quality check returns numerical output'),
+                   UIFunctionOutMulti('name', cardinality_from='quality_checks_with_boolean_output', datatype=bool,
+                                      description='quality check returns boolean output')
+                   ]
 
-        return inputs, []
+        return inputs, outputs
 
     def execute(self, group):
         """
