@@ -317,7 +317,7 @@ class Database(object):
                     if connection_string_from_env.endswith(';'):
                         connection_string_from_env = connection_string_from_env[:-1]
                     try:
-                        ev = dict(item.split("=") for item in connection_string_from_env.split(";"))
+                        ev = dict(item.split("=", maxsplit=1) for item in connection_string_from_env.split(";"))
                         sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
                             ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
 
