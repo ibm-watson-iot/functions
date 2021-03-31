@@ -6,11 +6,11 @@
 import re
 import logging
 from collections import defaultdict
-from functools import partial
 
 import pandas as pd
 import numpy as np
 
+import iotfunctions.metadata as md
 from iotfunctions.base import (BaseAggregator, BaseFunction)
 from iotfunctions.util import log_data_frame
 
@@ -100,8 +100,8 @@ class Aggregation(BaseFunction):
                 if src in numerics:
                     agg_dict[src].append(agg)
                 else:
-                    numeric_only_funcs = set(['sum', 'mean', 'std', 'var', 'prod', Sum, Mean,
-                                              StandardDeviation, Variance, Product])
+                    numeric_only_funcs = {'sum', 'mean', 'std', 'var', 'prod', Sum, Mean, StandardDeviation, Variance,
+                                          Product}
                     if agg not in numeric_only_funcs:
                         agg_dict[src].append(agg)
 
@@ -187,11 +187,11 @@ class Aggregation(BaseFunction):
                     if source_metadata is None:
                         continue
 
-                    if source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_NUMBER:
+                    if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
                         df_apply = df_apply.astype({name: float})
-                    elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_BOOLEAN:
+                    elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
                         df_apply = df_apply.astype({name: bool})
-                    elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_TIMESTAMP:
+                    elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
                         df_apply = df_apply.astype({name: 'datetime64[ns]'})
                     else:
                         df_apply = df_apply.astype({name: str})
@@ -216,11 +216,11 @@ class Aggregation(BaseFunction):
                     if source_metadata is None:
                         continue
 
-                    if source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_NUMBER:
+                    if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
                         df_direct = df_direct.astype({name: float})
-                    elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_BOOLEAN:
+                    elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
                         df_direct = df_direct.astype({name: bool})
-                    elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_DATATYPE_TIMESTAMP:
+                    elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
                         df_direct = df_direct.astype({name: 'datetime64[ns]'})
                     else:
                         df_direct = df_direct.astype({name: str})
@@ -571,4 +571,4 @@ class AggregateWithCalculation(SimpleAggregator):
         self.expression = expression
 
     def execute(self, group):
-        return eval(re.sub(r"\$\{GROUP\}", r"group", self.expression))
+        return eval(re.sub(r"\${GROUP}", r"group", self.expression))

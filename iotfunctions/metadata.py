@@ -31,6 +31,19 @@ from .util import (MemoryOptimizer, build_grouper, categorize_args, reset_df_ind
 
 logger = logging.getLogger(__name__)
 
+DATA_ITEM_TYPE_BOOLEAN = 'BOOLEAN'
+DATA_ITEM_TYPE_NUMBER = 'NUMBER'
+DATA_ITEM_TYPE_LITERAL = 'LITERAL'
+DATA_ITEM_TYPE_TIMESTAMP = 'TIMESTAMP'
+
+DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
+DATA_ITEM_TRANSIENT_KEY = 'transient'
+DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
+DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
+DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'functionName'
+DATA_ITEM_TAG_ALERT = 'ALERT'
+DATA_ITEM_TAGS_KEY = 'tags'
+DATA_ITEM_TYPE_KEY = 'type'
 
 def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     """
