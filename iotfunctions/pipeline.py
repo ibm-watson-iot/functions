@@ -2287,7 +2287,10 @@ class CalcPipeline:
         for pl in preloaded_item_names:
             df[pl] = True
         for s in stages:
-            if df.empty:
+            # Test for no records in data frame. Don't use df.empty because it is true for no columns as well but no
+            # columns is a valid scenario for aggregations on index levels only (exotic case, for example daily
+            # aggregation last() on event timestamp)
+            if df.shape[0] == 0:
                 self.logger.info('No data retrieved from all sources. Pipeline execution is skipped for this grain.')
                 df = None
                 break
@@ -2313,6 +2316,9 @@ class CalcPipeline:
         try:
             name = stage.name
         except AttributeError:
+            name = None
+
+        if name is None or len(name) == 0:
             name = stage.__class__.__name__
 
         msg = 'Stage %s :' % name

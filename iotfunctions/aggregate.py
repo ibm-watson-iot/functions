@@ -114,6 +114,11 @@ class Aggregation(BaseFunction):
 
         df = df.reset_index()
 
+        # The index has been moved to the columns and the index levels ('id', event timestamp, dimensions) can now be
+        # used as a starting point of an aggregation. Provide index level 'id' - if it exists - as 'entity_id' as well.
+        if 'id' in df.columns:
+            df['entity_id'] = df['id']
+
         group_base = []
         if len(self.ids) > 0 and self.entityFirst:
             group_base.extend(self.ids)
@@ -158,7 +163,7 @@ class Aggregation(BaseFunction):
 
         new_columns = []
         for col in df_agg.columns:
-            if len(col[-1]) == 0 or col[0] in ([self.timestamp] + list(self.groupby)):
+            if len(col[-1]) == 0:
                 new_columns.append('|'.join(col[:-1]))
             else:
                 new_columns.append('|'.join(col))
