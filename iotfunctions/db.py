@@ -1152,7 +1152,7 @@ class Database(object):
             else:
                 logger.debug('package_error')
                 logger.exception('')
-                return (None, 'package_error')
+                return (None, 'ok')
         except ImportError:
             logger.debug('import error')
             logger.exception('')
