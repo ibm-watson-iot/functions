@@ -1134,20 +1134,31 @@ class Database(object):
         logger.debug('Verify the following import statement: %s' % impstr)
         try:
             exec(impstr)
+            logger.debug('sucessful: %s' % impstr)        
         except BaseException:
             if url is not None:
                 try:
+                    logger.debug('Within base exception')
+                    logger.exception('')
                     self.install_package(url)
                 except ImportError:
+                    logger.debug('import error')
+                    logger.exception('')
                     return (None, 'package_error')
                 else:
+                    logger.debug('else condition')
+                    logger.exception('')
                     return self.import_target(package=package, module=module, target=target)
             else:
+                logger.debug('package_error')
+                logger.exception('')
                 return (None, 'package_error')
         except ImportError:
-            logger.exception('Import Error')
+            logger.debug('import error')
+            logger.exception('')
             return (None, 'target_error')
         else:
+            logger.debug('ok..')
             return (target, 'ok')
 
     def load_catalog(self, install_missing=True, unregister_invalid_target=False, function_list=None):
