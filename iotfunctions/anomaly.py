@@ -16,7 +16,10 @@ import datetime as dt
 import logging
 
 # for gradient boosting
-import lightgbm
+try:
+    import lightgbm
+except:
+    pass
 import numpy as np
 import pandas as pd
 import scipy as sp
