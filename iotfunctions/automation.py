@@ -31,7 +31,7 @@ def register(module, db):
         except AttributeError:
             kwargs = None
 
-        if not kwargs is None:
+        if kwargs is not None:
             stmt = 'mod.%s(**%s)' % (name, kwargs)
             instance = eval(stmt)
             instance.db = db
