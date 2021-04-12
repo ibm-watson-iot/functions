@@ -426,7 +426,7 @@ class FileModelStore:
 
         if os.path.exists(filename):
             f = open(filename, "rb")
-            model = f.read(model)
+            model = f.read()
             f.close()
 
         if model is not None:
