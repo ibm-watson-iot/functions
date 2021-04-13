@@ -16,8 +16,6 @@ import itertools as it
 import datetime as dt
 import logging
 
-# for gradient boosting
-import lightgbm
 import numpy as np
 import pandas as pd
 import scipy as sp
@@ -44,6 +42,14 @@ from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 
 logger = logging.getLogger(__name__)
+
+try:
+    # for gradient boosting
+    import lightgbm
+except (AttributeError, ImportError):
+    logger.exception('')
+    logger.debug(f'Could not import lightgm package. Might have issues when using GBMRegressor catalog function')
+
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 _IS_PREINSTALLED = True
 
