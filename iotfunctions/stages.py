@@ -22,7 +22,7 @@ from sqlalchemy import (MetaData, Table)
 from . import dbhelper
 from .exceptions import StageException, DataWriterException
 from .util import MessageHub, asList
-import iotfunctions.metadata as md
+from . import metadata as md
 
 logger = logging.getLogger(__name__)
 
