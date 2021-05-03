@@ -2286,13 +2286,15 @@ class CalcPipeline:
         # added as the ui expects each stage to contribute one or more output items
         for pl in preloaded_item_names:
             df[pl] = True
-        for s in stages:
+        for counter, s in enumerate(stages):
             # Test for no records in data frame. Don't use df.empty because it is true for no columns as well but no
             # columns is a valid scenario for aggregations on index levels only (exotic case, for example daily
             # aggregation last() on event timestamp)
             if df.shape[0] == 0:
                 self.logger.info('No data retrieved from all sources. Pipeline execution is skipped for this grain.')
                 df = None
+                remaining = len(stages) - counter
+                self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
                 break
 
             df = self._execute_stage(stage=s, df=df, start_ts=start_ts, end_ts=end_ts, entities=entities,
