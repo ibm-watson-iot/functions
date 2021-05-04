@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
 from sqlalchemy import Column, Float
-from iotfunctions.anomaly import SaliencybasedGeneralizedAnomalyScore, SpectralAnomalyScore, \
-                                 FFTbasedGeneralizedAnomalyScore, KMeansAnomalyScore
+from iotfunctions.anomaly import (SaliencybasedGeneralizedAnomalyScore, SpectralAnomalyScore,
+                                  FFTbasedGeneralizedAnomalyScore, KMeansAnomalyScore, MatrixProfileAnomalyScore)
 from nose.tools import assert_true
 
 # constants
@@ -14,6 +14,7 @@ fft = 'TemperatureFFTScore'
 spectral = 'TemperatureSpectralScore'
 sal = 'SaliencyAnomalyScore'
 gen = 'TemperatureGeneralizedScore'
+mat = 'TemperatureMatrixProfileScore'
 
 def test_anomaly_scores():
 
@@ -62,9 +63,15 @@ def test_anomaly_scores():
     kmi._entity_type = et
     df_comp = kmi.execute(df=df_i)
 
+    print('Compute Matrix Profile Anomaly Score')
+    mati = MatrixProfileAnomalyScore(Temperature, 12, mat)
+    et = mati._build_entity_type(columns=[Column(Temperature, Float())])
+    mati._entity_type = et
+    df_comp = mati.execute(df=df_i)
+
     print("Executed Anomaly functions")
 
-    # df_comp.to_csv('./data/AzureAnomalysampleOutput.csv')
+    #df_comp.to_csv('./data/AzureAnomalysampleOutput2.csv')
     df_o = pd.read_csv('./data/AzureAnomalysampleOutput.csv')
 
     # print('Compare Scores - Linf')
@@ -74,7 +81,8 @@ def test_anomaly_scores():
     comp2 = {spectral: r2_score(df_o[spectral].values, df_comp[spectral].values),
              fft: r2_score(df_o[fft].values, df_comp[fft].values),
              sal: r2_score(df_o[sal].values, df_comp[sal].values),
-             kmeans: r2_score(df_o[kmeans].values, df_comp[kmeans].values)}
+             kmeans: r2_score(df_o[kmeans].values, df_comp[kmeans].values),
+             mat: r2_score(df_o[mat].values, df_comp[mat].values)}
 
     print(comp2)
 
@@ -114,12 +122,20 @@ def test_anomaly_scores():
     ffti._entity_type = et
     df_agg = ffti.execute(df=df_agg)
 
+    print('Compute Matrix Profile Anomaly Score')
+    mati = MatrixProfileAnomalyScore(Temperature, 12, fft)
+    et = mati._build_entity_type(columns=[Column(Temperature, Float())])
+    mati._entity_type = et
+    df_agg = mati.execute(df=df_agg)
+
     print(df_agg.describe())
 
+    # useless because df_o contains the non aggregated scores
     comp3 = {spectral: r2_score(df_o[spectral].values, df_agg[spectral].values),
              fft: r2_score(df_o[fft].values, df_agg[fft].values),
              sal: r2_score(df_o[sal].values, df_agg[sal].values),
-             kmeans: r2_score(df_o[kmeans].values, df_agg[kmeans].values)}
+             kmeans: r2_score(df_o[kmeans].values, df_agg[kmeans].values),
+             mat: r2_score(df_o[mat].values, df_agg[mat].values)}
 
     print(comp3)
 
