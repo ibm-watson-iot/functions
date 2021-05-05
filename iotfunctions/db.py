@@ -69,6 +69,11 @@ class Database(object):
     system_package_url = 'git+https://github.com/ibm-watson-iot/functions.git'
     bif_sql = "V1000-18.sql"
 
+    CERTIFICATE_FILE = 'certificate_file'
+
+    OS_API_CERTIFICATE_FILE = 'API_CERTIFICATE_FILE'
+    OS_DB_CERTIFICATE_FILE = 'DB_CERTIFICATE_FILE'
+
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
                  entity_type=None, entity_type_id=None, model_store=None):
 
@@ -175,6 +180,7 @@ class Database(object):
             msg = 'Missing objectStorage credentials. Database object created, but it will not be able interact with object storage'
             logger.warning(msg)
 
+        as_api_certificate_file = None
         as_creds = credentials.get('iotp', None)
         if as_creds is None:
             as_api_host = credentials.get('as_api_host', None)
@@ -184,6 +190,7 @@ class Database(object):
             as_api_host = as_creds.get('asHost', None)
             as_api_key = as_creds.get('apiKey', None)
             as_api_token = as_creds.get('apiToken', None)
+            as_api_certificate_file = as_creds.get(Database.CERTIFICATE_FILE, None)
 
         try:
             if as_api_host is None:
@@ -192,17 +199,22 @@ class Database(object):
                 as_api_key = os.environ.get('API_KEY')
             if as_api_token is None:
                 as_api_token = os.environ.get('API_TOKEN')
+            if as_api_certificate_file is None:
+                as_api_certificate_file = os.environ.get(Database.OS_API_CERTIFICATE_FILE)
+
         except KeyError:
             as_api_host = None
             as_api_key = None
             as_api_token = None
+            as_api_certificate_file = None
             msg = 'Unable to locate AS credentials or environment variable. db will not be able to connect to the AS API'
             logger.warning(msg)
 
         if as_api_host is not None and as_api_host.startswith('https://'):
             as_api_host = as_api_host[8:]
 
-        self.credentials['as'] = {'host': as_api_host, 'api_key': as_api_key, 'api_token': as_api_token}
+        self.credentials['as'] = {'host': as_api_host, 'api_key': as_api_key, 'api_token': as_api_token,
+                                  Database.CERTIFICATE_FILE: as_api_certificate_file}
 
         try:
             icp_variable = os.environ.get("isICP")
@@ -237,7 +249,7 @@ class Database(object):
         # is sqlite for testing purposes
         connection_string_from_env = os.environ.get('DB_CONNECTION_STRING')
         db_type_from_env = os.environ.get('DB_TYPE')
-        db_certificate_file_from_env = os.environ.get('DB_CERTIFICATE_FILE')
+        db_certificate_file_from_env = os.environ.get(Database.OS_DB_CERTIFICATE_FILE)
 
         sqlalchemy_connection_kwargs = {}
         sqlite_warning_msg = 'Note sqlite can only be used for local testing. It is not a supported AS database.'
@@ -268,20 +280,24 @@ class Database(object):
                     self.credentials['db2']['password'],)
 
                 security_extension = ''
-                if 'security' in self.credentials['db2'] or self.credentials['db2']['port'] == 50001:
+                if ('security' in self.credentials['db2'] and self.credentials['db2']['security'] is True) or \
+                        self.credentials['db2']['port'] == 50001:
                     security_extension += 'SECURITY=ssl;'
-                    if os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                        security_extension += ';SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                    if Database.CERTIFICATE_FILE in self.credentials['db2']:
+                        security_extension += f"SSLServerCertificate=" \
+                                              f"{self.credentials['db2'][Database.CERTIFICATE_FILE]};"
+                    elif os.path.exists('/secrets/truststore/db2_certificate.pem'):
+                        security_extension += 'SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
                     else:
                         cwd1 = os.getcwd()
                         filename1 = cwd1 + "/db2_certificate.pem"
                         logger.debug('file name db => %s' % filename1)
                         if os.path.exists(filename1):
-                            security_extension += ';SSLServerCertificate=' + filename1 + ";"
+                            security_extension += 'SSLServerCertificate=' + filename1 + ";"
                         else:
                             if db_certificate_file_from_env is not None:
                                 if os.path.exists(db_certificate_file_from_env):
-                                    security_extension += ';SSLServerCertificate=' + db_certificate_file_from_env + ";"
+                                    security_extension += 'SSLServerCertificate=' + db_certificate_file_from_env + ";"
 
                 sqlalchemy_connection_string += security_extension
                 native_connection_string += security_extension
@@ -337,8 +353,8 @@ class Database(object):
                                     sqlalchemy_connection_string += tmp_string
                                     native_connection_string += tmp_string
                                 elif db_certificate_file_from_env is not None:
-                                    logger.debug(
-                                        'Found certificate filename in os variable DB_CERTIFICATE_FILE: %s' % db_certificate_file_from_env)
+                                    logger.debug(f'Found certificate filename in os variable '
+                                                 f'{Database.OS_DB_CERTIFICATE_FILE}: {db_certificate_file_from_env}')
                                     if os.path.exists(db_certificate_file_from_env):
                                         tmp_string = 'SSLServerCertificate=' + db_certificate_file_from_env + ";"
                                         sqlalchemy_connection_string += tmp_string
@@ -405,7 +421,12 @@ class Database(object):
                                                         ca_certs='/project_data/data_asset/ca_public_cert.pem')
         else:
             logger.debug("PATH 6 inside icp for poolmanager for APM ")
-            self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+            if 'as' in self.credentials and Database.CERTIFICATE_FILE in self.credentials['as'] and \
+                    self.credentials['as'][Database.CERTIFICATE_FILE] is not None:
+                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                                                ca_certs=self.credentials['as'][Database.CERTIFICATE_FILE])
+            else:
+                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
 
         try:
             self.cos_client = CosClient(self.credentials)
@@ -501,7 +522,7 @@ class Database(object):
                         logger.warning(msg)
                     for m in metadata:
                         self.entity_type_metadata[m['name']] = m
-                except:
+                except Exception:
                     metadata = None
         else:
             metadata = entity_metadata
