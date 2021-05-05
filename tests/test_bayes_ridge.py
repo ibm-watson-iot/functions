@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.metrics import r2_score
 from sklearn import ensemble, linear_model
 from sqlalchemy import Column, Float
-from iotfunctions.anomaly import BayesRidgeRegressor, GBMRegressor
+from iotfunctions.anomaly import BayesRidgeRegressor, BayesRidgeRegressorExt
 from iotfunctions.db import Database
 from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
@@ -38,6 +38,8 @@ def test_bayes_ridge():
     df_i = df_i.rename(columns={'DATETIME': 'timestamp'})
 
     df_i['entity'] = 'MyShop'
+    df_i[Temperature] = pd.to_numeric(df_i[Temperature], errors='coerce')
+    df_i[Humidity] = pd.to_numeric(df_i[Humidity], errors='coerce')
 
     # and sort it by timestamp
     df_i = df_i.sort_values(by='timestamp')
@@ -135,6 +137,28 @@ def test_bayes_ridge():
     assert_true(mtrc > 0.4)
 
     print('Bayes regressor - enforce retraining done')
+
+    #####
+
+    print('Bayes regressor ext - training with degree 3')
+
+    print('Bayes regressor ext - first time training')
+    jobsettings = { 'db': db, '_db_schema': 'public'} #, 'save_trace_to_file' : True}
+
+    brgei = BayesRidgeRegressorExt(features=[Temperature, Humidity], targets=[KW], predictions=['KW_pred'], degree=3)
+    brgei.stop_auto_improve_at = 0.4
+    brgei.active_models = dict()
+
+    et = brgei._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    brgei._entity_type = et
+    df_i = brgei.execute(df=df_i)
+    print('Bayes regressor ext done')
+
+    mtrc = brgei.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOREXT.BayesRidgeRegressorExt.KW.MyShop'][0].eval_metric_test
+    print ('Trained model r2 ', mtrc)
+    assert_true(mtrc > 0.4)
+
+    print('Bayes regressor ext - training done')
 
     pass
 

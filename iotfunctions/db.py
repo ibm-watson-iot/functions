@@ -335,7 +335,7 @@ class Database(object):
                     try:
                         ev = dict(item.split("=", maxsplit=1) for item in connection_string_from_env.split(";"))
                         sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                            ev['UID'], ev['PWD'], ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+                            ev['UID'], ev['PWD'].rstrip("\n"), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
 
                         native_connection_string = connection_string_from_env + ';'
 
@@ -400,27 +400,18 @@ class Database(object):
             logger.warning(sqlite_warning_msg)
 
         is_icp = os.environ.get("isICP")
-        logger.debug("PATH -1 inside icp for poolmanager for APM ")
         if is_icp is not None and is_icp == 'true':
-            logger.debug("PATH 0 : inside icp for poolmanager for APM ")
             if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
-                logger.debug("PATH 1 : inside icp for poolmanager for APM ")
                 self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
             else:
-                logger.debug("PATH 2 inside icp for poolmanager for APM ")
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
-                    logger.debug("PATH 3 inside icp for poolmanager for APM ")
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
                                                     ca_certs='/var/www/as-pipeline/ca_public_cert.pem')
                 else:
-                    logger.debug("PATH 4 inside icp for poolmanager for APM ")
                     if os.path.exists('/project_data/data_asset/ca_public_cert.pem'):
-                        logger.debug("PATH 5 : inside icp for poolmanager for APM ")
-                        logger.debug("Using project ca public cert file from APM")
                         self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
                                                         ca_certs='/project_data/data_asset/ca_public_cert.pem')
         else:
-            logger.debug("PATH 6 inside icp for poolmanager for APM ")
             if 'as' in self.credentials and Database.CERTIFICATE_FILE in self.credentials['as'] and \
                     self.credentials['as'][Database.CERTIFICATE_FILE] is not None:
                 self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',

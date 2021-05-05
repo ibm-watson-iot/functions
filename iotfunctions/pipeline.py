@@ -10,7 +10,7 @@
 
 """
 Warning: The pipeline module is not a public API. These low level classes
-should not be used directly. They are used from inside the method of 
+should not be used directly. They are used from inside the method of
 public classes.
 
 """
@@ -40,12 +40,12 @@ MERGE_INDEX = '_as_merge_idx'
 class JobLog(object):
     """
     Create and manage a database table to store job execution history.
-    
+
     A job log entry is created at the start of job execution with a default
     status of 'running'. This job log entry may be updated at various times
-    during the process. Each update may update the status, trace or log 
+    during the process. Each update may update the status, trace or log
     references.
-    
+
     """
 
     def __init__(self, job, table_name='job_log'):
@@ -142,47 +142,47 @@ class JobLog(object):
 class JobController(object):
     """
     Job controllers manage the execution of a payload. The payload may have
-    different modes of execution operating on different schedules. When the 
+    different modes of execution operating on different schedules. When the
     payload executes it may retrieve data. The amount of historical data
     retrieved is governed by the backtrack property. Each different schedule
     may have a different setting for backtracking.
-    
+
     The job controller interacts with the payload to determine the schedule
     and backtracking settings. The job controller has the ability to execute
     the payload in separate chunks to reduce memory consumption.
-    
+
     The job controller manages persistence of a job log that keeps track of
     completed executions.
-    
-    See the TextPayload class to understand the standard interfaces that 
+
+    See the TextPayload class to understand the standard interfaces that
     any Payload that  is managed by the JobController should support. Many of
     the payload properties are optional. When the method is not present on
     the payload, the job controller will process the payload using defaults.
-    
-    
+
+
     Parameters
     ----------
     payload : object
-        Any object that conforms to the payload API can be executed by a 
+        Any object that conforms to the payload API can be executed by a
         JobController. The job control assumes has one or more "stage" to be
         executed. A "stage" is an object with an "execute" method.
-        
+
         The payload will generally by an iotfunctions EntityType.
-        
+
     **kwargs:
         The contents of the kwargs dictionary will be added to the payload so
-        that the stage objects that execute as part of the payload have access 
+        that the stage objects that execute as part of the payload have access
         to them.
-        
-        e.g. a kwarg named "is_training_mode" is supplied to the JobController 
-        object. The payload is an EntityType. The JobController uses the 
+
+        e.g. a kwarg named "is_training_mode" is supplied to the JobController
+        object. The payload is an EntityType. The JobController uses the
         set_param() method on the EntityType set the parameter.
-        
+
         Functions executed have access to this parameter as follows:
         >>> entity_type = self.get_entity_type()
         >>> if entity_type.is_training_mode:
         >>>     #do something special
-    
+
     """
     # tuple has freq round hour,round minute, backtrack
     default_schedule = ('5min', None, None, None)
@@ -195,8 +195,8 @@ class JobController(object):
     # Most of the work performed when executing a job is done by
     # executing the execute method of one or more stages defined in
     # the payload. There are however certain default classes that
-    # come with the Job Controller that perform the work of 
-    # aggegregating data, writing data and merging the results of 
+    # come with the Job Controller that perform the work of
+    # aggegregating data, writing data and merging the results of
     # the execution of a stage with data produced from prior stages
     data_aggregator = DataAggregator
     data_writer = DataWriterSqlAlchemy
@@ -303,8 +303,8 @@ class JobController(object):
         A job spec contains a list of stages to be executed as part of a job.
         The job spec is built according to the contents of the payload. The job
         controller builds the job spec on the fly by working out which job stages
-        need for the current shedule and what that means  in terms of 
-        dependencies. Consider the payload as a master template of 
+        need for the current shedule and what that means  in terms of
+        dependencies. Consider the payload as a master template of
         possible stages. A job spec contains the specific stages that are
         required for each execution.
         """
@@ -419,7 +419,7 @@ class JobController(object):
             build_metadata['available_columns'] |= set(aggregate_stage._output_list)
             logger.debug('Added aggregregator to job spec: %s', aggregate_stage)
 
-            # Add transform stages for grain to job_spec 
+            # Add transform stages for grain to job_spec
             build_metadata = self.build_stages_of_type(stage_type='transform', granularity=g, meta=build_metadata)
 
             job_spec['skipped_stages'] |= build_metadata['skipped_stages']
@@ -483,7 +483,7 @@ class JobController(object):
 
     def build_schedules_list(self, schedules_dict):
         """
-        Returns a sorted list of tuples containing 
+        Returns a sorted list of tuples containing
         (freq,start_hour,start_min,backtrack_days)
         """
         # combine default with other schedules
@@ -517,15 +517,15 @@ class JobController(object):
         """
         Add stages of a type on a schedule to a build spec contained within
         a metadata dictionary.
-        
+
         Stages may have dependencies between them. Process recursively to find
         the stages that can be included based on the currently available
-        Columns. Expand the currently available columns each time a new stage 
+        Columns. Expand the currently available columns each time a new stage
         is added.
-        
-        Return a metadata dictionary that incudes the current build spec and 
+
+        Return a metadata dictionary that incudes the current build spec and
         various pieces of metadata around columns processed so far.
-        
+
         """
 
         for i in range(self.recursion_limit):
@@ -589,10 +589,10 @@ class JobController(object):
         """
         Collapse multiple simple aggregation stages down to an agg dict
         containing a list of aggregation functions to be applied by column name
-        
-        Returns the aggregate dictionary, a list of complex aggregation functions 
+
+        Returns the aggregate dictionary, a list of complex aggregation functions
         and a set of inputs and list of outputs
-    
+
         """
         agg_dict = OrderedDict()
         o_dict = OrderedDict()
@@ -618,9 +618,9 @@ class JobController(object):
             for i, item in enumerate(input_items):
 
                 # aggregation is performed using a the pandas agg function
-                # the aggregation function is either a string that is understood 
+                # the aggregation function is either a string that is understood
                 # by pandas or a method that accepts a series
-                # and returns a constant. 
+                # and returns a constant.
 
                 output = output_list[i]
 
@@ -658,7 +658,7 @@ class JobController(object):
 
     def execute(self):
         """
-        Call the execute method on the payload object. If the payload has 
+        Call the execute method on the payload object. If the payload has
         multiple schedules decide which of them should be executed on this run.
         If data must be processed in chunks, deteremine the start and end date
         of the chunks and execute each chunk. Adjust the start date of each
@@ -691,7 +691,7 @@ class JobController(object):
             logger.debug(('Starting execution number: %s with execution date: %s'), execution_counter, execute_date)
 
             # evalute all candidate schedules that were indentified when
-            # the job controller was initialized. 
+            # the job controller was initialized.
             # The resulting dictionary contains a dictionary of status items
             # about each schedule
             try:
@@ -942,16 +942,16 @@ class JobController(object):
 
     def execute_stages(self, stages, df, start_ts, end_ts, constants=None, granularity=None):
         """
-        Execute a series of stages contained in a job spec. 
+        Execute a series of stages contained in a job spec.
         Combine the execution results with the incoming dataframe.
         Return a new dataframe.
-        
+
         When the execution of a stage fails or results in an empty
         dataframe, payload properties determine whether
-        execution of remaining stages should go ahead or not. If 
+        execution of remaining stages should go ahead or not. If
         execution proceeds on failure of a stage, the columns that
         were supposed to be contributed by the stage will be set to null.
-        
+
         """
 
         if df is None:
@@ -1119,7 +1119,7 @@ class JobController(object):
         # 3. You get a boolean value. An explict False means halt processing.
         # 4. A boolean True will be treated as an empty dataframe
 
-        # The payload may optionally supply a specific list of 
+        # The payload may optionally supply a specific list of
         # entities to retrieve data from
         entities = self.exec_payload_method(method_name='get_entity_filter', default_output=None, raise_error=False)
         usage = 0
@@ -1184,10 +1184,10 @@ class JobController(object):
 
     def evaluate_schedules(self, execute_date):
         """
-        Examine all of the job schedules and identify which are due to run. 
+        Examine all of the job schedules and identify which are due to run.
         Gather job control metadata and return a dict keyed by schedule
-        containing a dict that indicates for each schedule, when it will next 
-        run, if it is currently due, the start date for data extraction and 
+        containing a dict that indicates for each schedule, when it will next
+        run, if it is currently due, the start date for data extraction and
         which other schedules should be marked complete at the end of execution.
         """
 
@@ -1249,7 +1249,7 @@ class JobController(object):
         # progressive schedules imply that the last schedule involves
         # doing the work of the prior schedules so there it is only
         # neccessary to execute the last. If the schedules are not
-        # proggressive, they will be executed independently        
+        # proggressive, they will be executed independently
 
         if last_schedule_due is not None:
             is_schedule_progressive = (
@@ -1273,7 +1273,7 @@ class JobController(object):
         Assemble a list of new execution stages that match set of criteria
         for stage_type and available columns. Returns a tuple containing a
         list of new stages and a set of new columns added by these stages
-        
+
         """
         required_input_set = set()
         schedules = set([schedule])
@@ -1313,7 +1313,7 @@ class JobController(object):
         # is that build_stages is called multiple times for the same type of stage
         # until there are no more stages remaining of that type. This means that
         # any code placed outside of main loop will execute multiple times per
-        # stage type. This is why there is no logging at this level.        
+        # stage type. This is why there is no logging at this level.
         new_cols = new_cols - available_columns
 
         return stages, new_cols, required_input_set, data_source_projection_list
@@ -1344,8 +1344,8 @@ class JobController(object):
     def get_chunks(self, start_date, end_date, round_hour, round_min, schedule):
         """
         Divide a single period of time for an execution into multiple chunks.
-        Each chunk will be executed separately. Chunk size is a pandas 
-        frequency string. Chunk size will be derived from the payload or 
+        Each chunk will be executed separately. Chunk size is a pandas
+        frequency string. Chunk size will be derived from the payload or
         defaulted if payload cannot provide.
         """
 
@@ -1482,7 +1482,7 @@ class JobController(object):
         """
         Get stages of a particular type, with a specific granularity, that
         can be executed using a set of columns and exclude specific stages.
-        
+
         If available_columns is set to None, stages will not be filtered by
         available columns
         """
@@ -1896,7 +1896,7 @@ class JobController(object):
     def set_payload_params(self, **params):
         """
         Add parameters to the payload
-        
+
         """
 
         for key, value in list(params.items()):
@@ -1907,7 +1907,7 @@ class JobController(object):
     def set_payload_param(self, key, value):
         """
         Set the value of a single parameter
-        
+
         """
         setattr(self.payload, key, value)
         return self.payload
@@ -1915,7 +1915,7 @@ class JobController(object):
     def set_stage_param(self, stage, param, value):
         """
         Set the value of single parameter for a particular stage
-        
+
         """
 
         setattr(stage, param, value)
@@ -2008,7 +2008,7 @@ class JobLogNull(object):
     """
     Log execution history to the log so as not to interfere with server
     metadata.
-        
+
     """
 
     def __init__(self, job, table_name='job_log_null'):
@@ -2069,7 +2069,7 @@ class CalcPipeline:
         pre-load stages are special stages that are processed outside of the pipeline
         they execute before loading data into the pipeline
         return tuple containing list of preload stages and list of other stages to be processed
-        
+
         also extract scd lookups. Place them on the entity.
         """
         stages = []
@@ -2389,6 +2389,8 @@ class CalcPipeline:
                     dimension_name = dimension_filter['name']
                     dimension_value = dimension_filter['value']
                     dimension_count -= 1
+                    if eval('isinstance(' + str(dimension_value) + ',str)'):
+                        dimension_value = '[' + dimension_value + ']'
                     eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
                     eval_expression += ' & ' if dimension_count != 0 else ''
             else:
@@ -2668,7 +2670,7 @@ class CalcPipeline:
                         # Column contains np.True_ and np.False_ only. We are fine!
                         pass
                     else:
-                        # If column also contains None it is supposed to be either numeric (float64: 0, 1, NaN) or 
+                        # If column also contains None it is supposed to be either numeric (float64: 0, 1, NaN) or
                         # object (True, False, None/NaN)
                         if not is_numeric_dtype(df_column.dtype) and not is_object_dtype(df_column.dtype):
                             logger.info('Type is not consistent %s: df type is %s and data type is %s' % (
