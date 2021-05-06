@@ -32,7 +32,7 @@ KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
 
 class PersistColumns:
 
-    def __init__(self, dms, sources=None):
+    def __init__(self, dms, sources=None, checkpoint=False):
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
 
         if dms is None:
@@ -44,6 +44,7 @@ class PersistColumns:
         self.db_connection = self.dms.db_connection
         self.is_postgre_sql = dms.is_postgre_sql
         self.sources = asList(sources)
+        self.checkpoint = checkpoint
 
     def execute(self, df):
         self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
@@ -52,9 +53,10 @@ class PersistColumns:
             self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
             t2 = dt.datetime.now()
             self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
-            self.dms.create_checkpoint_entries(df)
-            t3 = dt.datetime.now()
-            self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
+            if self.checkpoint is True:
+                self.dms.create_checkpoint_entries(df)
+                t3 = dt.datetime.now()
+                self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
         else:
             self.logger.info("***** The calculated metric data is not stored into the database. ***** ")
 
