@@ -120,8 +120,10 @@ class Aggregation(BaseFunction):
             df['entity_id'] = df['id']
 
         group_base = []
+        group_base_names = []
         if len(self.ids) > 0 and self.entityFirst:
             group_base.extend(self.ids)
+            group_base_names.extend(self.ids)
 
         if self.timestamp is not None and self.frequency is not None:
             if self.frequency == 'W':
@@ -130,11 +132,14 @@ class Aggregation(BaseFunction):
             else:
                 # other alias seems to not needing to special handle
                 group_base.append(pd.Grouper(key=self.timestamp, freq=self.frequency))
+            group_base_names.append(self.timestamp)
 
         if self.groupby is not None and len(self.groupby) > 0:
             group_base.extend(self.groupby)
+            group_base_names.extend(self.groupby)
 
-        self.logger.debug('aggregation_groupbase=%s' % str(group_base))
+        self.logger.debug(f'group_base={str(group_base)}, '
+                          f'group_base_names={str(group_base_names)}')
 
         groups = df.groupby(group_base)
 
@@ -184,22 +189,39 @@ class Aggregation(BaseFunction):
             self.logger.info('executing complex aggregation function - output %s' % str(names))
             df_apply = groups.apply(func)
 
+            # Some aggregation functions return None instead of an empty data frame. Therefore the result of
+            # groups.apply() can be an empty data frame without columns and without index when all function calls
+            # returned None. We take corrective action and build a new empty dataframe with the expected columns and
+            # the expected index including level names
             if df_apply.empty and df_apply.columns.empty:
-                for name in names:
-                    df_apply[name] = None
 
+                # Build empty index with correct level names
+                if len(group_base_names) > 1:
+                    tmp_array = [[] for i in range(len(group_base_names))]
+                    new_index = pd.MultiIndex.from_arrays(tmp_array, names=group_base_names)
+                else:
+                    new_index = pd.Index([], name=group_base_names[0])
+
+                # Build data frame with index and expected columns
+                df_apply = pd.DataFrame([], columns=names, index=new_index)
+
+                # Cast columns in data frame to the expected type
+                column_types = {}
+                for name in names:
                     source_metadata = self.dms.data_items.get(name)
-                    if source_metadata is None:
-                        continue
 
                     if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
-                        df_apply = df_apply.astype({name: float})
+                        tmp_type = float
                     elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
-                        df_apply = df_apply.astype({name: bool})
+                        tmp_type = bool
                     elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
-                        df_apply = df_apply.astype({name: 'datetime64[ns]'})
+                        tmp_type = 'datetime64[ns]'
                     else:
-                        df_apply = df_apply.astype({name: str})
+                        tmp_type = str
+
+                    column_types[name] = tmp_type
+
+                df_apply = df_apply.astype(dtype=column_types, copy=False)
 
             all_dfs.append(df_apply)
 
@@ -236,6 +258,11 @@ class Aggregation(BaseFunction):
 
         # concat all results
         df = pd.concat(all_dfs, axis=1)
+
+        # Corrective action: pd.concat() removes name from Index when we only have one level. There is no issue for
+        # MultiIndex which is used for two and more levels
+        if len(group_base_names) == 1:
+            df.index.names = group_base_names
 
         # Adding entity_id column in the aggregate df by default
         id_idx = 'id'
