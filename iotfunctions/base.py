@@ -1490,7 +1490,7 @@ class BaseDataSource(BaseTransformer):
         # ['float64','float64']. Therefore we explicitly cast the levels in index to avoid a type mismatch in the
         # subsequent merge function. Float64 cannot be cast to datetime64[ns] directly; therefore cast to int64 first.
         if new_df is not None:
-            if (new_df.index.levels[0].dtype_str != 'object') | (new_df.index.levels[1].dtype_str != 'datetime64[ns]'):
+            if (new_df.index.levels[0].dtype != 'object') | (new_df.index.levels[1].dtype != 'datetime64[ns]'):
                 new_df_index_names = new_df.index.names
                 new_df.reset_index(inplace=True)
                 new_df = new_df.astype({new_df_index_names[0]: 'int64', new_df_index_names[1]: 'int64'}, copy=False)
@@ -3261,6 +3261,13 @@ class BaseEstimatorFunction(BaseTransformer):
                         has_stddev = True
                 except Exception:
                     pass
+
+                if self.active_models is not None:
+                    if model.name not in self.active_models:
+                        try:
+                            self.active_models[model.name] = (model, None)
+                        except Exception as eeee:
+                            print(eeee)
 
                 if self.is_scaler:
                     df[model.col_name] = 0

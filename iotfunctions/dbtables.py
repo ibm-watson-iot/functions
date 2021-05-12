@@ -382,8 +382,27 @@ class DBDataCache:
 class FileModelStore:
     STORE_TABLENAME = 'KPI_MODEL_STORE'
 
-    def __init__(self):
-        logger.info('Init FileModelStore')
+    def is_path_valid(self, pathname):
+        if pathname is None or not isinstance(pathname, str) or len(pathname) == 0:
+            return False
+        try:
+            return os.path.exists(pathname)
+        except Exception:
+            pass
+        return False
+
+    def __init__(self, pathname=None):
+        if self.is_path_valid(pathname):
+            if pathname[-1] != '/':
+                pathname += '/'
+            self.path = pathname
+        else:
+            self.path = ''
+        logger.info('Init FileModelStore with path: ' + str(self.path))
+
+    def __str__(self):
+        str = 'FileModelStore path: ' + self.path + '\n'
+        return str
 
     def store_model(self, model_name, model, user_name=None, serialize=True):
 
@@ -394,20 +413,20 @@ class FileModelStore:
                 raise Exception(
                     'Serialization of model %s that is supposed to be stored in ModelStore failed.' % model_name) from ex
 
-        filename = self.STORE_TABLENAME + model_name
+        filename = self.path + self.STORE_TABLENAME + model_name
         f = open(filename, "wb")
         f.write(model)
         f.close()
 
     def retrieve_model(self, model_name, deserialize=True):
 
-        filename = self.STORE_TABLENAME + model_name
+        filename = self.path + self.STORE_TABLENAME + model_name
 
         model = None
 
         if os.path.exists(filename):
             f = open(filename, "rb")
-            model = f.read(model)
+            model = f.read()
             f.close()
 
         if model is not None:

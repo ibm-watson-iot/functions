@@ -22,21 +22,7 @@ from sqlalchemy import (MetaData, Table)
 from . import dbhelper
 from .exceptions import StageException, DataWriterException
 from .util import MessageHub, asList
-
-# Kohlmann verify location of the following constants
-DATA_ITEM_TYPE_BOOLEAN = 'BOOLEAN'
-DATA_ITEM_TYPE_NUMBER = 'NUMBER'
-DATA_ITEM_TYPE_LITERAL = 'LITERAL'
-DATA_ITEM_TYPE_TIMESTAMP = 'TIMESTAMP'
-
-DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
-DATA_ITEM_TRANSIENT_KEY = 'transient'
-DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
-DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
-DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'functionName'
-DATA_ITEM_TAG_ALERT = 'ALERT'
-DATA_ITEM_TAGS_KEY = 'tags'
-DATA_ITEM_TYPE_KEY = 'type'
+from . import metadata as md
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +32,7 @@ KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
 
 class PersistColumns:
 
-    def __init__(self, dms, sources=None):
+    def __init__(self, dms, sources=None, checkpoint=False):
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
 
         if dms is None:
@@ -58,6 +44,7 @@ class PersistColumns:
         self.db_connection = self.dms.db_connection
         self.is_postgre_sql = dms.is_postgre_sql
         self.sources = asList(sources)
+        self.checkpoint = checkpoint
 
     def execute(self, df):
         self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
@@ -66,9 +53,10 @@ class PersistColumns:
             self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
             t2 = dt.datetime.now()
             self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
-            self.dms.create_checkpoint_entries(df)
-            t3 = dt.datetime.now()
-            self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
+            if self.checkpoint is True:
+                self.dms.create_checkpoint_entries(df)
+                t3 = dt.datetime.now()
+                self.logger.info("checkpoint_time_seconds=%s" % (t3 - t2).total_seconds())
         else:
             self.logger.info("***** The calculated metric data is not stored into the database. ***** ")
 
@@ -85,7 +73,7 @@ class PersistColumns:
                     continue
 
                 # skip transient data items
-                if source_metadata.get(DATA_ITEM_TRANSIENT_KEY) == True:
+                if source_metadata.get(md.DATA_ITEM_TRANSIENT_KEY) is True:
                     self.logger.debug('skip persisting transient data_item=%s' % source)
                     continue
 
@@ -93,7 +81,7 @@ class PersistColumns:
                 #     continue
 
                 try:
-                    tableName = source_metadata.get(DATA_ITEM_SOURCETABLE_KEY)
+                    tableName = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
                 except Exception:
                     self.logger.warning('sourceTableName invalid for derived_metric=%s' % source, exc_info=True)
                     continue
@@ -124,13 +112,13 @@ class PersistColumns:
 
                 dtype = dtype.name.lower()
                 # if dtype.startswith('int') or dtype.startswith('float') or dtype.startswith('long') or dtype.startswith('complex'):
-                if source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_NUMBER:
+                if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
                     value_number = True
                 # elif dtype.startswith('bool'):
-                elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_BOOLEAN:
+                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
                     value_bool = True
                 # elif dtype.startswith('datetime'):
-                elif source_metadata.get(DATA_ITEM_COLUMN_TYPE_KEY) == DATA_ITEM_TYPE_TIMESTAMP:
+                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
                     value_timestamp = True
                 else:
                     value_string = True
@@ -346,11 +334,11 @@ class ProduceAlerts(object):
                 for alert_data_item in asList(all_cols):
                     metadata = dms.data_items.get(alert_data_item)
                     if metadata is not None:
-                        if DATA_ITEM_TAG_ALERT in metadata.get(DATA_ITEM_TAGS_KEY, []):
+                        if md.DATA_ITEM_TAG_ALERT in metadata.get(md.DATA_ITEM_TAGS_KEY, []):
                             self.alerts_to_message_hub.append(alert_data_item)
 
-                        kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY, None)
-                        kpi_function_name = kpi_func_dto.get(DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME, None)
+                        kpi_func_dto = metadata.get(md.DATA_ITEM_KPI_FUNCTION_DTO_KEY, None)
+                        kpi_function_name = kpi_func_dto.get(md.DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME, None)
                         alert_catalog = self.alert_catalogs.get(kpi_function_name, None)
                         if alert_catalog is not None:
                             self.alerts_to_database.append(alert_data_item)
@@ -814,23 +802,23 @@ class DataWriterSqlAlchemy(DataWriter):
                 for index_name, position in index_name_pos:
                     row[index_name] = ix[position]
 
-                if item_type == DATA_ITEM_TYPE_BOOLEAN:
+                if item_type == md.DATA_ITEM_TYPE_BOOLEAN:
                     row[map[self.COLUMN_NAME_VALUE_BOOLEAN]] = (1 if (bool(derived_value) is True) else 0)
                 else:
                     row[map[self.COLUMN_NAME_VALUE_BOOLEAN]] = None
 
-                if item_type == DATA_ITEM_TYPE_NUMBER:
+                if item_type == md.DATA_ITEM_TYPE_NUMBER:
                     my_float = float(derived_value)
                     row[map[self.COLUMN_NAME_VALUE_NUMERIC]] = (my_float if np.isfinite(my_float) else None)
                 else:
                     row[map[self.COLUMN_NAME_VALUE_NUMERIC]] = None
 
-                if item_type == DATA_ITEM_TYPE_LITERAL:
+                if item_type == md.DATA_ITEM_TYPE_LITERAL:
                     row[map[self.COLUMN_NAME_VALUE_STRING]] = str(derived_value)
                 else:
                     row[map[self.COLUMN_NAME_VALUE_STRING]] = None
 
-                if item_type == DATA_ITEM_TYPE_TIMESTAMP:
+                if item_type == md.DATA_ITEM_TYPE_TIMESTAMP:
                     row[map[self.COLUMN_NAME_VALUE_TIMESTAMP]] = derived_value
                 else:
                     row[map[self.COLUMN_NAME_VALUE_TIMESTAMP]] = None
@@ -888,11 +876,11 @@ class DataWriterSqlAlchemy(DataWriter):
         first_loop_cycle = True
         for col_name, col_type in df.dtypes.iteritems():
             metadata = self.data_item_metadata.get(col_name)
-            if metadata is not None and metadata.get(DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
-                if metadata.get(DATA_ITEM_TRANSIENT_KEY, False) is False:
-                    table_name = metadata.get(DATA_ITEM_SOURCETABLE_KEY)
-                    data_item_type = metadata.get(DATA_ITEM_COLUMN_TYPE_KEY)
-                    kpi_func_dto = metadata.get(DATA_ITEM_KPI_FUNCTION_DTO_KEY)
+            if metadata is not None and metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
+                if metadata.get(md.DATA_ITEM_TRANSIENT_KEY, False) is False:
+                    table_name = metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+                    data_item_type = metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY)
+                    kpi_func_dto = metadata.get(md.DATA_ITEM_KPI_FUNCTION_DTO_KEY)
                     if table_name is None:
                         logger.warning(
                             'No table name defined for data item ' + col_name + '. The data item will not been written to the database.')
@@ -902,12 +890,13 @@ class DataWriterSqlAlchemy(DataWriter):
                     elif kpi_func_dto is None:
                         logger.warning('No function definition defined for data item ' + col_name + '.')
                     else:
-                        if (
-                                data_item_type != DATA_ITEM_TYPE_BOOLEAN and data_item_type != DATA_ITEM_TYPE_NUMBER and data_item_type != DATA_ITEM_TYPE_LITERAL and data_item_type != DATA_ITEM_TYPE_TIMESTAMP):
-                            logger.warning((
-                                               'Data item %s has the unknown type %s. The data item will be written as %s into the database.') % (
-                                               col_name, data_item_type, DATA_ITEM_TYPE_LITERAL))
-                            data_item_type = DATA_ITEM_TYPE_LITERAL
+                        if (data_item_type != md.DATA_ITEM_TYPE_BOOLEAN and
+                                data_item_type != md.DATA_ITEM_TYPE_NUMBER and
+                                data_item_type != md.DATA_ITEM_TYPE_LITERAL and
+                                data_item_type != md.DATA_ITEM_TYPE_TIMESTAMP):
+                            logger.warning(f'Data item {col_name} has the unknown type {data_item_type}. The data item '
+                                           f'will be written as {md.DATA_ITEM_TYPE_LITERAL} into the database.')
+                            data_item_type = md.DATA_ITEM_TYPE_LITERAL
 
                         col_props[col_name] = (data_item_type, table_name)
                         if first_loop_cycle:
