@@ -6,8 +6,8 @@ from sqlalchemy import Column, Float
 from iotfunctions.db import Database
 from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
-from iotfunctions.anomaly import SaliencybasedGeneralizedAnomalyScoreV2, SpectralAnomalyScoreExt, \
-                                 FFTbasedGeneralizedAnomalyScoreV2, KMeansAnomalyScoreV2
+from iotfunctions.anomaly import (SaliencybasedGeneralizedAnomalyScoreV2, SpectralAnomalyScoreExt,
+                                  FFTbasedGeneralizedAnomalyScoreV2, KMeansAnomalyScoreV2)
 from nose.tools import assert_true, nottest
 
 # constants

@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.metrics import r2_score
 from sklearn import ensemble, linear_model
 from sqlalchemy import Column, Float
-from iotfunctions.anomaly import GBMRegressor
+from iotfunctions.anomaly import (GBMRegressor, GBMForecaster)
 from iotfunctions.db import Database
 from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
@@ -38,6 +38,8 @@ def test_light_gbm():
     df_i = df_i.rename(columns={'DATETIME': 'timestamp'})
 
     df_i['entity'] = 'MyShop'
+    df_i[Temperature] = pd.to_numeric(df_i[Temperature], errors='coerce')
+    df_i[Humidity] = pd.to_numeric(df_i[Humidity], errors='coerce')
 
     # and sort it by timestamp
     df_i = df_i.sort_values(by='timestamp')
@@ -140,6 +142,27 @@ def test_light_gbm():
     assert_true(mtrc > 0.4)
 
     print('lightGBM regressor - enforce retraining done')
+
+    #####
+
+    print('lightGBM forecaster - first time training')
+    jobsettings = { 'db': db, '_db_schema': 'public'} #, 'save_trace_to_file' : True}
+
+    brgei = GBMForecaster(features=[Temperature, Humidity], targets=[KW], predictions=['KW_pred'], lags=[1,3,7])
+    brgei.stop_auto_improve_at = mtrc + 2  # force retrain as r2 metric is considered bad now
+    brgei.active_models = dict()
+
+    et = brgei._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    brgei._entity_type = et
+    df_i = brgei.execute(df=df_i)
+    print('lightGBM forecaster done')
+
+    mtrc = brgei.active_models['model.TEST_ENTITY_FOR_GBMFORECASTER.GBMForecaster.KW.MyShop'][0].eval_metric_test
+    print ('Trained model r2 ', mtrc)
+    assert_true(mtrc > 0.4)
+
+    print('lightGBM forecaster - training done')
+
 
     pass
 
