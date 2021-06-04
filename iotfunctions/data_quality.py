@@ -23,19 +23,10 @@ _IS_PREINSTALLED = True
 
 class DataQualityChecks(BaseComplexAggregator):
     """
-    Data Quality module will help assess the quality of incoming sensor data, using the provided metrics.
-
-    constant_value is a boolean indicator for unchanging time series signal
-
-    sample_entropy assess the complexity of information in the data; a number closer to zero indicates
-    patterns that can be learnt easily
-
-    staionarity assess if the mean, variance, co-variance of time series signal are changing over time; A signal can 
-    be Stationary, Non Stationary, Trend Stationary, and Difference Stationary
-
-    stuck_at_zero is a boolean indicator for unchanging time series signal that is stuck at 0
-
-    white_noise is a boolean indicator for a time series signal that is random and contains no pattern
+    Perform data quality analysis on input data.Select the time series that you want to check in input_item and
+    select the data quality checks to run. The checks are grouped by their output data type. The options are
+    stationarity (string), sample entropy (numeric), constant value (boolean), struck-at-zero (boolean),
+    and white noise (boolean).
     """
     # define check name in QUALITY_CHECK same as corresponding staticmethod that executes the function
     STR_QUALITY_CHECKS = ['stationarity']
@@ -44,18 +35,18 @@ class DataQualityChecks(BaseComplexAggregator):
 
     SERIES_LEN_ERROR = {str: 'Series len < 1', float: -1, bool: False}
 
-    def __init__(self, source=None, quality_checks_with_string_output=None, quality_checks_with_numerical_output=None,
-                 quality_checks_with_boolean_output=None, name=None):
+    def __init__(self, source=None, checks_with_string_output=None, checks_with_numerical_output=None,
+                 checks_with_boolean_output=None, name=None):
         super().__init__()
 
         self.input_items = source
         self.quality_checks = []
-        if quality_checks_with_string_output:
-            self.quality_checks.extend(quality_checks_with_string_output)
-        if quality_checks_with_numerical_output:
-            self.quality_checks.extend(quality_checks_with_numerical_output)
-        if quality_checks_with_boolean_output:
-            self.quality_checks.extend(quality_checks_with_boolean_output)
+        if checks_with_string_output:
+            self.quality_checks.extend(checks_with_string_output)
+        if checks_with_numerical_output:
+            self.quality_checks.extend(checks_with_numerical_output)
+        if checks_with_boolean_output:
+            self.quality_checks.extend(checks_with_boolean_output)
 
         self.output_items = name
         logger.debug(f'Data Quality Checks will be performed for : {source}')
@@ -65,20 +56,20 @@ class DataQualityChecks(BaseComplexAggregator):
     def build_ui(cls):
         inputs = [UISingleItem(name='source', datatype=None,
                                description='Choose data item to run data quality checks on'),
-                  UIMulti(name='quality_checks_with_string_output', datatype=str, description='Select quality checks '
+                  UIMulti(name='checks_with_string_output', datatype=str, description='Select quality checks '
                           'to run. These checks return string output ', values=cls.STR_QUALITY_CHECKS, required=False),
-                  UIMulti(name='quality_checks_with_numerical_output', datatype=str, description='Select quality '
+                  UIMulti(name='checks_with_numerical_output', datatype=str, description='Select quality '
                           'checks to run. These checks return numerical output ', values=cls.NUMERICAL_QUALITY_CHECKS,
                           required=False),
-                  UIMulti(name='quality_checks_with_boolean_output', datatype=str, description='Select quality checks '
+                  UIMulti(name='checks_with_boolean_output', datatype=str, description='Select quality checks '
                           'to run. These checks return boolean output', values=cls.BOOLEAN_QUALITY_CHECKS,
                           required=False)
                   ]
-        outputs = [UIFunctionOutMulti('name', cardinality_from='quality_checks_with_string_output', datatype=str,
+        outputs = [UIFunctionOutMulti('name', cardinality_from='checks_with_string_output', datatype=str,
                                       description='quality check returns string output'),
-                   UIFunctionOutMulti('name', cardinality_from='quality_checks_with_numerical_output', datatype=float,
+                   UIFunctionOutMulti('name', cardinality_from='checks_with_numerical_output', datatype=float,
                                       description='quality check returns numerical output'),
-                   UIFunctionOutMulti('name', cardinality_from='quality_checks_with_boolean_output', datatype=bool,
+                   UIFunctionOutMulti('name', cardinality_from='checks_with_boolean_output', datatype=bool,
                                       description='quality check returns boolean output')
                    ]
 
