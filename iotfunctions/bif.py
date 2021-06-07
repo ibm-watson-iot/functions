@@ -2883,20 +2883,20 @@ class InvokeWMLModel(BaseTransformer):
             c = self._entity_type.get_attributes_dict()
             try:
                 wml_credentials = c[self.wml_auth]
-                print('WML Credentials ' , str(wml_credentials))
+                self.deployment_id = wml_credentials['deployment_id']
+                self.space_id = wml_credentials['space_id']
+                logger.info('Found credentials for WML')
             except Exception as ae:
-                wml_credentials = {'apikey': self.apikey , 'url': self.wml_endpoint, 'space_id': self.space_id}
-                logger.error('WML Credentials constant ' + self.wml_auth + ' not present. Error ' + str(ae))
-                pass
-            self.deployment_id = wml_credentials['deployment_id']
-            self.space_id = wml_credentials['space_id']
+                #wml_credentials = {'apikey': self.apikey , 'url': self.wml_endpoint, 'space_id': self.space_id}
+                #logger.error('WML Credentials constant ' + self.wml_auth + ' not present. Error ' + str(ae))
+                raise RuntimeError("No WML credentials specified")
         else:
             wml_credentials = {'apikey': self.apikey , 'url': self.wml_endpoint, 'space_id': self.space_id}
 
         # get client and check credentials
         self.client = APIClient(wml_credentials)
         if self.client is None:
-            logger.error('WML API Key invalid')
+            #logger.error('WML API Key invalid')
             raise RuntimeError("WML API Key invalid")
 
         # set space
