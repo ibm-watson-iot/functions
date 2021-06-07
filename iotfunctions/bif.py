@@ -2862,7 +2862,7 @@ class InvokeWMLModel(BaseTransformer):
             if self.wml_auth is not None:
                 out = out + 'WML auth: ' + str(self.wml_auth) + '\n'
             else:
-                out = out + 'APIKey: ' + str(self.apikey) + '\n'
+                #out = out + 'APIKey: ' + str(self.apikey) + '\n'
                 out = out + 'WML endpoint: ' + str(self.wml_endpoint) + '\n'
                 out = out + 'WML space id: ' + str(self.space_id) + '\n'
                 out = out + 'WML deployment id: ' + str(self.deployment_id) + '\n'
