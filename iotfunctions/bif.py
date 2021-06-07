@@ -2950,7 +2950,7 @@ class InvokeWMLModel(BaseTransformer):
             logging.error("no input columns provided, forwarding all")
             return df
 
-        logging.debug('payload ' + str(scoring_payload))
+        #logging.debug('payload ' + str(scoring_payload))
 
         results = self.client.deployments.score(self.deployment_id, scoring_payload)
 
