@@ -1430,6 +1430,8 @@ class Database(object):
 
         # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
         parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
+        if isinstance(index_col, str):
+            index_col = [index_col]
         index_col = None if index_col is None else [col.lower() for col in index_col]
 
         # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
