@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+
 # *****************************************************************************
 # © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
