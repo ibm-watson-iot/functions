@@ -371,6 +371,10 @@ class ProduceAlerts(object):
                     # Remove all values from series which are not equal to 'True' and only keep index of new series
                     calc_alert_events = alert_series[(alert_series == True)].index
 
+                    # Remove duplicates from calc_alert_events. Otherwise calc_alert_events.difference() fails later on
+                    if calc_alert_events.has_duplicates:
+                        calc_alert_events = calc_alert_events.drop_duplicates(keep='first')
+
                     if calc_alert_events.size > 0:
                         # Get earliest and latest timestamp of all alert events
                         timestamp_level = calc_alert_events.get_level_values(self.dms.eventTimestampName)
@@ -550,7 +554,12 @@ class ProduceAlerts(object):
 
         for alert_name in self.alerts_to_msg_hub:
             index = new_alert_events[alert_name]
-            df_alert_events = df.reindex(index)
+            # Remove duplicates from df_alert_events. Otherwise df_alert_events.reindex() fails
+            df_alert_events = df[(df[alert_name] == True)]
+            if df_alert_events.index.has_duplicates:
+                df_alert_events = df_alert_events[~(df_alert_events.index.duplicated(keep='first'))]
+
+            df_alert_events = df_alert_events.reindex(index)
 
             for df_row in df_alert_events.itertuples(index=True, name=None):
                 # publish alert format
