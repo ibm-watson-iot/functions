@@ -843,14 +843,12 @@ class MessageHub:
                 # Wait for any outstanding messages to be delivered and delivery report
                 # callbacks to be triggered.
                 producer.flush()
-                logger.info('Number of alert produced so far : %d (%s)' % (counter, topic))
+                logger.info('Number of alert events produced so far : %d (%s)' % (counter, topic))
         if producer is not None:
             producer.flush()
 
-        end_time = dt.datetime.now()
-        logger.info("Total alerts produced to message hub = %d " % len(key_and_msg))
-        logger.info("Total time taken to produce the alert to message hub = %s seconds." % (
-                end_time - start_time).total_seconds())
+        logger.info(f"{len(key_and_msg)} alert events have been produced to message hub in "
+                    f"{(dt.datetime.now() - start_time).total_seconds()} seconds.")
 
     def produce(self, topic, msg, key=None, producer=None, callback=_delivery_report):
         if topic is None or len(topic) == 0 or msg is None:
