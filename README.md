@@ -62,7 +62,7 @@ The tutorial builds on the simple tutorial provided in Maximo Asset Monitor [doc
 
 -----------
 
-##Pre-Requisites
+## Pre-Requisites
 
 We start our journey with the set-up required to successfully develop and use a custom-function. All development and
  tutorials in this package use PyCharm IDE. To get started make sure you have the following installed on your machine.
@@ -381,7 +381,7 @@ A base class provides a unique functionality to support data collection, analysi
 
 -----------
 
-##Creating a new Project
+## Creating a new Project
 
 Make your own repo, probably the best where you will store all custom functions
 if it's private  you will need to create PAT vs
@@ -511,7 +511,7 @@ If a metric is dependent on a won't unregister the function
 ## Verifying in UI
 
 -----------
-##Debugging In Pipeline
+## Debugging In Pipeline
 
 
 
