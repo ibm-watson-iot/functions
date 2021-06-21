@@ -350,21 +350,21 @@ A base class provides a unique functionality to support data collection, analysi
         - UISingleItem <br>
           Used to select a single data item as a function input parameter. This method creates a dropdown of all data 
           items, giving the users an option to choose one.
-          
           ![UISingleItem](/readme-images/UISingleItem.png)
-    
-          <img src="https://github.com/ibm-watson-iot/functions/tree/advanced_custom_function_starter/readme-images/UISingleItem.png width="250" height="250" />
     
         - UIMultiItem <br>
           Used to select multiplt data item as a function input parameter. This method creates a dropdown of all data 
           items, giving the users an option to choose one or more items
-          
           ![UIMultiItem](/readme-images/UIMultiItem.png)
 
         - UIMulti <br>
           Multi-select list of constants
+          
         - UISingle <br>
           Single valued constant
+          ![UISingle_float](/readme-images/UISingle_float.png)
+          ![UISingle_str](/readme-images/UISingle_str.png)
+          
         - UIText <br>
           UI control that allows entering multiple lines of text
         - UIParameters <br>
