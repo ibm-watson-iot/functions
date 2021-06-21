@@ -353,7 +353,7 @@ A base class provides a unique functionality to support data collection, analysi
           
           ![UISingleItem](/readme-images/UISingleItem.png)
     
-          <img src="https://github.com/ibm-watson-iot/functions/tree/advanced_custom_function_starter/readme-images width="250" height="250"/>
+          <img src="https://github.com/ibm-watson-iot/functions/tree/advanced_custom_function_starter/readme-images/UISingleItem.png width="250" height="250" />
     
         - UIMultiItem <br>
           Used to select multiplt data item as a function input parameter. This method creates a dropdown of all data 
