@@ -28,7 +28,7 @@
 <!--- Understanding Custom Functions (Base UI)  --->
 [BaseUIControl]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/ui.py#L16
 
-#Custom Function Starter Package
+# Custom Function Starter Package
 
 [![Python 3.7](https://img.shields.io/badge/python-3.7-blue.svg)](https://www.python.org/downloads/release/python-370/)
 
@@ -351,13 +351,13 @@ A base class provides a unique functionality to support data collection, analysi
           Used to select a single data item as a function input parameter. This method creates a dropdown of all data 
           items, giving the users an option to choose one.
           
-          ![UISingleItem](/readme-images/UISingleItem.png)
+          ![UISingleItem](/readme-images/UISingleItem.png = 250x250)
     
         - UIMultiItem <br>
           Used to select multiplt data item as a function input parameter. This method creates a dropdown of all data 
           items, giving the users an option to choose one or more items
           
-          ![UISingleItem](/readme-images/UISingleItem.png)
+          ![UISingleItem](/readme-images/UISingleItem.png = 250x250)
 
         - UIMulti <br>
           Multi-select list of constants
