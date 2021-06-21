@@ -25,6 +25,8 @@
 [HelloWorldAggregator]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/sample.py#L833
 [AggregateWithExpression]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/bif.py#L73
 [DataQualityChecks]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/data_quality.py#L24
+<!--- Understanding Custom Functions (Base UI)  --->
+[BaseUIControl]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/ui.py#L16
 
 #Custom Function Starter Package
 
@@ -292,39 +294,14 @@ A base class provides a unique functionality to support data collection, analysi
    <br>
    <br>
 3. Build UI classmethod <br>
-   This method is used to specify what the inputs and outputs in UI
-   <!--- Examples for each how do I do that --->
-    - Input
-        - UISingleItem <br>
-          Choose a single item as a function argument
-          
-          ![UISingleItem](/readme-images/UISingleItem.png)
-          
-          drop down
-          None
-        - UIMultiItem <br>
-          Multi-select list of data items
-        - UIMulti <br>
-          Multi-select list of constants
-        - UISingle <br>
-          Single valued constant
-        - UIText <br>
-          UI control that allows entering multiple lines of text
-        - UIParameters <br>
-          UI control for capturing a json input
-        - UIExpression <br>
-          UI control that allows entering a python expression
-    - Output
-        - UIFunctionOutSingle <br>
-          Single output item
-        - UIFunctionOutMulti <br>
-          Array of multiple outputs
-        - UIStatusFlag <br>
-          Output a boolean value indicating that function was executed
-    Example of build_ui classmethod added to a function inherited from BaseTransformer (from built-in function
-    [IfThenElse])
-   ```python
-   @classmethod
+    The `base_ui` classmethod is used to specify the inputs and outputs in the user interface (UI). <br>
+    Below is an example of build_ui classmethod (from built-in function [IfThenElse]) and the UI that is generated 
+    from that method.
+    <br>
+    <br>
+    **code to build input and output in the UI**
+    ```python
+    @classmethod
     def build_ui(cls):
         # define arguments that behave as function inputs
         inputs = []
@@ -337,8 +314,71 @@ A base class provides a unique functionality to support data collection, analysi
         outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))
 
         return (inputs, outputs)
+    ```
+   
+    **UI generated from code above**
+
+    Input | Output
+    --- | :----
+    ![IfThenElse_input](/readme-images/IfThenElse_input.png) | ![IfThenElse_output](/readme-images/IfThenElse_output.png)
+
+    In this method you build an array of input and output wherein each array item is an object inherited from 
+    [BaseUIControl]. Each array item is displayed on the UI and used to collect function parameters. Note, that the 
+    inputs and outputs specified in the base_ui method are same as parameters to the `__init__` method of the custom 
+    function.
+    <br>
+
+    Below is an example of the `__init__` method for the `base_ui` classmethod as shown in the example above
+    ```python
+    # The input and output specified in the base_ui should be added as parameters to __init__
+    def __init__(self, conditional_expression, true_expression, false_expression, output_item=None):
+        # makes input and output parameters avialable to other methods
+        super().__init__()
+        self.conditional_expression = self.parse_expression(conditional_expression)
+        self.true_expression = self.parse_expression(true_expression)
+        self.false_expression = self.parse_expression(false_expression)
+        if output_item is None:
+            self.output_item = 'output_item'
+        else:
+            self.output_item = output_item
+
    ```
+    There are seven different objects that can be used to specify an input, and three different objects to specify an 
+    output
+    <br>
+    - Objects used to specify custom-function input
+        - UISingleItem <br>
+          Used to select a single data item as a function input parameter. This method creates a dropdown of all data 
+          items, giving the users an option to choose one.
+          
+          ![UISingleItem](/readme-images/UISingleItem.png)
     
+        - UIMultiItem <br>
+          Used to select multiplt data item as a function input parameter. This method creates a dropdown of all data 
+          items, giving the users an option to choose one or more items
+          
+          ![UISingleItem](/readme-images/UISingleItem.png)
+
+        - UIMulti <br>
+          Multi-select list of constants
+        - UISingle <br>
+          Single valued constant
+        - UIText <br>
+          UI control that allows entering multiple lines of text
+        - UIParameters <br>
+          UI control for capturing a json input
+        - UIExpression <br>
+          UI control that allows entering a python expression
+    - Objects used to specify custom-function output
+        - UIFunctionOutSingle <br>
+          Single output item
+        - UIFunctionOutMulti <br>
+          Array of multiple outputs
+        - UIStatusFlag <br>
+          Output a boolean value indicating that function was executed
+          
+    <br>
+
 -----------
 
 ##Creating a new Project
