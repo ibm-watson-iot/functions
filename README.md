@@ -49,7 +49,7 @@ The tutorial builds on the simple tutorial provided in Maximo Asset Monitor [doc
   - [Parts of custom function](#parts-of-custom-function)
     - [Base Classes](#i-base-classes)
     - [Execute method](#ii-execute-method)
-    - [Build UI classmethos](#iii-build-ui-classmethod)
+    - [Build UI classmethod](#iii-build-ui-classmethod)
 
 - [Creating a New Project](#creating-a-new-project)
 
@@ -175,68 +175,67 @@ There are two types of transformers. The transformers that add data add row/s or
   BaseTransformer is used directly to build a custom function that adds new columns to a dataframe.
   Examples of function that derive from this base class are [IfThenElse], and [MultilpyTwoItems]
   <br>
-    - Transformers that add data from other sources <br>
-    Read more about transformers that [add data from other sources].
+  ######Transformers that add data from other sources
+  Read more about transformers that [add data from other sources].
     <br>
-        - BaseDataSource <br>
-        Used to combine time series data from another source to pipeline data. This is done by defining a
-         `get_data()` method (instead of execute method; see section <INSERT SECTION>) in the custom function. 
-          The method provides code to fetch data from a source external to the pipeline. The external source 
-          must contain a timestamp column and a device_id
-           column, in addition to the time series data column/s <br>
-          Examples of function that derive from this base class are [MergeSampleTimeSeries], and [GetEntityData]
-          <br>
-        - BaseDBActivityMerge <br>
-        Used to merge activity data with time series data. Activities are events that have a start and end 
-          date and generally occur sporadically. Activity tables contain an activity column that indicates 
-          the type of activity performed. Activities can also be sourced by means of custom tables. This
-          function flattens multiple activity types from multiple activity tables into columns indicating 
-          the duration of each activity. When aggregating activity data the dimensions over which you 
-          aggregate may change during the time taken to perform the activity. To make allowance for this 
-          slowly changing dimensions, you may include a customer calendar lookup and one or more resource 
-          lookups <br>
-        Examples of a function that derive from this base class are [Activity Duration]
-          <br>
-        - BaseDatabaseLookup <br>
-        Used for performing database lookups. Optionally, you can provide sample data for lookup;
-        this data will be used to create a new lookup table;data should be provided as a dictionary by 
-          setting `self.data`  and used to create a DataFrame. When providing your own 
-          data in dictionary you have to set `_auto_create_lookup_table` flag to True. <br>
-          The required fields for this class are `lookup_table_name`, `lookup_items`, `lookup_keys`, and are 
-          set in the class init method. Classes that inherit from this class don't require an execute method 
-          <br>
-         Examples of function that derive from this base class are [LookupCompany], and [DatabaseLookup]
-          <br>
-        - BasePreload <br>
-          Preload functions execute before loading entity data into the pipeline. Unlike other functions, 
-          preload functions have no input items or output items. Preload functions return a single boolean 
-          output on execution. Pipeline will proceed when True. 
-          Examples of function that derive from this base class are [HTTPPreload], [EntityDataGenerator], and 
-          [DeleteInputData]
-          <br>
-        - BaseSCDLookup and BaseSCDLookupWithDefault<br>
-          Used to add slowly changing property data by doing a lookup from a scd lookup table containing:
-          `start_date`, `end_date`, `device_id` and `property` columns. The base class provides both an 
-          execute method and a build_ui classmethod. BaseSCDLookupWithDefault provides an additional 
-          `default_value` parameter for the item being looked up
-          Examples of function that derive from this base class are [SCDLookup]
-          <br>
-    - Transformers that perform calculation after all data is gathered
+    - BaseDataSource <br>
+    Used to combine time series data from another source to pipeline data. This is done by defining a
+     `get_data()` method (instead of execute method; see section <INSERT SECTION>) in the custom function. 
+      The method provides code to fetch data from a source external to the pipeline. The external source 
+      must contain a timestamp column and a device_id
+       column, in addition to the time series data column/s <br>
+      Examples of function that derive from this base class are [MergeSampleTimeSeries], and [GetEntityData]
       <br>
-        - BaseEvent <br>
-          Used to produce events or alerts. The base class sets tags that are inferred by the function 
-          pipeline to generate alerts.
-          Examples of functions that derive from this base class are [AlertOutOfRange], and [AlertHighValue]
-          <br>
-        - BaseEstimatorFunction <br>
-          Used to train, evaluate and predict using sklearn compatible estimators. If training is time 
-          intensive it is recommended NOT to derive from this class.
-          Method derived from this class use `set_estimators` method to build a sklearn compatible 
-          [Pipeline](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html)
-          Examples of functions that derive from this base class are
-          [GBMRegressor], and [BayesRidgeRegressor]
-          <br>
-          <br>
+    - BaseDBActivityMerge <br>
+    Used to merge activity data with time series data. Activities are events that have a start and end 
+      date and generally occur sporadically. Activity tables contain an activity column that indicates 
+      the type of activity performed. Activities can also be sourced by means of custom tables. This
+      function flattens multiple activity types from multiple activity tables into columns indicating 
+      the duration of each activity. When aggregating activity data the dimensions over which you 
+      aggregate may change during the time taken to perform the activity. To make allowance for this 
+      slowly changing dimensions, you may include a customer calendar lookup and one or more resource 
+      lookups <br>
+    Examples of a function that derive from this base class are [Activity Duration]
+      <br>
+    - BaseDatabaseLookup <br>
+    Used for performing database lookups. Optionally, you can provide sample data for lookup;
+    this data will be used to create a new lookup table;data should be provided as a dictionary by 
+      setting `self.data`  and used to create a DataFrame. When providing your own 
+      data in dictionary you have to set `_auto_create_lookup_table` flag to True. <br>
+      The required fields for this class are `lookup_table_name`, `lookup_items`, `lookup_keys`, and are 
+      set in the class init method. Classes that inherit from this class don't require an execute method 
+      <br>
+     Examples of function that derive from this base class are [LookupCompany], and [DatabaseLookup]
+      <br>
+    - BasePreload <br>
+      Preload functions execute before loading entity data into the pipeline. Unlike other functions, 
+      preload functions have no input items or output items. Preload functions return a single boolean 
+      output on execution. Pipeline will proceed when True. 
+      Examples of function that derive from this base class are [HTTPPreload], [EntityDataGenerator], and 
+      [DeleteInputData]
+      <br>
+    - BaseSCDLookup and BaseSCDLookupWithDefault<br>
+      Used to add slowly changing property data by doing a lookup from a scd lookup table containing:
+      `start_date`, `end_date`, `device_id` and `property` columns. The base class provides both an 
+      execute method and a build_ui classmethod. BaseSCDLookupWithDefault provides an additional 
+      `default_value` parameter for the item being looked up
+      Examples of function that derive from this base class are [SCDLookup]
+      <br>
+      ######Transformers that perform calculation after all data is gathered
+    - BaseEvent <br>
+      Used to produce events or alerts. The base class sets tags that are inferred by the function 
+      pipeline to generate alerts.
+      Examples of functions that derive from this base class are [AlertOutOfRange], and [AlertHighValue]
+      <br>
+    - BaseEstimatorFunction <br>
+      Used to train, evaluate and predict using sklearn compatible estimators. If training is time 
+      intensive it is recommended NOT to derive from this class.
+      Method derived from this class use `set_estimators` method to build a sklearn compatible 
+      [Pipeline](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html)
+      Examples of functions that derive from this base class are
+      [GBMRegressor], and [BayesRidgeRegressor]
+      <br>
+      <br>
     
 - BaseAggregator <br>
   Used to build a custom function that aggregates over data at a specified granularity. Monitor supports 
