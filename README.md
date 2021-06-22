@@ -175,8 +175,9 @@ There are two types of transformers. The transformers that add data add row/s or
   BaseTransformer is used directly to build a custom function that adds new columns to a dataframe.
   Examples of function that derive from this base class are [IfThenElse], and [MultilpyTwoItems]
   <br>
-  ######Transformers that add data from other sources
-  Read more about transformers that [add data from other sources].
+  <br>
+**Transformers that add data from other sources** <br>
+Read more about transformers that [add data from other sources].
     <br>
     - BaseDataSource <br>
     Used to combine time series data from another source to pipeline data. This is done by defining a
@@ -220,8 +221,10 @@ There are two types of transformers. The transformers that add data add row/s or
       execute method and a build_ui classmethod. BaseSCDLookupWithDefault provides an additional 
       `default_value` parameter for the item being looked up
       Examples of function that derive from this base class are [SCDLookup]
-      <br>
-      ######Transformers that perform calculation after all data is gathered
+    <br>
+    <br>
+      
+    **Transformers that perform calculation after all data is gathered**<br>
     - BaseEvent <br>
       Used to produce events or alerts. The base class sets tags that are inferred by the function 
       pipeline to generate alerts.
