@@ -656,25 +656,18 @@ starter repository structure.
 - `setup.py` is required to make the repository pip installable
   
 #### Create new repository
-- Download the zip file [custom-function-starter.zip](./custom-function-starter.zip)
-- Unzip the downloaded content
 - In [Github](https://github.com/), create a private empty repository <br>
 ![create-empty-repo](./readme-images/create_empty_repo.gif)
-- Upload the unzipped contents. Folders and files that are not hidden can be dragged and dropped
-- Upload the `.gitignore` file separatley
-    - [on mac] View hidden files using (`CMD` + `SHIFT` + `.`) keyboard shortcut
-    - [on windows] [View hidden files](https://support.microsoft.com/en-us/windows/view-hidden-files-and-folders-in-windows-10-97fbc472-c603-9d90-91d0-1166d1d9f4b5)
 - Create and save [personal access token](https://docs.github.com/en/github/authenticating-to-github/keeping-your-account-and-data-secure/creating-a-personal-access-token)
-
 
 -----------
 ## Creating custom-functions
 
 #### Open new repository in PyCharm
-TODO: INSERT LINK TO ZIP FILE [](./empty-project)
+TODO
 
 #### Set up the virtual environment
-TODO: INSERT LINK TO ZIP FILE [](./empty-project)
+TODO
 
 #### Create new custom-function
 - Add a `dev_resources` folder in the working directory. You can use this to store credentials required later. _Make sure 
