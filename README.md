@@ -656,7 +656,7 @@ starter repository structure.
 - `setup.py` is required to make the repository pip installable
   
 #### Create new repository
-- Download the zip file TODO: INSERT LINK TO ZIP FILE [](./empty-project)
+- Download the zip file [custom-function-starter.zip](./custom-function-starter.zip)
 - Unzip the downloaded content
 - In [Github](https://github.com/), create a private empty repository <br>
 ![create-empty-repo](./readme-images/create_empty_repo.gif)
