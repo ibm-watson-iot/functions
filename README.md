@@ -27,8 +27,11 @@
 [DataQualityChecks]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/data_quality.py#L24
 <!--- Understanding custom-functions (Base UI)  --->
 [BaseUIControl]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/ui.py#L16
+<!--- Registering custom-functions --->
+[MAS credentials]: https://www.ibm.com/docs/en/maximo-monitor/8.4.0?topic=monitor-connection-parameters
+[SaaS credentials]: 
 
-# custom-function Starter Package
+# Custom-Function Starter Package
 
 [![Python 3.7](https://img.shields.io/badge/python-3.7-blue.svg)](https://www.python.org/downloads/release/python-370/)
 
@@ -47,13 +50,16 @@ The tutorial builds on the simple tutorial provided in Maximo Asset Monitor [doc
 - [Understanding custom-functions](#understanding-custom-functions)
   - [Why custom-functions](#why-custom-functions)
   - [Parts of custom-function](#parts-of-custom-function)
-    - [Base Classes](#i-base-classes)
+    - [Base classes](#i-base-classes)
     - [Execute method](#ii-execute-method)
     - [Build UI classmethod](#iii-build-ui-classmethod)
 
-- [Creating a New Project](#creating-a-new-project)
+- [Creating git repository](#creating-git-repository)
 
 - [Creating custom-functions](#creating-custom-functions)
+    - [Open git repository in pycharm](#open-new-repository-in-pycharm)
+    - [Set up virtual environmetn in pycharm](#set-up-the-virtual-environment)
+    - [Create new custom-function](#create-new-custom-function)
 
 - [Debugging Locally](#testing-locally)
 
@@ -81,7 +87,6 @@ We start our journey with the set-up required to successfully develop and use a 
     - Checkout project from [git repository in Pycharm](https://www.jetbrains.com/help/pycharm/set-up-a-git-repository.html#clone-repo)
     - Creating a [virtual environment in Pycharm](https://www.jetbrains.com/help/pycharm/creating-virtual-environment.html)
     - Testing and [debugging](https://www.jetbrains.com/help/pycharm/debugging-code.html) in Pycharm
-        - (POSSIBLE AUTOMATION) should I make a custom run/debug configuration .ipr?
     - Learn about [dataframes](https://pandas.pydata.org/docs/getting_started/intro_tutorials/01_table_oriented.html)
     - Learn about [inheritance](https://pythonbasics.org/inheritance/) 
     - Learn about [classmethod](https://pythonbasics.org/classmethod/)
@@ -233,8 +238,8 @@ Read more about transformers that [add data from other sources].
     - BaseEstimatorFunction <br>
       Used to train, evaluate and predict using sklearn compatible estimators. If training is time 
       intensive it is recommended NOT to derive from this class.
-      Method derived from this class use `set_estimators` method to build a sklearn compatible 
-      [Pipeline](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html)
+      Method derived from this class use `set_estimators` method to build a 
+      [sklearn Pipeline](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html).
       Examples of functions that derive from this base class are
       [GBMRegressor], and [BayesRidgeRegressor]
       <br>
@@ -244,15 +249,12 @@ Read more about transformers that [add data from other sources].
   Used to build a custom-function that aggregates over data at a specified granularity. Monitor supports 
   "Daily" granularity by default, with options to set up and custom granularity. There are two types of 
   bases aggregator classes that derive from this class <br>
-  You can 
-  [read more](https://pandas.pydata.org/pandas-docs/stable/user_guide/groupby.html#groupby-aggregate-named) 
-  about the pandas `agg` and `apply` method to understand the base classes below
   <br>
     - BaseSimpleAggregator <br>
       For simple aggregators the pipeline limits the input parameter name to `source`, and the 
-      output parameter name to `name` (Checkout the examples). This further limits the base class to a 
-      single output. All simple aggregator methods at the same granularity are parsed into an `agg_dict` and 
-      executed using the `agg` method on a pandas.Group (where pandas.Group encodes a granularity)
+      output parameter name to `name` (Checkout the examples). All simple aggregator methods at the same granularity are parsed into an `agg_dict` and 
+      executed using the `agg` method on a pandas.Group (where pandas.Group encodes a granularity) <br>
+      Read more about [pandas agg](https://pandas.pydata.org/pandas-docs/stable/user_guide/groupby.html#applying-different-functions-to-dataframe-columns)
       ```python
       result = group.agg(agg_dict)
       ```
@@ -262,7 +264,8 @@ Read more about transformers that [add data from other sources].
     - BaseComplexAggregator <br>
       Complex aggregators invoke the `apply` method on each sub-group. A sub-group is a pandas.Group defined 
       for a specific granularity
-      Using complex aggregators we can generate multiple output columns for one source
+      Using complex aggregators we can generate multiple output columns for one source <br>
+      Read more about [pandas apply](https://pandas.pydata.org/pandas-docs/stable/user_guide/groupby.html#applying-different-functions-to-dataframe-columns)
       ```python
       result = group.apply(execute)
       ```
@@ -296,22 +299,37 @@ BaseDataSource, BaseSCDLookup, BaseSCDLookupWithDefault, and BaseDatabaseLookup 
 execute method ( but it can be overridden).
 <br>
 The pipeline calls the `execute` method of your function to transform or aggregate data. The execute method 
-accepts a dataframe as input and returns a dataframe as output. If the function should be executed on all 
-entities combined you can replace the execute method wih a custom one. If the function should be executed by 
-entity instance, use the base execute method and provide a custom _calc method instead.
+accepts a dataframe as input and returns a dataframe as output. If the function should be executed on
+device type level you can replace the `execute` method wih a custom one. If the function should be executed by 
+device instance, use the base execute method and provide a custom `_calc` method instead and define `self.execute_by =
+['deviceid']` attribute.
 <br>
 Example of an execute method added to a function inherited from BaseTransformer (from built-in function
 [IfThenElse])
 ```python
 def execute(self, df):
     c = self._entity_type.get_attributes_dict()
-    df = df.copy()
     df[self.output_item] = np.where(eval(self.conditional_expression), eval(self.true_expression),
                                     eval(self.false_expression))
     return df
 ```
-For a function that inherits from BaseDataSource, you must specify a `get_data` method that 
-returns a dataframe filled with time-series data.
+The same function can be written with a `_calc` method and `self.execute_by` attribute definition, if we want to 
+group device instances for device instance specific calculations
+```python
+def __init__(self, *args):
+    ...
+    self.execute_by = ['deviceid']
+    ...
+
+def _calc(self, df):
+    c = self._entity_type.get_attributes_dict()
+    df[self.output_item] = np.where(eval(self.conditional_expression), eval(self.true_expression),
+                                    eval(self.false_expression))
+    return df
+```
+For a function that inherits from BaseDataSource, you must specify a `def get_data(self, start_ts=None, end_ts=None,
+entities=None)` method that returns a dataframe filled with time-series data. For an example refer to BaseDataSource 
+ib [base classes section](#i-base-classes)
 <br>
 
 ##### III. Build UI classmethod
@@ -597,134 +615,183 @@ output
 
 -----------
 
-## Creating a new Project
+## Creating Git Repository
 
-Make your own repo, probably the best where you will store all custom-functions
-if it's private  you will need to create PAT vs
-public
-** add a gif
+You must create an external repository, such as in GitHub or GitLab, to host the function code. The best approach is 
+to use a private repository and use a personal access token to access the function.
+
+For instructions for creating tokens, for GitHub, see 
+[Creating a personal access token](https://docs.github.com/en/github/authenticating-to-github/keeping-your-account-and-data-secure/creating-a-personal-access-token)
+and for GitLab, see 
+[Creating a deploy token](https://docs.gitlab.com/ee/user/project/deploy_tokens/)
+.
+<br>
 
 #### Repository Structure
 
 We use the directory structure shown below for creating and organizing the custom-functions. While this structure is
- not required we will be using and referring to it in the tutorial
+ not required we will be using and referring to it in the tutorial. Download the zip file to download this 
+starter repository structure.
 
 ```bash
 ├── project
 │   ├── custom
+│   │   ├── __init__.py
 │   │   ├── **/*.py
 │   ├── scripts
 |   │   ├── **/*.py
 │   ├── dev_resources
-├── requirements.txt
-├── README.md
-└── .gitignore
+│   ├── requirements.txt
+│   ├── setup.py
+│   ├── README.md
+│   └── .gitignore
 ```
 
-- All the python files with custom-function classes go in the **custom** directory
-- All testing scripts go in the **scripts** directory
-- The credentials go in **dev_resources** directory. NOTE that in this package we add **dev_resources**
+- All the python files with custom-function classes go in the `custom` package
+- The `__init__.py` within the `custom` folder is required to make it a package  
+- All testing scripts go in the `scripts` directory
+- The credentials go in `dev_resources` directory. **NOTE** that in this package we add **dev_resources**
   directory in .gitignore to prevent credential leaks. If you chose to put your credentials in a
   different folder make sure to NOT push the credentials file to your github
+- `setup.py` is required to make the repository pip installable
   
-#### Open Project in Pycharm
+#### Create new repository
+- Download the zip file TODO: INSERT LINK TO ZIP FILE [](./empty-project)
+- Unzip the downloaded content
+- In [Github](https://github.com/), create a private empty repository <br>
+![create-empty-repo](./readme-images/create_empty_repo.gif)
+- Upload the unzipped contents. Folders and files that are not hidden can be dragged and dropped
+- Upload the `.gitignore` file separatley
+    - [on mac] View hidden files using (`CMD` + `SHIFT` + `.`) keyboard shortcut
+    - [on windows] [View hidden files](https://support.microsoft.com/en-us/windows/view-hidden-files-and-folders-in-windows-10-97fbc472-c603-9d90-91d0-1166d1d9f4b5)
+- Create and save [personal access token](https://docs.github.com/en/github/authenticating-to-github/keeping-your-account-and-data-secure/creating-a-personal-access-token)
+
 
 -----------
 ## Creating custom-functions
 
-#### 
-Set up repository structure  
-File in custom folder that will contain the new class
-Define calculation (in execute for most cases)
-do a build_ui
+#### Open new repository in PyCharm
+TODO: INSERT LINK TO ZIP FILE [](./empty-project)
 
-The bare bone function looks as shown below. Except when we use _calc and except when we do preload
-```python
-import BaseClass
+#### Set up the virtual environment
+TODO: INSERT LINK TO ZIP FILE [](./empty-project)
 
-class CustomFunctionName(BaseClass):
-    def __init__(self):
-        pass
+#### Create new custom-function
+- Add a `dev_resources` folder in the working directory. You can use this to store credentials required later. _Make sure 
+  this folder is in `.gitignore` file_
+- Add a new python file in `custom` folder
+- Pick a BaseClass to inherit from. Refer to [base classes](#i-base-classes).
+- Add `def execute(self, df)` method. Refer to [execute methos](#ii-execute-method)
+- Add `def __init__(self, *args)` and `def baseui(cls)` methods. Refer to [build ui](#iii-build-ui-classmethod)
 
-    def execute(self, df):
-        pass
+A complete example for creating a new custom-function is provided in [hello_world.py](./custom/hello_world.py)
 
-    @classmethod
-    def build_ui(cls):
-        pass
-```
-
-
-#### Example functions for each base class
-BaseTransformer
-BaseDataSource
-BaseDBActivityMerge
-BaseDatabaseLookup
-BasePreload
-BaseSCDLookup
-BaseSCDLookupWithDefault
-BaseEvent
-BaseClassifier
-BaseRegressor
-BaseSimpleAggregator
-BaseComplexAggregator
-
-#### Generic helper methods and variables from BaseFunction
-Are set by the pipeline so yeah but how do we test this
-- self._entity_type.index_df(dataframe_that_needs_to_be_indexed)
 
 -----------
 
 ## Testing Locally
 
-Credentials
+We use python scripts for all local testing. Learn how to 
+[run](https://www.jetbrains.com/help/pycharm/running-without-any-previous-configuring.html) and 
+[debug](https://www.jetbrains.com/help/pycharm/debugging-code.html) 
+your python scripts in Pycharm
 
-execute_local_test (random data) vs. creating your own data (will need appropriate indexing)
+###### Transformers
+To locally test the `execute` method of transformers there are two options available. The example scripts can be 
+used as is when testing method/s added instead of the `execute` method, i.e the `_calc`  or `get_data` method. Refer 
+to [execute method](#ii-execute-method) section to learn about alternate methods used to define custom calculations
 
-Indexing in the dataframe for Transformers vs aggregators
+- Use random data for testing locally, as shown in [local_test_using_random_data.py](./scripts/local_test_using_random_data.py)
+- Use .csv file data for testing locally, as shown in [local_test_using_csv_data.py](./scripts/local_test_using_csv_data.py)
 
-Add a script for each
+Both scripts involve calling the `execute(self, df)` method of the transformer function with a dataframe as input 
+parameter. This dataframe consists of the metrics required by the function and is indexed with `[deviceid, timestamp]` 
+columns.
 
-Disclaimer No gaurantee about pipeline run 
+###### Aggregators
+To locally test the `execute(self, group)` method of aggregators we fist define a granularity as a pandas group. A 
+granularity has three components - deviceid column, timestamp column with time-based frequency, and optional 
+dimension columns. The next step is to create aggregate groups using the granularity
+
+```python
+#STEP 1: define the granularity as a commas separated list of columns
+grain = [ 'deviceid', # or corresponding column name for device id
+          pd.Grouper(key='evt_timestamp', freq='1H'), # key: timestamp column name; freq: time base for aggregation
+          'dimension' # column name for any dimension/s column for this grain
+        ]
+
+#STEP 2: construct groups by calling group method on input data
+aggreagtion_groups = df.groupby(grain)
+```
+
+The last step is different for simple and complex aggregators. To test classes that inherit from SimpleAggregator we 
+use the `agg` method (example assumes a single source)
+```python
+#STEP 3: apply the execute function on all the groups
+output_dataframe = aggreagtion_groups.agg({fn.source: fn.execute})
+```
+To test classes that inherit from ComplexAggregator we use the `apply` method
+```python
+#STEP 3: apply the execute function on all the groups
+output_dataframe = aggreagtion_groups.apply(fn.execute)
+```
+
+An example script for testing aggregators is [local_test_aggregators.py](./scripts/local_test_aggregators.py). The 
+example shows how to locally test a simple aggregator and a complex aggregator
+
+
+_Disclaimer_ : While local testing tests the logic you've implemented, it does not gaurantee that the function 
+will run successfully within the function pipeline
 
 -----------
 ## Registering custom-function
 
-What do we need - credentials to connect to the database + `register_function` + A way to find the package where the
- custom-function resides + a pip installable package
-name the database that the function goes in when it registers
 
-#### Retrieving and saving credentials in SaaS
+The name of the registered custom-function is the same as the class name of your custom-function. The 
+custom-function name MUST be unique to a tenant.
+
+#### Push local changes to github
+After testing the function locally add, commit, and push all the changes to github to prepare for the next step
+
+#### Retrieving and saving credentials
 
 **Important**: The credentials file is used to run or test functions locally. Do not push this file to any external
  repository. In this package we add **dev_resources** directory in .gitignore to prevent credential leaks. If
   you chose to put your credentials in a different folder make sure to NOT push the credentials file to your github
 
-1. Create a credentials.json file in the dev_resources folder in your working directory. 
+To get and store credentials for SaaS follow these steps:
+
+1. Create a credentials.json file in the `dev_resources` folder in your working directory. 
 2. On the user interface, go to the **Services** tab.
 3. Select Watson IoT Platform Analytics and click **View Details**.
 4. In the Environment Variables field, click **Copy to Clipboard**.
 5. Paste the contents of the clipboard into the credentials.json file.
-   
-#### Loading credentials in a script
 
-```python
-credentials_path=<path to credentials.json>
-with open(credentials_path, 'r') as F:
-    credentials = json.load(F)
-```
-   
-#### Setting PACKAGE_URL
+Learn how to build  [MAS credentials]. Same as above save these credentials in a `credentials.json` file in the 
+`dev_resources` folder
 
-PACKAGE_URL vs url parameter in register_function vs other ways to save your PAT from getting stolen
+   
+#### Register.py
+
+Follow the steps in [register.py](./scripts/register.py) and run the script to register your custom-function to your 
+tenant. <br>
+**Important**  When using a private repository you will add your personal 
+access token created in the [create new repository](#create-new-repository) step to the PACKAGE_URL in `register.py`.
+To prevent leaking your personal access token do NOT push the register.py file to your github. Either delete your 
+token before you push the file or add it to .gitignore
+
 
 -----------
 ## Unregistering custom-function
 
-If a metric is dependent on a won't unregister the function
+A custom-function will unregisters when it is not n use. Delete all the derived metrics you defined using a 
+custom-function before deleting the function. Follow the steps in [unregister.py](./scripts/unregister.py) and run the 
+script to register your custom-function to your 
+tenant. <br>
 
 -----------
 ## Verifying in UI
+
 
 -----------
 ## Debugging In Pipeline

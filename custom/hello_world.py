@@ -5,13 +5,7 @@ from iotfunctions.base import BaseTransformer
 
 logger = logging.getLogger(__name__)
 
-# Specify the URL to your package here.
-# This URL must be accessible via pip install
-
-PACKAGE_URL = 'git+https://github.com/<path_to_repository>@'
-
-
-class HelloWorld(BaseTransformer):
+class XXXHelloWorld(BaseTransformer):
     '''
     The docstring of the function will show as the function description in the UI.
     '''
