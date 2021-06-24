@@ -470,7 +470,7 @@ output
   <br>
   ![UIMulti_csv](/readme-images/UIMulti_csv.png)
   <br>
-  ![UIMulti_sel_values](/readme-images/UIMulti_sel_values.png)
+  ![UiMulti_sel_values](/readme-images/UIMulti_sel_values.png)
   <br>
   To use UIMulti to gather input, the following is added in `build_ui()`. When `is_output_datatype_derived=True` is 
   set there is an output item defined for every input item selected by the user and we don't need to specify it 
