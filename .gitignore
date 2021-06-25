@@ -6,6 +6,10 @@ dev_resources/
 ##########################
 scripts/*.json
 
+# default virtual environment #
+##############################
+venv/
+
 #debug file #
 #############
 scripts/debugPipelineSourceData.csv
