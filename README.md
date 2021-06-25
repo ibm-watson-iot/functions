@@ -240,7 +240,7 @@ Learn how to build  [MAS credentials]. Same as above save these credentials in a
 `dev_resources` folder
 
    
-####3.  Register function
+#### 3.  Register function
 
 Follow the steps in [register.py](./scripts/register.py) and run the script to register your custom-function to your 
 tenant. <br>
