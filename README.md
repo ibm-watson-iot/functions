@@ -273,11 +273,11 @@ until the point of faliure
 <br>
 1. Click on `Analysis Error` >> `Show log`
 <br>
-![](readme-images/analysis_error.png)
+![analysis Error](./readme-images/analysis_error.png)
 <br>
 <br>
 2. Download the log file to understand and further debug the error
-![](readme-images/log_file.png)
+![pipeline log file](./readme-images/log_file.png)
 <br>
 <br>
 3. If the debugging suggests an error in the custom-function, follow these steps 
