@@ -27,9 +27,6 @@ custom-function
 - [Creating git repository](#creating-git-repository)
 
 - [Creating custom-functions](#creating-custom-functions)
-    - [Open git repository in pycharm](#open-new-repository-in-pycharm)
-    - [Set up virtual environmetn in pycharm](#set-up-the-virtual-environment)
-    - [Create new custom-function](#create-new-custom-function)
 
 - [Debugging Locally](#testing-locally)
 
