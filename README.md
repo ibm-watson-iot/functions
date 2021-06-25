@@ -271,21 +271,21 @@ messages
 until the point of faliure
 <br>
 <br>
-1. Click on `Analysis Error` >> `Show log`
+Click on `Analysis Error` >> `Show log`
 <br>
 ![analysis Error](./readme-images/analysis_error.png)
 <br>
 <br>
-2. Download the log file to understand and further debug the error
+Download the log file to understand and further debug the error
 ![pipeline log file](./readme-images/log_file.png)
 <br>
 <br>
-3. If the debugging suggests an error in the custom-function, follow these steps 
-  - Delete the data_item/s assosiated with the custom-function
-  - Unregister the custom-function
-  - Fix and push the new and improved custom-function to github
-  - Register the new custom-function
-  - Verify in the UI again
+If the debugging suggests an error in the custom-function, follow these steps 
+- Delete the data_item/s assosiated with the custom-function
+- Unregister the custom-function
+- Fix and push the new and improved custom-function to github
+- Register the new custom-function
+- Verify in the UI again
 
 
 
