@@ -482,6 +482,9 @@ def log_df_info(df, msg, include_data=False):
     """
     Log a debugging entry showing first row and index structure
     """
+    if not isinstance(df, pd.DataFrame):
+        logger.debug('df is no dataframe')
+        return 'df is of type ' + str(type(df))
     try:
         msg = msg + ' ; df row count: %s ' % (len(df.index))
         if df.index.names != [None]:
@@ -500,8 +503,9 @@ def log_df_info(df, msg, include_data=False):
             msg = msg + ' ; columns: { %s }' % (' , '.join(list(df.columns)))
         logger.debug(msg)
         return msg
-    except Exception:
+    except Exception as log_e:
         logger.warning('dataframe contents not logged due to an unknown logging error')
+        print(log_e)
         return ''
 
 
