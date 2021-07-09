@@ -16,7 +16,7 @@ spectral = 'TemperatureSpectralScore'
 sal = 'SaliencyAnomalyScore'
 gen = 'TemperatureGeneralizedScore'
 
-#@nottest
+@nottest
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
@@ -131,4 +131,4 @@ def test_base_functions():
 
     pass
 
-test_base_functions()
+#test_base_functions()
