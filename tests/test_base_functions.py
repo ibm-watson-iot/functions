@@ -3,7 +3,9 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 from sqlalchemy import Column, Float, DateTime
-from iotfunctions.bif import Coalesce, DateDifference
+from iotfunctions.db import Database
+from iotfunctions.dbtables import FileModelStore
+from iotfunctions.bif import Coalesce, DateDifference, PythonFunction
 from nose.tools import assert_true
 
 # constants
@@ -13,6 +15,21 @@ fft = 'TemperatureFFTScore'
 spectral = 'TemperatureSpectralScore'
 sal = 'SaliencyAnomalyScore'
 gen = 'TemperatureGeneralizedScore'
+
+#@nottest
+class DatabaseDummy:
+    tenant_id = '###_IBM_###'
+    db_type = 'db2'
+    model_store = FileModelStore('./data')
+
+    def _init(self):
+        return
+
+    def make_function(self, function_name, function_code, filename=None, bucket=None):
+        print(function_code)
+        exec(function_code)
+        fn = locals()[function_name]
+        return fn
 
 
 def test_base_functions():
@@ -80,6 +97,27 @@ def test_base_functions():
     print (df_i['datediff'])
     comp = (np.all(results1 == origins1), np.all(results2 == origins2),
             np.all(df_i['datediff'] == my_delta))
+    results1 = df_i['Results1'].values[0:5]
+
+    print('Python Functions')
+
+    db_schema=None
+    db = DatabaseDummy()
+    jobsettings = { 'db': db, '_db_schema': 'public'} #, 'save_trace_to_file' : True}
+
+    funcStr = \
+'def my_test_function(df, parameters):\n    print(df.columns)\n    print(parameters)\n    df[\'PythonFunction\']=\'PythonFunction\'\n\
+    return df'
+
+    bif_pf = PythonFunction(funcStr, 'datediff', 'PythonFunction', {'function_name': 'my_test_function', 'a': 63})
+    et = bif_pf._build_entity_type(columns=[Column('datediff', DateTime())], **jobsettings)
+
+    bif_pf._entity_type = et
+    print(bif_pf._entity_type._timestamp)
+    df_i = bif_pf.execute(df=df_i)
+
+    print(df_i['PythonFunction'][0])
+
 
     print(results1)
     print(results2)
@@ -93,4 +131,4 @@ def test_base_functions():
 
     pass
 
-# test_base_scores()
+test_base_functions()
