@@ -75,8 +75,7 @@ and for GitLab, see
 #### Repository Structure
 
 We use the directory structure shown below for creating and organizing the custom-functions. While this structure is
- not required we will be using and referring to it in the tutorial. Download the zip file to download this 
-starter repository structure.
+ not required we will be using and referring to it in the tutorial.
 
 ```bash
 ├── project
@@ -108,9 +107,9 @@ starter repository structure.
 -----------
 ## Creating custom-functions
 
-All git activities assume you have generated and added ssh keys to you git account. 
+All git activities assume that you have generated and added ssh keys to you git account. 
 [Learn more](https://docs.github.com/en/github/authenticating-to-github/connecting-to-github-with-ssh/checking-for-existing-ssh-keys) 
-about connecting to github vis ssh
+about connecting to github via ssh
 #### 1. Open new project in PyCharm
 Clone your empty repository in pycharm using `Get from VCS` option in pycharm.
 [Learn more](https://www.jetbrains.com/help/pycharm/set-up-a-git-repository.html#clone-repo) 
@@ -139,6 +138,7 @@ git checkout --orphan main starter/advanced_custom_function_starter
 3. Click on `requirements.txt` in you projects window
 4. Right click on top of `requirements.txt` file and choose "Install All Packages"
 5. All the required packages will be installed in the virtual env assosiated to your project
+
 ![](readme-images/install_requirements.png)
 
 #### 4. Create new custom-function
@@ -147,7 +147,8 @@ sure this folder is in `.gitignore` file_
 2. Add a new python file in `custom` folder
 3. Pick a BaseClass to inherit from. Refer to i. base classes in [Understanding Custom Function]
 4. Add `def execute(self, df)` method. Refer to ii execute method in [Understanding Custom Function]
-5. Add `def __init__(self, *args)` and `def baseui(cls)` methods. Refer to iii build ui classmethod in[Understanding Custom Function]
+5. Add `def __init__(self, *args)` and `def baseui(cls)` methods. Refer to iii build ui classmethod in 
+   [Understanding Custom Function]
 6. A complete example for a new custom-function is provided in [hello_world.py](./custom/hello_world.py)
 
 
@@ -178,8 +179,9 @@ columns.
 
 ###### Aggregators
 To locally test the `execute(self, group)` method of aggregators we fist define a granularity as a pandas group. A 
-granularity has three components - deviceid column, timestamp column with time-based frequency, and optional 
-dimension columns. The next step is to create aggregate groups using the granularity
+granularity has three-four components - deviceid column, timestamp column with time-based frequency, and optional 
+dimension columns. The first step is to define a granularity for the test, and the secind step is to create aggregate 
+groups using this granularity
 
 ```python
 #STEP 1: define the granularity as a commas separated list of columns
@@ -219,7 +221,21 @@ The name of the registered custom-function is the same as the class name of your
 custom-function name MUST be unique to a tenant.
 
 #### 1. Push local changes to github
-After testing the function locally add, commit, and push all the changes to github to prepare for the next step
+After testing the function locally add, commit, and push all the changes to github to prepare for the next step. If 
+you followed the setup steps in [Creating custom-functions](#creating-custom-functions) the remote for github should be 
+set to your private repository. 
+1. Check remote using the following terminal command
+```bash
+git remote -v 
+```
+2. Use a sequence of these commands from the directory's top level to add, commit, and push changes to your private 
+   repository
+```bash
+git status
+git add .
+git commit - m "commit message for adding a new custom-function"
+git push
+```
 
 #### 2. Retrieving and saving credentials
 
