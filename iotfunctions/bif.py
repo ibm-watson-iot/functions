@@ -29,6 +29,8 @@ from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
 from .util import adjust_probabilities, reset_df_index, asList
+from ibm_watson_machine_learning import APIClient
+
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
