@@ -269,7 +269,7 @@ token before you push the file or add it to .gitignore
 ## Unregistering custom-function
 
 Delete all the derived metrics you defined using a custom-function before deleting the function. Follow the steps  
-in [unregister.py](./scripts/unregister.py) and run the script to register your custom-function to your tenant. <br>
+in [unregister.py](./scripts/unregister_function.py) and run the script to register your custom-function to your tenant. <br>
 
 -----------
 ## Verifying in UI
