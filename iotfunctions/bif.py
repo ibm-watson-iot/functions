@@ -2930,7 +2930,8 @@ class InvokeWMLModel(BaseTransformer):
     def _calc(self, df):
 
         if len(self.input_items) >= 1:
-            rows = df[self.input_items].values.tolist()
+            index_nans = df[df[self.input_items].isna().any(axis=1)].index
+            rows = df.loc[~df.index.isin(index_nans), self.input_items].values.tolist()
             scoring_payload = {
                 'input_data': [{
                     'fields': self.input_items,
@@ -2940,12 +2941,11 @@ class InvokeWMLModel(BaseTransformer):
             logging.error("no input columns provided, forwarding all")
             return df
 
-        #logging.debug('payload ' + str(scoring_payload))
-
         results = self.client.deployments.score(self.deployment_id, scoring_payload)
 
         if results:
-            df[self.output_items] = np.array(results['predictions'][0]['values']).flatten()
+            df.loc[~df.index.isin(index_nans), self.output_items] = \
+                np.array(results['predictions'][0]['values']).flatten()
         else:
             logging.error('error invoking external model')
 
