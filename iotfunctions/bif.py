@@ -2842,7 +2842,10 @@ class InvokeWMLModel(BaseTransformer):
         self.whoami = 'InvokeWMLModel'
 
         self.input_items = input_items
-        self.output_items = output_items
+        if isinstance(output_items, str):
+            self.output_items = [output_items]
+        else:
+            self.output_items = output_items
         self.wml_auth = wml_auth
 
         self.deployment_id = None
