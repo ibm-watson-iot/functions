@@ -29,6 +29,8 @@ from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
 from .util import adjust_probabilities, reset_df_index, asList
+from ibm_watson_machine_learning import APIClient
+
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -2840,7 +2842,10 @@ class InvokeWMLModel(BaseTransformer):
         self.whoami = 'InvokeWMLModel'
 
         self.input_items = input_items
-        self.output_items = output_items
+        if isinstance(output_items, str):
+            self.output_items = [output_items]
+        else:
+            self.output_items = output_items
         self.wml_auth = wml_auth
 
         self.deployment_id = None
@@ -2927,20 +2932,9 @@ class InvokeWMLModel(BaseTransformer):
 
     def _calc(self, df):
 
-        if (len(self.input_items) == 1):
-            logging.debug('reformating column ' + str(self.input_items))
-            s_df = df[self.input_items]
-            #rows = [list(r) for i,r in s_df.iterrows()]
-            rows = df[self.input_items].values.tolist()
-            scoring_payload = {
-                'input_data': [{
-                    'fields': self.input_items,
-                    'values': rows}]
-            }
-        elif (len(self.input_items) > 1):
-            s_df = df[self.input_items]
-            #rows = [list(r) for i,r in s_df.iterrows()]
-            rows = df[self.input_items].values.tolist()
+        if len(self.input_items) >= 1:
+            index_nans = df[df[self.input_items].isna().any(axis=1)].index
+            rows = df.loc[~df.index.isin(index_nans), self.input_items].values.tolist()
             scoring_payload = {
                 'input_data': [{
                     'fields': self.input_items,
@@ -2950,12 +2944,11 @@ class InvokeWMLModel(BaseTransformer):
             logging.error("no input columns provided, forwarding all")
             return df
 
-        #logging.debug('payload ' + str(scoring_payload))
-
         results = self.client.deployments.score(self.deployment_id, scoring_payload)
 
         if results:
-            df[self.output_items] = np.array(results['predictions'][0]['values']).flatten()
+            df.loc[~df.index.isin(index_nans), self.output_items] = \
+                np.array(results['predictions'][0]['values']).flatten()
         else:
             logging.error('error invoking external model')
 

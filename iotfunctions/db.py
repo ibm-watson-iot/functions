@@ -1423,25 +1423,28 @@ class Database(object):
     def read_sql_query(self, sql, parse_dates=None, index_col=None, requested_col_names=None, log_message=None,
                        **kwargs):
 
-        if log_message is None:
-            logger.info('The following sql statement is executed: %s' % sql)
-        else:
-            logger.info('%s: %s' % (log_message, sql))
-
         # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
         parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
         if isinstance(index_col, str):
             index_col = [index_col]
         index_col = None if index_col is None else [col.lower() for col in index_col]
 
-        # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
-        # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
-        # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
-        # to avoid type mismatches later on
-        tic = time()
-        df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
-        toc = time()
-        logger.info(f"exec_time_secs={toc - tic:.2f}s sql={' '.join(str(sql).split())}")
+        start_time = pd.Timestamp.utcnow()
+        try:
+            # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
+            # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
+            # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
+            # to avoid type mismatches later on
+            df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
+
+        except Exception as ex:
+            raise RuntimeError(f"The execution of the following sql statement failed: {sql}") from ex
+        else:
+            execution_time = (pd.Timestamp.utcnow() - start_time).total_seconds()
+            if log_message is None:
+                logger.debug(f"The following sql statement was executed in {execution_time} seconds: {sql}.")
+            else:
+                logger.debug(f"{log_message}: execution time = {execution_time} s, sql = {sql}")
 
         if parse_dates is not None and len(parse_dates) > 0:
             df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')

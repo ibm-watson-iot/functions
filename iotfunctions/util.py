@@ -482,6 +482,9 @@ def log_df_info(df, msg, include_data=False):
     """
     Log a debugging entry showing first row and index structure
     """
+    if not isinstance(df, pd.DataFrame):
+        logger.debug('df is no dataframe')
+        return 'df is of type ' + str(type(df))
     try:
         msg = msg + ' ; df row count: %s ' % (len(df.index))
         if df.index.names != [None]:
@@ -500,8 +503,9 @@ def log_df_info(df, msg, include_data=False):
             msg = msg + ' ; columns: { %s }' % (' , '.join(list(df.columns)))
         logger.debug(msg)
         return msg
-    except Exception:
+    except Exception as log_e:
         logger.warning('dataframe contents not logged due to an unknown logging error')
+        print(log_e)
         return ''
 
 
@@ -830,8 +834,14 @@ class MessageHub:
 
     def produce_batch(self, topic, key_and_msg):
         start_time = dt.datetime.now()
-        if topic is None or len(topic) == 0 or key_and_msg is None:
-            logger.warning('Default alert topic name not present. Skipping alerts generation to the queues.')
+        if topic is None or len(topic) == 0:
+            logger.warning('Alert topic has not been defined. Therefore alert events cannot be pushed to Message Hub.')
+            return
+        else:
+            logger.info(f"Topic in Message Hub for alert events is {topic}.")
+
+        if key_and_msg is None or len(key_and_msg) == 0:
+            logger.info(f"Nothing to be pushed to alert topic in Message Hub.")
             return
 
         counter = 0
@@ -843,14 +853,12 @@ class MessageHub:
                 # Wait for any outstanding messages to be delivered and delivery report
                 # callbacks to be triggered.
                 producer.flush()
-                logger.info('Number of alert produced so far : %d (%s)' % (counter, topic))
+                logger.info(f"{counter} alert events have been pushed to alert topic in Message Hub so far.")
         if producer is not None:
             producer.flush()
 
-        end_time = dt.datetime.now()
-        logger.info("Total alerts produced to message hub = %d " % len(key_and_msg))
-        logger.info("Total time taken to produce the alert to message hub = %s seconds." % (
-                end_time - start_time).total_seconds())
+        logger.info(f"A total of {counter} alert events have been pushed to alert topic in "
+                    f"Message Hub in {(dt.datetime.now() - start_time).total_seconds()} seconds.")
 
     def produce(self, topic, msg, key=None, producer=None, callback=_delivery_report):
         if topic is None or len(topic) == 0 or msg is None:

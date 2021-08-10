@@ -1042,9 +1042,16 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
             dfe = dfEntity
 
         # count the timedelta in seconds between two events
-        timeSeq = (dfEntity.index.values - dfEntity.index[0].to_datetime64()) / np.timedelta64(1, 's')
 
-        dfe = dfEntity.copy()
+        logger.debug('type of index[0] is ' + str(type(dfEntity.index[0])))
+
+        try:
+            timeSeq = (dfe.index.values - dfe.index[0].to_datetime64()) / np.timedelta64(1, 's')
+        except Exception:
+            time_to_numpy = np.array(dfe.index[0], dtype='datetime64')
+            timeSeq = (time_to_numpy - dfe.index[0][0].to_datetime64()) / np.timedelta64(1, 's')
+
+        #dfe = dfEntity.copy()
 
         # one dimensional time series - named temperature for catchyness
         #   we look at the gradient of the time series timestamps for anomaly detection
@@ -1546,7 +1553,7 @@ class RobustThreshold(SupervisedLearningTransformer):
 
         self.whoami = 'RobustThreshold'
 
-        logger.info(self.whoami + ' from ' + self.input_item + ' quantile threshold ' +  self.threshold +
+        logger.info(self.whoami + ' from ' + self.input_item + ' quantile threshold ' +  str(self.threshold) +
                     ' exceeding boolean ' + self.output_item)
 
 
