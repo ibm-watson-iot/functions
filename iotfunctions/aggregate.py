@@ -264,12 +264,6 @@ class Aggregation(BaseFunction):
         if len(group_base_names) == 1:
             df.index.names = group_base_names
 
-        # Adding entity_id column in the aggregate df by default
-        id_idx = 'id'
-        entity_id_col = 'entity_id'
-        if id_idx in df.index.names and entity_id_col not in df.columns and self.entityFirst:
-            df[entity_id_col] = df.index.get_level_values(id_idx)
-
         log_data_frame('aggregation_final_df', df.head())
 
         return df

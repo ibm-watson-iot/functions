@@ -540,6 +540,13 @@ def asList(x):
     return x
 
 
+def copy_entity_id_to_column(df):
+    id_idx = 'id'
+    entity_id_col = 'entity_id'
+    if id_idx in df.index.names and entity_id_col not in df.columns:
+        df[entity_id_col] = df.index.get_level_values(id_idx)
+
+
 class CosClient:
     """
     Cloud Object Storage client
