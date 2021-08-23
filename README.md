@@ -290,15 +290,10 @@ With the steps show below you can download the pipeline's runtime log file and p
 triangulate, and fix the issue/bug.
 <br>
 <br>
-1. Click on `Analysis Error` >> `Show log`
-<br>
-![analysis Error](./readme-images/analysis_error.png)
-<br>
-<br>
+1. Click on `Analysis Error` >> `Show log` <br>
+    ![analysis Error](./readme-images/analysis_error.png)
 2. Download the log file to understand and further debug the error
-![pipeline log file](./readme-images/log_file.png)
-<br>
-<br>
+    ![pipeline log file](./readme-images/log_file.png)
 3. If the debugging suggests an error in the custom-function, and you want to fix the function follow these steps 
     1. Delete the data_item/s assosiated with the custom-function
     2. Unregister the custom-function
