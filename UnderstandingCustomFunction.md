@@ -296,7 +296,7 @@ def build_ui(cls):
 
     return (inputs, outputs)
 ```
-*Code snippet for `__init__*
+*Code snippet for `__init__`*
 ```python
 # The input and output specified in the base_ui should be added as parameters to __init__
 def __init__(self, conditional_expression, true_expression, false_expression, output_item=None):
