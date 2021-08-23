@@ -24,6 +24,9 @@
 [DataQualityChecks]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/data_quality.py#L24
 <!--- Understanding custom-functions (Base UI)  --->
 [BaseUIControl]: https://github.com/ibm-watson-iot/functions/blob/4ab8f8132330f1a6149c3dbc9189063a1373f6be/iotfunctions/ui.py#L16
+<!--- Understanding custom-functions (Scope Filtering)  --->
+[class variables]: https://docs.python.org/3/tutorial/classes.html#class-and-instance-variables
+[documentation for scope filtering]: https://www.ibm.com/docs/en/maximo-monitor/8.5.0?topic=calculations-filtering-scope-functions
 
 ## Understanding custom-functions
 
@@ -38,15 +41,18 @@ next function and so on.
 - [Why custom-functions](#why-custom-functions)
 
 - [Parts of custom-function](#parts-of-custom-function)
-    - [i. base classes](#i-base-classes)
-        - [hierarchy of bases classes](#hierarchy-of-all-available-base-classes)
-        - [order of execution of base classes](#order-of-execution-in-a-function-pipeline)
-    - [ii. execute method](#ii-execute-method)
-    - [iii. build ui classmethod](#iii-build-ui-classmethod)
+    - [i. Base classes](#i-base-classes)
+        - [Hierarchy of base classes](#hierarchy-of-base-classes)
+        - [Order of execution](#order-of-execution-in-a-function-pipeline)
+    - [ii. Execute method](#ii-execute-method)
+    - [iii. Build UI classmethod](#iii-build-ui-classmethod)
+
+- [Further configuration of custom-function](#further-configuration-of-custom-function) 
+    - [i. Scope filtering](#i-scope-filtering)
 
 -----------
 
-#### Why custom-functions
+### Why custom-functions
 
 Monitor provides built-in functions; the functionality you want to add might already be present in
 [the function catalog]. Within the built-in function monitor contains 
@@ -56,7 +62,7 @@ To create re-usable functionality with complicated code patterns you can create 
 can install other packages, while PythonExpression and PythonFunction are limited to preinstalled analytics 
 service packages 
 
-#### Parts of custom-function 
+### Parts of custom-function 
 
 There are three important concepts required in designing a custom-function - base class, execute method, and build_ui 
 classmethod. A custom-function is a python object that inherits from one of the provided base classes
@@ -84,12 +90,12 @@ class CustomFunctionName(BaseClass):
         return input,output
 ```
 
-##### I. Base Classes
+#### I. Base Classes
 First, you need to pick a base class to inherit from.
 A base class provides a unique functionality to support data collection, analysis, or analytics. The base classes 
 follow an inheritance hierarchy structure as show below
 
-###### Hierarchy of all available base classes 
+##### I.I Hierarchy of base classes 
 ```bash
 ├── BaseFunction
 |   │
@@ -111,13 +117,12 @@ follow an inheritance hierarchy structure as show below
 │   │   ├── BaseComplexAggregator
 │
 ```
-- BaseFunction <br>
+- **BaseFunction** <br>
 Base class for all Analytics Service functions. It sets defaults for all functions and provides generic
  helper methods.  We never inherit from this base class directly. All custom-functions either inherit from
   either BaseTransformer or BaseAggregator
-  <br>
-  <br>
-- BaseTransformer <br>
+
+- **BaseTransformer** <br>
 There are two types of transformers. The transformers that add data add row/s or column/s to the data 
   in the pipeline form another data source, and the "normal" transformers add column/s of calculated metrics.
   You can derive a custom-function from a base class derived from BaseTransformer or directly from 
@@ -127,9 +132,8 @@ There are two types of transformers. The transformers that add data add row/s or
   Examples of function that derive from this base class are [IfThenElse], and [MultilpyTwoItems]
   <br>
   <br>
-**Transformers that add data from other sources** <br>
+*Transformers that add data from other sources* <br>
 Read more about transformers that [add data from other sources].
-    <br>
     - BaseDataSource <br>
     Used to combine time series data from another source to pipeline data. This is done by defining a
      `get_data()` method (instead of execute method; see section <INSERT SECTION>) in the custom-function. 
@@ -171,11 +175,9 @@ Read more about transformers that [add data from other sources].
       `start_date`, `end_date`, `device_id` and `property` columns. The base class provides both an 
       execute method and a build_ui classmethod. BaseSCDLookupWithDefault provides an additional 
       `default_value` parameter for the item being looked up
-      Examples of function that derive from this base class are [SCDLookup]
-    <br>
-    <br>
-      
-    **Transformers that perform calculation after all data is gathered**<br>
+      Examples of function that derive from this base class are [SCDLookup] 
+
+    *Transformers that perform calculation after all data is gathered*
     - BaseEvent <br>
       Used to produce events or alerts. The base class sets tags that are inferred by the function 
       pipeline to generate alerts.
@@ -187,14 +189,11 @@ Read more about transformers that [add data from other sources].
       Method derived from this class use `set_estimators` method to build a 
       [sklearn Pipeline](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html).
       Examples of functions that derive from this base class are
-      [GBMRegressor], and [BayesRidgeRegressor]
-      <br>
-      <br>
-    
-- BaseAggregator <br>
+      [GBMRegressor], and [BayesRidgeRegressor]   
+- **BaseAggregator** <br>
   Used to build a custom-function that aggregates over data at a specified granularity. Monitor supports 
   "Daily" granularity by default, with options to set up and custom granularity. There are two types of 
-  bases aggregator classes that derive from this class <br>
+  bases aggregator classes that derive from this class
   <br>
     - BaseSimpleAggregator <br>
       For simple aggregators the pipeline limits the input parameter name to `source`, and the 
@@ -216,10 +215,8 @@ Read more about transformers that [add data from other sources].
       result = group.apply(execute)
       ```
       Examples of functions that derive from this base class are [DataQualityChecks]
-    <br>
-    <br>
-      
-###### Order of Execution in a function pipeline
+    <br>    
+##### Order of Execution in a function pipeline
 
 A staged pipeline is created to execute all the KPI functions. The stages in the pipeline follow an order of 
 execution as show below in a simplified version.Any function inheriting from BasePreload will be executed before 
@@ -237,7 +234,7 @@ STAGE 4: BaseTransformer, BaseEstimatorFunction, BaseEvent, BaseDatabaseLookup (
 STAGE 5: BaseSimpleAggregator, BaseComplexAggregator
 ```
 
-##### II. Execute method
+#### II. Execute method
 After you've picked the base class to inherit from, you need to define your 
 calculation in `execute` or `_calc` 
 method. This is the calculation we are need the custom-function to perform. As mentioned in the previous section 
@@ -275,17 +272,15 @@ def _calc(self, df):
 ```
 For a function that inherits from BaseDataSource, you must specify a `def get_data(self, start_ts=None, end_ts=None,
 entities=None)` method that returns a dataframe filled with time-series data. For an example refer to BaseDataSource 
-ib [base classes section](#i-base-classes)
+in [base classes section](#i-base-classes)
 <br>
 
-##### III. Build UI classmethod
+#### III. Build UI classmethod
 The `base_ui` classmethod is used to specify the inputs and outputs in the user interface (UI). The class returns a 
-tuple of two array, an input array and an output array respectively (even if the array are empty). 
-Below is an example of build_ui classmethod (from built-in function [IfThenElse]) and the UI that is generated 
-from that method.
+tuple of two array, an input array and an output array respectively (even if the array are empty).
 <br>
-<br>
-**code to build input and output in the UI**
+Below is a sample code snippet to programatically build the ui components of a custom-function, followed by the UI it generates
+*Code snippet for `base_ui`*
 ```python
 @classmethod
 def build_ui(cls):
@@ -301,20 +296,7 @@ def build_ui(cls):
 
     return (inputs, outputs)
 ```
-
-**UI generated from code above**
-
-Input | Output
---- | :----
-![IfThenElse_input](/readme-images/IfThenElse_input.png) | ![IfThenElse_output](/readme-images/IfThenElse_output.png)
-
-In this method you build an array of input and output wherein each array item is an object inherited from 
-[BaseUIControl]. Each array item is displayed on the UI and used to collect function parameters. Note, that the 
-inputs and outputs specified in the base_ui method are same as parameters to the `__init__` method of the custom 
-function.
-<br>
-
-Below is an example of the `__init__` method for the `base_ui` classmethod from the example above
+*Code snippet for `__init__*
 ```python
 # The input and output specified in the base_ui should be added as parameters to __init__
 def __init__(self, conditional_expression, true_expression, false_expression, output_item=None):
@@ -329,230 +311,254 @@ def __init__(self, conditional_expression, true_expression, false_expression, ou
         self.output_item = output_item
 
 ```
+*UI*
+Input | Output
+--- | :----
+![IfThenElse_input](/readme-images/IfThenElse_input.png) | ![IfThenElse_output](/readme-images/IfThenElse_output.png)
+
+
+In this method you build an array of input and output wherein each array item is an object inherited from 
+[BaseUIControl]. Each array item is displayed on the UI and used to collect function parameters. Note, that the 
+inputs and outputs specified in the base_ui method are same as parameters to the `__init__` method of the custom 
+function.
+<br>
 There are seven different objects that can be used to specify an input, and three different objects to specify an 
 output
-<br>
-**Objects used to specify custom-function input** <br>
-- UISingleItem <br>
-  Use this object to select a single data item as a function input parameter. This method creates a 
-  dropdown of all data  items in the UI (see below), giving the users an option to choose one.
-  <br>
-  ![UISingleItem](/readme-images/UISingleItem.png)
-  <br>
-  To use UISingleItem to gather input, the following is added in `build_ui()`
-  ```python
-  from iotfunctions.ui import UISingleItem
-  
-  @classmethod
-  def build_ui(cls):
-      # assumes "input" is defined as a list
-      input.append(UISingleItem(
-        name="input_item", # same as "input_item" in picture above (required)
-        datatype=None,     # float, str, bool, int, dict, datetime.datetime, None
-        description=None,  # help text; shows up when user hovers over "input_item"
-        required=True,     # set to "True" if this input is required
-        tags=None)))
-  ```
 
-- UIMultiItem <br>
-  Use this object to select multiple data item as a function input parameter. This method creates a dropdown of all 
-  data items, giving the users an option to choose one or more items. When `is_output_datatype_derived=True` is 
-  set there is an output item defined for every input item selected by the user and we don't need to specify the 
-  resulting output items in the output array in `build_ui`
-  <br>
-  ![UIMultiItem](/readme-images/UIMultiItem.png)
-  <br>
-  To use UIMultiItem to gather input, the following is added in `build_ui()`
-  ```python
-  from iotfunctions.ui import UIMultiItem
-  
-  @classmethod
-  def build_ui(cls):
-      # assumes "input" is defined as a list
-      input.append(UIMultiItem(
-        name="input_items",   # same as "input_items" in picture above (required)
-        datatype=None,        # float, str, bool, int, dict, datetime.datetime, None
-        description=None,     # help text; shows up when user hovers over "input_item"
-        required=True,        # set to "True" if this input is required
-        min_items=None,       # control minimum input items provided by user
-        max_items=None,       # control maximum input items provided by user
-        output_item=None,     # name of appended to each output_item  
-        is_output_datatype_derived=False, # used when each input_item has a corresonding output_item
-        output_datatype=None  # float, str, bool, int, dict, datetime.datetime, None
-        tags=None)))
-  ```
-  
-- UISingle <br>
-  Use this object to gather single valued constant from the UI. For different datatypes, the UI looks different 
-  when collecting the inputs. The examples shown below use `float` and `str` respectively
-  <br>
-  ![UISingle_float](/readme-images/UISingle_float.png)
-  <br>
-  ![UISingle_str](/readme-images/UISingle_str.png)
-  <br>
-  To use UISingle to gather input, the following is added in `build_ui()`
-  ```python
-  from iotfunctions.ui import UISingle
-  
-  @classmethod
-  def build_ui(cls):
-      # assumes "input" is defined as a list
-      input.append(UISingle(
-        name="constant_name",  # same as "upper_threshold", or "table_name" in pictures above (required)
-        datatype=None,         # float (upper_threshold picture), str(table_name picture), bool, datetime.datetime
-        description=None,      # help text; shows up when user hovers over "input_item" 
-        required=True,         # set to "True" if this input is required
-        values=None,           # set to provide a dropdown of valid values to pick from
-        default=None,          # default value when no value is provided by user
-        tags=None))
-  ```
-  
-- UIMulti <br>
-  Use this object to gather multiple constants from the UI. The UI looks different when `values` is 
-  specified. In the examples shown below `domain_of_values` do not set `values` parameter in  `UIMulti`, which 
-  renders it as a filed that gathers comma separated values. In contrast `checks_with_boolean_output` sets
-  `values= ['constant_value', 'stuck_at_zero', 'white_noise']`, which is rendered as a dropdown that allows for 
-  single/multi-item selection
-  <br>
-  ![UIMulti_csv](/readme-images/UIMulti_csv.png)
-  <br>
-  ![UIMulti_sel_values](/readme-images/UiMulti_sel_values.png)
-  <br>
-  To use UIMulti to gather input, the following is added in `build_ui()`. When `is_output_datatype_derived=True` is 
-  set there is an output item defined for every input item selected by the user and we don't need to specify it 
-  in the output array
-  ```python
-  from iotfunctions.ui import UIMulti
-  
-  @classmethod
-  def build_ui(cls):
-      # assumes "input" is defined as a list
-      input.append(UIMulti(
-        name="constant_name",  # same as "upper_threshold", or "table_name" in pictures above (required)
-        datatype=None,         # float (upper_threshold picture), str(table_name picture), bool, datetime.datetime
-        description=None,      # help text; shows up when user hovers over "upper_threshold"/"table_name"
-        required=True,         # set to "True" if this input is required
-        values=None,           # set to provide a dropdown of valid values to pick (one or multiple values) from
-        default=None,          # default value when no value is provided by user
-        min_items=None,        # control minimum input items provided by user
-        max_items=None,        # control maximum input items provided by user
-        output_item=None,      # name of appended to each output_item  
-        is_output_datatype_derived=False, # used when each input_item has a corresonding output_item
-        output_datatype=None,  # float, str, bool, int, dict, datetime.datetime, None
-        tags=None))
-  ```
-  
-- UIText <br>
-  Use this object to gather multiple lines of text from the UI
-  <br>
-  ![UIText](/readme-images/UIText.png)
-  <br>
-  To use UIText to gather input, the following is added in `build_ui()`. 
-  ```python
-  from iotfunctions.ui import UIText
-  
-  @classmethod
-  def build_ui(cls):
-      # assumes "input" is defined as a list
-      input.append(UIText(
-        name='expression',  # same as "function_code" in pictures above (required)
-        description=None,   # help text; shows up when user hovers over "function_code" 
-        required=True,      # set to "True" if this input is required
-        default=None,       # default value when no value is provided by user,
-        tags=None           # set to ["TEXT"] by default
-  ))
-  ```
-      
-- UIParameters <br>
-  Use this object to capture a json input from the UI. This UI inherits from UISingle wherein the 
-  `datatype=dict` parameter is set. <br>
-  To use UIText to gather input, the following is added in `build_ui()`
-  ```python
-  from iotfunctions.ui import UIParameters
-  
-  @classmethod
-  def build_ui(cls):
-      # assumes "input" is defined as a list
-      input.append(UIParameters(
-        name='parameters',                    # default name is "parameters" (required)
-        description='enter json parameters',  # help text; shows up when user hovers over "parameters" 
-        required=False,                       # set to "True" if this input is required
-        default=None,                         # default value when no value is provided by user
-        tags=None
-  ))
-  ```
-- UIExpression <br>
-  Use this object to enter a python expression from the UI. The UI for this class looks similar to UIText, the 
-  only difference is that we store "EXPRESSION" in tags metadata for this object.
+*Objects used to specify custom-function input*
+1. **UISingleItem** <br>
+      Use this object to select a single data item as a function input parameter. This method creates a 
+      dropdown of all data  items in the UI (see below), giving the users an option to choose one.
+      <br>
+      ![UISingleItem](/readme-images/UISingleItem.png)
+      <br>
+      To use UISingleItem to gather input, the following is added in `build_ui()`
+      ```python
+      from iotfunctions.ui import UISingleItem
 
-**Objects used to specify custom-function output** <br>
-- UIFunctionOutSingle <br>
-  Use this item to collect information about a single output item. The information one can collect is the name and 
-  datatype of the output.
-  <br>
-  The UI looks similar to the examples shown for UIFunctionOutMulti below. When `datatype=None`, the UI allows user 
-  select datatype during custom-function configuration 
-  <br>
-  To use UIFunctionOutSingle to specify output, the following is added in `build_ui()`
-  ```python
-  from iotfunctions.ui import UIFunctionOutSingle
+      @classmethod
+      def build_ui(cls):
+          # assumes "input" is defined as a list
+          input.append(UISingleItem(
+            name="input_item", # same as "input_item" in picture above (required)
+            datatype=None,     # float, str, bool, int, dict, datetime.datetime, None
+            description=None,  # help text; shows up when user hovers over "input_item"
+            required=True,     # set to "True" if this input is required
+            tags=None)))
+      ```
+
+2. **UIMultiItem** <br>
+      Use this object to select multiple data item as a function input parameter. This method creates a dropdown of all 
+      data items, giving the users an option to choose one or more items. When `is_output_datatype_derived=True` is 
+      set there is an output item defined for every input item selected by the user and we don't need to specify the 
+      resulting output items in the output array in `build_ui`
+      <br>
+      ![UIMultiItem](/readme-images/UIMultiItem.png)
+      <br>
+      To use UIMultiItem to gather input, the following is added in `build_ui()`
+      ```python
+      from iotfunctions.ui import UIMultiItem
+
+      @classmethod
+      def build_ui(cls):
+          # assumes "input" is defined as a list
+          input.append(UIMultiItem(
+            name="input_items",   # same as "input_items" in picture above (required)
+            datatype=None,        # float, str, bool, int, dict, datetime.datetime, None
+            description=None,     # help text; shows up when user hovers over "input_item"
+            required=True,        # set to "True" if this input is required
+            min_items=None,       # control minimum input items provided by user
+            max_items=None,       # control maximum input items provided by user
+            output_item=None,     # name of appended to each output_item  
+            is_output_datatype_derived=False, # used when each input_item has a corresonding output_item
+            output_datatype=None  # float, str, bool, int, dict, datetime.datetime, None
+            tags=None)))
+      ```
   
-  @classmethod
-  def build_ui(cls):
-      # assumes "output" is defined as a list
-      output.append(UIFunctionOutSingle(
-        name,              # default name for output_item  (required)
-        datatype=None,     # str, float, dt.datetime, bool
-                           # When "None" let's user select datatype during custom-function configuration 
-        description=None,  # help text; shows up when user hovers over name 
-        tags=None))
-  ```
-- UIFunctionOutMulti <br>
-  Use this object to collect information for multiple outputs that are dependent on  multi-select 
-  input item. The input item is specified in `cardinality_from`. Alternatively, you can set `is_output_derived` flag 
-  within the object used to collect the input that this output is dependent on. The number of output items generated 
-  at runtime depend on the number of input items then user selects.
-  <br>
-  The examples below show illustrates different UI rendered when using this object. In the first example the parameter
-  `is_datatype_derived=False`, creates a UI that allows users to specify a datatype for each output item. In the 
-  second example, the parameter `datatype=str` creates a UI that doesn't need additional user data for output 
-  datatypes. The second example can also be achieved when using `is_datatype_derived=True`
-  <br>
-  ![UIMultiOut_datatype_sel](/readme-images/UIMultiOut_datatype_sel.png)
-  <br>
-  ![UIMultiOut_datatype_set](/readme-images/UIMultiOut_datatype_set.png)
-  <br>
-  To use UIFunctionOutSingle to specify output, the following is added in `build_ui()`
-  ```python
-  from iotfunctions.ui import UIFunctionOutMulti
+3. **UISingle** <br>
+      Use this object to gather single valued constant from the UI. For different datatypes, the UI looks different 
+      when collecting the inputs. The examples shown below use `float` and `str` respectively
+      <br>
+      ![UISingle_float](/readme-images/UISingle_float.png)
+      <br>
+      ![UISingle_str](/readme-images/UISingle_str.png)
+      <br>
+      To use UISingle to gather input, the following is added in `build_ui()`
+      ```python
+      from iotfunctions.ui import UISingle
+
+      @classmethod
+      def build_ui(cls):
+          # assumes "input" is defined as a list
+          input.append(UISingle(
+            name="constant_name",  # same as "upper_threshold", or "table_name" in pictures above (required)
+            datatype=None,         # float (upper_threshold picture), str(table_name picture), bool, datetime.datetime
+            description=None,      # help text; shows up when user hovers over "input_item" 
+            required=True,         # set to "True" if this input is required
+            values=None,           # set to provide a dropdown of valid values to pick from
+            default=None,          # default value when no value is provided by user
+            tags=None))
+      ```
   
-  @classmethod
-  def build_ui(cls):
-      # assumes "output" is defined as a list
-      output.append(UIFunctionOutMulti(
-        name,                        # default name for output_item  (required)
-        cardinality_from,            # the input item that determines the number of outtpus to create  (required)
-        is_datatype_derived=False,   # set to "True" when datatype of output item same as datatype of
-                                     # corresponding input item. Let's  user pick datatype when set to "False"
-        datatype=None,               # float, str, bool, datetime.datetime, None 
-        description=None,            # help text; shows up when user hovers over name  
-        output_item=None,            # Not used  
-        tags=None))
-  ```
+4. **UIMulti** <br>
+      Use this object to gather multiple constants from the UI. The UI looks different when `values` is 
+      specified. In the examples shown below `domain_of_values` do not set `values` parameter in  `UIMulti`, which 
+      renders it as a filed that gathers comma separated values. In contrast `checks_with_boolean_output` sets
+      `values= ['constant_value', 'stuck_at_zero', 'white_noise']`, which is rendered as a dropdown that allows for 
+      single/multi-item selection
+      <br>
+      ![UIMulti_csv](/readme-images/UIMulti_csv.png)
+      <br>
+      ![UIMulti_sel_values](/readme-images/UiMulti_sel_values.png)
+      <br>
+      To use UIMulti to gather input, the following is added in `build_ui()`. When `is_output_datatype_derived=True` is 
+      set there is an output item defined for every input item selected by the user and we don't need to specify it 
+      in the output array
+      ```python
+      from iotfunctions.ui import UIMulti
+
+      @classmethod
+      def build_ui(cls):
+          # assumes "input" is defined as a list
+          input.append(UIMulti(
+            name="constant_name",  # same as "upper_threshold", or "table_name" in pictures above (required)
+            datatype=None,         # float (upper_threshold picture), str(table_name picture), bool, datetime.datetime
+            description=None,      # help text; shows up when user hovers over "upper_threshold"/"table_name"
+            required=True,         # set to "True" if this input is required
+            values=None,           # set to provide a dropdown of valid values to pick (one or multiple values) from
+            default=None,          # default value when no value is provided by user
+            min_items=None,        # control minimum input items provided by user
+            max_items=None,        # control maximum input items provided by user
+            output_item=None,      # name of appended to each output_item  
+            is_output_datatype_derived=False, # used when each input_item has a corresonding output_item
+            output_datatype=None,  # float, str, bool, int, dict, datetime.datetime, None
+            tags=None))
+      ```
   
-- UIStatusFlag <br>
-  Use this object to output a boolean value indicating that function was executed. This function inherits from 
-  UIFunctionOutSingle, with `datatype=bool` parameter.
-  <br>
-  To use UIStatusFlag to specify output, the following is added in `build_ui()`. Unlike the UIFunctionOutSingle, 
-  this object only has one parameter
-  ```python
-  from iotfunctions.ui import UIStatusFlag
-  
-  @classmethod
-  def build_ui(cls):
-      # assumes "output" is defined as a list
-      output.append(UIStatusFlag(
-        name  # name for output_item  (required)
+5. **UIText** <br>
+      Use this object to gather multiple lines of text from the UI
+      <br>
+      ![UIText](/readme-images/UIText.png)
+      <br>
+      To use UIText to gather input, the following is added in `build_ui()`. 
+      ```python
+      from iotfunctions.ui import UIText
+
+      @classmethod
+      def build_ui(cls):
+          # assumes "input" is defined as a list
+          input.append(UIText(
+            name='expression',  # same as "function_code" in pictures above (required)
+            description=None,   # help text; shows up when user hovers over "function_code" 
+            required=True,      # set to "True" if this input is required
+            default=None,       # default value when no value is provided by user,
+            tags=None           # set to ["TEXT"] by default
       ))
-  ```
+      ```
+      
+6. **UIParameters** <br>
+      Use this object to capture a json input from the UI. This UI inherits from UISingle wherein the 
+      `datatype=dict` parameter is set. <br>
+      To use UIText to gather input, the following is added in `build_ui()`
+      ```python
+      from iotfunctions.ui import UIParameters
+
+      @classmethod
+      def build_ui(cls):
+          # assumes "input" is defined as a list
+          input.append(UIParameters(
+            name='parameters',                    # default name is "parameters" (required)
+            description='enter json parameters',  # help text; shows up when user hovers over "parameters" 
+            required=False,                       # set to "True" if this input is required
+            default=None,                         # default value when no value is provided by user
+            tags=None
+      ))
+      ```
+7. **UIExpression** <br>
+      Use this object to enter a python expression from the UI. The UI for this class looks similar to UIText, the 
+      only difference is that we store "EXPRESSION" in tags metadata for this object.
+
+*Objects used to specify custom-function output*
+1. **UIFunctionOutSingle** <br>
+      Use this item to collect information about a single output item. The information one can collect is the name and 
+      datatype of the output.
+      <br>
+      The UI looks similar to the examples shown for UIFunctionOutMulti below. When `datatype=None`, the UI allows user 
+      select datatype during custom-function configuration 
+      <br>
+      To use UIFunctionOutSingle to specify output, the following is added in `build_ui()`
+      ```python
+      from iotfunctions.ui import UIFunctionOutSingle
+
+      @classmethod
+      def build_ui(cls):
+          # assumes "output" is defined as a list
+          output.append(UIFunctionOutSingle(
+            name,              # default name for output_item  (required)
+            datatype=None,     # str, float, dt.datetime, bool
+                               # When "None" let's user select datatype during custom-function configuration 
+            description=None,  # help text; shows up when user hovers over name 
+            tags=None))
+      ```
+2. **UIFunctionOutMulti** <br>
+      Use this object to collect information for multiple outputs that are dependent on  multi-select 
+      input item. The input item is specified in `cardinality_from`. Alternatively, you can set `is_output_derived` flag 
+      within the object used to collect the input that this output is dependent on. The number of output items generated 
+      at runtime depend on the number of input items then user selects.
+      <br>
+      The examples below show illustrates different UI rendered when using this object. In the first example the parameter
+      `is_datatype_derived=False`, creates a UI that allows users to specify a datatype for each output item. In the 
+      second example, the parameter `datatype=str` creates a UI that doesn't need additional user data for output 
+      datatypes. The second example can also be achieved when using `is_datatype_derived=True`
+      <br>
+      ![UIMultiOut_datatype_sel](/readme-images/UIMultiOut_datatype_sel.png)
+      <br>
+      ![UIMultiOut_datatype_set](/readme-images/UIMultiOut_datatype_set.png)
+      <br>
+      To use UIFunctionOutSingle to specify output, the following is added in `build_ui()`
+      ```python
+      from iotfunctions.ui import UIFunctionOutMulti
+
+      @classmethod
+      def build_ui(cls):
+          # assumes "output" is defined as a list
+          output.append(UIFunctionOutMulti(
+            name,                        # default name for output_item  (required)
+            cardinality_from,            # the input item that determines the number of outtpus to create  (required)
+            is_datatype_derived=False,   # set to "True" when datatype of output item same as datatype of
+                                         # corresponding input item. Let's  user pick datatype when set to "False"
+            datatype=None,               # float, str, bool, datetime.datetime, None 
+            description=None,            # help text; shows up when user hovers over name  
+            output_item=None,            # Not used  
+            tags=None))
+      ```
+  
+3. **UIStatusFlag** <br>
+      Use this object to output a boolean value indicating that function was executed. This function inherits from 
+      UIFunctionOutSingle, with `datatype=bool` parameter.
+      <br>
+      To use UIStatusFlag to specify output, the following is added in `build_ui()`. Unlike the UIFunctionOutSingle, 
+      this object only has one parameter
+      ```python
+      from iotfunctions.ui import UIStatusFlag
+
+      @classmethod
+      def build_ui(cls):
+          # assumes "output" is defined as a list
+          output.append(UIStatusFlag(
+            name  # name for output_item  (required)
+          ))
+      ```
+    
+### Further configuration of custom-function
+We use certain class variables to configure custom-functions. *Further reading on [class variables]*
+    
+#### I. Scope Filtering
+Refer to [documentation for scope filtering] to learn about the application of scope filtering. 
+
+To add scope filtering as a functionality in your custom function set the `is_scope_enabled` class variable in your custom-function. This vairable is False by default which consequently disables scope filtering in a function. The code snippet below is used to enable scopr filtering in a custom-function
+
+```python
+Class CustomFunction:
+    is_scope_enabled = True  # enables filtering by scope
+```
