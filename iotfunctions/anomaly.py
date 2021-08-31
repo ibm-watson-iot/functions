@@ -836,6 +836,8 @@ class NoDataAnomalyScoreExt(AnomalyScorer):
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
 
+        temperature = temperature.astype('float64').reshape(-1)
+
         return dfe, temperature
 
     @classmethod
@@ -1221,7 +1223,7 @@ class GeneralizedAnomalyScore(AnomalyScorer):
 
         logger.debug(str(temperature.size) + "," + str(self.windowsize))
 
-        temperature -= np.mean(temperature, axis=0)
+        temperature -= np.mean(temperature.astype(np.float64), axis=0)
         mcd = MinCovDet()
 
         # Chop into overlapping windows (default) or run through FFT first
@@ -1324,6 +1326,8 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
 
+        temperature = temperature.astype('float64').reshape(-1)
+
         return dfe, temperature
 
     @classmethod
@@ -1387,58 +1391,57 @@ class FFTbasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
         return inputs, outputs
 
 
-if iotfunctions.__version__ != '8.2.1':
-    class MatrixProfileAnomalyScore(AnomalyScorer):
-        """
-        An unsupervised anomaly detection function.
-         Applies matrix profile analysis on time series data.
-         Moves a sliding window across the data signal to calculate the euclidean distance from one window to all others to build a distance profile.
-         The window size is typically set to 12 data points.
-         Try several anomaly models on your data and use the one that fits your data best.
-        """
-        DATAPOINTS_AFTER_LAST_WINDOW = 1e-15
-        INIT_SCORES = 1e-20
-        ERROR_SCORES = 1e-16
+class MatrixProfileAnomalyScore(AnomalyScorer):
+    """
+    An unsupervised anomaly detection function.
+     Applies matrix profile analysis on time series data.
+     Moves a sliding window across the data signal to calculate the euclidean distance from one window to all others to build a distance profile.
+     The window size is typically set to 12 data points.
+     Try several anomaly models on your data and use the one that fits your data best.
+    """
+    DATAPOINTS_AFTER_LAST_WINDOW = 1e-15
+    INIT_SCORES = 1e-20
+    ERROR_SCORES = 1e-16
 
-        def __init__(self, input_item, window_size, output_item):
-            super().__init__(input_item, window_size, [output_item])
-            logger.debug(f'Input item: {input_item}')
+    def __init__(self, input_item, window_size, output_item):
+        super().__init__(input_item, window_size, [output_item])
+        logger.debug(f'Input item: {input_item}')
 
-            self.whoami = 'MatrixProfile'
+        self.whoami = 'MatrixProfile'
 
 
-        def score(self, temperature):
+    def score(self, temperature):
 
-            scores = []
-            for output_item in self.output_items:
-                scores.append(np.zeros(temperature.shape))
+        scores = []
+        for output_item in self.output_items:
+            scores.append(np.zeros(temperature.shape))
 
-            try:  # calculate scores
-                matrix_profile = stumpy.aamp(temperature, m=self.windowsize)[:, 0]
-                # fill in a small value for newer data points outside the last possible window
-                fillers = np.array([self.DATAPOINTS_AFTER_LAST_WINDOW] * (self.windowsize - 1))
-                matrix_profile = np.append(matrix_profile, fillers)
-            except Exception as er:
-                logger.warning(f' Error in calculating Matrix Profile Scores. {er}')
-                matrix_profile = np.array([self.ERROR_SCORES] * temperature.shape[0])
+        try:  # calculate scores
+            matrix_profile = stumpy.aamp(temperature, m=self.windowsize)[:, 0]
+            # fill in a small value for newer data points outside the last possible window
+            fillers = np.array([self.DATAPOINTS_AFTER_LAST_WINDOW] * (self.windowsize - 1))
+            matrix_profile = np.append(matrix_profile, fillers)
+        except Exception as er:
+            logger.warning(f' Error in calculating Matrix Profile Scores. {er}')
+            matrix_profile = np.array([self.ERROR_SCORES] * temperature.shape[0])
 
-            scores[0] = matrix_profile
+        scores[0] = matrix_profile
 
-            logger.debug('Matrix Profile score max: ' + str(matrix_profile.max()))
+        logger.debug('Matrix Profile score max: ' + str(matrix_profile.max()))
 
-            return scores
+        return scores
 
-        @classmethod
-        def build_ui(cls):
-            # define arguments that behave as function inputs
-            inputs = [UISingleItem(name="input_item", datatype=float, description="Time series data item to analyze", ),
-                      UISingle(name="window_size", datatype=int,
-                               description="Size of each sliding window in data points. Typically set to 12.")]
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = [UISingleItem(name="input_item", datatype=float, description="Time series data item to analyze", ),
+                  UISingle(name="window_size", datatype=int,
+                           description="Size of each sliding window in data points. Typically set to 12.")]
 
-            # define arguments that behave as function outputs
-            outputs = [UIFunctionOutSingle(name="output_item", datatype=float,
-                                           description="Anomaly score (MatrixProfileAnomalyScore)", )]
-            return inputs, outputs
+        # define arguments that behave as function outputs
+        outputs = [UIFunctionOutSingle(name="output_item", datatype=float,
+                                       description="Anomaly score (MatrixProfileAnomalyScore)", )]
+        return inputs, outputs
 
 
 class SaliencybasedGeneralizedAnomalyScore(GeneralizedAnomalyScore):
@@ -2108,8 +2111,8 @@ class GBMRegressor(BaseEstimatorFunction):
         self.estimators['light_gradient_boosted_regressor'] = (self.GBMPipeline, self.params)
         logger.info('GBMRegressor start searching for best model')
 
-    def __init__(self, features, targets, predictions=None, n_estimators=None, num_leaves=None, learning_rate=None,
-                 max_depth=None, lags=None):
+    def __init__(self, features, targets, predictions=None, n_estimators=500, num_leaves=40, learning_rate=0.2,
+                 max_depth=-1, lags=None):
         #
         # from https://github.com/ashitole/Time-Series-Project/blob/main/Auto-Arima%20and%20LGBM.ipynb
         #   as taken from https://www.kaggle.com/rohanrao/ashrae-half-and-half
