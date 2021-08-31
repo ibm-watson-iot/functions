@@ -489,6 +489,7 @@ class AnomalyScorer(BaseTransformer):
     """
     Superclass of all unsupervised anomaly detection functions.
     """
+
     def __init__(self, input_item, windowsize, output_items):
         super().__init__()
         logger.debug(input_item)
@@ -549,7 +550,7 @@ class AnomalyScorer(BaseTransformer):
     def execute(self, df):
 
         logger.debug('Execute ' + self.whoami)
-        df_copy = df # no copy
+        df_copy = df  # no copy
 
         # check data type
         if not pd.api.types.is_numeric_dtype(df_copy[self.input_item].dtype):
@@ -595,9 +596,9 @@ class AnomalyScorer(BaseTransformer):
         dfe, temperature = self.prepare_data(dfe)
 
         logger.debug(
-                self.whoami + ', Entity: ' + str(entity) + ', Input: ' + str(self.input_item) + ', Windowsize: ' + str(
-                    self.windowsize) + ', Output: ' + str(self.output_items) + ', Overlap: ' + str(
-                    self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
+            self.whoami + ', Entity: ' + str(entity) + ', Input: ' + str(self.input_item) + ', Windowsize: ' + str(
+                self.windowsize) + ', Output: ' + str(self.output_items) + ', Overlap: ' + str(
+                self.windowoverlap) + ', Inputsize: ' + str(temperature.size))
 
         if temperature.size <= self.windowsize:
             logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
@@ -617,13 +618,14 @@ class AnomalyScorer(BaseTransformer):
             #   extend it to cover the full original length
             logger.debug('->')
             try:
-                for i,output_item in enumerate(self.output_items):
+                for i, output_item in enumerate(self.output_items):
                     # check for fast path, no interpolation required
                     diff = temperature.size - scores[i].size
                     # slow path - interpolate result score to stretch it to the size of the input data
                     if diff > 0:
                         dfe[output_item] = 0.0006
-                        time_series_temperature = np.linspace(self.windowsize // 2, temperature.size - self.windowsize // 2 + 1,
+                        time_series_temperature = np.linspace(self.windowsize // 2,
+                                                              temperature.size - self.windowsize // 2 + 1,
                                                               temperature.size - diff)
                         linear_interpolate = sp.interpolate.interp1d(time_series_temperature, scores[i], kind='linear',
                                                                      fill_value='extrapolate')
@@ -647,7 +649,7 @@ class AnomalyScorer(BaseTransformer):
 
     def score(self, temperature):
 
-        scores = np.zeros((len(self.output_items), ) + temperature.shape)
+        scores = np.zeros((len(self.output_items),) + temperature.shape)
         return scores
 
     def scale(self, temperature, entity):
@@ -757,6 +759,70 @@ class Interpolator(AnomalyScorer):
         return (inputs, outputs)
 
 
+class NoDataAnomalyScoreExt(AnomalyScorer):
+    """
+    An unsupervised anomaly detection function.
+     Uses z-score AnomalyScorer to find gaps in data.
+     The function moves a sliding window across the data signal and applies the anomaly model to each window.
+     The window size is typically set to 12 data points.
+    """
+
+    def __init__(self, input_item, windowsize, output_item):
+        super().__init__(input_item, windowsize, [output_item])
+
+        self.whoami = 'NoDataExt'
+        self.normalizer = 1
+
+        logger.debug('NoDataExt')
+
+    def prepare_data(self, dfEntity):
+
+        logger.debug(self.whoami + ': prepare Data')
+
+        # operate on simple timestamp index
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index(index_names[1:])
+        else:
+            dfe = dfEntity
+
+        # count the timedelta in seconds between two events
+        timeSeq = (dfe.index.values - dfe.index[0].to_datetime64()) / np.timedelta64(1, 's')
+
+        #dfe = dfEntity.copy()
+
+        # one dimensional time series - named temperature for catchyness
+        #   we look at the gradient of the time series timestamps for anomaly detection
+        #   might throw an exception - we catch it in the super class !!
+        try:
+            temperature = np.gradient(timeSeq)
+            dfe[[self.input_item]] = temperature
+        except Exception as pe:
+            logger.info("NoData Gradient failed with " + str(pe))
+            dfe[[self.input_item]] = 0
+            temperature = dfe[[self.input_item]].values
+            temperature[0] = 10 ** 10
+
+        temperature = temperature.astype('float64').reshape(-1)
+
+        return dfe, temperature
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Data item to analyze'))
+
+        inputs.append(UISingle(name='windowsize', datatype=int,
+                               description='Size of each sliding window in data points. Typically set to 12.'))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='No data anomaly score'))
+        return inputs, outputs
+
+
 class SpectralAnomalyScore(AnomalyScorer):
     '''
     An unsupervised anomaly detection function.
@@ -765,6 +831,7 @@ class SpectralAnomalyScore(AnomalyScorer):
      The window size is typically set to 12 data points.
      Try several anomaly detectors on your data and use the one that fits your data best.
     '''
+
     def __init__(self, input_item, windowsize, output_item):
         if isinstance(output_item, list):
             super().__init__(input_item, windowsize, output_item)
@@ -838,6 +905,7 @@ class SpectralAnomalyScoreExt(SpectralAnomalyScore):
      The window size is typically set to 12 data points.
      Try several anomaly detectors on your data and use the one that fits your data best.
     '''
+
     def __init__(self, input_item, windowsize, output_item, inv_zscore):
         super().__init__(input_item, windowsize, [output_item, inv_zscore])
 
@@ -878,7 +946,6 @@ class KMeansAnomalyScore(AnomalyScorer):
         logger.debug(input_item)
 
         self.whoami = 'KMeans'
-
 
     def score(self, temperature):
 
@@ -966,7 +1033,7 @@ class GeneralizedAnomalyScore(AnomalyScorer):
 
         logger.debug(str(temperature.size) + "," + str(self.windowsize))
 
-        temperature -= np.mean(temperature, axis=0)
+        temperature -= np.mean(temperature.astype(np.float64), axis=0)
         mcd = MinCovDet()
 
         # Chop into overlapping windows (default) or run through FFT first
@@ -980,17 +1047,17 @@ class GeneralizedAnomalyScore(AnomalyScorer):
 
             pred_score = np.zeros(temperature.shape)
             logger.info(self.whoami + ", Input: " + str(
-                    self.input_item) + ", WindowSize: " + str(self.windowsize) + ", Output: " + str(
-                    self.output_items[0]) + ", Step: " + str(self.step) + ", InputSize: " + str(
-                    slices.shape) + " failed in the fitting step with \"" + str(ve) + "\" - scoring zero")
+                self.input_item) + ", WindowSize: " + str(self.windowsize) + ", Output: " + str(
+                self.output_items[0]) + ", Step: " + str(self.step) + ", InputSize: " + str(
+                slices.shape) + " failed in the fitting step with \"" + str(ve) + "\" - scoring zero")
 
         except Exception as e:
 
             pred_score = np.zeros(temperature.shape)
             logger.error(self.whoami + ", Input: " + str(
-                    self.input_item) + ", WindowSize: " + str(self.windowsize) + ", Output: " + str(
-                    self.output_items[0]) + ", Step: " + str(self.step) + ", InputSize: " + str(
-                    slices.shape) + " failed in the fitting step with " + str(e))
+                self.input_item) + ", WindowSize: " + str(self.windowsize) + ", Output: " + str(
+                self.output_items[0]) + ", Step: " + str(self.step) + ", InputSize: " + str(
+                slices.shape) + " failed in the fitting step with " + str(e))
 
         scores[0] = pred_score
 
@@ -1064,6 +1131,8 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
             dfe[[self.input_item]] = 0
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
+
+        temperature = temperature.astype('float64').reshape(-1)
 
         return dfe, temperature
 
@@ -1145,7 +1214,6 @@ class MatrixProfileAnomalyScore(AnomalyScorer):
         logger.debug(f'Input item: {input_item}')
 
         self.whoami = 'MatrixProfile'
-
 
     def score(self, temperature):
 
@@ -1392,7 +1460,6 @@ GeneralizedAnomalyScorev2 = GeneralizedAnomalyScoreV2
 #######################################################################################
 
 class SupervisedLearningTransformer(BaseTransformer):
-
     name = 'SupervisedLearningTransformer'
 
     """
@@ -1400,6 +1467,7 @@ class SupervisedLearningTransformer(BaseTransformer):
     and automatically store a trained model in the tenant database
     Inferencing is run in the pipeline
     """
+
     def __init__(self, features, targets):
         super().__init__()
 
@@ -1422,6 +1490,7 @@ class SupervisedLearningTransformer(BaseTransformer):
     '''
     Generate unique model name from entity, optionally features and target for consistency checks
     '''
+
     def get_model_name(self, prefix='model', features=None, targets=None, suffix=None):
 
         name = []
@@ -1437,7 +1506,6 @@ class SupervisedLearningTransformer(BaseTransformer):
             name.append(suffix)
         name = '.'.join(name)
         return name
-
 
     def load_model(self, suffix=None):
         model_name = self.get_model_name(targets=self.targets, suffix=suffix)
@@ -1455,15 +1523,14 @@ class SupervisedLearningTransformer(BaseTransformer):
             if my_model is not None:
                 if hasattr(my_model, 'version'):
                     version = my_model.version + 1
-                logger.debug('Deleting robust model ' + str(version-1) + ' for entity: ' + str(suffix))
+                logger.debug('Deleting robust model ' + str(version - 1) + ' for entity: ' + str(suffix))
                 my_model = None
 
         return model_name, my_model, version
 
-
     def execute(self, df):
         logger.debug('Execute ' + self.whoami)
-        df_copy = df # no copy
+        df_copy = df  # no copy
 
         # check data type
         #if df[self.input_item].dtype != np.float64:
@@ -1490,15 +1557,16 @@ class SupervisedLearningTransformer(BaseTransformer):
 
 class LocalOutlierFactor:
     def __init__(self):
-        self.lof = LocalOutlierFactor() #**kwargs)
+        self.lof = LocalOutlierFactor()  #**kwargs)
         self.version = 1
 
     def fit(self, X):
-        self.lof.fit(X.reshape(-1,1))
+        self.lof.fit(X.reshape(-1, 1))
 
     def predict(self, X, threshold):
         #return (X >= self.MinMax[0]) & (X <= self.MinMax[1])
         return self.lof.negative_outlier_factor_ < threshold
+
 
 class KDEMaxMin:
     def __init__(self, version=1):
@@ -1508,9 +1576,9 @@ class KDEMaxMin:
         self.Max = None
 
     def fit(self, X, alpha):
-        self.kde.fit(X.reshape(-1,1))
+        self.kde.fit(X.reshape(-1, 1))
 
-        kde_X = self.kde.score_samples(X.reshape(-1,1))
+        kde_X = self.kde.score_samples(X.reshape(-1, 1))
 
         # find outliers of the kde score
         tau_kde = sp.stats.mstats.mquantiles(kde_X, 1. - alpha)  # alpha = 0.995
@@ -1539,6 +1607,7 @@ class KDEMaxMin:
     def predict(self, X, threshold=None):
         return (X >= self.Min) & (X <= self.Max)
 
+
 class RobustThreshold(SupervisedLearningTransformer):
 
     def __init__(self, input_item, threshold, output_item):
@@ -1553,15 +1622,13 @@ class RobustThreshold(SupervisedLearningTransformer):
 
         self.whoami = 'RobustThreshold'
 
-        logger.info(self.whoami + ' from ' + self.input_item + ' quantile threshold ' +  str(self.threshold) +
+        logger.info(self.whoami + ' from ' + self.input_item + ' quantile threshold ' + str(self.threshold) +
                     ' exceeding boolean ' + self.output_item)
-
 
     def execute(self, df):
         # set output columns to zero
         df[self.output_item] = 0
         return super().execute(df)
-
 
     def _calc(self, df):
         # per entity - copy for later inplace operations
@@ -1586,7 +1653,6 @@ class RobustThreshold(SupervisedLearningTransformer):
         df[self.output_item] = robust_model.predict(feature, self.threshold)
         return df.droplevel(0)
 
-
     @classmethod
     def build_ui(cls):
         # define arguments that behave as function inputs
@@ -1601,7 +1667,6 @@ class RobustThreshold(SupervisedLearningTransformer):
         outputs.append(UIFunctionOutSingle(name="output_item", datatype=bool,
                                            description="Boolean outlier condition"))
         return (inputs, outputs)
-
 
 
 #######################################################################################
@@ -1629,7 +1694,8 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
         logger.info('Bayesian Ridge Regressor start searching for best model')
 
     def __init__(self, features, targets, predictions=None, deviations=None):
-        super().__init__(features=features, targets=targets, predictions=predictions, stddev=True, keep_current_models=True)
+        super().__init__(features=features, targets=targets, predictions=predictions, stddev=True,
+                         keep_current_models=True)
 
         if deviations is not None:
             self.pred_stddev = deviations
@@ -1640,7 +1706,6 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
         self.stop_auto_improve_at = -2
 
         self.whoami = 'BayesianRidgeRegressor'
-
 
     def execute(self, df):
 
@@ -1669,7 +1734,6 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         logger.debug('Scoring done')
         return df_copy
-
 
     def _calc(self, df):
 
@@ -1735,7 +1799,8 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
         logger.info('Bayesian Ridge Regressor start searching for best polynomial model of degree ' + str(self.degree))
 
     def __init__(self, features, targets, predictions=None, deviations=None, degree=3):
-        super().__init__(features=features, targets=targets, predictions=predictions, stddev=True, keep_current_models=True)
+        super().__init__(features=features, targets=targets, predictions=predictions, stddev=True,
+                         keep_current_models=True)
 
         if deviations is not None:
             self.pred_stddev = deviations
@@ -1747,7 +1812,6 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
         self.degree = degree
 
         self.whoami = 'BayesianRidgeRegressorExt'
-
 
     def execute(self, df):
 
@@ -1776,7 +1840,6 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
 
         logger.debug('Scoring done')
         return df_copy
-
 
     def _calc(self, df):
 
@@ -1841,15 +1904,15 @@ class GBMRegressor(BaseEstimatorFunction):
         self.estimators['light_gradient_boosted_regressor'] = (self.GBMPipeline, self.params)
         logger.info('GBMRegressor start searching for best model')
 
-    def __init__(self, features, targets, predictions=None, n_estimators=None, num_leaves=None, learning_rate=None,
-                 max_depth=None, lags=None):
+    def __init__(self, features, targets, predictions=None, n_estimators=500, num_leaves=40, learning_rate=0.2,
+                 max_depth=-1, lags=None):
         #
         # from https://github.com/ashitole/Time-Series-Project/blob/main/Auto-Arima%20and%20LGBM.ipynb
         #   as taken from https://www.kaggle.com/rohanrao/ashrae-half-and-half
         #
         n_estimators = 500
         num_leaves = 40
-        learning_rate = 0.2   # default 0.001
+        learning_rate = 0.2  # default 0.001
         feature_fraction = 0.85  # default 1.0
         reg_lambda = 2  # default 0
         max_depth = -1
@@ -1898,7 +1961,8 @@ class GBMRegressor(BaseEstimatorFunction):
                 if Train:
                     create_feature_triplets.append((lagged_feature + '_' + str(lag), lagged_feature, lag))
                 else:
-                    create_feature_triplets.append((lagged_feature + '_' + str(lag), lagged_feature, lag - self.forecast))
+                    create_feature_triplets.append(
+                        (lagged_feature + '_' + str(lag), lagged_feature, lag - self.forecast))
 
                 new_features.append(lagged_feature + '_' + str(lag))
 
@@ -1933,7 +1997,8 @@ class GBMRegressor(BaseEstimatorFunction):
             # add day of week and month of year as two feature pairs
             # operate on simple timestamp index
             if include_day_of_week:
-                new_features = np.concatenate((new_features, ['_DayOfWeekCos_', '_DayOfWeekSin_', '_DayOfYearCos_', '_DayOfYearSin_']))
+                new_features = np.concatenate(
+                    (new_features, ['_DayOfWeekCos_', '_DayOfWeekSin_', '_DayOfYearCos_', '_DayOfYearSin_']))
                 df_copy['_DayOfWeekCos_'] = np.cos(df_copy.index.get_level_values(1).dayofweek / 7)
                 df_copy['_DayOfWeekSin_'] = np.sin(df_copy.index.get_level_values(1).dayofweek / 7)
                 df_copy['_DayOfYearCos_'] = np.cos(df_copy.index.get_level_values(1).dayofyear / 365)
@@ -1979,7 +2044,6 @@ class GBMRegressor(BaseEstimatorFunction):
         # first round - training
         df_copy = df_copy.groupby(group_base).apply(self._calc)
 
-
         # strip off lagged features
         if self.lags is not None:
             strip_features, df_copy = self.lag_features(df=df, Train=False)
@@ -1988,11 +2052,10 @@ class GBMRegressor(BaseEstimatorFunction):
             df_copy = df_copy.groupby(group_base).apply(self._calc)
 
             logger.debug('Drop artificial features ' + str(strip_features))
-            df_copy.drop(columns = strip_features, inplace=True)
+            df_copy.drop(columns=strip_features, inplace=True)
 
         logger.debug('Scoring done')
         return df_copy
-
 
     def _calc(self, df):
 
@@ -2176,9 +2239,9 @@ class FeatureBuilder(BaseTransformer):
         self.features = features
         self.lagged_features = lagged_features
 
-        self.lag = lag   # list of integers (days) to define lags
+        self.lag = lag  # list of integers (days) to define lags
 
-        self.method = method   #
+        self.method = method  #
 
         self.whoami = 'FeatureBuilder'
 
@@ -2233,13 +2296,14 @@ class GBMForecaster(GBMRegressor):
     """
     Forecasting regressor based on gradient boosting method as provided by lightGBM
     """
+
     def __init__(self, features, targets, predictions=None, lags=None):
         #
         # from https://github.com/ashitole/Time-Series-Project/blob/main/Auto-Arima%20and%20LGBM.ipynb
         #   as taken from https://www.kaggle.com/rohanrao/ashrae-half-and-half
         #
         super().__init__(features=features, targets=targets, predictions=predictions, n_estimators=500,
-                        num_leaves=40, learning_rate=0.2, max_depth=-1, lags=lags)
+                         num_leaves=40, learning_rate=0.2, max_depth=-1, lags=lags)
 
     @classmethod
     def build_ui(cls):
@@ -2273,11 +2337,10 @@ class ARIMAForecaster(SupervisedLearningTransformer):
         self.n_forecast = n_forecast
         self.output_item = output_item
 
-        self.power = None    # used to store box cox lambda
+        self.power = None  # used to store box cox lambda
         self.active_models = dict()
 
         self.name = 'ARIMAForecaster'
-
 
     def execute(self, df):
         # set output columns to zero
@@ -2290,7 +2353,6 @@ class ARIMAForecaster(SupervisedLearningTransformer):
 
         return super().execute(df)
 
-
     def _calc(self, df):
         # per entity - copy for later inplace operations
         db = self._entity_type.db
@@ -2301,15 +2363,15 @@ class ARIMAForecaster(SupervisedLearningTransformer):
         model_name, arima_model, version = self.load_model(suffix=entity)
 
         logger.debug('Module ARIMA Forecaster, Entity: ' + str(entity) + ', Input: ' + str(
-                     self.input_item) + ', Forecasting: ' + str(self.n_forecast) + ', Output: ' + str(
-                     self.output_item))
+            self.input_item) + ', Forecasting: ' + str(self.n_forecast) + ', Output: ' + str(
+            self.output_item))
 
         feature = df[self.input_item].values
 
         if arima_model is None and self.auto_train:
 
             # all variables should be continuous
-            stlf = STLForecast(temperature, ARIMA, model_kwargs=dict(order=(1, 0, 1), trend="n"), period=7*24)
+            stlf = STLForecast(temperature, ARIMA, model_kwargs=dict(order=(1, 0, 1), trend="n"), period=7 * 24)
 
             arima_model = stlf.fit()
 
@@ -2324,7 +2386,7 @@ class ARIMAForecaster(SupervisedLearningTransformer):
         # remove n_forecast elements and append the forecast of length n_forecast
         predictions_ = arima_model.forecast(self.n_forecast)
         logger.debug(predictions_.shape, temperature.shape)
-        predictions = np.hstack([temperature[self.n_forecast:].reshape(-1,), predictions_])
+        predictions = np.hstack([temperature[self.n_forecast:].reshape(-1, ), predictions_])
 
         self.active_models[entity] = arima_model
 
@@ -2360,10 +2422,11 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
     A supervised anomaly detection function.
      Uses kernel density estimate to assign an anomaly score
     """
+
     def __init__(self, threshold, features, targets, predictions=None):
         logger.debug("init KDE Estimator")
         self.name = 'KDEAnomalyScore'
-        self.whoami= 'KDEAnomalyScore'
+        self.whoami = 'KDEAnomalyScore'
         super().__init__(features, targets)
 
         self.threshold = threshold
@@ -2381,7 +2444,6 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
             df[m] = None
 
         return super().execute(df)
-
 
     def _calc(self, df):
 
@@ -2418,7 +2480,7 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
 
             self.active_models[entity] = kde_model
 
-        predictions = kde_model.pdf(xy).reshape(-1,1)
+        predictions = kde_model.pdf(xy).reshape(-1, 1)
         print(predictions.shape, df[self.predictions].values.shape)
         df[self.predictions] = predictions
 
@@ -2429,7 +2491,8 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
         # define arguments that behave as function inputs
         inputs = []
         inputs.append(UISingle(name="threshold", datatype=float,
-                               description="Probability threshold for outliers. Typically set to 10e-6.", required=True))
+                               description="Probability threshold for outliers. Typically set to 10e-6.",
+                               required=True))
         inputs.append(UIMultiItem(name='features', datatype=float, required=True))
         inputs.append(UIMultiItem(name='targets', datatype=float, required=True, output_item='predictions',
                                   is_output_datatype_derived=True))
@@ -2465,16 +2528,16 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
 # helper function
 def ll_gaussian(y, mu, log_var):
     sigma = torch.exp(0.5 * log_var)
-    return -0.5 * torch.log(2 * np.pi * sigma**2) - (1 / (2 * sigma**2)) * (y-mu)**2
+    return -0.5 * torch.log(2 * np.pi * sigma ** 2) - (1 / (2 * sigma ** 2)) * (y - mu) ** 2
 
 
 def l_gaussian(y, mu, log_var):
     sigma = torch.exp(0.5 * log_var)
-    return 1/torch.sqrt(2 * np.pi * sigma**2) / torch.exp((1 / (2 * sigma**2)) * (y-mu)**2)
+    return 1 / torch.sqrt(2 * np.pi * sigma ** 2) / torch.exp((1 / (2 * sigma ** 2)) * (y - mu) ** 2)
 
 
 def kl_div(mu1, mu2, lg_sigma1, lg_sigma2):
-    return 0.5 * (2 * lg_sigma2 - 2 * lg_sigma1 + (lg_sigma1.exp() ** 2 + (mu1 - mu2)**2)/lg_sigma2.exp()**2 - 1)
+    return 0.5 * (2 * lg_sigma2 - 2 * lg_sigma1 + (lg_sigma1.exp() ** 2 + (mu1 - mu2) ** 2) / lg_sigma2.exp() ** 2 - 1)
 
 
 class VI(nn.Module):
@@ -2499,7 +2562,7 @@ class VI(nn.Module):
         )
 
         self.q_log_var = nn.Sequential(
-            nn.Linear(1, 50),    # more parameters for sigma
+            nn.Linear(1, 50),  # more parameters for sigma
             nn.ReLU(),
             nn.Linear(50, 35),
             nn.ReLU(),
@@ -2571,6 +2634,7 @@ class VIAnomalyScore(SupervisedLearningTransformer):
     A supervised anomaly detection function.
      Uses VAE based density approximation to assign an anomaly score
     """
+
     # set self.auto_train and self.delete_model
     def __init__(self, features, targets, predictions=None, pred_stddev=None):
 
@@ -2608,7 +2672,6 @@ class VIAnomalyScore(SupervisedLearningTransformer):
             df[m] = None
 
         return super().execute(df)
-
 
     def _calc(self, df):
 
@@ -2695,13 +2758,13 @@ class VIAnomalyScore(SupervisedLearningTransformer):
                 mu_and_log_sigma = vi_model(X)
                 mue = mu_and_log_sigma[1]
                 sigma = torch.exp(0.5 * mu_and_log_sigma[2]) + 1e-5
-                mu = sp.stats.norm.ppf(0.5, loc=mue, scale=sigma).reshape(-1,)
-                q1 = sp.stats.norm.ppf(0.95, loc=mue, scale=sigma).reshape(-1,)
+                mu = sp.stats.norm.ppf(0.5, loc=mue, scale=sigma).reshape(-1, )
+                q1 = sp.stats.norm.ppf(0.95, loc=mue, scale=sigma).reshape(-1, )
                 self.mu[entity] = mu
                 self.quantile095[entity] = q1
 
-            df[self.predictions] = (mu[ind_r] + vi_model.adjust_mean).reshape(-1,1)
-            df[self.pred_stddev] = (q1[ind_r]).reshape(-1,1)
+            df[self.predictions] = (mu[ind_r] + vi_model.adjust_mean).reshape(-1, 1)
+            df[self.pred_stddev] = (q1[ind_r]).reshape(-1, 1)
         else:
             logger.debug('No VI model for entity: ' + str(entity))
 
