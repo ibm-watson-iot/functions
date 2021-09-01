@@ -1,4 +1,4 @@
-#  Licensed Materials - Property of IBM 
+#  Licensed Materials - Property of IBM
 #  5737-M66, 5900-AAA, 5900-A0N, 5725-S86, 5737-I75
 #  (C) Copyright IBM Corp. 2020, 2021 All Rights Reserved.
 #  US Government Users Restricted Rights - Use, duplication, or disclosure
@@ -21,6 +21,10 @@ def test_invoke_watson_studio():
     invoke_model.apikey = API_KEY
     invoke_model.wml_endpoint = WML_ENDPOINT
     invoke_model.space_id = SPACE_ID
+
+    if invoke_model.deployment_id == 'insert-watson-studio-deployment-id':
+        logger.info('Testing without defined WML endpoint')
+        return
 
     # Prepare Test data
     test_data = TEST_DATA
