@@ -2685,8 +2685,13 @@ class CalcPipeline:
                         # 'object'.
                         # Conversion via combination of where() and mask() is 60% faster than an approach with apply()
                         try:
-                            df_column_tmp = df_column.where(df_column.isna(), np.bool_(df_column))
-                            df[data_item['name']] = df_column_tmp.mask(df_column_tmp.isna(), None)
+                            if isinstance(df_column.values[0], str):
+                                cond = df_column == 'True'
+                                df_column_tmp = df_column.where(cond, None)
+                                df[data_item['name']] = df_column_tmp.mask(cond, np.True_)
+                            else:
+                                df_column_tmp = df_column.where(df_column.isna(), np.bool_(df_column))
+                                df[data_item['name']] = df_column_tmp.mask(df_column_tmp.isna(), None)
                         except Exception:
                             invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
                     continue
