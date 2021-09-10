@@ -218,6 +218,9 @@ class PersistColumns:
                                 total_saved += saved
                                 self.logger.debug('Records saved so far = %d' % total_saved)
                             except Exception as ex:
+                                logger.debug("SQLSTATE = {}".format(ibm_db.stmt_error()))
+                                logger.debug("Error : {}".format(ibm_db.stmt_errormsg()))
+                                logger.exception(ex)
                                 raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
                                     len(valueList), str(valueList))) from ex
 
