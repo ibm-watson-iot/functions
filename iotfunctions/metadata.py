@@ -1489,7 +1489,7 @@ class EntityType(object):
             pass
 
         if self._dimension_table_name is not None and dimension_table_exists:
-            self.generate_dimension_data(entities, write=write, data_item_mean=data_item_mean,
+            self.generate_dimension_data(entities, write=False, data_item_mean=data_item_mean,
                                          data_item_sd=data_item_sd, data_item_domain=data_item_domain)
 
         if write and self.db is not None:
@@ -1585,23 +1585,32 @@ class EntityType(object):
 
             rows = len(entities)
             data = {}
+            dimension_api_payload = []
+            data[self._entity_id] = entities
 
             for m in metrics:
                 mean = data_item_mean.get(m, 0)
                 sd = data_item_sd.get(m, 1)
                 data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
+                for i, value in enumerate(data[m]):
+                    dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER",
+                                                                   "value": value})
 
             for c in categoricals:
                 categories = data_item_domain.get(c, None)
                 data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
-
-            data[self._entity_id] = entities
+                for i, value in enumerate(data[c]):
+                    dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": "LITERAL",
+                                                  "value": value})
 
             df = pd.DataFrame(data=data)
 
             for d in dates:
                 df[d] = DateGenerator(d).get_data(rows=rows)
                 df[d] = pd.to_datetime(df[d])
+                for i, value in enumerate(df[d]):
+                    dimension_api_payload.append({"name": d, "id": data[self._entity_id][i], "type": "TIMESTAMP",
+                                                  "value": value})
 
             if write:
                 if self.db.db_type == 'db2':
@@ -1610,6 +1619,8 @@ class EntityType(object):
                     self._dimension_table_name = self._dimension_table_name.lower()
                 self.db.write_frame(df, table_name=self._dimension_table_name, if_exists='append',
                                     schema=self._db_schema)
+            else:
+                self.generated_dimension_payload = dimension_api_payload
 
         else:
             logger.debug('No new entities. Did not generate dimension data.')
@@ -1837,6 +1848,15 @@ class EntityType(object):
 
             if populate_dm_wiot_entity_list:
                 self.populate_entity_list_table()
+
+                # KITT integration: write dimension data after populating the entity list
+                logger.debug(self.generated_dimension_payload)
+                response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
+                                                request='POST',
+                                                payload=self.generated_dimension_payload, raise_error=True)
+    
+                logger.debug(f'Set dimensions in KITT and {self._dimension_table_name} table')
+                logger.debug(response)
 
     def populate_entity_list_table(self):
         entity_list_table_name = 'dm_wiot_entity_list'
@@ -2384,6 +2404,14 @@ class BaseCustomEntityType(EntityType):
                        ' Function %s has no _get_arg_spec() method.'
                        ' It cannot be published') % name
                 raise NotImplementedError(msg)
+            
+            try:
+                (metadata_input, metadata_output) = s.build_ui()
+            except AttributeError:
+                msg = ('Attempting to publish kpis for an entity type.'
+                       ' Function %s has no build_ui() method.'
+                       ' It cannot be published') % name
+                raise NotImplementedError(msg)
 
             # the entity type may have extended metadata
             # find relevant extended metadata and add it to argument values
@@ -2402,11 +2430,12 @@ class BaseCustomEntityType(EntityType):
 
             output_item_name = {}
             input_item_name = {}
+            metadata_input = [i.name for i in metadata_input]
             for key, value in args.items():
-                if key.__contains__('output'):
-                    output_item_name[key] = value
-                else:
+                if key in metadata_input:
                     input_item_name[key] = value
+                else:
+                    output_item_name[key] = value
 
             kpi_function_metadata = {
                 'catalogFunctionName': name,
