@@ -2685,7 +2685,7 @@ class CalcPipeline:
                         # 'object'.
                         # Conversion via combination of where() and mask() is 60% faster than an approach with apply()
                         try:
-                            if all( isinstance(val, str) or val is None for val in df_column.values):
+                            if all( isinstance(val, str) or pd.isna(val) for val in df_column.values):
                                 cond = ((df_column == 'True') | (df_column == 'False'))
                                 df_column_tmp = df_column.where(cond, None)
                                 df[data_item['name']] = df_column_tmp.mask(cond, np.bool_(pd.eval(df_column_tmp)))
