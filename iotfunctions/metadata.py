@@ -1577,6 +1577,8 @@ class EntityType(object):
                 data_item_domain = {}
 
             known_categoricals = set(data_item_domain.keys())
+            
+            exclude_cols = self.get_excluded_cols()
 
             (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(self._dimension_table_name,
                                                                                       self._db_schema,
@@ -1589,19 +1591,21 @@ class EntityType(object):
             data[self._entity_id] = entities
 
             for m in metrics:
-                mean = data_item_mean.get(m, 0)
-                sd = data_item_sd.get(m, 1)
-                data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
-                for i, value in enumerate(data[m]):
-                    dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER",
-                                                                   "value": value})
+                if m not in exclude_cols:
+                    mean = data_item_mean.get(m, 0)
+                    sd = data_item_sd.get(m, 1)
+                    data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
+                    for i, value in enumerate(data[m]):
+                        dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER",
+                                                                       "value": value})
 
             for c in categoricals:
-                categories = data_item_domain.get(c, None)
-                data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
-                for i, value in enumerate(data[c]):
-                    dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": "LITERAL",
-                                                  "value": value})
+                if c not in exclude_cols:
+                    categories = data_item_domain.get(c, None)
+                    data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
+                    for i, value in enumerate(data[c]):
+                        dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": "LITERAL",
+                                                      "value": value})
 
             df = pd.DataFrame(data=data)
 
