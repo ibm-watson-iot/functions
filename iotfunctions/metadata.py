@@ -197,6 +197,7 @@ class EntityType(object):
     logical_name = None
     _timestamp = 'evt_timestamp'
     _dimension_table_name = None
+    _generated_dimension_payload = None
     _metric_table_name = None
     _db_connection_dbi = None
     _db_schema = None
@@ -1612,7 +1613,8 @@ class EntityType(object):
             for d in dates:
                 df[d] = DateGenerator(d).get_data(rows=rows)
                 df[d] = pd.to_datetime(df[d])
-                for i, value in enumerate(df[d]):
+                time = df[d].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+                for i, value in enumerate(time):
                     dimension_api_payload.append({"name": d, "id": data[self._entity_id][i], "type": "TIMESTAMP",
                                                   "value": value})
 
@@ -1624,7 +1626,7 @@ class EntityType(object):
                 self.db.write_frame(df, table_name=self._dimension_table_name, if_exists='append',
                                     schema=self._db_schema)
             else:
-                self.generated_dimension_payload = dimension_api_payload
+                self._generated_dimension_payload = dimension_api_payload
 
         else:
             logger.debug('No new entities. Did not generate dimension data.')
@@ -1854,11 +1856,11 @@ class EntityType(object):
                 self.populate_entity_list_table()
 
                 # KITT integration: write dimension data after populating the entity list
-                logger.debug(self.generated_dimension_payload)
+                logger.debug(self._generated_dimension_payload)
                 response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
                                                 request='POST',
-                                                payload=self.generated_dimension_payload, raise_error=True)
-    
+                                                payload=self._generated_dimension_payload, raise_error=True)
+
                 logger.debug(f'Set dimensions in KITT and {self._dimension_table_name} table')
                 logger.debug(response)
 
