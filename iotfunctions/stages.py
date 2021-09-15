@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import logging
 from collections import defaultdict
+import itertools
 
 import ibm_db
 import numpy as np
@@ -25,7 +26,7 @@ from . import metadata as md
 
 logger = logging.getLogger(__name__)
 
-DATALAKE_BATCH_UPDATE_ROWS = 5000
+DATALAKE_BATCH_UPDATE_ROWS = 2500
 KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
 
 
@@ -95,8 +96,8 @@ class PersistColumns:
                             table_insert_stmt[tableName] = (sql, grain)
 
                         else:
-                            sql = self.create_upsert_statement(tableName, grain)
-                            stmt = ibm_db.prepare(self.db_connection, sql)
+                            # moved to insert because dynamic VALUES list in statement
+                            stmt = None
                             table_insert_stmt[tableName] = (stmt, grain)
 
                         self.logger.debug('derived_metrics_upsert_sql = %s' % sql)
@@ -212,12 +213,18 @@ class PersistColumns:
                                     saved = cnt  # Work around because we don't receive row count from batch query.
 
                                 else:
-                                    res = ibm_db.execute_many(stmt, tuple(valueList))
+                                    sql = self.create_upsert_statement(tableName, grain, len(valueList))
+                                    stmt = ibm_db.prepare(self.db_connection, sql)
+                                    valueList = tuple(itertools.chain(*valueList))
+                                    # for i, val in enumerate(valueList, 1):
+                                    #     ibm_db.bind_param(stmt, i, val)
+                                    res = ibm_db.execute(stmt, valueList)
                                     saved = res if res is not None else ibm_db.num_rows(stmt)
 
                                 total_saved += saved
                                 self.logger.debug('Records saved so far = %d' % total_saved)
                             except Exception as ex:
+                                logger.debug(f"sql failed to execute")
                                 logger.debug("SQLSTATE = {}".format(ibm_db.stmt_error()))
                                 logger.debug("Error : {}".format(ibm_db.stmt_errormsg()))
                                 logger.exception(ex)
@@ -244,7 +251,7 @@ class PersistColumns:
 
                 self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
 
-    def create_upsert_statement(self, tableName, grain):
+    def create_upsert_statement(self, tableName, grain, rows):
         dimensions = []
         if grain is None or len(grain) == 0:
             dimensions.append(KPI_ENTITY_ID_COLUMN)
@@ -259,24 +266,46 @@ class PersistColumns:
 
         colExtension = ''
         parmExtension = ''
+        typedparmExtension = ''
         joinExtension = ''
         sourceExtension = ''
         for dimension in dimensions:
             quoted_dimension = dbhelper.quotingColumnName(dimension)
             colExtension += ', ' + quoted_dimension
             parmExtension += ', ?'
+            if dimension == 'TIMESTAMP':
+                typedparmExtension += f', CAST(? AS TIMESTAMP)'
+            else:
+                typedparmExtension += f', CAST(? AS VARCHAR)'
             joinExtension += ' AND TARGET.' + quoted_dimension + ' = SOURCE.' + quoted_dimension
             sourceExtension += ', SOURCE.' + quoted_dimension
 
-        return ("MERGE INTO %s.%s AS TARGET "
-                "USING (VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) "
-                "ON TARGET.KEY = SOURCE.KEY%s "
-                "WHEN MATCHED THEN "
-                "UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
-                "WHEN NOT MATCHED THEN "
-                "INSERT (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) VALUES (SOURCE.KEY%s, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, CURRENT TIMESTAMP)") % (
-                   dbhelper.quotingSchemaName(self.schema), dbhelper.quotingTableName(tableName), parmExtension,
-                   colExtension, joinExtension, colExtension, sourceExtension)
+        value = f"(CAST(? AS VARCHAR)" \
+                f"{typedparmExtension}, " \
+                f"CAST(? AS BOOLEAN), " \
+                f"CAST(? AS DOUBLE), " \
+                f"CAST(? AS VARCHAR), " \
+                f"CAST(? AS TIMESTAMP), " \
+                f"CURRENT TIMESTAMP)"
+        row_join = ", "
+        values = f"{f'{value}{row_join}' * (rows - 1)}{value}"
+
+        upsert_stmt = \
+            f"MERGE INTO {dbhelper.quotingSchemaName(self.schema)}.{dbhelper.quotingTableName(tableName)} AS TARGET " \
+            f"USING (" \
+            f"SELECT KEY{colExtension}, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE FROM (" \
+            f"SELECT *, ROW_NUMBER() OVER(PARTITION BY KEY{colExtension} ORDER BY \"TIMESTAMP\" DESC) AS RN FROM (" \
+            f"SELECT * FROM (VALUES {values}) AS S1 (KEY{colExtension}, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE)" \
+            f")) WHERE RN = 1 " \
+            f") AS SOURCE " \
+            f"ON TARGET.KEY = SOURCE.KEY{joinExtension} " \
+            f"WHEN MATCHED THEN " \
+            f"UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE " \
+            f"WHEN NOT MATCHED THEN " \
+            f"INSERT (KEY{colExtension}, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) " \
+            f"VALUES (SOURCE.KEY{sourceExtension}, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, CURRENT TIMESTAMP)"
+
+        return upsert_stmt
 
     def create_upsert_statement_postgres_sql(self, tableName, grain):
         dimensions = []
