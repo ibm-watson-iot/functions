@@ -1,8 +1,12 @@
-#  Licensed Materials - Property of IBM 
-#  5737-M66, 5900-AAA, 5900-A0N, 5725-S86, 5737-I75
-#  (C) Copyright IBM Corp. 2020 All Rights Reserved.
-#  US Government Users Restricted Rights - Use, duplication, or disclosure
-#  restricted by GSA ADP Schedule Contract with IBM Corp.
+# *****************************************************************************
+# © Copyright IBM Corp. 2020.  All Rights Reserved.
+#
+# This program and the accompanying materials
+# are made available under the terms of the Apache V2.0 license
+# which accompanies this distribution, and is available at
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# *****************************************************************************
 
 import logging
 from iotfunctions.base import (BaseComplexAggregator)

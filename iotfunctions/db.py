@@ -1,8 +1,8 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0
+# are made available under the terms of the Apache V2.0 license
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -1041,7 +1041,7 @@ class Database(object):
 
         if sample_entity_type:
             self.url[('entityType', 'POST')] = '/'.join(
-                [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true&sampleEntityType=true'
+                [base_meta_url, 'v2', 'core', 'deviceTypes']) + '?user=aslibrary'
         else:
             self.url[('entityType', 'POST')] = '/'.join(
                 [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
@@ -1069,11 +1069,11 @@ class Database(object):
         self.url[('granularitySet', 'GET')] = '/'.join(
             [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
 
-        self.url[('kpiFunctions', 'POST')] = '/'.join(
-            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, 'import'])
+        # self.url[('kpiFunctions', 'POST')] = '/'.join(
+        #     [base_kpi_url, 'kpi', 'v1','entityType', object_name, object_type, 'import'])
 
-        self.url[('kpiFunction', 'POST')] = '/'.join(
-            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+        self.url[('kpiFunctions', 'POST')] = '/'.join(
+            [base_kpi_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
         self.url[('kpiFunction', 'DELETE')] = '/'.join(
             [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
         self.url[('kpiFunction', 'GET')] = '/'.join(
@@ -1085,7 +1085,8 @@ class Database(object):
 
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
-                   'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache", }
+                   'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache",
+                   'tenantId': self.tenant_id, 'mam_user_email': 'analyticsService@ibm.com'}
         try:
             url = self.url[(object_type, request)]
         except KeyError:

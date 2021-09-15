@@ -1,8 +1,8 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0
+# are made available under the terms of the Apache V2.0 license
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -2390,8 +2390,12 @@ class CalcPipeline:
                     dimension_name = dimension_filter['name']
                     dimension_value = dimension_filter['value']
                     dimension_count -= 1
-                    if eval('isinstance(' + str(dimension_value) + ',str)'):
-                        dimension_value = '[' + dimension_value + ']'
+                    if isinstance(dimension_value, str):
+                        dimension_value = [dimension_value]
+                    else:
+                        # Convert to list explicitly to guarantee subsequent 'str(dimension_value)' returns a proper
+                        # string. Counter example: str(dict.values()) returns "dict_values([...])"
+                        dimension_value = list(dimension_value)
                     eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
                     eval_expression += ' & ' if dimension_count != 0 else ''
             else:
@@ -2682,8 +2686,13 @@ class CalcPipeline:
                         # 'object'.
                         # Conversion via combination of where() and mask() is 60% faster than an approach with apply()
                         try:
-                            df_column_tmp = df_column.where(df_column.isna(), np.bool_(df_column))
-                            df[data_item['name']] = df_column_tmp.mask(df_column_tmp.isna(), None)
+                            if all( isinstance(val, str) or pd.isna(val) for val in df_column.values):
+                                cond = ((df_column == 'True') | (df_column == 'False'))
+                                df_column_tmp = df_column.where(cond, None)
+                                df[data_item['name']] = df_column_tmp.mask(cond, np.bool_(pd.eval(df_column_tmp)))
+                            else:
+                                df_column_tmp = df_column.where(df_column.isna(), np.bool_(df_column))
+                                df[data_item['name']] = df_column_tmp.mask(df_column_tmp.isna(), None)
                         except Exception:
                             invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
                     continue
