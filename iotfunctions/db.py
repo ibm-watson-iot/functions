@@ -550,7 +550,7 @@ class Database(object):
 
         # Load url and credentials for Data Dictionary
         dd_url = os.environ.get("DD_URL")
-        dd_user = os.environ.get("DD_USER")
+        dd_user = os.environ.get("DD_USER_NAME")
         dd_password = os.environ.get("DD_PASSWORD")
         dd_tenant_id = os.environ.get("DD_TENANT_ID")
 

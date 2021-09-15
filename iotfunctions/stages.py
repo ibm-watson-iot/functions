@@ -1029,10 +1029,10 @@ class DataWriterSqlAlchemy(DataWriter):
 
                         col_props[col_name] = (data_item_type, table_name)
                         if first_loop_cycle:
-                            grain_name = kpi_func_dto.get('granularity')
+                            grain_name = kpi_func_dto.get('granularityName')
                             first_loop_cycle = False
                         else:
-                            if grain_name != kpi_func_dto.get('granularity'):
+                            if grain_name != kpi_func_dto.get('granularityName'):
                                 raise Exception('Mismatch of grains. Only data items of same grain type can be '
                                                 'handled together')
 
