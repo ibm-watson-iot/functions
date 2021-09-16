@@ -13,6 +13,7 @@ import json
 import logging
 from collections import defaultdict
 import itertools
+import time
 
 import ibm_db
 import numpy as np
@@ -65,6 +66,7 @@ class PersistColumns:
 
     def store_derived_metrics(self, dataFrame):
         if self.dms.production_mode:
+            dataFrame = dataFrame.drop_duplicates()
             table_insert_stmt = {}
             table_metrics_to_persist = defaultdict(dict)
 
@@ -219,11 +221,14 @@ class PersistColumns:
                                     valueList = tuple(itertools.chain(*valueList))
                                     # for i, val in enumerate(valueList, 1):
                                     #     ibm_db.bind_param(stmt, i, val)
+                                    start_time = time.time()
                                     res = ibm_db.execute(stmt, valueList)
-                                    saved = res if res is not None else ibm_db.num_rows(stmt)
+                                    end_time = time.time()
+                                    saved = cnt
+                                    execution_time = start_time - end_time
 
                                 total_saved += saved
-                                self.logger.debug('Records saved so far = %d' % total_saved)
+                                self.logger.debug('Records saved so far = %d in %d s' % (total_saved, execution_time))
                             except Exception as ex:
                                 logger.debug(f"sql failed to execute")
                                 logger.debug("SQLSTATE = {}".format(ibm_db.stmt_error()))
@@ -242,10 +247,10 @@ class PersistColumns:
                             dbhelper.execute_batch(self.db_connection, stmt, valueList, DATALAKE_BATCH_UPDATE_ROWS)
                             saved = cnt  # Work around because we don't receive row count from batch query.
                         else:
-                            res = ibm_db.execute_many(stmt, tuple(valueList))
-                            saved = res if res is not None else ibm_db.num_rows(stmt)
-
-                        total_saved += saved
+                            sql = self.create_upsert_statement(tableName, grain, len(valueList))
+                            stmt = ibm_db.prepare(self.db_connection, sql)
+                            valueList = tuple(itertools.chain(*valueList))
+                            res = ibm_db.execute(stmt, valueList)
                     except Exception as ex:
                         raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
                             len(valueList), str(valueList))) from ex
@@ -256,18 +261,19 @@ class PersistColumns:
                 self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
 
     def add_grain_dimension_type_to_table(self, grain):
-        if grain[1] is not None:
-            for dimension in grain[1]:
-                if dimension not in self.dimension_type:
-                    dim_metadata = self.dms.data_items.get(dimension)
-                    if dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
-                        self.dimension_type[dimension] = 'DOUBLE'
-                    elif dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
-                        self.dimension_type[dimension] = 'BOOLEAN'
-                    elif dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
-                        self.dimension_type[dimension] = 'TIMESTAMP'
-                    else:
-                        self.dimension_type[dimension] = 'VARCHAR'
+        if len(grain) > 1:
+            if grain[1] is not None:
+                for dimension in grain[1]:
+                    if dimension not in self.dimension_type:
+                        dim_metadata = self.dms.data_items.get(dimension)
+                        if dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
+                            self.dimension_type[dimension] = 'DOUBLE'
+                        elif dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
+                            self.dimension_type[dimension] = 'BOOLEAN'
+                        elif dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
+                            self.dimension_type[dimension] = 'TIMESTAMP'
+                        else:
+                            self.dimension_type[dimension] = 'VARCHAR'
 
     def create_upsert_statement(self, tableName, grain, rows):
         dimensions = []
