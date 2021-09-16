@@ -44,6 +44,7 @@ class PersistColumns:
         self.db_connection = self.dms.db_connection
         self.is_postgre_sql = dms.is_postgre_sql
         self.sources = asList(sources)
+        self.dimension_type = dict()
         self.checkpoint = checkpoint
 
     def execute(self, df):
@@ -66,6 +67,9 @@ class PersistColumns:
         if self.dms.production_mode:
             table_insert_stmt = {}
             table_metrics_to_persist = defaultdict(dict)
+
+            if not self.is_postgre_sql:
+                ibm_db.autocommit(self.db_connection, ibm_db.SQL_AUTOCOMMIT_OFF)
 
             for source, dtype in dataFrame.dtypes.to_dict().items():
                 source_metadata = self.dms.data_items.get(source)
@@ -104,20 +108,17 @@ class PersistColumns:
                     except Exception:
                         self.logger.warning('Error creating db upsert statement for sql = %s' % sql, exc_info=True)
                         continue
+                    self.add_grain_dimension_type_to_table(grain)
 
                 value_bool = False
                 value_number = False
                 value_string = False
                 value_timestamp = False
 
-                dtype = dtype.name.lower()
-                # if dtype.startswith('int') or dtype.startswith('float') or dtype.startswith('long') or dtype.startswith('complex'):
                 if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
                     value_number = True
-                # elif dtype.startswith('bool'):
                 elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
                     value_bool = True
-                # elif dtype.startswith('datetime'):
                 elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
                     value_timestamp = True
                 else:
@@ -249,7 +250,24 @@ class PersistColumns:
                         raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
                             len(valueList), str(valueList))) from ex
 
+                if not self.is_postgre_sql:
+                    ibm_db.autocommit(self.db_connection, ibm_db.SQL_AUTOCOMMIT_ON)
+
                 self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
+
+    def add_grain_dimension_type_to_table(self, grain):
+        if grain[1] is not None:
+            for dimension in grain[1]:
+                if dimension not in self.dimension_type:
+                    dim_metadata = self.dms.data_items.get(dimension)
+                    if dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
+                        self.dimension_type[dimension] = 'DOUBLE'
+                    elif dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
+                        self.dimension_type[dimension] = 'BOOLEAN'
+                    elif dim_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
+                        self.dimension_type[dimension] = 'TIMESTAMP'
+                    else:
+                        self.dimension_type[dimension] = 'VARCHAR'
 
     def create_upsert_statement(self, tableName, grain, rows):
         dimensions = []
@@ -276,7 +294,7 @@ class PersistColumns:
             if dimension == 'TIMESTAMP':
                 typedparmExtension += f', CAST(? AS TIMESTAMP)'
             else:
-                typedparmExtension += f', CAST(? AS VARCHAR)'
+                typedparmExtension += f', CAST(? AS {self.dimension_type.get(dimension, "VARCHAR")})'
             joinExtension += ' AND TARGET.' + quoted_dimension + ' = SOURCE.' + quoted_dimension
             sourceExtension += ', SOURCE.' + quoted_dimension
 
