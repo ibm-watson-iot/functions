@@ -1597,8 +1597,8 @@ class EntityType(object):
                     sd = data_item_sd.get(m, 1)
                     data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
                     for i, value in enumerate(data[m]):
-                        dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER",
-                                                                       "value": value})
+                        dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER", 
+                                                      "value": value})
 
             for c in categoricals:
                 if c not in exclude_cols:
@@ -1606,6 +1606,7 @@ class EntityType(object):
                     data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
                     for i, value in enumerate(data[c]):
                         value_type = "LITERAL" if isinstance(value, np.str_) else "NUMBER"
+                        value = float(value) if value_type == "NUMBER" else value
                         dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": value_type,
                                                       "value": value})
 
