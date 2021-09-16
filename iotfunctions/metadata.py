@@ -1605,7 +1605,8 @@ class EntityType(object):
                     categories = data_item_domain.get(c, None)
                     data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
                     for i, value in enumerate(data[c]):
-                        dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": "LITERAL",
+                        value_type = "LITERAL" if isinstance(value, np.str_) else "NUMBER"
+                        dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": value_type,
                                                       "value": value})
 
             df = pd.DataFrame(data=data)
@@ -1858,7 +1859,7 @@ class EntityType(object):
                 # KITT integration: write dimension data after populating the entity list
                 logger.debug(self._generated_dimension_payload)
                 response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
-                                                request='POST',
+                                                request='PUT',
                                                 payload=self._generated_dimension_payload, raise_error=True)
 
                 logger.debug(f'Set dimensions in KITT and {self._dimension_table_name} table')
