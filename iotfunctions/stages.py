@@ -219,13 +219,11 @@ class PersistColumns:
                                     sql = self.create_upsert_statement(tableName, grain, len(valueList))
                                     stmt = ibm_db.prepare(self.db_connection, sql)
                                     valueList = tuple(itertools.chain(*valueList))
-                                    # for i, val in enumerate(valueList, 1):
-                                    #     ibm_db.bind_param(stmt, i, val)
                                     start_time = time.time()
                                     res = ibm_db.execute(stmt, valueList)
                                     end_time = time.time()
                                     saved = cnt
-                                    execution_time = start_time - end_time
+                                    execution_time =  end_time - start_time
 
                                 total_saved += saved
                                 self.logger.debug('Records saved so far = %d in %d s' % (total_saved, execution_time))
