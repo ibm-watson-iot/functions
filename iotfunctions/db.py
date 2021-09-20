@@ -286,8 +286,8 @@ class Database(object):
                     if Database.CERTIFICATE_FILE in self.credentials['db2']:
                         security_extension += f"SSLServerCertificate=" \
                                               f"{self.credentials['db2'][Database.CERTIFICATE_FILE]};"
-                    elif os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                        security_extension += 'SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                    elif os.path.exists('/secrets/db2cert/db2_certificate.pem'):
+                        security_extension += 'SSLServerCertificate=' + '/secrets/db2cert/db2_certificate.pem' + ";"
                     else:
                         cwd1 = os.getcwd()
                         filename1 = cwd1 + "/db2_certificate.pem"
