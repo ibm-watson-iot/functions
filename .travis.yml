@@ -8,6 +8,7 @@ install:
 
 # command to run tests
 script:
+  - ls *
 # test temporarily disable  - nosetests --nocapture
 # test temporarily disable    - pytest ./tests/unit
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
