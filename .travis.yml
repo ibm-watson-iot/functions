@@ -4,12 +4,12 @@ python:
 # command to install dependencies
 install:
   - pip install nose pylint
-  - pip install .
+# temporarily disable  - pip install .
 
 # command to run tests
 script:
   - nosetests --nocapture
-# test disabled  - pytest ./tests/unit
+# test temporarily disable    - pytest ./tests/unit
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:
   only:
