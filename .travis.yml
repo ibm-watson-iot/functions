@@ -5,6 +5,9 @@ python:
 install:
   - pip install nose pylint
   - pip install .
+  - wget --header=X-JFrog-Art-API:$ARTIFACTORY_API_KEY https://na.artifactory.swg-devops.com/artifactory/res-ai4dt-pypi-local/MAS-Data-Dictionary/8.4.3/MAS_Data_Dictionary-8.4.3.tar.gz -P kitt
+  - pip install kitt/MAS_Data_Dictionary-8.4.3.tar.gz
+
 # command to run tests
 script:
   - nosetests --nocapture
