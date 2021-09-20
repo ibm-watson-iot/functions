@@ -242,12 +242,13 @@ class EntityType(object):
         except AttributeError:
             self.logical_name = name
 
-        if db == None:
-            name = 'None'
-        elif db.db_type == 'db2':
-            name = name.upper()
+        if db is None or name is None:
+            name = None
         else:
-            name = name.lower()
+            if db.db_type == 'db2':
+                name = name.upper()
+            else:
+                name = name.lower()
         self.name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
@@ -334,8 +335,7 @@ class EntityType(object):
             if isinstance(self._data_items, list) and len(self._data_items) == 0:
                 self._data_items = self.build_item_metadata(self.table)
         else:
-            logger.warning((
-                'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'))
+            logger.info('The entity type is not connected to a metric input table.')
 
         # add granularities
         for g in grains:

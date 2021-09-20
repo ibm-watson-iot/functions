@@ -552,12 +552,12 @@ class Database(object):
         dd_url = os.environ.get("DD_URL")
         dd_user = os.environ.get("DD_USER_NAME")
         dd_password = os.environ.get("DD_PASSWORD")
-        dd_tenant_id = os.environ.get("DD_TENANT_ID")
+        dd_space_id = os.environ.get("DD_SPACE_ID")
 
         self.dd_client = None
-        if dd_url is not None and dd_user is not None and dd_password is not None and dd_tenant_id is not None:
+        if dd_url is not None and dd_user is not None and dd_password is not None and dd_space_id is not None:
             self.dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
-                                                      tenant_id=dd_tenant_id)
+                                                    tenant_id=dd_space_id)
             if self.dd_client.connected() is True:
                 logger.info(f"Connection to Data Dictionary has been established successfully: url='{dd_url}', "
                             f"tenant_id='{tenant_id}'")
