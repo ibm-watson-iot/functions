@@ -197,6 +197,7 @@ class EntityType(object):
     logical_name = None
     _timestamp = 'evt_timestamp'
     _dimension_table_name = None
+    _generated_dimension_payload = None
     _metric_table_name = None
     _db_connection_dbi = None
     _db_schema = None
@@ -1489,7 +1490,7 @@ class EntityType(object):
             pass
 
         if self._dimension_table_name is not None and dimension_table_exists:
-            self.generate_dimension_data(entities, write=write, data_item_mean=data_item_mean,
+            self.generate_dimension_data(entities, write=False, data_item_mean=data_item_mean,
                                          data_item_sd=data_item_sd, data_item_domain=data_item_domain)
 
         if write and self.db is not None:
@@ -1577,6 +1578,8 @@ class EntityType(object):
                 data_item_domain = {}
 
             known_categoricals = set(data_item_domain.keys())
+            
+            exclude_cols = self.get_excluded_cols()
 
             (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(self._dimension_table_name,
                                                                                       self._db_schema,
@@ -1585,23 +1588,37 @@ class EntityType(object):
 
             rows = len(entities)
             data = {}
+            dimension_api_payload = []
+            data[self._entity_id] = entities
 
             for m in metrics:
-                mean = data_item_mean.get(m, 0)
-                sd = data_item_sd.get(m, 1)
-                data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
+                if m not in exclude_cols:
+                    mean = data_item_mean.get(m, 0)
+                    sd = data_item_sd.get(m, 1)
+                    data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
+                    for i, value in enumerate(data[m]):
+                        dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER", 
+                                                      "value": value})
 
             for c in categoricals:
-                categories = data_item_domain.get(c, None)
-                data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
-
-            data[self._entity_id] = entities
+                if c not in exclude_cols:
+                    categories = data_item_domain.get(c, None)
+                    data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
+                    for i, value in enumerate(data[c]):
+                        value_type = "LITERAL" if isinstance(value, np.str_) else "NUMBER"
+                        value = float(value) if value_type == "NUMBER" else value
+                        dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": value_type,
+                                                      "value": value})
 
             df = pd.DataFrame(data=data)
 
             for d in dates:
                 df[d] = DateGenerator(d).get_data(rows=rows)
                 df[d] = pd.to_datetime(df[d])
+                time = df[d].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+                for i, value in enumerate(time):
+                    dimension_api_payload.append({"name": d, "id": data[self._entity_id][i], "type": "TIMESTAMP",
+                                                  "value": value})
 
             if write:
                 if self.db.db_type == 'db2':
@@ -1610,6 +1627,8 @@ class EntityType(object):
                     self._dimension_table_name = self._dimension_table_name.lower()
                 self.db.write_frame(df, table_name=self._dimension_table_name, if_exists='append',
                                     schema=self._db_schema)
+            else:
+                self._generated_dimension_payload = dimension_api_payload
 
         else:
             logger.debug('No new entities. Did not generate dimension data.')
@@ -1837,6 +1856,15 @@ class EntityType(object):
 
             if populate_dm_wiot_entity_list:
                 self.populate_entity_list_table()
+
+                # KITT integration: write dimension data after populating the entity list
+                logger.debug(self._generated_dimension_payload)
+                response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
+                                                request='PUT',
+                                                payload=self._generated_dimension_payload, raise_error=True)
+
+                logger.debug(f'Set dimensions in KITT and {self._dimension_table_name} table')
+                logger.debug(response)
 
     def populate_entity_list_table(self):
         entity_list_table_name = 'dm_wiot_entity_list'
@@ -2384,6 +2412,14 @@ class BaseCustomEntityType(EntityType):
                        ' Function %s has no _get_arg_spec() method.'
                        ' It cannot be published') % name
                 raise NotImplementedError(msg)
+            
+            try:
+                (metadata_input, metadata_output) = s.build_ui()
+            except AttributeError:
+                msg = ('Attempting to publish kpis for an entity type.'
+                       ' Function %s has no build_ui() method.'
+                       ' It cannot be published') % name
+                raise NotImplementedError(msg)
 
             # the entity type may have extended metadata
             # find relevant extended metadata and add it to argument values
@@ -2402,11 +2438,12 @@ class BaseCustomEntityType(EntityType):
 
             output_item_name = {}
             input_item_name = {}
+            metadata_input = [i.name for i in metadata_input]
             for key, value in args.items():
-                if key.__contains__('output'):
-                    output_item_name[key] = value
-                else:
+                if key in metadata_input:
                     input_item_name[key] = value
+                else:
+                    output_item_name[key] = value
 
             kpi_function_metadata = {
                 'catalogFunctionName': name,
