@@ -401,8 +401,8 @@ class Database(object):
 
         is_icp = os.environ.get("isICP")
         if is_icp is not None and is_icp == 'true':
-            if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
-                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
+            if os.path.exists('/secrets/iot-common/ca.crt'):
+                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/iot-common/ca.crt')
             else:
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
