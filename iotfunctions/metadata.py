@@ -40,7 +40,7 @@ DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
 DATA_ITEM_TRANSIENT_KEY = 'transient'
 DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
 DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
-DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'functionName'
+DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'catalogFunctionName'
 DATA_ITEM_TAG_ALERT = 'ALERT'
 DATA_ITEM_TAGS_KEY = 'tags'
 DATA_ITEM_TYPE_KEY = 'type'
@@ -66,7 +66,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
         logger.warning(('This entity type has no calculated kpis'))
 
     # cache function catalog metadata in the db object
-    function_list = [x['functionName'] for x in meta['kpiDeclarations']]
+    function_list = [x['catalogFunctionName'] for x in meta['kpiDeclarations']]
     db.load_catalog(install_missing=True, function_list=function_list)
 
     # map server properties
@@ -242,12 +242,13 @@ class EntityType(object):
         except AttributeError:
             self.logical_name = name
 
-        if db == None:
-            name = 'None'
-        elif db.db_type == 'db2':
-            name = name.upper()
+        if db is None or name is None:
+            name = None
         else:
-            name = name.lower()
+            if db.db_type == 'db2':
+                name = name.upper()
+            else:
+                name = name.lower()
         self.name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
@@ -286,9 +287,9 @@ class EntityType(object):
 
         if len(self._disabled_stages) > 0 or len(self._invalid_stages) > 0:
             self.trace_append(created_by=self, msg='Skipping disabled and invalid stages', log_method=logger.info,
-                              **{'skipped_disabled_stages': [s['functionName'] for s in self._disabled_stages],
+                              **{'skipped_disabled_stages': [s['catalogFunctionName'] for s in self._disabled_stages],
                                  'skipped_disabled_data_items': [s['output'] for s in self._disabled_stages],
-                                 'skipped_invalid_stages': [s['functionName'] for s in self._invalid_stages],
+                                 'skipped_invalid_stages': [s['catalogFunctionName'] for s in self._invalid_stages],
                                  'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]})
 
             # attach to time series table
@@ -334,8 +335,7 @@ class EntityType(object):
             if isinstance(self._data_items, list) and len(self._data_items) == 0:
                 self._data_items = self.build_item_metadata(self.table)
         else:
-            logger.warning((
-                'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'))
+            logger.info('The entity type is not connected to a metric input table.')
 
         # add granularities
         for g in grains:
@@ -439,7 +439,7 @@ class EntityType(object):
 
             input_item = f['input'].get('source')
             output_item = f['output'].get('name')
-            aggregate = f['functionName']
+            aggregate = f['catalogFunctionName']
 
             try:
                 agg_dict[input_item].append(aggregate)
@@ -937,12 +937,12 @@ class EntityType(object):
             fn['name'] = name
             fn['object_instance'] = f
             fn['description'] = f.__doc__
-            fn['functionName'] = f.__class__.__name__
+            fn['catalogFunctionName'] = f.__class__.__name__
             fn['enabled'] = True
             fn['execStatus'] = False
             fn['schedule'] = None
             fn['backtrack'] = None
-            fn['granularity'] = f.granularity
+            fn['granularityName'] = f.granularityName
             (fn['input'], fn['output'], fn['outputMeta'], fn['input_set'], fn['output_list']) = self.build_arg_metadata(
                 f)
             fn['inputMeta'] = None
@@ -1128,13 +1128,13 @@ class EntityType(object):
                        'Count': 'count', 'DistinctCount': 'count_distinct', 'StandardDeviation': 'std',
                        'Variance': 'var', 'Product': 'product', 'First': 'first', 'Last': 'last'}
 
-        name = meta.get('functionName', None)
+        name = meta.get('catalogFunctionName', None)
         replacement_name = replacement.get(name, None)
 
         if replacement_name is not None:
 
-            meta['functionName'] = replacement_name
-            return (meta.get('granularity', None), meta)
+            meta['catalogFunctionName'] = replacement_name
+            return (meta.get('granularityName', None), meta)
 
         else:
 
@@ -2076,7 +2076,7 @@ class ServerEntityType(EntityType):
             logger.warning(('This entity type has no calculated kpis'))
             function_list = []
         else:
-            function_list = [x['functionName'] for x in kpis]
+            function_list = [x['catalogFunctionName'] for x in kpis]
 
         # build a dictionary of granularity objects keyed by granularity name
         self._granularities_dict = self.build_granularities(grain_meta=server_meta['granularities'],
@@ -2084,15 +2084,15 @@ class ServerEntityType(EntityType):
 
         # replace granularity name with granularity object
         for k in kpis:
-            gran_name = k.get('granularity')
+            gran_name = k.get('granularityName')
             if gran_name is not None:
                 gran = self._granularities_dict.get(gran_name)
                 if gran is not None:
-                    k['granularity'] = gran
+                    k['granularityName'] = gran
                 else:
-                    k['granularity'] = None
+                    k['granularityName'] = None
                     logger.warning('Invalid granularity %s for function %s. No granularity (None) will be used instead',
-                                   gran_name, k['functionName'])
+                                   gran_name, k['catalogFunctionName'])
 
         # build a schedules dict keyed by freq
 
@@ -2177,9 +2177,9 @@ class ServerEntityType(EntityType):
                 if replacement_metadata is not None:
 
                     obj = AggregateItems(input_items=[replacement_metadata.get('input').get('source')],
-                                         aggregation_function=replacement_metadata.get('functionName'),
+                                         aggregation_function=replacement_metadata.get('catalogFunctionName'),
                                          output_items=[replacement_metadata.get('output').get('name')])
-                    obj.granularity = replacement_metadata.get('granularity', None)
+                    obj.granularity = replacement_metadata.get('granularityName', None)
                     obj.schedule = replacement_metadata.get('schedule', None)
                     functions.append(obj)
 
@@ -2187,14 +2187,14 @@ class ServerEntityType(EntityType):
                     valid_kpis.append(f)
 
         #  cache function catalog metadata in the db object
-        valid_kpi_names = [x.get('functionName') for x in valid_kpis]
+        valid_kpi_names = [x.get('catalogFunctionName') for x in valid_kpis]
         self.db.load_catalog(install_missing=True, function_list=valid_kpi_names)
 
         for f in valid_kpis:
 
             # build function object using metadata
 
-            (package, module, class_name) = self.db.get_catalog_module(f['functionName'])
+            (package, module, class_name) = self.db.get_catalog_module(f['catalogFunctionName'])
             meta = {}
             mod = importlib.import_module('%s.%s' % (package, module))
             meta = {**meta, **f['input']}
@@ -2205,10 +2205,10 @@ class ServerEntityType(EntityType):
             except TypeError as e:
                 logger.warning(('Unable build %s object. The arguments are mismatched'
                                 ' with the function metadata. You may need to'
-                                ' re-register the function. %s' % (f['functionName'], str(e))))
+                                ' re-register the function. %s' % (f['catalogFunctionName'], str(e))))
                 invalid.append(f)
             else:
-                obj.granularity = f.get('granularity', None)
+                obj.granularity = f.get('granularityName', None)
                 obj.schedule = f.get('schedule', None)
                 functions.append(obj)
 

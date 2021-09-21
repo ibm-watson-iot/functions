@@ -23,6 +23,11 @@ from .exceptions import StageException, DataWriterException
 from .util import MessageHub, asList
 from . import metadata as md
 
+try:
+    from MAS_Data_Dictionary.MAS_Core_Types import EntryType
+except ImportError:
+    EntryType = None
+
 logger = logging.getLogger(__name__)
 
 DATALAKE_BATCH_UPDATE_ROWS = 5000
@@ -393,8 +398,8 @@ class ProduceAlerts(object):
 
                         logger.info(f"There are no calculated alert events for alert {alert_name}")
 
-                # Push new alert events to database
-                self._push_alert_events_to_db(new_alert_events, index_has_entity_id)
+                # Push new alert events to database and Data Dictionary
+                self._push_alert_events_to_db_dd(new_alert_events, index_has_entity_id)
 
                 # Push new alerts events to message hub if required
                 if len(self.alerts_to_msg_hub) > 0:
@@ -458,7 +463,14 @@ class ProduceAlerts(object):
 
         return result_df.index
 
-    def _push_alert_events_to_db(self, alert_events, index_has_entity_id):
+    def _push_alert_events_to_db_dd(self, alert_events, index_has_entity_id):
+
+        # Push alert events to DB and Data Dictionary in parallel to reduce computational effort
+        dd_builder = None
+        msg_dd = ""
+        if self.dms.dd_client is not None:
+            dd_builder = self.dms.dd_client.builder()
+            msg_dd = "and Data Dictionary each "
 
         sql_statement = self._get_sql_statement()
 
@@ -475,27 +487,64 @@ class ProduceAlerts(object):
             domain_status = kpi_input.get('Status')
 
             for index_values in index:
-                # Create for each alert event one entry in list 'rows'
+                # Distinguish with/without entity id
                 if index_has_entity_id is True:
-                    rows.append((self.dms.entity_type_id, alert_name, index_values[0], index_values[1],
-                                 severity, priority, domain_status))
+                    tmp_entity_id = index_values[0]
+                    tmp_timestamp = index_values[1]
                 else:
-                    rows.append((self.dms.entity_type_id, alert_name, None, index_values,
-                                 severity, priority, domain_status))
+                    tmp_entity_id = None
+                    tmp_timestamp = index_values
 
-                # Push alert events in list 'rows' in chunks to alert table in database
+                # Setup alert event for DB
+                rows.append((self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp, severity, priority,
+                             domain_status))
+
+                if dd_builder is not None:
+                    # Setup alert event for Data Dictionary
+                    timestamp_string = self._get_dt64_as_string(tmp_timestamp)
+                    instance_name = f"{self.dms.entity_type_id}?{alert_name}?{timestamp_string}"
+                    if tmp_entity_id is not None:
+                        instance_name = f"{instance_name}?{tmp_entity_id}"
+                    dd_name = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, instance_name)
+                    dd_builder = dd_builder.instance().name(dd_name).a(EntryType.Alert.mas_type) \
+                        .set_p({"DATA_ITEM_NAME": alert_name, "EMTITY_TYPE_ID": self.dms.entity_type_id,
+                                "ENTITY_ID": tmp_entity_id, "TIMESTAMP": timestamp_string, "PRIORITY": priority,
+                                "SEVERTITY": severity, "DOMAIN_STATUS": domain_status})
+                    if tmp_entity_id is not None:
+                        dd_entity_id = EntryType.compute_mas_key(EntryType.Device.mas_key_prefix,
+                                                                   f'{self.dms.entity_type_id}?{tmp_entity_id}')
+                        dd_builder = dd_builder.hasAlert(src=dd_entity_id, tgt=alert_name)
+
                 if len(rows) == DATALAKE_BATCH_UPDATE_ROWS:
+                    # Push alert events in list 'rows' in chunks to alert table in database
                     total_count += self._push_rows_to_db(sql_statement, rows)
                     rows.clear()
-
                     logger.info(f"{total_count} alert events have been written to alert table so far.")
+
+                    if dd_builder is not None:
+                        # Push alert events to Data Dictionary and create a new builder
+                        dd_builder.send()
+                        dd_builder = self.dms.dd_client.builder()
+                        logger.info(f"{total_count} alert events have been written to Data Dictionary so far.")
 
         # Push all remaining rows to database
         if len(rows) > 0:
+            # Push all remaining alert events (= rows) to database
             total_count += self._push_rows_to_db(sql_statement, rows)
 
-        logger.info(f"A total of {total_count} alert events have been written to alert table "
+            if dd_builder is not None:
+                # Push all remaining alert events to Data Dictionary
+                dd_builder.send()
+
+        logger.info(f"A total of {total_count} alert events have been written to alert table {msg_dd}"
                     f"in {(dt.datetime.now() - start_time).total_seconds()} seconds.")
+
+    def _get_dt64_as_string(self, timestamp_dt64: np.datetime64):
+        # timestamp_dt64 is supposed to be of type numpy.datetime64. Return a string representation with nanoseconds
+        timestamp = pd.Timestamp(timestamp_dt64)
+        return f"{timestamp.year:04}-{timestamp.month:02}-{timestamp.day:02} " \
+               f"{timestamp.hour:02}:{timestamp.minute:02}:{timestamp.second:02}." \
+               f"{timestamp.microsecond:06}{timestamp.nanosecond:03}"
 
     def _get_sql_statement(self):
 
@@ -981,10 +1030,10 @@ class DataWriterSqlAlchemy(DataWriter):
 
                         col_props[col_name] = (data_item_type, table_name)
                         if first_loop_cycle:
-                            grain_name = kpi_func_dto.get('granularity')
+                            grain_name = kpi_func_dto.get('granularityName')
                             first_loop_cycle = False
                         else:
-                            if grain_name != kpi_func_dto.get('granularity'):
+                            if grain_name != kpi_func_dto.get('granularityName'):
                                 raise Exception('Mismatch of grains. Only data items of same grain type can be '
                                                 'handled together')
 

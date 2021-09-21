@@ -12,7 +12,7 @@ import logging
 
 import pandas as pd
 
-from iotfunctions import dbhelper
+from iotfunctions import dbhelper, util
 
 
 class LoaderPipeline:
@@ -23,9 +23,11 @@ class LoaderPipeline:
         self.dblogging = dblogging
 
     def execute(self, df, start_ts, end_ts, entities):
-        self.logger.debug("pipeline_input_df_columns=%s, pipeline_input_df_indexes=%s, pipeline_input_df=\n%s" % (
-            df.dtypes.to_dict(), df.index.to_frame().dtypes.to_dict(), df.head()))
-
+        if df is not None:
+            util.log_data_frame(f"df before loaders: column types = {df.dtypes.to_dict()}, "
+                                f"index types = {df.index.to_frame().dtypes.to_dict()}, shape", df.head())
+        else:
+            self.logger.info("df is None before loaders")
         for s in self.stages:
             try:
                 name = s.name
@@ -43,8 +45,8 @@ class LoaderPipeline:
             self.logger.debug('End of stage {{ %s }}, execution time = %s s' % (
                 name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
 
-        self.logger.debug("pipeline_final_df_columns=%s, pipeline_final_df_indexes=%s, pipeline_final_df=\n%s" % (
-            df.dtypes.to_dict(), df.index.to_frame().dtypes.to_dict(), df.head()))
+        util.log_data_frame(f"df after loaders: column types = {df.dtypes.to_dict()}, "
+                            f"index types = {df.index.to_frame().dtypes.to_dict()}, shape", df.head())
 
         return df
 
