@@ -186,11 +186,13 @@ class Database(object):
             as_api_host = credentials.get('as_api_host', None)
             as_api_key = credentials.get('as_api_key', None)
             as_api_token = credentials.get('as_api_token', None)
+            core_api_url = credentials.get('core_api_url', None)
         else:
             as_api_host = as_creds.get('asHost', None)
             as_api_key = as_creds.get('apiKey', None)
             as_api_token = as_creds.get('apiToken', None)
             as_api_certificate_file = as_creds.get(Database.CERTIFICATE_FILE, None)
+            core_api_url = as_creds.get('core_api_url', None)
 
         try:
             if as_api_host is None:
@@ -201,6 +203,8 @@ class Database(object):
                 as_api_token = os.environ.get('API_TOKEN')
             if as_api_certificate_file is None:
                 as_api_certificate_file = os.environ.get(Database.OS_API_CERTIFICATE_FILE)
+            if core_api_url is None:
+                core_api_url = os.environ.get('AS_V2_CORE_API_URL')
 
         except KeyError:
             as_api_host = None
@@ -212,6 +216,10 @@ class Database(object):
 
         if as_api_host is not None and as_api_host.startswith('https://'):
             as_api_host = as_api_host[8:]
+        if core_api_url is not None and core_api_url.startswith('https://'):
+            core_api_url = core_api_url[8:]
+        if core_api_url is None:
+            core_api_url = as_api_host
 
         self.credentials['as'] = {'host': as_api_host, 'api_key': as_api_key, 'api_token': as_api_token,
                                   Database.CERTIFICATE_FILE: as_api_certificate_file}
@@ -240,8 +248,10 @@ class Database(object):
             as_rest_kpi_host = as_api_host
             msg = 'Unable to locate META AND KPI URL.. using base API URL'
             logger.warning(msg)
+            
 
-        self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host}
+        self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host, 
+                                       'as_rest_core_host': core_api_url}
 
         self.tenant_id = self.credentials['tenant_id']
 
@@ -996,6 +1006,7 @@ class Database(object):
         base_url = 'https://%s/api' % (self.credentials['as']['host'])
         base_meta_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_meta_host'])
         base_kpi_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_kpi_host'])
+        core_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_core_host'])
 
         self.url = {}
         self.url[('allFunctions', 'GET')] = '/'.join(
@@ -1020,7 +1031,7 @@ class Database(object):
 
         if sample_entity_type:
             self.url[('entityType', 'POST')] = '/'.join(
-                [base_meta_url, 'v2', 'core', 'deviceTypes']) + '?user=aslibrary'
+                [core_url, 'v2', 'core', 'deviceTypes']) + '?user=aslibrary'
         else:
             self.url[('entityType', 'POST')] = '/'.join(
                 [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
@@ -1052,7 +1063,7 @@ class Database(object):
         #     [base_kpi_url, 'kpi', 'v1','entityType', object_name, object_type, 'import'])
 
         self.url[('kpiFunctions', 'POST')] = '/'.join(
-            [base_kpi_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
+            [core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
         self.url[('kpiFunction', 'DELETE')] = '/'.join(
             [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
         self.url[('kpiFunction', 'GET')] = '/'.join(
@@ -1063,9 +1074,9 @@ class Database(object):
         self.url['usage', 'POST'] = '/'.join([base_kpi_url, 'kpiusage', 'v1', self.tenant_id, 'function', 'usage'])
 
         self.url['dimensions', 'POST'] = '/'.join(
-            [base_meta_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
+            [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
         self.url['dimensions', 'PUT'] = '/'.join(
-            [base_meta_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
+            [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
 
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
