@@ -23,8 +23,10 @@ from .exceptions import StageException, DataWriterException
 from .util import MessageHub, asList
 from . import metadata as md
 
-from MAS_Data_Dictionary.MAS_Core_Types import EntryType
-from MAS_Data_Dictionary.MAS_Model_Builder import MAS_Model_Builder
+try:
+    from MAS_Data_Dictionary.MAS_Core_Types import EntryType
+except ImportError:
+    EntryType = None
 
 logger = logging.getLogger(__name__)
 
