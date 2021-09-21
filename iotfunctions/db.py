@@ -34,13 +34,16 @@ from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.sql import select
 from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN, NullType
 
-from MAS_Data_Dictionary.MAM_API import MAM_API
-
 from . import dbtables
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
 from .util import CosClient, resample, reset_df_index
+
+try:
+    from MAS_Data_Dictionary.MAM_API import MAM_API
+except ImportError:
+    MAM_API = None
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -555,17 +558,20 @@ class Database(object):
         dd_space_id = os.environ.get("DD_SPACE_ID")
 
         self.dd_client = None
-        if dd_url is not None and dd_user is not None and dd_password is not None and dd_space_id is not None:
-            self.dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
-                                                    tenant_id=dd_space_id)
-            if self.dd_client.connected() is True:
-                logger.info(f"Connection to Data Dictionary has been established successfully: url='{dd_url}', "
-                            f"tenant_id='{tenant_id}'")
+        if MAM_API is not None:
+            if dd_url is not None and dd_user is not None and dd_password is not None and dd_space_id is not None:
+                self.dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
+                                                        tenant_id=dd_space_id)
+                if self.dd_client.connected() is True:
+                    logger.info(f"Connection to Data Dictionary has been established successfully: url='{dd_url}', "
+                                f"tenant_id='{tenant_id}'")
+                else:
+                    raise ConnectionError(f"Connection to Data Dictionary could not be established: url='{dd_url}', "
+                                          f"tenant_id='{tenant_id}'")
             else:
-                raise ConnectionError(f"Connection to Data Dictionary could not be established: url='{dd_url}', "
-                                      f"tenant_id='{tenant_id}'")
+                logger.info(f"No connection to Data Dictionary has been defined.")
         else:
-            logger.info(f"No connection to Data Dictionary has been defined.")
+            logger.info(f"Data Dictionary is not available.")
 
     def _aggregate_item(self, table, column_name, aggregate, alias_column=None, dimension_table=None,
                         timestamp_col=None):

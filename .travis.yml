@@ -3,14 +3,13 @@ python:
   - "3.6"
 # command to install dependencies
 install:
-# temporarily disable  - pip install nose pylint
-# temporarily disable  - pip install .
+  - pip install nose pylint
+  - pip install .
 
 # command to run tests
 script:
-  - ls *
-# test temporarily disable  - nosetests --nocapture
-# test temporarily disable    - pytest ./tests/unit
+  - nosetests --nocapture
+  - pytest ./tests/unit
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:
   only:
