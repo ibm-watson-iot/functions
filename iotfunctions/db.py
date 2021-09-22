@@ -191,7 +191,6 @@ class Database(object):
             as_api_host = credentials.get('as_api_host', None)
             as_api_key = credentials.get('as_api_key', None)
             as_api_token = credentials.get('as_api_token', None)
-            core_api_url = credentials.get('core_api_url', None)
         else:
             as_api_host = as_creds.get('asHost', None)
             as_api_key = as_creds.get('apiKey', None)
@@ -246,17 +245,20 @@ class Database(object):
             as_rest_kpi_host = as_api_host
             msg = 'Unable to locate META AND KPI URL.. using base API URL'
             logger.warning(msg)
-            
-        try:
+
+        core_api_host = credentials.get('core_api_host', None)
+        if core_api_host is None:
             core_api_host = os.environ.get('AS_V2_CORE_API_URL', None)
-            if core_api_host is not None and core_api_host.startswith('https://'):
-                core_api_host = core_api_host[8:]
-            else:
-                core_api_host = as_api_host
-        except KeyError:
+        if core_api_host is None:
             core_api_host = as_api_host
-            msg = 'Unable to locate CORE API URL.. using base API URL'
-            logger.warning(msg)
+            logger.warning('Unable to locate CORE API URL.. using base API URL')
+
+        if core_api_host is not None and core_api_host.startswith('https://'):
+            core_api_host = core_api_host[8:]
+        elif core_api_host is not None and core_api_host.startswith('http://'):
+            core_api_host = as_api_host[7:]
+        else:
+            core_api_host = as_api_host
 
 
         self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host, 
