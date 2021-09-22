@@ -255,8 +255,6 @@ class Database(object):
 
         if core_api_host is not None and core_api_host.startswith('https://'):
             core_api_host = core_api_host[8:]
-        elif core_api_host is not None and core_api_host.startswith('http://'):
-            core_api_host = as_api_host[7:]
         else:
             core_api_host = as_api_host
 
