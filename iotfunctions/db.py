@@ -1028,7 +1028,7 @@ class Database(object):
         if object_name is None:
             object_name = ''
         if payload is None:
-            payload = ''
+            payload = []
 
         if self.tenant_id is None:
             msg = 'tenant_id instance variable is not set. database object was not initialized with valid credentials'
