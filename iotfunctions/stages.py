@@ -508,7 +508,7 @@ class ProduceAlerts(object):
                     # Setup alert event for Data Dictionary
                     timestamp_nano_seconds = int(tmp_timestamp)
                     alert_attributes = {"dimensions": None, "alertId": alert_id, "name": alert_name,
-                                        "assetId": tmp_entity_id, "assetAlias": None, "owner": None,
+                                        "deviceId": tmp_entity_id, "deviceAlias": None, "owner": None,
                                         "severity": severity, "status": domain_status, "priority": priority,
                                         "timestamp": timestamp_nano_seconds, "actions": None}
                     alert_event_name = f"{self.dms.entity_type_id}?{alert_id}?{timestamp_nano_seconds}"

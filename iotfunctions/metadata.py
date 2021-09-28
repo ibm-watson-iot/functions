@@ -251,6 +251,7 @@ class EntityType(object):
             else:
                 name = name.lower()
         self.name = name
+        self._metric_table_name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
             self.description = ''
