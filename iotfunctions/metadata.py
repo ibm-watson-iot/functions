@@ -44,6 +44,7 @@ DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'catalogFunctionName'
 DATA_ITEM_TAG_ALERT = 'ALERT'
 DATA_ITEM_TAGS_KEY = 'tags'
 DATA_ITEM_TYPE_KEY = 'type'
+DATA_ITEM_ID = 'dataItemId'
 
 def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     """
@@ -251,6 +252,7 @@ class EntityType(object):
             else:
                 name = name.lower()
         self.name = name
+        self._metric_table_name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
             self.description = ''

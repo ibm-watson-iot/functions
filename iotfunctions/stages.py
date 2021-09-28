@@ -329,6 +329,7 @@ class ProduceAlerts(object):
         self.alert_to_kpi_input_dict = dict()
         self.alerts_to_msg_hub = []
         self.alerts_to_db = []
+        self.alert_name_to_alert_id = {}
 
         if alerts is not None:
             self.alerts_to_msg_hub = alerts
@@ -344,6 +345,7 @@ class ProduceAlerts(object):
                     self.alert_to_kpi_input_dict[data_item_name] = kpi_func_dto.get('input')
                     if md.DATA_ITEM_TAG_ALERT in metadata.get(md.DATA_ITEM_TAGS_KEY, []):
                         self.alerts_to_msg_hub.append(data_item_name)
+                self.alert_name_to_alert_id[data_item_name] = metadata.get(md.DATA_ITEM_ID);
         else:
             raise RuntimeError("Invalid combination of parameters: Either alerts or data_item_names must be provided.")
 
@@ -468,8 +470,8 @@ class ProduceAlerts(object):
         # Push alert events to DB and Data Dictionary in parallel to reduce computational effort
         dd_builder = None
         msg_dd = ""
-        if self.dms.dd_client is not None:
-            dd_builder = self.dms.dd_client.builder()
+        if self.dms.db.dd_client is not None:
+            dd_builder = self.dms.db.dd_client.builder()
             msg_dd = "and Data Dictionary each "
 
         sql_statement = self._get_sql_statement()
@@ -477,6 +479,8 @@ class ProduceAlerts(object):
         total_count = 0
         rows = []
         start_time = dt.datetime.now()
+        entity_type_ddId = self.dms.entity_type.get("resourceDdId")
+        is_device_type = (self.dms.entity_type.get("resourceType") == "DEVICE_TYPE")
 
         for alert_name, index in alert_events.items():
 
@@ -485,6 +489,7 @@ class ProduceAlerts(object):
             severity = kpi_input.get('Severity')
             priority = kpi_input.get('Priority')
             domain_status = kpi_input.get('Status')
+            alert_id = self.alert_name_to_alert_id.get(alert_name)
 
             for index_values in index:
                 # Distinguish with/without entity id
@@ -499,21 +504,25 @@ class ProduceAlerts(object):
                 rows.append((self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp, severity, priority,
                              domain_status))
 
-                if dd_builder is not None:
-                    # Setup alert event for Data Dictionary
-                    timestamp_string = self._get_dt64_as_string(tmp_timestamp)
-                    instance_name = f"{self.dms.entity_type_id}?{alert_name}?{timestamp_string}"
-                    if tmp_entity_id is not None:
-                        instance_name = f"{instance_name}?{tmp_entity_id}"
-                    dd_name = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, instance_name)
-                    dd_builder = dd_builder.instance().name(dd_name).a(EntryType.Alert.mas_type) \
-                        .set_p({"DATA_ITEM_NAME": alert_name, "EMTITY_TYPE_ID": self.dms.entity_type_id,
-                                "ENTITY_ID": tmp_entity_id, "TIMESTAMP": timestamp_string, "PRIORITY": priority,
-                                "SEVERTITY": severity, "DOMAIN_STATUS": domain_status})
-                    if tmp_entity_id is not None:
-                        dd_entity_id = EntryType.compute_mas_key(EntryType.Device.mas_key_prefix,
-                                                                   f'{self.dms.entity_type_id}?{tmp_entity_id}')
-                        dd_builder = dd_builder.hasAlert(src=dd_entity_id, tgt=alert_name)
+                # Kohlmann temporarily disabled
+                # if dd_builder is not None:
+                    # # Setup alert event for Data Dictionary
+                    # timestamp_nano_seconds = int(tmp_timestamp)
+                    # alert_attributes = {"dimensions": None, "alertId": alert_id, "name": alert_name,
+                    #                     "deviceId": tmp_entity_id, "deviceAlias": None, "owner": None,
+                    #                     "severity": severity, "status": domain_status, "priority": priority,
+                    #                     "timestamp": timestamp_nano_seconds, "actions": None}
+                    # alert_event_name = f"{self.dms.entity_type_id}?{alert_id}?{timestamp_nano_seconds}"
+                    # if tmp_entity_id is not None:
+                    #     alert_event_name = f"{alert_event_name}?{tmp_entity_id}"
+                    # alert_ddId = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, alert_event_name)
+                    # if is_device_type is True:
+                    #     dd_builder = dd_builder.mas_alert_type(entity_type_ddId, alert_ddId, alert_name)\
+                    #         .set_p(alert_attributes).hasAlertType(entity_type_ddId, alert_ddId)\
+                    #         .p("timestamp", timestamp_nano_seconds)
+                    # else:
+                    #     dd_builder = dd_builder.mas_alert(entity_type_ddId, alert_ddId, EntryType.Alert.mas_type(),
+                    #                                       alert_name).set_p(alert_attributes)
 
                 if len(rows) == DATALAKE_BATCH_UPDATE_ROWS:
                     # Push alert events in list 'rows' in chunks to alert table in database
@@ -521,30 +530,25 @@ class ProduceAlerts(object):
                     rows.clear()
                     logger.info(f"{total_count} alert events have been written to alert table so far.")
 
-                    if dd_builder is not None:
-                        # Push alert events to Data Dictionary and create a new builder
-                        dd_builder.send()
-                        dd_builder = self.dms.dd_client.builder()
-                        logger.info(f"{total_count} alert events have been written to Data Dictionary so far.")
+                    # Kohlmann temporarily disabled
+                    # if dd_builder is not None:
+                    #     # Push alert events to Data Dictionary and create a new builder
+                    #     dd_builder.send()
+                    #     dd_builder = self.dms.db.dd_client.builder()
+                    #     logger.info(f"{total_count} alert events have been written to Data Dictionary so far.")
 
         # Push all remaining rows to database
         if len(rows) > 0:
             # Push all remaining alert events (= rows) to database
             total_count += self._push_rows_to_db(sql_statement, rows)
 
-            if dd_builder is not None:
-                # Push all remaining alert events to Data Dictionary
-                dd_builder.send()
+            # Kohlmann temporarily disabled
+            # if dd_builder is not None:
+            #     # Push all remaining alert events to Data Dictionary
+            #     dd_builder.send()
 
         logger.info(f"A total of {total_count} alert events have been written to alert table {msg_dd}"
                     f"in {(dt.datetime.now() - start_time).total_seconds()} seconds.")
-
-    def _get_dt64_as_string(self, timestamp_dt64: np.datetime64):
-        # timestamp_dt64 is supposed to be of type numpy.datetime64. Return a string representation with nanoseconds
-        timestamp = pd.Timestamp(timestamp_dt64)
-        return f"{timestamp.year:04}-{timestamp.month:02}-{timestamp.day:02} " \
-               f"{timestamp.hour:02}:{timestamp.minute:02}:{timestamp.second:02}." \
-               f"{timestamp.microsecond:06}{timestamp.nanosecond:03}"
 
     def _get_sql_statement(self):
 
