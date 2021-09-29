@@ -479,8 +479,8 @@ class ProduceAlerts(object):
         total_count = 0
         rows = []
         start_time = dt.datetime.now()
-        entity_type_ddId = self.dms.entity_type.get("resourceDdId")
-        is_device_type = (self.dms.entity_type.get("resourceType") == "DEVICE_TYPE")
+        entity_type_dd_id = self.dms.entity_type_dd_id
+        is_device_type = (self.dms.entity_type_type == "DEVICE_TYPE")
 
         for alert_name, index in alert_events.items():
 
@@ -517,11 +517,11 @@ class ProduceAlerts(object):
                     #     alert_event_name = f"{alert_event_name}?{tmp_entity_id}"
                     # alert_ddId = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, alert_event_name)
                     # if is_device_type is True:
-                    #     dd_builder = dd_builder.mas_alert_type(entity_type_ddId, alert_ddId, alert_name)\
-                    #         .set_p(alert_attributes).hasAlertType(entity_type_ddId, alert_ddId)\
+                    #     dd_builder = dd_builder.mas_alert_type(entity_type_dd_id, alert_ddId, alert_name)\
+                    #         .set_p(alert_attributes).hasAlertType(entity_type_dd_id, alert_ddId)\
                     #         .p("timestamp", timestamp_nano_seconds)
                     # else:
-                    #     dd_builder = dd_builder.mas_alert(entity_type_ddId, alert_ddId, EntryType.Alert.mas_type(),
+                    #     dd_builder = dd_builder.mas_alert(entity_type_dd_id, alert_ddId, EntryType.Alert.mas_type(),
                     #                                       alert_name).set_p(alert_attributes)
 
                 if len(rows) == DATALAKE_BATCH_UPDATE_ROWS:
