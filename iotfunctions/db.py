@@ -38,7 +38,7 @@ from . import dbtables
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
-from .util import CosClient, resample, reset_df_index
+from .util import CosClient, resample, reset_df_index, log_data_frame
 
 try:
     from MAS_Data_Dictionary.MAS_Core import MAS_Core
@@ -1470,7 +1470,9 @@ class Database(object):
         else:
             execution_time = (pd.Timestamp.utcnow() - start_time).total_seconds()
             if log_message is None:
-                logger.debug(f"The following sql statement was executed in {execution_time} seconds: {sql}.")
+                logger.debug(f"The following sql statement returned {df.shape[0]} records and was executed in "
+                             f"{execution_time} seconds: {sql}.")
+                log_data_frame("Returned data frame:", df.head())
             else:
                 logger.debug(f"{log_message}: execution time = {execution_time} s, sql = {sql}")
 
