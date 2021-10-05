@@ -29,6 +29,7 @@ from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
 from .util import adjust_probabilities, reset_df_index, asList
+from ibm_watson_machine_learning import APIClient
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -2814,7 +2815,157 @@ class MergeByFirstValid:
         df = df.set_index(keys=sources_not_in_column)
 
         return df
+      
+class InvokeWMLModel(BaseTransformer):
+    '''
+    Pass multivariate data in input_items to a regression function deployed to
+    Watson Machine Learning. The results are passed back to the univariate
+    output_items column.
+    Credentials for the WML endpoint representing the deployed function are stored
+    as pipeline constants, a name to lookup the WML credentials as JSON document.
+    Example: 'my_deployed_endpoint_wml_credentials' referring to
+    {
+	    "apikey": "<my api key",
+	    "url": "https://us-south.ml.cloud.ibm.com",
+	    "space_id": "<my space id>",
+	    "deployment_id": "<my deployment id">
+    }
+    This name is passed to InvokeWMLModel in wml_auth.
+    '''
+    def __init__(self, input_items, wml_auth, output_items):
+        super().__init__()
 
+        logger.debug(input_items)
+
+        self.whoami = 'InvokeWMLModel'
+
+        self.input_items = input_items
+        if isinstance(output_items, str):
+            self.output_items = [output_items]
+        else:
+            self.output_items = output_items
+        self.wml_auth = wml_auth
+
+        self.deployment_id = None
+        self.apikey = None
+        self.wml_endpoint = None
+        self.space_id = None
+
+        self.client = None
+
+        self.logged_on = False
+
+
+    def __str__(self):
+        out = self.__class__.__name__
+        try:
+            out = out + 'Input: ' + str(self.input_items) + '\n'
+            out = out + 'Output: ' + str(self.output_items) + '\n'
+
+            if self.wml_auth is not None:
+                out = out + 'WML auth: ' + str(self.wml_auth) + '\n'
+            else:
+                #out = out + 'APIKey: ' + str(self.apikey) + '\n'
+                out = out + 'WML endpoint: ' + str(self.wml_endpoint) + '\n'
+                out = out + 'WML space id: ' + str(self.space_id) + '\n'
+                out = out + 'WML deployment id: ' + str(self.deployment_id) + '\n'
+        except Exception:
+            pass
+        return out
+
+
+    def login(self):
+
+        # only do it once
+        if self.logged_on:
+            return
+
+        # retrieve WML credentials as constant
+        #    {"apikey": api_key, "url": 'https://' + location + '.ml.cloud.ibm.com'}
+        if self.wml_auth is not None:
+            c = self._entity_type.get_attributes_dict()
+            try:
+                wml_credentials = c[self.wml_auth]
+                self.deployment_id = wml_credentials['deployment_id']
+                self.space_id = wml_credentials['space_id']
+                logger.info('Found credentials for WML')
+            except Exception as ae:
+                #wml_credentials = {'apikey': self.apikey , 'url': self.wml_endpoint, 'space_id': self.space_id}
+                #logger.error('WML Credentials constant ' + self.wml_auth + ' not present. Error ' + str(ae))
+                raise RuntimeError("No WML credentials specified")
+        else:
+            wml_credentials = {'apikey': self.apikey , 'url': self.wml_endpoint, 'space_id': self.space_id}
+
+        # get client and check credentials
+        self.client = APIClient(wml_credentials)
+        if self.client is None:
+            #logger.error('WML API Key invalid')
+            raise RuntimeError("WML API Key invalid")
+
+        # set space
+        self.client.set.default_space(wml_credentials['space_id'])
+
+        # check deployment
+        deployment_details = self.client.deployments.get_details(self.deployment_id, 1)
+        # ToDo - test return and error msg
+        logger.debug('Deployment Details check results in ' + str(deployment_details))
+
+        self.logged_on = True
+
+
+    def execute(self, df):
+
+        logger.info('InvokeWML exec')
+
+        # Create missing columns before doing group-apply
+        df = df.copy()
+        missing_cols = [x for x in (self.output_items) if x not in df.columns]
+        for m in missing_cols:
+            df[m] = None
+
+        self.login()
+
+        return super().execute(df)
+
+
+    def _calc(self, df):
+
+        if len(self.input_items) >= 1:
+            index_nans = df[df[self.input_items].isna().any(axis=1)].index
+            rows = df.loc[~df.index.isin(index_nans), self.input_items].values.tolist()
+            scoring_payload = {
+                'input_data': [{
+                    'fields': self.input_items,
+                    'values': rows}]
+            }
+        else:
+            logging.error("no input columns provided, forwarding all")
+            return df
+
+        results = self.client.deployments.score(self.deployment_id, scoring_payload)
+
+        if results:
+            df.loc[~df.index.isin(index_nans), self.output_items] = \
+                np.array(results['predictions'][0]['values']).flatten()
+        else:
+            logging.error('error invoking external model')
+
+        return df
+
+
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name = 'input_items', datatype=float,
+                                  description = "Data items adjust", is_output_datatype_derived = True))
+        inputs.append(UISingle(name='wml_auth', datatype=str,
+                               description='Endpoint to WML service where model is hosted', tags=['TEXT'], required=True))
+
+        # define arguments that behave as function outputs
+        outputs=[]
+        outputs.append(UISingle(name='output_items', datatype=float))
+        return (inputs, outputs)
 
 def pairwise(iterable):
     "s -> (s0, s1), (s2, s3), (s4, s5), ..."
