@@ -2927,7 +2927,7 @@ class InvokeWMLModel(BaseTransformer):
         logger.info('InvokeWML exec')
 
         # Create missing columns before doing group-apply
-        df = df.copy()
+        df = df.copy().fillna('')
         missing_cols = [x for x in (self.output_items) if x not in df.columns]
         for m in missing_cols:
             df[m] = None
@@ -2960,11 +2960,10 @@ class InvokeWMLModel(BaseTransformer):
                     np.array(results['predictions'][0]['values']).flatten()
             # Classification
             else:
-                df.loc[~df.index.isin(index_nans), self.output_items[0]] = \
-                    np.array(results['predictions'][0]['values'][0][0])
-
-                df.loc[~df.index.isin(index_nans), self.output_items[1]] = \
-                    np.array(results['predictions'][0]['values'][1][0])
+                arr = np.array(results['predictions'][0]['values'])
+                df.loc[~df.index.isin(index_nans), self.output_items[0]] = arr[:,0].astype(int)
+                arr2 = np.array(arr[:,1].tolist())
+                df.loc[~df.index.isin(index_nans), self.output_items[1]] = arr2.T[0]
 
         else:
             logging.error('error invoking external model')
