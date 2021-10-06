@@ -1904,13 +1904,16 @@ class EntityType(object):
                    ' may not be registered ')
             raise ValueError(msg)
 
+        if self._timestamp_col is None:
+            self._timestamp_col = self._timestamp
+
         cols = []
         columns = []
         metric_column_names = []
         table = {}
         table['name'] = self.logical_name
         table['metricTableName'] = None
-        table['metricTimestampColumn'] = self._timestamp
+        table['metricTimestampColumn'] = self._timestamp_col
         table['description'] = self.description
         table['origin'] = 'AS_SAMPLE'
         for c in self.db.get_column_names(self.table, schema=self._db_schema):
