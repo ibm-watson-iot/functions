@@ -1,13 +1,18 @@
-# Licensed Materials - Property of IBM
-# 5737-M66, 5900-AAA, 5900-A0N, 5725-S86, 5737-I75
-# (C) Copyright IBM Corp. 2020 All Rights Reserved.
-# US Government Users Restricted Rights - Use, duplication, or disclosure
-# restricted by GSA ADP Schedule Contract with IBM Corp.
+# *****************************************************************************
+# © Copyright IBM Corp. 2020.  All Rights Reserved.
+#
+# This program and the accompanying materials
+# are made available under the terms of the Apache V2.0 license
+# which accompanies this distribution, and is available at
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# *****************************************************************************
+
 import logging
 
 import pandas as pd
 
-from iotfunctions import dbhelper
+from iotfunctions import dbhelper, util
 
 
 class LoaderPipeline:
@@ -18,9 +23,11 @@ class LoaderPipeline:
         self.dblogging = dblogging
 
     def execute(self, df, start_ts, end_ts, entities):
-        self.logger.debug("pipeline_input_df_columns=%s, pipeline_input_df_indexes=%s, pipeline_input_df=\n%s" % (
-            df.dtypes.to_dict(), df.index.to_frame().dtypes.to_dict(), df.head()))
-
+        if df is not None:
+            util.log_data_frame(f"df before loaders: column types = {df.dtypes.to_dict()}, "
+                                f"index types = {df.index.to_frame().dtypes.to_dict()}, shape", df.head())
+        else:
+            self.logger.info("df is None before loaders")
         for s in self.stages:
             try:
                 name = s.name
@@ -38,8 +45,8 @@ class LoaderPipeline:
             self.logger.debug('End of stage {{ %s }}, execution time = %s s' % (
                 name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
 
-        self.logger.debug("pipeline_final_df_columns=%s, pipeline_final_df_indexes=%s, pipeline_final_df=\n%s" % (
-            df.dtypes.to_dict(), df.index.to_frame().dtypes.to_dict(), df.head()))
+        util.log_data_frame(f"df after loaders: column types = {df.dtypes.to_dict()}, "
+                            f"index types = {df.index.to_frame().dtypes.to_dict()}, shape", df.head())
 
         return df
 

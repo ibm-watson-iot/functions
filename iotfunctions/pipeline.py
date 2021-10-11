@@ -1,8 +1,8 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0
+# are made available under the terms of the Apache V2.0 license
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -2294,7 +2294,8 @@ class CalcPipeline:
                 self.logger.info('No data retrieved from all sources. Pipeline execution is skipped for this grain.')
                 df = None
                 remaining = len(stages) - counter
-                self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
+                if self.dblogging is not None:
+                    self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
                 break
 
             df = self._execute_stage(stage=s, df=df, start_ts=start_ts, end_ts=end_ts, entities=entities,
@@ -2685,8 +2686,13 @@ class CalcPipeline:
                         # 'object'.
                         # Conversion via combination of where() and mask() is 60% faster than an approach with apply()
                         try:
-                            df_column_tmp = df_column.where(df_column.isna(), np.bool_(df_column))
-                            df[data_item['name']] = df_column_tmp.mask(df_column_tmp.isna(), None)
+                            if all( isinstance(val, str) or pd.isna(val) for val in df_column.values):
+                                cond = ((df_column == 'True') | (df_column == 'False'))
+                                df_column_tmp = df_column.where(cond, None)
+                                df[data_item['name']] = df_column_tmp.mask(cond, np.bool_(pd.eval(df_column_tmp)))
+                            else:
+                                df_column_tmp = df_column.where(df_column.isna(), np.bool_(df_column))
+                                df[data_item['name']] = df_column_tmp.mask(df_column_tmp.isna(), None)
                         except Exception:
                             invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
                     continue

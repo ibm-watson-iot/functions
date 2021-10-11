@@ -2,7 +2,7 @@
 # © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0
+# are made available under the terms of the Apache V2.0 license
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -83,6 +83,7 @@ def setup_logging(as_log_level=logging.INFO, root_log_level=logging.DEBUG, filen
 
     root_logger = logging.getLogger()
     root_logger.setLevel(root_log_level)
+    root_logger.handlers.clear()
     root_logger.addHandler(console_handler)
     if file_handler is not None:
         root_logger.addHandler(file_handler)
@@ -482,6 +483,9 @@ def log_df_info(df, msg, include_data=False):
     """
     Log a debugging entry showing first row and index structure
     """
+    if not isinstance(df, pd.DataFrame):
+        logger.debug('df is no dataframe')
+        return 'df is of type ' + str(type(df))
     try:
         msg = msg + ' ; df row count: %s ' % (len(df.index))
         if df.index.names != [None]:
@@ -500,8 +504,9 @@ def log_df_info(df, msg, include_data=False):
             msg = msg + ' ; columns: { %s }' % (' , '.join(list(df.columns)))
         logger.debug(msg)
         return msg
-    except Exception:
+    except Exception as log_e:
         logger.warning('dataframe contents not logged due to an unknown logging error')
+        print(log_e)
         return ''
 
 
@@ -534,6 +539,13 @@ def asList(x):
     if not isinstance(x, list):
         x = [x]
     return x
+
+
+def copy_entity_id_to_column(df):
+    id_idx = 'id'
+    entity_id_col = 'entity_id'
+    if id_idx in df.index.names and entity_id_col not in df.columns:
+        df[entity_id_col] = df.index.get_level_values(id_idx)
 
 
 class CosClient:
@@ -830,8 +842,14 @@ class MessageHub:
 
     def produce_batch(self, topic, key_and_msg):
         start_time = dt.datetime.now()
-        if topic is None or len(topic) == 0 or key_and_msg is None:
-            logger.warning('Default alert topic name not present. Skipping alerts generation to the queues.')
+        if topic is None or len(topic) == 0:
+            logger.warning('Alert topic has not been defined. Therefore alert events cannot be pushed to Message Hub.')
+            return
+        else:
+            logger.info(f"Topic in Message Hub for alert events is {topic}.")
+
+        if key_and_msg is None or len(key_and_msg) == 0:
+            logger.info(f"Nothing to be pushed to alert topic in Message Hub.")
             return
 
         counter = 0
@@ -843,14 +861,12 @@ class MessageHub:
                 # Wait for any outstanding messages to be delivered and delivery report
                 # callbacks to be triggered.
                 producer.flush()
-                logger.info('Number of alert produced so far : %d (%s)' % (counter, topic))
+                logger.info(f"{counter} alert events have been pushed to alert topic in Message Hub so far.")
         if producer is not None:
             producer.flush()
 
-        end_time = dt.datetime.now()
-        logger.info("Total alerts produced to message hub = %d " % len(key_and_msg))
-        logger.info("Total time taken to produce the alert to message hub = %s seconds." % (
-                end_time - start_time).total_seconds())
+        logger.info(f"A total of {counter} alert events have been pushed to alert topic in "
+                    f"Message Hub in {(dt.datetime.now() - start_time).total_seconds()} seconds.")
 
     def produce(self, topic, msg, key=None, producer=None, callback=_delivery_report):
         if topic is None or len(topic) == 0 or msg is None:

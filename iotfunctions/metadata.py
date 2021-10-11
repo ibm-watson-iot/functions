@@ -1,8 +1,8 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0
+# are made available under the terms of the Apache V2.0 license
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -40,10 +40,11 @@ DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
 DATA_ITEM_TRANSIENT_KEY = 'transient'
 DATA_ITEM_SOURCETABLE_KEY = 'sourceTableName'
 DATA_ITEM_KPI_FUNCTION_DTO_KEY = 'kpiFunctionDto'
-DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'functionName'
+DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME = 'catalogFunctionName'
 DATA_ITEM_TAG_ALERT = 'ALERT'
 DATA_ITEM_TAGS_KEY = 'tags'
 DATA_ITEM_TYPE_KEY = 'type'
+DATA_ITEM_ID = 'dataItemId'
 
 def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     """
@@ -66,7 +67,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
         logger.warning(('This entity type has no calculated kpis'))
 
     # cache function catalog metadata in the db object
-    function_list = [x['functionName'] for x in meta['kpiDeclarations']]
+    function_list = [x['catalogFunctionName'] for x in meta['kpiDeclarations']]
     db.load_catalog(install_missing=True, function_list=function_list)
 
     # map server properties
@@ -193,9 +194,12 @@ class EntityType(object):
 
     # variabes that will be set when loading from the server
     _entity_type_id = None
+    _entity_type_uuid = None
     logical_name = None
     _timestamp = 'evt_timestamp'
     _dimension_table_name = None
+    _generated_dimension_payload = None
+    _metric_table_name = None
     _db_connection_dbi = None
     _db_schema = None
     _data_items = None
@@ -240,13 +244,15 @@ class EntityType(object):
         except AttributeError:
             self.logical_name = name
 
-        if db == None:
-            name = 'None'
-        elif db.db_type == 'db2':
-            name = name.upper()
+        if db is None or name is None:
+            name = None
         else:
-            name = name.lower()
+            if db.db_type == 'db2':
+                name = name.upper()
+            else:
+                name = name.lower()
         self.name = name
+        self._metric_table_name = name
         self.description = kwargs.get('description', None)
         if self.description is None:
             self.description = ''
@@ -284,9 +290,9 @@ class EntityType(object):
 
         if len(self._disabled_stages) > 0 or len(self._invalid_stages) > 0:
             self.trace_append(created_by=self, msg='Skipping disabled and invalid stages', log_method=logger.info,
-                              **{'skipped_disabled_stages': [s['functionName'] for s in self._disabled_stages],
+                              **{'skipped_disabled_stages': [s['catalogFunctionName'] for s in self._disabled_stages],
                                  'skipped_disabled_data_items': [s['output'] for s in self._disabled_stages],
-                                 'skipped_invalid_stages': [s['functionName'] for s in self._invalid_stages],
+                                 'skipped_invalid_stages': [s['catalogFunctionName'] for s in self._invalid_stages],
                                  'skipped_invalid_data_items': [s['output'] for s in self._invalid_stages]})
 
             # attach to time series table
@@ -332,8 +338,7 @@ class EntityType(object):
             if isinstance(self._data_items, list) and len(self._data_items) == 0:
                 self._data_items = self.build_item_metadata(self.table)
         else:
-            logger.warning((
-                'Created a logical entity type. It is not connected to a real database table, so it cannot perform any database operations.'))
+            logger.info('The entity type is not connected to a metric input table.')
 
         # add granularities
         for g in grains:
@@ -437,7 +442,7 @@ class EntityType(object):
 
             input_item = f['input'].get('source')
             output_item = f['output'].get('name')
-            aggregate = f['functionName']
+            aggregate = f['catalogFunctionName']
 
             try:
                 agg_dict[input_item].append(aggregate)
@@ -935,12 +940,12 @@ class EntityType(object):
             fn['name'] = name
             fn['object_instance'] = f
             fn['description'] = f.__doc__
-            fn['functionName'] = f.__class__.__name__
+            fn['catalogFunctionName'] = f.__class__.__name__
             fn['enabled'] = True
             fn['execStatus'] = False
             fn['schedule'] = None
             fn['backtrack'] = None
-            fn['granularity'] = f.granularity
+            fn['granularityName'] = f.granularityName
             (fn['input'], fn['output'], fn['outputMeta'], fn['input_set'], fn['output_list']) = self.build_arg_metadata(
                 f)
             fn['inputMeta'] = None
@@ -1126,13 +1131,13 @@ class EntityType(object):
                        'Count': 'count', 'DistinctCount': 'count_distinct', 'StandardDeviation': 'std',
                        'Variance': 'var', 'Product': 'product', 'First': 'first', 'Last': 'last'}
 
-        name = meta.get('functionName', None)
+        name = meta.get('catalogFunctionName', None)
         replacement_name = replacement.get(name, None)
 
         if replacement_name is not None:
 
-            meta['functionName'] = replacement_name
-            return (meta.get('granularity', None), meta)
+            meta['catalogFunctionName'] = replacement_name
+            return (meta.get('granularityName', None), meta)
 
         else:
 
@@ -1487,7 +1492,7 @@ class EntityType(object):
             pass
 
         if self._dimension_table_name is not None and dimension_table_exists:
-            self.generate_dimension_data(entities, write=write, data_item_mean=data_item_mean,
+            self.generate_dimension_data(entities, write=False, data_item_mean=data_item_mean,
                                          data_item_sd=data_item_sd, data_item_domain=data_item_domain)
 
         if write and self.db is not None:
@@ -1498,7 +1503,7 @@ class EntityType(object):
             df['devicetype'] = self.logical_name
             df['format'] = ''
             df['updated_utc'] = dt.datetime.utcnow()
-            self.db.write_frame(table_name=self.name, df=df, schema=self._db_schema, timestamp_col=self._timestamp)
+            self.db.write_frame(table_name=self._metric_table_name, df=df, schema=self._db_schema, timestamp_col=self._timestamp)
 
         for (at_name, at_table) in list(self.activity_tables.items()):
             adf = self.generate_activity_data(table_name=at_name, activities=at_table._activities, entities=entities,
@@ -1575,6 +1580,8 @@ class EntityType(object):
                 data_item_domain = {}
 
             known_categoricals = set(data_item_domain.keys())
+            
+            exclude_cols = self.get_excluded_cols()
 
             (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(self._dimension_table_name,
                                                                                       self._db_schema,
@@ -1583,23 +1590,37 @@ class EntityType(object):
 
             rows = len(entities)
             data = {}
+            dimension_api_payload = []
+            data[self._entity_id] = entities
 
             for m in metrics:
-                mean = data_item_mean.get(m, 0)
-                sd = data_item_sd.get(m, 1)
-                data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
+                if m not in exclude_cols:
+                    mean = data_item_mean.get(m, 0)
+                    sd = data_item_sd.get(m, 1)
+                    data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
+                    for i, value in enumerate(data[m]):
+                        dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER", 
+                                                      "value": value})
 
             for c in categoricals:
-                categories = data_item_domain.get(c, None)
-                data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
-
-            data[self._entity_id] = entities
+                if c not in exclude_cols:
+                    categories = data_item_domain.get(c, None)
+                    data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
+                    for i, value in enumerate(data[c]):
+                        value_type = "LITERAL" if isinstance(value, np.str_) else "NUMBER"
+                        value = float(value) if value_type == "NUMBER" else value
+                        dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": value_type,
+                                                      "value": value})
 
             df = pd.DataFrame(data=data)
 
             for d in dates:
                 df[d] = DateGenerator(d).get_data(rows=rows)
                 df[d] = pd.to_datetime(df[d])
+                time = df[d].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+                for i, value in enumerate(time):
+                    dimension_api_payload.append({"name": d, "id": data[self._entity_id][i], "type": "TIMESTAMP",
+                                                  "value": value})
 
             if write:
                 if self.db.db_type == 'db2':
@@ -1608,6 +1629,8 @@ class EntityType(object):
                     self._dimension_table_name = self._dimension_table_name.lower()
                 self.db.write_frame(df, table_name=self._dimension_table_name, if_exists='append',
                                     schema=self._db_schema)
+            else:
+                self._generated_dimension_payload = dimension_api_payload
 
         else:
             logger.debug('No new entities. Did not generate dimension data.')
@@ -1774,17 +1797,27 @@ class EntityType(object):
                        ' Function %s has no _get_arg_spec() method.'
                        ' It cannot be published') % name
                 raise NotImplementedError(msg)
+            output_item_name = {}
+            input_item_name = {}
+            for key, value in args.items():
+                if key.__contains__('output'):
+                    output_item_name[key] = value
+                else:
+                    input_item_name[key] = value
 
-            metadata = {'name': name, 'args': args}
-            export.append(metadata)
+            kpi_function_metadata = {
+                'catalogFunctionName': name,
+                'granularity': None,
+                'input': input_item_name,
+                'output': output_item_name
+            }
+            export.append(kpi_function_metadata)
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id, request='POST',
+                                            payload=kpi_function_metadata, raise_error=raise_error)
 
-        logger.debug('Published kpis to entity type')
-        logger.debug(export)
-
-        response = self.db.http_request(object_type='kpiFunctions', object_name=self.logical_name, request='POST',
-                                        payload=export, raise_error=raise_error)
-
-        logger.debug(response)
+            logger.debug('Published kpis to entity type')
+            logger.debug(kpi_function_metadata)
+            logger.debug(response)
 
         return response
 
@@ -1826,6 +1859,15 @@ class EntityType(object):
             if populate_dm_wiot_entity_list:
                 self.populate_entity_list_table()
 
+                # KITT integration: write dimension data after populating the entity list
+                logger.debug(self._generated_dimension_payload)
+                response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
+                                                request='PUT',
+                                                payload=self._generated_dimension_payload, raise_error=True)
+
+                logger.debug(f'Set dimensions in KITT and {self._dimension_table_name} table')
+                logger.debug(response)
+
     def populate_entity_list_table(self):
         entity_list_table_name = 'dm_wiot_entity_list'
         try:
@@ -1843,7 +1885,8 @@ class EntityType(object):
                 self.db.connection.execute(stmt)
             self.db.commit()
 
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             logger.debug('Error populating dm_wiot_entity_list table.')
 
     def register(self, publish_kpis=False, raise_error=False, sample_entity_type=False):
@@ -1861,13 +1904,16 @@ class EntityType(object):
                    ' may not be registered ')
             raise ValueError(msg)
 
+        if self._timestamp_col is None:
+            self._timestamp_col = self._timestamp
+
         cols = []
         columns = []
         metric_column_names = []
         table = {}
         table['name'] = self.logical_name
-        table['metricTableName'] = self.name
-        table['metricTimestampColumn'] = self._timestamp
+        table['metricTableName'] = None
+        table['metricTimestampColumn'] = self._timestamp_col
         table['description'] = self.description
         table['origin'] = 'AS_SAMPLE'
         for c in self.db.get_column_names(self.table, schema=self._db_schema):
@@ -1875,7 +1921,7 @@ class EntityType(object):
             metric_column_names.append(c)
 
         if self._dimension_table is not None:
-            table['dimensionTableName'] = self._dimension_table_name
+            table['dimensionTableName'] = None
             for c in self.db.get_column_names(self._dimension_table, schema=self._db_schema):
                 if c not in metric_column_names:
                     cols.append((self._dimension_table, c, 'DIMENSION'))
@@ -1909,9 +1955,15 @@ class EntityType(object):
                     table["schemaName"] = "public"
                 except KeyError:
                     raise KeyError('No database credentials found. Unable to register table.')
-        payload = [table]
+        payload = table
         response = self.db.http_request(request='POST', object_type='entityType', object_name=self.name,
                                         payload=payload, raise_error=raise_error, sample_entity_type=sample_entity_type)
+
+        response_data = json.loads(response)
+        self._entity_type_uuid = response_data.get('uuid')
+        self._entity_type_id = response_data.get('resourceId')
+        self._metric_table_name = response_data.get('metricTableName')
+        self._dimension_table_name = response_data.get('dimensionTableName')
 
         msg = 'Metadata registered for table %s ' % self.name
         logger.debug(msg)
@@ -2057,7 +2109,7 @@ class ServerEntityType(EntityType):
             logger.warning(('This entity type has no calculated kpis'))
             function_list = []
         else:
-            function_list = [x['functionName'] for x in kpis]
+            function_list = [x['catalogFunctionName'] for x in kpis]
 
         # build a dictionary of granularity objects keyed by granularity name
         self._granularities_dict = self.build_granularities(grain_meta=server_meta['granularities'],
@@ -2065,15 +2117,15 @@ class ServerEntityType(EntityType):
 
         # replace granularity name with granularity object
         for k in kpis:
-            gran_name = k.get('granularity')
+            gran_name = k.get('granularityName')
             if gran_name is not None:
                 gran = self._granularities_dict.get(gran_name)
                 if gran is not None:
-                    k['granularity'] = gran
+                    k['granularityName'] = gran
                 else:
-                    k['granularity'] = None
+                    k['granularityName'] = None
                     logger.warning('Invalid granularity %s for function %s. No granularity (None) will be used instead',
-                                   gran_name, k['functionName'])
+                                   gran_name, k['catalogFunctionName'])
 
         # build a schedules dict keyed by freq
 
@@ -2158,9 +2210,9 @@ class ServerEntityType(EntityType):
                 if replacement_metadata is not None:
 
                     obj = AggregateItems(input_items=[replacement_metadata.get('input').get('source')],
-                                         aggregation_function=replacement_metadata.get('functionName'),
+                                         aggregation_function=replacement_metadata.get('catalogFunctionName'),
                                          output_items=[replacement_metadata.get('output').get('name')])
-                    obj.granularity = replacement_metadata.get('granularity', None)
+                    obj.granularity = replacement_metadata.get('granularityName', None)
                     obj.schedule = replacement_metadata.get('schedule', None)
                     functions.append(obj)
 
@@ -2168,14 +2220,14 @@ class ServerEntityType(EntityType):
                     valid_kpis.append(f)
 
         #  cache function catalog metadata in the db object
-        valid_kpi_names = [x.get('functionName') for x in valid_kpis]
+        valid_kpi_names = [x.get('catalogFunctionName') for x in valid_kpis]
         self.db.load_catalog(install_missing=True, function_list=valid_kpi_names)
 
         for f in valid_kpis:
 
             # build function object using metadata
 
-            (package, module, class_name) = self.db.get_catalog_module(f['functionName'])
+            (package, module, class_name) = self.db.get_catalog_module(f['catalogFunctionName'])
             meta = {}
             mod = importlib.import_module('%s.%s' % (package, module))
             meta = {**meta, **f['input']}
@@ -2186,10 +2238,10 @@ class ServerEntityType(EntityType):
             except TypeError as e:
                 logger.warning(('Unable build %s object. The arguments are mismatched'
                                 ' with the function metadata. You may need to'
-                                ' re-register the function. %s' % (f['functionName'], str(e))))
+                                ' re-register the function. %s' % (f['catalogFunctionName'], str(e))))
                 invalid.append(f)
             else:
-                obj.granularity = f.get('granularity', None)
+                obj.granularity = f.get('granularityName', None)
                 obj.schedule = f.get('schedule', None)
                 functions.append(obj)
 
@@ -2365,6 +2417,14 @@ class BaseCustomEntityType(EntityType):
                        ' Function %s has no _get_arg_spec() method.'
                        ' It cannot be published') % name
                 raise NotImplementedError(msg)
+            
+            try:
+                (metadata_input, metadata_output) = s.build_ui()
+            except AttributeError:
+                msg = ('Attempting to publish kpis for an entity type.'
+                       ' Function %s has no build_ui() method.'
+                       ' It cannot be published') % name
+                raise NotImplementedError(msg)
 
             # the entity type may have extended metadata
             # find relevant extended metadata and add it to argument values
@@ -2380,21 +2440,34 @@ class BaseCustomEntityType(EntityType):
                         extended = self._output_items_extended_metadata.get(av, None)
                         if extended is not None:
                             output_meta[av] = extended
+
+            output_item_name = {}
+            input_item_name = {}
+            metadata_input = [i.name for i in metadata_input]
+            for key, value in args.items():
+                if key in metadata_input:
+                    input_item_name[key] = value
+                else:
+                    output_item_name[key] = value
+
+            kpi_function_metadata = {
+                'catalogFunctionName': name,
+                'granularity': None,
+                'input': input_item_name,
+                'output': output_item_name
+            }
             if output_meta:
-                args['outputMeta'] = output_meta
+                kpi_function_metadata['outputMeta'] = output_meta
+            export.append(kpi_function_metadata)
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_uuid,
+                                            request='POST',
+                                            payload=kpi_function_metadata, raise_error=raise_error)
 
-            metadata = {'name': name, 'args': args}
-            export.append(metadata)
+            logger.debug('Published kpis to entity type')
+            logger.debug(kpi_function_metadata)
+            logger.debug(response)
 
-        logger.debug('Published kpis to entity type')
-        logger.debug(export)
-
-        response = self.db.http_request(object_type='kpiFunctions', object_name=self.logical_name, request='POST',
-                                        payload=export, raise_error=raise_error)
-
-        logger.debug(response)
-
-        return response
+        return 1
 
 
 class Granularity(object):
