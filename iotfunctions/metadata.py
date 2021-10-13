@@ -2378,7 +2378,7 @@ class BaseCustomEntityType(EntityType):
             description = self.__doc__
 
         params = {'_timestamp': self.timestamp, '_db_schema': db_schema, 'description': description,
-                  'drop_existing': drop_existing}
+                  'drop_existing': drop_existing, '_timestamp_col': self.timestamp}
 
         kwargs = {**params, **kwargs}
 
