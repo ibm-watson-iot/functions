@@ -377,6 +377,12 @@ class ProduceAlerts(object):
                     # Remove all values from series which are not equal to 'True' and only keep index of new series
                     calc_alert_events = alert_series[(alert_series == True)].index
 
+                    # index (device id/ timestamp) can contain unwanted duplicates which cause trouble when inserted
+                    # into database because the upsert statement does not allow the modification of the same record
+                    # twice in the same bulk statement. Duplicates can be safely removed now after all alert events had
+                    # been collected.
+                    calc_alert_events = calc_alert_events.unique()
+
                     if calc_alert_events.size > 0:
                         # Get earliest and latest timestamp of all alert events
                         timestamp_level = calc_alert_events.get_level_values(self.dms.eventTimestampName)
@@ -480,7 +486,6 @@ class ProduceAlerts(object):
         rows = []
         start_time = dt.datetime.now()
         entity_type_dd_id = self.dms.entity_type_dd_id
-        is_device_type = (self.dms.entity_type_type == "DEVICE_TYPE")
 
         for alert_name, index in alert_events.items():
 
@@ -599,6 +604,15 @@ class ProduceAlerts(object):
     def _push_alert_events_to_msg_hub(self, df, new_alert_events):
 
         key_and_msg = []
+
+        # Dataframe df can contain duplicates with respect to its index (device id/ timestamp) which makes df.reindex()
+        # fail later on. Duplicates are a result of duplicated raw metrics or incorrect calculation in a kpi function.
+        # We take corrective action and take the first occurrence of a duplicate only. This leads to small
+        # inconsistencies in Message Hub because the wrong metric values might be linked to an alert.
+        if df.index.has_duplicates:
+            logger.warning("Dataframe contains duplicates with respect to device id/ timestamp. The linkage between "
+                           "alert and alert values can be incorrect for those duplicates in Message Hub.")
+            df = df[(~df.index.duplicated(keep='first'))]
 
         for alert_name in self.alerts_to_msg_hub:
             index = new_alert_events[alert_name]
