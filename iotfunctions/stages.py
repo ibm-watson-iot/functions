@@ -658,61 +658,6 @@ class ProduceAlerts(object):
             raise TypeError(f"Do not know how to convert object of class {obj.__class__.__name__} to JSON")
 
 
-class RecordUsage:
-
-    def __init__(self, dms, function_kpi_generated, start_ts, completed=False):
-        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
-
-        if dms is None:
-            raise RuntimeError("argument dms must be provided")
-        if function_kpi_generated is None or not isinstance(function_kpi_generated, list):
-            raise RuntimeError("argument function_kpi_generated must be provided as a list")
-        if start_ts is None:
-            raise RuntimeError("argument start_ts must be provided")
-
-        self.dms = dms
-        self.function_kpi_generated = function_kpi_generated
-        self.start_ts = start_ts
-        self.completed = completed
-
-    def execute(self, df, *args, **kwargs):
-        if self.dms.production_mode:
-            end_ts = None
-            if self.completed:
-                end_ts = pd.Timestamp.utcnow().tz_convert(tz=None)
-
-            usage = []
-            for fname, kfname, kpis, kpiFunctionId in self.function_kpi_generated:
-                total_records = None
-                if self.completed:
-                    total_records = 0
-                    for kpi in kpis:
-                        try:
-                            records = df[kpi].dropna().shape[0]
-                            total_records += records
-                            self.logger.info('fname=%s, kpi=%s, records=%d' % (fname, kpi, records))
-                        except KeyError:
-                            self.logger.info('not able to calculate usage for the %s ' % kpi)
-                usage.append({"entityTypeName": self.dms.entity_type, "kpiFunctionName": kfname,
-                              "startTimestamp": self.start_ts.value // 1000000,
-                              "endTimestamp": (end_ts.value // 1000000) if self.completed else None,
-                              "numberOfResultsProcessed": total_records, })
-
-            self.logger.info('usage_records=%s' % str(usage))
-
-            if len(usage) > 0:
-                # util.api_request(USAGE_REQUEST_TEMPLATE.format(self.dms.tenant_id), method='post', json=usage)
-                try:
-                    self.dms.db.http_request(object_type='usage', object_name='', request='POST', payload=usage)
-                except BaseException as e:
-                    msg = 'Unable to write usage. %s' % str(e)
-                    self.logger.error(msg)
-        else:
-            self.logger.info("***** The RecordUsage is not stored into the database. ***** ")
-
-        return df
-
-
 class DataWriter(object):
     ITEM_NAME_TIMESTAMP_MIN = 'TIMESTAMP_MIN'
     ITEM_NAME_TIMESTAMP_MAX = 'TIMESTAMP_MAX'
