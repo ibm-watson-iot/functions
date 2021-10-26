@@ -41,9 +41,9 @@ from .enginelog import EngineLogging
 from .util import CosClient, resample, reset_df_index, log_data_frame
 
 try:
-    from MAS_Data_Dictionary.MAS_Core import MAS_Core
+    from MAS_Data_Dictionary.MAM_API import MAM_API
 except ImportError:
-    MAS_Core = None
+    MAM_API = None
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -572,9 +572,9 @@ class Database(object):
         dd_space_id = os.environ.get("DD_SPACE_ID")
 
         self.dd_client = None
-        if MAS_Core is not None:
+        if MAM_API is not None:
             if dd_url is not None and dd_user is not None and dd_password is not None and dd_space_id is not None:
-                self.dd_client = MAS_Core.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
+                self.dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
                                                         tenant_id=dd_space_id)
                 if self.dd_client.connected() is True:
                     logger.info(f"Connection to Data Dictionary has been established successfully: url='{dd_url}', "
