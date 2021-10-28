@@ -306,6 +306,12 @@ class PersistColumns:
         return sql
 
 
+def _timestamp_as_string(timestamp):
+    return f"{timestamp.year:04}-{timestamp.month:02}-{timestamp.day:02} " \
+           f"{timestamp.hour:02}:{timestamp.minute:02}:{timestamp.second:02}." \
+           f"{timestamp.microsecond:06}{timestamp.nanosecond:03}"
+
+
 class ProduceAlerts(object):
     is_system_function = True
     produces_output_items = False
@@ -357,12 +363,14 @@ class ProduceAlerts(object):
         self.updated_ts_col_name = 'updated_ts'
         self.entity_id_col_name = 'entity_id'
         self.alert_id_col_name = 'alert_id'
+        self.created_ts_col_name = 'created_ts'
         self.alert_col_name = 'data_item_name'
 
         # Column names in data frame
         self.timestamp_df_name = self.dms.eventTimestampName
         self.entity_id_df_name = 'id'
         self.alert_id_df_name = '###IBM###_alert_id'
+        self.created_ts_df_name = '###IBM###_created_ts'
         self.alert_df_name = '###IBM###_alert_name'
 
     def __str__(self):
@@ -396,9 +404,12 @@ class ProduceAlerts(object):
                     # This does not make any difference for table DM_WIOT_AS_ALERT because no metrics are inserted
                     # into this table but it has a small impact for Message Hub because metrics are added
                     if calc_alert_events.index.has_duplicates:
-                        logger.info(f"Dataframe contains duplicates with respect to device id/ timestamp for alert "
-                                    f"{alert_name}. Duplicates are removed.")
+                        number_events_before = calc_alert_events.shape[0]
                         calc_alert_events = calc_alert_events[(~calc_alert_events.index.duplicated(keep='first'))]
+                        number_removed_events = number_events_before - calc_alert_events.shape[0]
+
+                        logger.warning(f"Dataframe contains {number_removed_events} duplicates with respect to "
+                                       f"device id/ timestamp for alert {alert_name}. Duplicates are removed.")
 
                     if calc_alert_events.index.size > 0:
                         # Get earliest and latest timestamp of all alert events
@@ -419,6 +430,7 @@ class ProduceAlerts(object):
                         logger.info(f"{difference.size} out of {calc_alert_events.index.size} calculated alert events "
                                     f"for alert {alert_name} are new alert events.")
                     else:
+                        new_alert_events[alert_name] = calc_alert_events
                         logger.info(f"There are no calculated alert events for alert {alert_name}")
 
                 # Push new alert events to database
@@ -517,8 +529,11 @@ class ProduceAlerts(object):
         select_alert_id = f', {self.alert_id_col_name} as "{self.alert_id_col_name}"'
         requested_col_names.append(self.alert_id_df_name)
 
-        sql_statement = f"SELECT {select_alert_name}{select_entity_id}{select_timestamp}{select_alert_id} " \
-                        f"FROM {self.quoted_schema}.{self.quoted_table_name} " \
+        select_created_ts = f', {self.created_ts_col_name} as "{self.created_ts_col_name}"'
+        requested_col_names.append(self.created_ts_df_name)
+
+        sql_statement = f"SELECT {select_alert_name}{select_entity_id}{select_timestamp}{select_alert_id}" \
+                        f"{select_created_ts} FROM {self.quoted_schema}.{self.quoted_table_name} " \
                         f"WHERE entity_type_id = {self.dms.entity_type_id}"
 
         if start_ts is not None:
@@ -581,7 +596,7 @@ class ProduceAlerts(object):
     def _attach_alert_ids(self, alert_events, index_has_entity_id):
 
         # Concatenate calculated alert events of all alerts and add alert_name to index (at first position)
-        all_alert_events = pd.concat(alert_events.values(), keys=alert_events.keys(), names=[self.alert_df_name] )
+        all_alert_events = pd.concat(alert_events.values(), keys=alert_events.keys(), names=[self.alert_df_name])
 
         if all_alert_events.shape[0] > 0:
             # Retrieve alert ids from database. Return a data frame with index (alert name/ entity id/ timestamp ) and
@@ -593,8 +608,8 @@ class ProduceAlerts(object):
             all_alert_events = all_alert_events.join(df_alert_id, how='left')
 
         else:
-            # Add additional column for alert id for consistency
-            all_alert_events[self.alert_id_df_name] = None
+            # Add additional column for alert id and creation date for consistency
+            all_alert_events[self.alert_id_df_name, self.created_ts_df_name] = None
 
         return all_alert_events
 
@@ -607,7 +622,8 @@ class ProduceAlerts(object):
             rows = []
             start_time = dt.datetime.now()
             attribute_cache = {}
-            for event_row in all_alert_events[[self.alert_id_df_name]].itertuples(index=True, name=None):
+            for event_row in all_alert_events[[self.alert_id_df_name, self.created_ts_df_name]].itertuples(index=True,
+                                                                                                           name=None):
                 total_count += 1
 
                 # Get alert name , entity id and timestamp from index
@@ -631,19 +647,20 @@ class ProduceAlerts(object):
 
                 # Setup alert event for Data Dictionary
                 timestamp_in_nano_seconds = int(tmp_timestamp.to_datetime64())
-                timestamp_string = f"{tmp_timestamp.year:04}-{tmp_timestamp.month:02}-{tmp_timestamp.day:02} " \
-                                   f"{tmp_timestamp.hour:02}:{tmp_timestamp.minute:02}:{tmp_timestamp.second:02}." \
-                                   f"{tmp_timestamp.microsecond:06}{tmp_timestamp.nanosecond:03}"
+                timestamp_string = _timestamp_as_string(tmp_timestamp)
+                created_ts_string = _timestamp_as_string(event_row[2])
                 alert_attributes = {"alertId": event_row[1],
                                     "name": alert_name,
+                                    "id": tmp_entity_id,
                                     "timestamp": timestamp_string,
+                                    "resourceDdId": self.dms.entity_type_dd_id,
                                     "owner": None,
                                     "severity": cached_values[0],
                                     "priority": cached_values[1],
                                     "status": cached_values[2],
                                     "metadata": None,
-                                    "createdTs": None,
-                                    "updatedTs": None,
+                                    "createdTs": created_ts_string,
+                                    "updatedTs": created_ts_string,
                                     "lastUpdatedBy": None}
 
                 if tmp_entity_id is not None:
