@@ -651,17 +651,18 @@ class ProduceAlerts(object):
                 created_ts_string = _timestamp_as_string(event_row[2])
                 alert_attributes = {"alertId": event_row[1],
                                     "name": alert_name,
-                                    "id": tmp_entity_id,
                                     "timestamp": timestamp_string,
-                                    "resourceDdId": self.dms.entity_type_dd_id,
-                                    "owner": None,
-                                    "severity": cached_values[0],
-                                    "priority": cached_values[1],
-                                    "status": cached_values[2],
-                                    "metadata": None,
+                                    "resourceDDId": self.dms.entity_type_dd_id,
                                     "createdTs": created_ts_string,
-                                    "updatedTs": created_ts_string,
-                                    "lastUpdatedBy": None}
+                                    "updatedTs": created_ts_string}
+                if tmp_entity_id is not None:
+                    alert_attributes["id"] = tmp_entity_id
+                if cached_values[0] is not None:
+                    alert_attributes["severity"] = cached_values[0]
+                if cached_values[1] is not None:
+                    alert_attributes["priority"] = cached_values[1]
+                if cached_values[2] is not None:
+                    alert_attributes["status"] = cached_values[2]
 
                 if tmp_entity_id is not None:
                     alert_dd_id = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, self.dms.entity_type_id,
