@@ -647,16 +647,17 @@ class ProduceAlerts(object):
 
                 # Setup alert event for Data Dictionary
                 timestamp_in_nano_seconds = int(tmp_timestamp.to_datetime64())
-                timestamp_string = _timestamp_as_string(tmp_timestamp)
-                created_ts_string = _timestamp_as_string(event_row[2])
+                #timestamp_string = _timestamp_as_string(tmp_timestamp)
+                created_ts_in_nano_seconds = int(event_row[2].to_datetime64())
+                #created_ts_string = _timestamp_as_string(event_row[2])
                 alert_attributes = {"alertId": event_row[1],
                                     "name": alert_name,
-                                    "timestamp": timestamp_string,
+                                    "timestamp": timestamp_in_nano_seconds,
                                     "resourceDDId": self.dms.entity_type_dd_id,
-                                    "createdTs": created_ts_string,
-                                    "updatedTs": created_ts_string}
+                                    "createdTs": created_ts_in_nano_seconds,
+                                    "updatedTs": created_ts_in_nano_seconds}
                 if tmp_entity_id is not None:
-                    alert_attributes["id"] = tmp_entity_id
+                    alert_attributes["deviceDto"] = {"name": tmp_entity_id}
                 if cached_values[0] is not None:
                     alert_attributes["severity"] = cached_values[0]
                 if cached_values[1] is not None:
