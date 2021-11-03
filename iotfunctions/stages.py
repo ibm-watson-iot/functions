@@ -676,7 +676,8 @@ class ProduceAlerts(object):
 
                 if total_count % DATALAKE_BATCH_UPDATE_ROWS == 0:
                     # Push alert events in list 'rows' to Data Dictionary
-                    result = self.dms.db.dd_client.mas_alerts_add(rows)
+                    result = True
+# kohlmann Disabled                    result = self.dms.db.dd_client.mas_alerts_add(rows)
                     if result is True:
                         logger.info(f"{total_count} alert events have been written to Data Dictionary so far.")
                     else:
@@ -684,7 +685,8 @@ class ProduceAlerts(object):
 
             if total_count % DATALAKE_BATCH_UPDATE_ROWS > 0:
                 # Push all remaining alert events to Data Dictionary
-                result = self.dms.db.dd_client.mas_alerts_add(rows)
+                result = True
+# kohlmann disabled                result = self.dms.db.dd_client.mas_alerts_add(rows)
                 if result is not True:
                     self._raise_exception_with_dd_response()
 
