@@ -25,6 +25,7 @@ import ibm_db_dbi
 import pandas as pd
 import psycopg2
 import urllib3
+import urllib.parse
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
     func, and_, or_
@@ -270,7 +271,8 @@ class Database(object):
         elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
             try:
                 sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                    self.credentials['db2']['username'], self.credentials['db2']['password'],
+                    urllib.parse.quote_plus(self.credentials['db2']['username']), # need to encode for special characters in the password
+                    urllib.parse.quote_plus(self.credentials['db2']['password']), # https://stackoverflow.com/questions/58661569/password-with-cant-connect-the-database
                     self.credentials['db2']['host'], self.credentials['db2']['port'],
                     self.credentials['db2']['databaseName'])
 
@@ -335,7 +337,7 @@ class Database(object):
                     try:
                         ev = dict(item.split("=", maxsplit=1) for item in connection_string_from_env.split(";"))
                         sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                            ev['UID'], ev['PWD'].rstrip("\n"), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+                            urllib.parse.quote_plus(ev['UID']), urllib.parse.quote_plus(ev['PWD'].rstrip("\n")), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
 
                         native_connection_string = connection_string_from_env + ';'
 
@@ -391,6 +393,7 @@ class Database(object):
                 raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
                                  'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
+            # this is a test environment branch
             sqlalchemy_connection_string = 'sqlite:///sqldb.db'
             native_connection_string = None
             self.write_chunk_size = 100
