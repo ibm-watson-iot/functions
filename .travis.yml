@@ -1,6 +1,6 @@
 language: python
 python:
-  - "3.6"
+  - "3.6" # TODO: need to upgrade this when we upgrade the pipeline requirements.txt
 # command to install dependencies
 install:
   - pip install nose pylint
@@ -12,6 +12,6 @@ script:
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:
   only:
-  - master
-  - development
-  - dev
+    - master
+    - development
+    - dev
