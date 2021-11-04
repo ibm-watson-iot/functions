@@ -26,6 +26,7 @@ import ibm_db_dbi
 import pandas as pd
 import psycopg2
 import urllib3
+import urllib.parse
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
     func, and_, or_
@@ -290,7 +291,8 @@ class Database(object):
         elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
             try:
                 sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                    self.credentials['db2']['username'], self.credentials['db2']['password'],
+                    urllib.parse.quote_plus(self.credentials['db2']['username']), # need to encode for special characters in the password
+                    urllib.parse.quote_plus(self.credentials['db2']['password']), # https://stackoverflow.com/questions/58661569/password-with-cant-connect-the-database
                     self.credentials['db2']['host'], self.credentials['db2']['port'],
                     self.credentials['db2']['databaseName'])
 
