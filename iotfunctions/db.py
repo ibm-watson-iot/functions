@@ -337,7 +337,7 @@ class Database(object):
                     try:
                         ev = dict(item.split("=", maxsplit=1) for item in connection_string_from_env.split(";"))
                         sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                            ev['UID'], ev['PWD'].rstrip("\n"), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+                            urllib.parse.quote_plus(ev['UID']), urllib.parse.quote_plus(ev['PWD'].rstrip("\n")), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
 
                         native_connection_string = connection_string_from_env + ';'
 
@@ -393,6 +393,7 @@ class Database(object):
                 raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
                                  'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
+            # this is a test environment branch
             sqlalchemy_connection_string = 'sqlite:///sqldb.db'
             native_connection_string = None
             self.write_chunk_size = 100
