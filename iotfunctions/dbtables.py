@@ -439,6 +439,7 @@ class FileModelStore:
             try:
                 model = pickle.loads(model)
             except Exception as ex:
+                logger.debug('Deserialization of model failed with ' + str(ex))
                 raise Exception(
                     'Deserialization of model %s that has been retrieved from ModelStore failed.' % model_name) from ex
 
@@ -647,6 +648,7 @@ class DBModelStore:
             try:
                 model = pickle.loads(model)
             except Exception as ex:
+                logger.debug('Deserialization of model failed with ' + str(ex))
                 raise Exception(
                     'Deserialization of model %s that has been retrieved from ModelStore failed.' % model_name) from ex
 
