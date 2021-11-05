@@ -1,8 +1,8 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0
+# are made available under the terms of the Apache V2.0 license
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -2320,17 +2320,18 @@ class BaseDBActivityMerge(BaseDataSource):
                 combined_dates_df[self._start_date] = combined_dates_df[self._start_date].mask(
                     combined_dates_df[self._start_date] < start_ts, start_ts)
 
-            # Apply name mapping to additional columns from activity table
-            combined_dates_df = self.rename_cols(combined_dates_df, self.additional_items, self.additional_output_names)
-
             # Add index
             combined_dates_df[self._entity_type._df_index_entity_id] = combined_dates_df[self.execute_by]
             combined_dates_df[self._entity_type._timestamp] = combined_dates_df[self._start_date]
             combined_dates_df.set_index(keys=[self._entity_type._df_index_entity_id, self._entity_type._timestamp],
                                         inplace=True)
 
-            # Drop columns which are not needed anymore
-            combined_dates_df.drop(columns=[self._activity, self._start_date, self._end_date], inplace=True)
+            # Apply name mapping to additional columns from activity table
+            combined_dates_df = self.rename_cols(combined_dates_df, self.additional_items, self.additional_output_names)
+
+            # Drop columns which are not needed anymore. Ignore errors because _activity, start date or end date may
+            # have been defined as additional_items as well and have already been renamed.
+            combined_dates_df.drop(columns=[self._activity, self._start_date, self._end_date], inplace=True, errors='ignore')
 
         else:
             # No activity data to process. Create a empty data frame with the expected columns and index

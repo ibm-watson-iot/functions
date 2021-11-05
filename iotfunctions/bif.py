@@ -1,8 +1,8 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0
+# are made available under the terms of the Apache V2.0 license
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -30,6 +30,7 @@ from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFun
                  UIText, UIParameters)
 from .util import adjust_probabilities, reset_df_index, asList
 from ibm_watson_machine_learning import APIClient
+
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -2815,7 +2816,8 @@ class MergeByFirstValid:
         df = df.set_index(keys=sources_not_in_column)
 
         return df
-      
+
+
 class InvokeWMLModel(BaseTransformer):
     '''
     Pass multivariate data in input_items to a regression function deployed to
@@ -2966,6 +2968,7 @@ class InvokeWMLModel(BaseTransformer):
         outputs=[]
         outputs.append(UISingle(name='output_items', datatype=float))
         return (inputs, outputs)
+
 
 def pairwise(iterable):
     "s -> (s0, s1), (s2, s3), (s4, s5), ..."
