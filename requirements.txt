@@ -16,7 +16,7 @@ ruptures>=1.1.4
 scikit-learn==0.23.1
 scikit-image==0.16.2
 scipy==1.5.0
-sqlalchemy==1.4.19
+sqlalchemy==1.4.26
 statsmodels==0.11.1
 stumpy==1.9.2
 tabulate==0.8.5
