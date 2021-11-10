@@ -227,5 +227,6 @@ def test_anomaly_scores():
     pass
 
 
-# uncomment to run from the command line
-#test_anomaly_scores()
+if __name__ == '__main__':
+    test_anomaly_scores()
+

@@ -202,6 +202,6 @@ def test_base_estimator_function():
     pass
 
 
-# uncomment to run from the command line
-# test_base_estimator_function()
+if __name__ == '__main__':
+    test_base_estimator_function()
 

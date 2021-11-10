@@ -99,6 +99,5 @@ def test_vianomaly_score():
     pass
 
 
-# uncomment to run from the command line
-# test_vianomaly_score()
-
+if __name__ == '__main__':
+    test_vianomaly_score()
