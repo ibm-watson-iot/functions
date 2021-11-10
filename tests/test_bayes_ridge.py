@@ -173,6 +173,5 @@ def test_bayes_ridge():
     pass
 
 
-# uncomment to run from the command line
-# test_bayes_ridge()
-
+if __name__ == '__main__':
+    test_bayes_ridge()

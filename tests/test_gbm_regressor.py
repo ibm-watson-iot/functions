@@ -177,6 +177,5 @@ def test_light_gbm():
     pass
 
 
-# uncomment to run from the command line
-# test_light_gbm()
-
+if __name__ == '__main__':
+    test_light_gbm()
