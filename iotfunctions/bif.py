@@ -134,7 +134,8 @@ class AggregateTimeInState(BaseSimpleAggregator):
 
         outputs = []
         outputs.append(
-            UIFunctionOutSingle(name='name', datatype=float, description='Overall amount of seconds spent in a particular stat
+            UIFunctionOutSingle(name='name', datatype=float,
+                                description='Overall amount of seconds spent in a particular state'))
 
         return (inputs, outputs)
 
@@ -234,7 +235,9 @@ class StateTimePreparation(BaseTransformer):
         inputs = []
         inputs.append(UISingleItem(name='source', datatype=float,
                                   description='Data item to compute the state change array from'))
-        inputs.append(UISingle(name='state_name', datatype=str,  description='Condition for the state change array computation
+        inputs.append(UISingle(name='state_name', datatype=str,
+                               description='Condition for the state change array computation'))
+
 
         outputs = []
         outputs.append(
@@ -269,14 +272,13 @@ class StateTimePreparation(BaseTransformer):
                 pass
 
         df_copy['__intermediate1__'] = v1
-        np.savetxt('/tmp/test', df_copy['__intermediate1__'].values)
+        #np.savetxt('/tmp/test', df_copy['__intermediate1__'].values)
         df_copy['__intermediate2__'] = (df_copy[ts_name].astype(int)// 1000000000)
         df_copy[self.name] = df_copy['__intermediate1__'].map(str) + ',' + df_copy['__intermediate2__'].map(str)
 
         df_copy.drop(columns=['__intermediate1__','__intermediate2__'], inplace=True)
-        df_copy.to_csv('/tmp/testc')
+        #df_copy.to_csv('/tmp/testc')
 
-        #df_copy[self.name] = change_arr
         return df_copy.set_index(index_names)
 
 
