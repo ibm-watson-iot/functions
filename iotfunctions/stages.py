@@ -609,8 +609,8 @@ class ProduceAlerts(object):
 
         else:
             # Add additional column for alert id and creation date for consistency
-            all_alert_events[self.alert_id_df_name, self.created_ts_df_name] = None
-
+            all_alert_events[self.alert_id_df_name] = None
+            all_alert_events[self.created_ts_df_name] = np.nan
         return all_alert_events
 
     def _push_alert_events_to_dd(self, all_alert_events, index_has_entity_id):
