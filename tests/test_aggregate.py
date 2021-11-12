@@ -106,7 +106,7 @@ def test_aggregation():
     # desired granularity and a (short) chain of aggregators
     # granularity = frequency, dimension(s), include entity, entity id
     aggobj = Aggregation(None, ids=['entity'], timestamp='timestamp', granularity=('D', None, True, 0),
-                    simple_aggregators=[(func_clos, ['TEMP_AIR'], 'x.max() - x.min()')])
+                    simple_aggregators=[(func_clos, ['TEMP_AIR'], ['x.max() - x.min()'])])
 
     print(aggobj)
 
