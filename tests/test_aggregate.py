@@ -110,7 +110,6 @@ def test_aggregation():
 
     print(aggobj)
 
-
     et = aggobj._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
 
     df_agg = aggobj.execute(df=df_i)
