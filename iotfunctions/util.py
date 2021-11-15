@@ -445,8 +445,9 @@ def get_fn_expression_args(function_metadata, kpi_metadata):
 
     for (arg, value) in list(args.items()):
         if arg == 'expression' and value is not None:
-            expressions.append(value)
             logger.debug('Found expression %s', value)
+            value = re.sub(r"\$\{(\w+)\}", r"df['\1']", value)
+            expressions.append(value)
 
     return infer_data_items(expressions)
 

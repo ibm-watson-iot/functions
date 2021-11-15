@@ -20,6 +20,7 @@ import sys
 from time import time
 
 import certifi
+
 import ibm_db
 import ibm_db_dbi
 import pandas as pd

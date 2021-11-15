@@ -609,8 +609,8 @@ class ProduceAlerts(object):
 
         else:
             # Add additional column for alert id and creation date for consistency
-            all_alert_events[self.alert_id_df_name, self.created_ts_df_name] = None
-
+            all_alert_events[self.alert_id_df_name] = None
+            all_alert_events[self.created_ts_df_name] = np.nan
         return all_alert_events
 
     def _push_alert_events_to_dd(self, all_alert_events, index_has_entity_id):
@@ -619,7 +619,7 @@ class ProduceAlerts(object):
 
             # Loop over all alert events
             total_count = 0
-            rows = []
+            builder = self.dms.db.dd_client.builder()
             start_time = dt.datetime.now()
             attribute_cache = {}
             for event_row in all_alert_events[[self.alert_id_df_name, self.created_ts_df_name]].itertuples(index=True,
@@ -633,9 +633,11 @@ class ProduceAlerts(object):
                 if index_has_entity_id is True:
                     tmp_entity_id = index[1]
                     tmp_timestamp = index[2]
+                    alert_filter = f"{self.dms.entity_type_dd_id}|{tmp_entity_id}"
                 else:
                     tmp_entity_id = None
                     tmp_timestamp = index[1]
+                    alert_filter = self.dms.entity_type_dd_id
 
                 # Get values for severity, priority, status
                 cached_values = attribute_cache.get(alert_name)
@@ -647,15 +649,14 @@ class ProduceAlerts(object):
 
                 # Setup alert event for Data Dictionary
                 timestamp_in_nano_seconds = int(tmp_timestamp.to_datetime64())
-                #timestamp_string = _timestamp_as_string(tmp_timestamp)
                 created_ts_in_nano_seconds = int(event_row[2].to_datetime64())
-                #created_ts_string = _timestamp_as_string(event_row[2])
                 alert_attributes = {"alertId": event_row[1],
                                     "name": alert_name,
                                     "timestamp": timestamp_in_nano_seconds,
-                                    "resourceDDId": self.dms.entity_type_dd_id,
+                                    "resourceId": self.dms.entity_type_id,
                                     "createdTs": created_ts_in_nano_seconds,
-                                    "updatedTs": created_ts_in_nano_seconds}
+                                    "updatedTs": created_ts_in_nano_seconds,
+                                    "alertFilter": alert_filter}
                 if tmp_entity_id is not None:
                     alert_attributes["deviceDto"] = {"name": tmp_entity_id}
                 if cached_values[0] is not None:
@@ -672,21 +673,20 @@ class ProduceAlerts(object):
                     alert_dd_id = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, self.dms.entity_type_id,
                                                             alert_name, timestamp_in_nano_seconds)
 
-                rows.append({"id": alert_dd_id, "name": alert_name, "p": alert_attributes})
+                builder = builder.alert(alert_dd_id).name(alert_name).set_p(alert_attributes)
 
                 if total_count % DATALAKE_BATCH_UPDATE_ROWS == 0:
-                    # Push alert events in list 'rows' to Data Dictionary
-                    result = True
-# kohlmann Disabled                    result = self.dms.db.dd_client.mas_alerts_add(rows)
+                    # Push alert events in builder to Data Dictionary
+                    result = builder.send()
                     if result is True:
                         logger.info(f"{total_count} alert events have been written to Data Dictionary so far.")
                     else:
                         self._raise_exception_with_dd_response()
+                    builder = self.dms.db.dd_client.builder()
 
             if total_count % DATALAKE_BATCH_UPDATE_ROWS > 0:
-                # Push all remaining alert events to Data Dictionary
-                result = True
-# kohlmann disabled                result = self.dms.db.dd_client.mas_alerts_add(rows)
+                # Push all remaining alert events in builder to Data Dictionary
+                result = builder.send()
                 if result is not True:
                     self._raise_exception_with_dd_response()
 
