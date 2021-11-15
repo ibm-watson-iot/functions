@@ -1,8 +1,8 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
+# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0 license
+# are made available under the terms of the Apache V2.0
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -2294,8 +2294,7 @@ class CalcPipeline:
                 self.logger.info('No data retrieved from all sources. Pipeline execution is skipped for this grain.')
                 df = None
                 remaining = len(stages) - counter
-                if self.dblogging is not None:
-                    self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
+                self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
                 break
 
             df = self._execute_stage(stage=s, df=df, start_ts=start_ts, end_ts=end_ts, entities=entities,
@@ -2390,12 +2389,8 @@ class CalcPipeline:
                     dimension_name = dimension_filter['name']
                     dimension_value = dimension_filter['value']
                     dimension_count -= 1
-                    if isinstance(dimension_value, str):
-                        dimension_value = [dimension_value]
-                    else:
-                        # Convert to list explicitly to guarantee subsequent 'str(dimension_value)' returns a proper
-                        # string. Counter example: str(dict.values()) returns "dict_values([...])"
-                        dimension_value = list(dimension_value)
+                    if eval('isinstance(' + str(dimension_value) + ',str)'):
+                        dimension_value = '[' + dimension_value + ']'
                     eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
                     eval_expression += ' & ' if dimension_count != 0 else ''
             else:
@@ -2671,51 +2666,25 @@ class CalcPipeline:
 
                 # check if it is Boolean
                 if data_item['columnType'] == 'BOOLEAN':
-                    # A boolean data item is expected to have one of the following pandas column types with the
-                    # corresponding content:
-                    #   float64: 0, 1, np.NaN
-                    #   bool: np.True_, np.False_ (no other values possible for type bool!)
-                    #   object: np.True_, np.False_, 0, 1, np.NaN, 'True' (str), 'False' (str), 'None' (str), 'nan' (str),
-                    #           True (python), False (python), None (python)
-                    #
-                    # For float64: Check there are no other numbers than 0, 1
-                    # For bool: Nothing to do
-                    # For object: To avoid type mismatch later on when the boolean data item is exploited we explicitly
-                    # cast all strings to corresponding True (python), False (python), None (python). We do not try to
-                    # cast, for example, np.NaN to None (python) or 1 to True (python) because pandas has control over
-                    # the data type and tends to switch it. For example, pandas converts series which only contains
-                    # True (python)/ False (python) to bool. As a consequence, the value type is changed to np.True_/
-                    # np.False_. Whenever a boolean data item is exploited any boolean test must take into account that,
-                    # for example, true values are represented by True (python), np.True_ or 1; a test against 'is True'
-                    # does not cover all the different values for true
                     if is_bool_dtype(df_column.dtype):
-                        unexpected_value_vector = []
-
-                    elif is_numeric_dtype(df_column.dtype):
-                        unexpected_value_vector = (df_column != 0) & (df_column != 1) & (pd.notna(df_column))
-
+                        # Column contains np.True_ and np.False_ only. We are fine!
+                        pass
                     else:
-                        # np.Nan requires a special treatment by pd.isna() because 'np.Nan == np.Nan' always evaluates
-                        # to false.
-                        #df_column_mapped = df_column.mask(pd.isna(df_column), None)
-
-                        # Map the string values to True (python)/ False (python)/ None (python)
-                        df_column_mapped = df_column.mask(df_column == 'True', True)
-                        df_column_mapped.mask(df_column_mapped == 'False', False, inplace=True)
-                        df_column_mapped.mask(df_column_mapped == 'None', None, inplace=True)
-                        df_column_mapped.mask(df_column_mapped == 'nan', None, inplace=True)
-
-                        # Check all values are a compatible to True (python)/ False (python)/ None (python)
-                        unexpected_value_vector = (
-                                    (df_column_mapped != True) & (df_column_mapped != False) & pd.notna(df_column_mapped))
-
-                        df[data_item['name']] = df_column_mapped
-
-                    if any(unexpected_value_vector):
-                        unexpected_values = df_column[unexpected_value_vector].unique()
-                        raise RuntimeError(f"The following unexpected values were found for the boolean data item "
-                                           f"'{data_item['name']}': {list(unexpected_values)}")
-
+                        # If column also contains None it is supposed to be either numeric (float64: 0, 1, NaN) or
+                        # object (True, False, None/NaN)
+                        if not is_numeric_dtype(df_column.dtype) and not is_object_dtype(df_column.dtype):
+                            logger.info('Type is not consistent %s: df type is %s and data type is %s' % (
+                                item, df_column.dtype.name, data_item['columnType']))
+                        # np.True_ and 'python True' are not the same. Same is true for np.False_/'python False'
+                        # and np.NaN/'python None'. Pandas implicitly converts columns values in the subsequent
+                        # conversion to 'python True', 'python False' or 'python None' resulting in column type
+                        # 'object'.
+                        # Conversion via combination of where() and mask() is 60% faster than an approach with apply()
+                        try:
+                            df_column_tmp = df_column.where(df_column.isna(), np.bool_(df_column))
+                            df[data_item['name']] = df_column_tmp.mask(df_column_tmp.isna(), None)
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
                     continue
 
         else:

@@ -1,13 +1,8 @@
-# *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
-#
-# This program and the accompanying materials
-# are made available under the terms of the Apache V2.0 license
-# which accompanies this distribution, and is available at
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# *****************************************************************************
-
+# Licensed Materials - Property of IBM
+# 5737-M66, 5900-AAA, 5900-A0N, 5725-S86, 5737-I75
+# (C) Copyright IBM Corp. 2020 All Rights Reserved.
+# US Government Users Restricted Rights - Use, duplication, or disclosure
+# restricted by GSA ADP Schedule Contract with IBM Corp.
 import re
 import logging
 from collections import defaultdict
@@ -268,6 +263,12 @@ class Aggregation(BaseFunction):
         # MultiIndex which is used for two and more levels
         if len(group_base_names) == 1:
             df.index.names = group_base_names
+
+        # Adding entity_id column in the aggregate df by default
+        id_idx = 'id'
+        entity_id_col = 'entity_id'
+        if id_idx in df.index.names and entity_id_col not in df.columns and self.entityFirst:
+            df[entity_id_col] = df.index.get_level_values(id_idx)
 
         log_data_frame('aggregation_final_df', df.head())
 
