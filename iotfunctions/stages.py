@@ -356,6 +356,9 @@ class ProduceAlerts(object):
         else:
             raise RuntimeError("Invalid combination of parameters: Either alerts or data_item_names must be provided.")
 
+        logger.info('alerts going to database = %s ' % str(self.alerts_to_db))
+        logger.info('alerts going to message hub = %s ' % str(self.alerts_to_msg_hub))
+
         self.message_hub = MessageHub()
 
         # Column names in database
