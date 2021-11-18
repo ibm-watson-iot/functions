@@ -103,4 +103,5 @@ def test_base_functions():
 
     pass
 
-# test_base_scores()
+if __name__ == '__main__':
+    test_base_scores()

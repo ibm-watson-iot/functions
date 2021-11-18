@@ -306,8 +306,8 @@ class Database(object):
                     if Database.CERTIFICATE_FILE in self.credentials['db2']:
                         security_extension += f"SSLServerCertificate=" \
                                               f"{self.credentials['db2'][Database.CERTIFICATE_FILE]};"
-                    elif os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                        security_extension += 'SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                    elif os.path.exists('/secrets/db2cert/db2_certificate.pem'):
+                        security_extension += 'SSLServerCertificate=' + '/secrets/db2cert/db2_certificate.pem' + ";"
                     else:
                         cwd1 = os.getcwd()
                         filename1 = cwd1 + "/db2_certificate.pem"
@@ -421,8 +421,8 @@ class Database(object):
 
         is_icp = os.environ.get("isICP")
         if is_icp is not None and is_icp == 'true':
-            if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
-                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
+            if os.path.exists('/secrets/iot-common/ca.crt'):
+                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/iot-common/ca.crt')
             else:
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
