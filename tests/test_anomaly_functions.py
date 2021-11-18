@@ -157,9 +157,9 @@ def test_anomaly_scores():
     #EngineLogging.configure_console_logging(logging.DEBUG)
 
     #aggobj = Aggregation(None, ids=['entity'], timestamp='timestamp', granularity=('5T', (Temperature,), True, 0),
-    #                simple_aggregators=[([Temperature], func_clos, TempDiff)])
+    #                simple_aggregators=[([Temperature], func_clos, [TempDiff])])
     aggobj = Aggregation(None, ids=['entity'], timestamp='timestamp', granularity=('5T', None, True, 0),
-                    simple_aggregators=[([Temperature], func_clos, TempDiff)])
+                    simple_aggregators=[(func_clos, [Temperature], [TempDiff])])
     et = aggobj._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     df_agg = aggobj.execute(df=df_agg)
 
@@ -227,5 +227,6 @@ def test_anomaly_scores():
     pass
 
 
-# uncomment to run from the command line
-#test_anomaly_scores()
+if __name__ == '__main__':
+    test_anomaly_scores()
+

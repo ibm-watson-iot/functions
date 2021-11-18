@@ -79,5 +79,5 @@ def test_anomaly_generators():
 
     pass
 
-# uncomment to run from CLI
-# test_anomaly_generators()
+if __name__ == '__main__':
+    test_anomaly_generators()

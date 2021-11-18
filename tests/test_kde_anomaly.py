@@ -101,6 +101,5 @@ def test_kde_anomaly_score():
     pass
 
 
-# uncomment to run from the command line
-# test_kde_anomaly_score()
-
+if __name__ == '__main__':
+    test_kde_anomaly_score()
