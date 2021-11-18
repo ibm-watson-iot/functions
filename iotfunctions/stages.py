@@ -346,13 +346,14 @@ class ProduceAlerts(object):
             for data_item_name in asList(data_item_names):
                 metadata = dms.data_items.get(data_item_name)
                 kpi_func_dto = metadata.get(md.DATA_ITEM_KPI_FUNCTION_DTO_KEY, None)
-                kpi_function_name = kpi_func_dto.get(md.DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME, None)
-                alert_catalog = alert_catalogs.get(kpi_function_name, None)
-                if alert_catalog is not None:
-                    self.alerts_to_db.append(data_item_name)
-                    self.alert_to_kpi_input_dict[data_item_name] = kpi_func_dto.get('input')
-                    if md.DATA_ITEM_TAG_ALERT in metadata.get(md.DATA_ITEM_TAGS_KEY, []):
-                        self.alerts_to_msg_hub.append(data_item_name)
+                if kpi_func_dto is not None:
+                    kpi_function_name = kpi_func_dto.get(md.DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME, None)
+                    alert_catalog = alert_catalogs.get(kpi_function_name, None)
+                    if alert_catalog is not None:
+                        self.alerts_to_db.append(data_item_name)
+                        self.alert_to_kpi_input_dict[data_item_name] = kpi_func_dto.get('input')
+                        if md.DATA_ITEM_TAG_ALERT in metadata.get(md.DATA_ITEM_TAGS_KEY, []):
+                            self.alerts_to_msg_hub.append(data_item_name)
         else:
             raise RuntimeError("Invalid combination of parameters: Either alerts or data_item_names must be provided.")
 
