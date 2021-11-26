@@ -644,9 +644,9 @@ class ProduceAlerts(object):
                     tmp_timestamp = index[1]
 
                 timestamp_in_nano_seconds = int(tmp_timestamp.to_datetime64())
-                timestamp_in_milli_seconds = timestamp_in_nano_seconds / 1000000
+                timestamp_in_milli_seconds = timestamp_in_nano_seconds // 1000000
                 created_ts_in_nano_seconds = int(event_row[2].to_datetime64())
-                created_ts_in_milli_seconds = created_ts_in_nano_seconds / 1000000
+                created_ts_in_milli_seconds = created_ts_in_nano_seconds // 1000000
 
                 if tmp_entity_id is not None and self.dms.entity_type_type == "DEVICE_TYPE":
                     alert_filter = f"{self.dms.entity_type_dd_id}|{tmp_entity_id}"
