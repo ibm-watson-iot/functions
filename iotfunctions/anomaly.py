@@ -1,8 +1,8 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018-2020.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0 license
+# are made available under the terms of the Apache V2.0
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -14,26 +14,15 @@ The Built In Functions module contains preinstalled functions
 
 import itertools as it
 import datetime as dt
-import importlib
 import logging
-import time
 
 import numpy as np
 import pandas as pd
 import scipy as sp
 from pyod.models.cblof import CBLOF
-
-import numpy as np
-import pandas as pd
-import scipy as sp
-from pyod.models.cblof import CBLOF
-import ruptures as rpt
 
 # for Spectral Analysis
 from scipy import signal, fftpack
-
-import skimage as ski
-from skimage import util as skiutil # for nifty windowing
 
 # for KMeans
 from sklearn import ensemble
@@ -46,7 +35,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import (StandardScaler, RobustScaler, MinMaxScaler,
                                    minmax_scale, PolynomialFeatures)
 from sklearn.utils import check_array
-
+from sklearn.utils import check_array
 
 # for Matrix Profile
 import stumpy
@@ -54,9 +43,8 @@ import stumpy
 # for KDEAnomalyScorer
 import statsmodels.api as sm
 from statsmodels.nonparametric.kernel_density import KDEMultivariate
-from statsmodels.tsa.arima.model import ARIMA
-# EXCLUDED until we upgrade to statsmodels 0.12
 #from statsmodels.tsa.forecasting.stl import STLForecast
+from statsmodels.tsa.arima.model import ARIMA
 
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
@@ -95,7 +83,7 @@ Generalized_normalizer = 1 / 300
 
 # from
 # https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
-def view_as_windows1(temperature, length, step):
+def view_as_windows(temperature, length, step):
     logger.info('VIEW ' + str(temperature.shape) + ' ' + str(length) + ' ' + str(step))
 
     def moving_window(x, length, _step=1):
@@ -107,10 +95,6 @@ def view_as_windows1(temperature, length, step):
 
     x_ = list(moving_window(temperature, length, step))
     return np.asarray(x_)
-
-
-def view_as_windows(temperature, length, step):
-    return skiutil.view_as_windows(temperature, window_shape=(length,), step=step)
 
 
 def custom_resampler(array_like):
@@ -634,10 +618,8 @@ class AnomalyScorer(BaseTransformer):
             logger.debug('->')
             try:
                 for i,output_item in enumerate(self.output_items):
-
                     # check for fast path, no interpolation required
                     diff = temperature.size - scores[i].size
-
                     # slow path - interpolate result score to stretch it to the size of the input data
                     if diff > 0:
                         dfe[output_item] = 0.0006
@@ -652,7 +634,7 @@ class AnomalyScorer(BaseTransformer):
                     elif diff < 0:
                         zScoreII = scores[i][0:temperature.size]
                     else:
-                        zScoreII = scores[i]
+                        zScoreII = scores[i].size
 
                     df[output_item] = zScoreII
 
@@ -665,26 +647,8 @@ class AnomalyScorer(BaseTransformer):
 
     def score(self, temperature):
 
-        #scores = np.zeros((len(self.output_items), ) + temperature.shape)
-        scores = []
-        for output_item in self.output_items:
-            scores.append(np.zeros(temperature.shape))
-
-        try:
-            # super simple 1-dimensional z-score
-            ets_zscore = abs(sp.stats.zscore(temperature))
-
-            scores[0] = ets_zscore
-
-            # 2nd argument to return the modified input argument (for no data)
-            if len(self.output_items) > 1:
-                scores[1] = temperature
-
-        except Exception as e:
-            logger.error(self.whoami + ' failed with ' + str(e))
-
+        scores = np.zeros((len(self.output_items), ) + temperature.shape)
         return scores
-
 
     def scale(self, temperature, entity):
 
@@ -793,213 +757,6 @@ class Interpolator(AnomalyScorer):
         return (inputs, outputs)
 
 
-class NoDataAnomalyScoreExt(AnomalyScorer):
-    """
-    An unsupervised anomaly detection function.
-     Uses z-score AnomalyScorer to find gaps in data.
-     The function moves a sliding window across the data signal and applies the anomaly model to each window.
-     The window size is typically set to 12 data points.
-    """
-    def __init__(self, input_item, windowsize, output_item):
-        super().__init__(input_item, windowsize, [output_item])
-
-        self.whoami = 'NoDataExt'
-        self.normalizer = 1
-
-        logger.debug('NoDataExt')
-
-    def prepare_data(self, dfEntity):
-
-        logger.debug(self.whoami + ': prepare Data')
-
-        # operate on simple timestamp index
-        if len(dfEntity.index.names) > 1:
-            index_names = dfEntity.index.names
-            dfe = dfEntity.reset_index(index_names[1:])
-        else:
-            dfe = dfEntity
-
-        # count the timedelta in seconds between two events
-        timeSeq = (dfe.index.values - dfe.index[0].to_datetime64()) / np.timedelta64(1, 's')
-
-        #dfe = dfEntity.copy()
-
-        # one dimensional time series - named temperature for catchyness
-        #   we look at the gradient of the time series timestamps for anomaly detection
-        #   might throw an exception - we catch it in the super class !!
-        try:
-            temperature = np.gradient(timeSeq)
-            dfe[[self.input_item]] = temperature
-        except Exception as pe:
-            logger.info("NoData Gradient failed with " + str(pe))
-            dfe[[self.input_item]] = 0
-            temperature = dfe[[self.input_item]].values
-            temperature[0] = 10 ** 10
-
-        temperature = temperature.astype('float64').reshape(-1)
-
-        return dfe, temperature
-
-    @classmethod
-    def build_ui(cls):
-
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingleItem(name='input_item', datatype=float, description='Data item to analyze'))
-
-        inputs.append(UISingle(name='windowsize', datatype=int,
-                               description='Size of each sliding window in data points. Typically set to 12.'))
-
-        # define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='No data anomaly score'))
-        return inputs, outputs
-
-
-class ChangePointDetector(AnomalyScorer):
-    '''
-    An unsupervised anomaly detection function.
-     Applies a spectral analysis clustering techniqueto extract features from time series data and to create z scores.
-     Moves a sliding window across the data signal and applies the anomalymodelto each window.
-     The window size is typically set to 12 data points.
-     Try several anomaly detectors on your data and use the one that fits your data best.
-    '''
-    def __init__(self, input_item, windowsize, chg_pts):
-        super().__init__(input_item, windowsize, [chg_pts])
-
-        logger.debug(input_item)
-
-        self.whoami = 'ChangePointDetector'
-
-    def score(self, temperature):
-
-        scores = []
-
-        sc = np.zeros(temperature.shape)
-
-        try:
-            algo = rpt.BottomUp(model="l2", jump=2).fit(temperature)
-            chg_pts = algo.predict(n_bkps=15)
-
-            for j in chg_pts:
-                x = np.arange(0, temperature.shape[0], 1)
-                Gaussian = sp.stats.norm(j-1, temperature.shape[0]/20) # high precision
-                y = Gaussian.pdf(x) * temperature.shape[0]/8  # max is ~1
-
-                sc += y
-
-        except Exception as e:
-            logger.error(self.whoami + ' failed with ' + str(e))
-
-        scores.append(sc)
-        return scores
-
-    @classmethod
-    def build_ui(cls):
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingleItem(name='input_item', datatype=float, description='Data item to analyze'))
-
-        # define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(name='chg_pts', datatype=float, description='Change points'))
-        return inputs, outputs
-
-
-ENSEMBLE = '_ensemble_'
-SPECTRALEXT = 'SpectralAnomalyScoreExt'
-
-class EnsembleAnomalyScore(BaseTransformer):
-    '''
-    Call a set of anomaly detectors and return an joint vote along with the individual results
-    '''
-    def __init__(self, input_item, windowsize, scorers, thresholds, output_item):
-        super().__init__()
-
-        self.input_item = input_item
-        self.windowsize = windowsize
-        self.output_item = output_item
-
-        logger.debug(input_item)
-
-        self.whoami = 'EnsembleAnomalyScore'
-
-        self.list_of_scorers = scorers.split(',')
-        self.thresholds = list(map(int, thresholds.split(',')))
-
-        self.klasses = []
-        self.instances = []
-        self.output_items = []
-
-        module = importlib.import_module('mmfunctions.anomaly')
-
-        for m in self.list_of_scorers:
-            klass = getattr(module, m)
-            self.klasses.append(klass)
-            print(klass.__name__)
-            if klass.__name__ == SPECTRALEXT:
-                inst = klass(input_item, windowsize, output_item + ENSEMBLE + klass.__name__,
-                             output_item + ENSEMBLE + klass.__name__ + '_inv')
-            else:
-                inst = klass(input_item, windowsize, output_item + ENSEMBLE + klass.__name__)
-            self.output_items.append(output_item + ENSEMBLE + klass.__name__)
-            self.instances.append(inst)
-
-    def execute(self, df):
-        logger.debug('Execute ' + self.whoami)
-        df_copy = df # no copy
-
-        binned_indices_list = []
-        for inst, output, threshold in zip(self.instances, self.output_items, self.thresholds):
-            logger.info('Execute anomaly scorer ' + str(inst.__class__.__name__) + ' with threshold ' + str(threshold))
-            tic = time.perf_counter_ns()
-            df_copy = inst.execute(df_copy)
-            toc = time.perf_counter_ns()
-            logger.info('Executed anomaly scorer ' + str(inst.__class__.__name__) + ' in ' +\
-                         str((toc-tic)//1000000) + ' milliseconds')
-
-            arr = df_copy[output]
-
-            # sort results into bins that depend on the thresholds
-            #   0 - below 3/4 threshold, 1 - up to the threshold, 2 - crossed the threshold,
-            #     3 - very high, 4 - extreme
-            if inst.__class__.__name__ == SPECTRALEXT and isinstance(threshold, int):
-                # hard coded threshold for inverted values
-                threshold_ = 5
-
-            bins = [threshold * 0.75, threshold, threshold * 1.5, threshold * 2]
-            binned_indices_list.append(np.searchsorted(bins, arr, side='left'))
-
-            if inst.__class__.__name__ == SPECTRALEXT:
-                bins = [threshold_ * 0.75, threshold_, threshold_ * 1.5, threshold_ * 2]
-                arr = df_copy[output + '_inv']
-                binned_indices_list.append(np.searchsorted(bins, arr, side='left'))
-
-        binned_indices = np.vstack(binned_indices_list).mean(axis=0)
-
-        # should we explicitly drop the columns generated by the ensemble members
-        #df[self.output_item] = binned_indices
-        df_copy[self.output_item] = binned_indices
-
-        return df_copy
-
-    @classmethod
-    def build_ui(cls):
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UISingleItem(name='input_item', datatype=float, description='Data item to analyze'))
-
-        inputs.append(UISingle(name='windowsize', datatype=int,
-                               description='Size of each sliding window in data points. Typically set to 12.'))
-
-        # define arguments that behave as function outputs
-        outputs = []
-        outputs.append(
-            UIFunctionOutSingle(name='output_item', datatype=float, description='Spectral anomaly score (z-score)'))
-        return inputs, outputs
-
-
-
 class SpectralAnomalyScore(AnomalyScorer):
     '''
     An unsupervised anomaly detection function.
@@ -1048,14 +805,6 @@ class SpectralAnomalyScore(AnomalyScorer):
             if len(self.output_items) > 1:
                 scores[1] = inv_zscore
 
-            # 3rd argument to return the raw windowed signal energy
-            if len(self.output_items) > 2:
-                scores[2] = signal_energy
-
-            # 4th argument to return the modified input argument (for no data)
-            if len(self.output_items) > 3:
-                scores[3] = temperature.copy()
-
             logger.debug(
                 'Spectral z-score max: ' + str(ets_zscore.max()) + ',   Spectral inv z-score max: ' + str(
                     inv_zscore.max()))
@@ -1089,11 +838,8 @@ class SpectralAnomalyScoreExt(SpectralAnomalyScore):
      The window size is typically set to 12 data points.
      Try several anomaly detectors on your data and use the one that fits your data best.
     '''
-    def __init__(self, input_item, windowsize, output_item, inv_zscore, signal_energy=None):
-        if signal_energy is None:
-            super().__init__(input_item, windowsize, [output_item, inv_zscore])
-        else:
-            super().__init__(input_item, windowsize, [output_item, inv_zscore, signal_energy])
+    def __init__(self, input_item, windowsize, output_item, inv_zscore):
+        super().__init__(input_item, windowsize, [output_item, inv_zscore])
 
         logger.debug(input_item)
 
@@ -1114,10 +860,7 @@ class SpectralAnomalyScoreExt(SpectralAnomalyScore):
             UIFunctionOutSingle(name='output_item', datatype=float, description='Spectral anomaly score (z-score)'))
         outputs.append(UIFunctionOutSingle(name='inv_zscore', datatype=float,
                                            description='z-score of inverted signal energy - detects unusually low activity'))
-        outputs.append(UIFunctionOutSingle(name='signal_enerty', datatype=float,
-                                           description='signal energy'))
         return inputs, outputs
-
 
 
 class KMeansAnomalyScore(AnomalyScorer):
@@ -1223,7 +966,7 @@ class GeneralizedAnomalyScore(AnomalyScorer):
 
         logger.debug(str(temperature.size) + "," + str(self.windowsize))
 
-        temperature -= np.mean(temperature.astype(np.float64), axis=0)
+        temperature -= np.mean(temperature, axis=0)
         mcd = MinCovDet()
 
         # Chop into overlapping windows (default) or run through FFT first
@@ -1293,26 +1036,15 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
 
         # operate on simple timestamp index
         if len(dfEntity.index.names) > 1:
-            index_names = dfEntity.index.names[1:]
-            dfe = dfEntity.reset_index(index_names)
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index(index_names[1:])
         else:
             dfe = dfEntity
 
         # count the timedelta in seconds between two events
-        logger.debug('type of index[0] is ' + str(type(dfEntity.index[0])))
+        timeSeq = (dfEntity.index.values - dfEntity.index[0].to_datetime64()) / np.timedelta64(1, 's')
 
-        try:
-            timeSeq = (dfe.index.values - dfe.index[0].to_datetime64()) / np.timedelta64(1, 's')
-        except Exception:
-            try:
-                time_to_numpy = np.array(dfe.index[0], dtype='datetime64')
-                print('5. ', type(time_to_numpy), dfe.index[0][0])
-                timeSeq = (time_to_numpy - dfe.index[0][0].to_datetime64()) / np.timedelta64(1, 's')
-            except Exception:
-                print('Nochens')
-                timeSeq = 1.0
-
-        #dfe = dfEntity.copy()
+        dfe = dfEntity.copy()
 
         # one dimensional time series - named temperature for catchyness
         #   we look at the gradient of the time series timestamps for anomaly detection
@@ -1325,8 +1057,6 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
             dfe[[self.input_item]] = 0
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
-
-        temperature = temperature.astype('float64').reshape(-1)
 
         return dfe, temperature
 
@@ -1771,7 +1501,6 @@ class KDEMaxMin:
         self.Max = None
 
     def fit(self, X, alpha):
-
         self.kde.fit(X.reshape(-1,1))
 
         kde_X = self.kde.score_samples(X.reshape(-1,1))
@@ -1817,13 +1546,12 @@ class RobustThreshold(SupervisedLearningTransformer):
 
         self.whoami = 'RobustThreshold'
 
-        logger.info(self.whoami + ' from ' + self.input_item + ' quantile threshold ' +  str(self.threshold) +
+        logger.info(self.whoami + ' from ' + self.input_item + ' quantile threshold ' +  self.threshold +
                     ' exceeding boolean ' + self.output_item)
 
 
     def execute(self, df):
         # set output columns to zero
-        logger.debug('Called ' + self.whoami + ' with columns: ' + str(df.columns))
         df[self.output_item] = 0
         return super().execute(df)
 
@@ -1839,21 +1567,16 @@ class RobustThreshold(SupervisedLearningTransformer):
 
         if robust_model is None and self.auto_train:
             robust_model = KDEMaxMin(version=version)
+            robust_model.fit(feature, self.threshold)
             try:
-                robust_model.fit(feature, self.threshold)
                 db.model_store.store_model(model_name, robust_model)
             except Exception as e:
                 logger.error('Model store failed with ' + str(e))
-                robust_model = None
 
-        if robust_model is not None:
-            self.Min[entity] = robust_model.Min
-            self.Max[entity] = robust_model.Max
+        self.Min[entity] = robust_model.Min
+        self.Max[entity] = robust_model.Max
 
-            df[self.output_item] = robust_model.predict(feature, self.threshold)
-        else:
-            df[self.output_item] = 0
-
+        df[self.output_item] = robust_model.predict(feature, self.threshold)
         return df.droplevel(0)
 
 
@@ -2111,18 +1834,18 @@ class GBMRegressor(BaseEstimatorFunction):
         self.estimators['light_gradient_boosted_regressor'] = (self.GBMPipeline, self.params)
         logger.info('GBMRegressor start searching for best model')
 
-    def __init__(self, features, targets, predictions=None, n_estimators=500, num_leaves=40, learning_rate=0.2,
-                 max_depth=-1, lags=None):
+    def __init__(self, features, targets, predictions=None, n_estimators=None, num_leaves=None, learning_rate=None,
+                 max_depth=None, lags=None):
         #
         # from https://github.com/ashitole/Time-Series-Project/blob/main/Auto-Arima%20and%20LGBM.ipynb
         #   as taken from https://www.kaggle.com/rohanrao/ashrae-half-and-half
         #
-        self.n_estimators = n_estimators  # 500
-        self.num_leaves = num_leaves    # 40
-        self.learning_rate = learning_rate #0.2   # default 0.001
+        n_estimators = 500
+        num_leaves = 40
+        learning_rate = 0.2   # default 0.001
         feature_fraction = 0.85  # default 1.0
         reg_lambda = 2  # default 0
-        self.max_depth = max_depth # -1
+        max_depth = -1
         self.lagged_features = features
         self.lags = lags
 
@@ -2143,15 +1866,11 @@ class GBMRegressor(BaseEstimatorFunction):
         self.parameter_tuning_iterations = 1
         self.cv = 1
 
-        self.set_parameters()
+        self.params = {'gbm__n_estimators': [n_estimators], 'gbm__num_leaves': [num_leaves],
+                       'gbm__learning_rate': [learning_rate], 'gbm__max_depth': [max_depth], 'gbm__verbosity': [2]}
 
         self.stop_auto_improve_at = -2
         self.whoami = 'GBMRegressor'
-
-
-    def set_parameters(self):
-        self.params = {'gbm__n_estimators': [self.n_estimators], 'gbm__num_leaves': [self.num_leaves],
-                       'gbm__learning_rate': [self.learning_rate], 'gbm__max_depth': [self.max_depth], 'gbm__verbosity': [2]}
 
     #
     # forecasting support
@@ -2565,8 +2284,6 @@ class ARIMAForecaster(SupervisedLearningTransformer):
         return super().execute(df)
 
 
-    # EXCLUDED until we upgrade to statsmodels 0.12
-    '''
     def _calc(self, df):
         # per entity - copy for later inplace operations
         db = self._entity_type.db
@@ -2609,7 +2326,6 @@ class ARIMAForecaster(SupervisedLearningTransformer):
         df[self.output_item] = predictions
 
         return df
-    '''
 
     @classmethod
     def build_ui(cls):
@@ -2799,69 +2515,48 @@ class VI(nn.Module):
         return self.reparameterize(mu, log_var), mu, log_var
 
     # see 2.3 in https://arxiv.org/pdf/1312.6114.pdf
-    #
     def elbo(self, y_pred, y, mu, log_var):
         # likelihood of observing y given Variational mu and sigma - reconstruction error
         loglikelihood = ll_gaussian(y, mu, log_var)
-        # Sample from p(x|z) by sampling from q(z|x), passing through decoder (y_pred)
-        # likelihood of observing y given Variational decoder mu and sigma - reconstruction error
-        log_qzCx = ll_gaussian(y, mu, log_var)
 
-        # KL - prior probability of sample y_pred w.r.t. N(0,1)
-        log_pz = ll_gaussian(y_pred, self.prior_mu, torch.log(torch.tensor(self.prior_sigma)))
+        # KL - prior probability of y_pred w.r.t. N(0,1)
+        log_prior = ll_gaussian(y_pred, self.prior_mu, torch.log(torch.tensor(self.prior_sigma)))
 
         # KL - probability of y_pred w.r.t the variational likelihood
-        log_pxCz = ll_gaussian(y_pred, mu, log_var)
+        log_p_q = ll_gaussian(y_pred, mu, log_var)
 
         if self.show_once:
             self.show_once = False
             logger.info('Cardinalities: Mu: ' + str(mu.shape) + ' Sigma: ' + str(log_var.shape) +
-                        ' loglikelihood: ' + str(log_qzCx.shape) + ' KL value: ' +
-                        str((log_pz - log_pxCz).mean()))
+                        ' loglikelihood: ' + str(loglikelihood.shape) + ' KL value: ' +
+                        str((log_prior - log_p_q).mean()))
 
         # by taking the mean we approximate the expectation according to the law of large numbers
-        return (log_qzCx + self.beta * (log_pz - log_pxCz)).mean()
+        return (loglikelihood + self.beta * (log_prior - log_p_q)).mean()
 
+    # simplified when everything is Gaussian
+    #  KL(q, p) = \log \frac{\sigma_1}{\sigma_2} + \frac{\sigma_2^2 + (\mu_2 - \mu_1)^2}{2 \sigma_1^2} - \frac{1}{2}
+    # unfortunately I don't get it to work properly
+    #def elbo_gauss(self, y, y_pred, mu, log_var):
+    # does not work
 
-    # from https://arxiv.org/pdf/1509.00519.pdf
-    #  and https://justin-tan.github.io/blog/2020/06/20/Intuitive-Importance-Weighted-ELBO-Bounds
-    def iwae(self, x, y, k_samples):
+    # Unfinished - the stuff here is crap !
+    def iwae(self, y_pred, y, mu, log_var):
+        # likelihood of observing y given Variational mu and sigma
+        likelihood = l_gaussian(y, mu, log_var)
 
-        log_iw = None
-        for _ in range(k_samples):
+        # prior probability of y_pred N(0,1)
+        log_prior = ll_gaussian(y_pred, self.prior_mu, torch.log(torch.tensor(self.prior_sigma)))
 
+        # variational probability of y_pred
+        log_p_q = ll_gaussian(y_pred, mu, log_var)
 
-            # Encode - sample from the encoder
-            #  Latent variables mean,variance: mu_enc, log_var_enc
-            # y_pred: Sample from q(z|x) by passing data through encoder and reparametrizing
-            y_pred, mu_enc, log_var_enc = self.forward(x)
+        # by taking the mean we approximate the expectation according to the law of large numbers
+        return (likelihood + self.beta * (log_prior - log_p_q)).mean()
 
-            # there is not much of a decoder - hence we use the identity below as decoder 'stub'
-            dec_mu = mu_enc
-            dec_log_var = log_var_enc
-
-            # Sample from p(x|z) by sampling from q(z|x), passing through decoder (y_pred)
-            # likelihood of observing y given Variational decoder mu and sigma - reconstruction error
-            log_qzCx = ll_gaussian(y, dec_mu, dec_log_var)
-
-            # KL (well, not true for IWAE) - prior probability of y_pred w.r.t. N(0,1)
-            log_pz = ll_gaussian(y_pred, self.prior_mu, torch.log(torch.tensor(self.prior_sigma)))
-
-            # KL (well, not true for IWAE) - probability of y_pred w.r.t the decoded variational likelihood
-            log_pxCz = ll_gaussian(y_pred, dec_mu, dec_log_var)
-
-            i_sum = log_qzCx + log_pz - log_pxCz
-            if log_iw is None:
-                log_iw = i_sum
-            else:
-                log_iw = torch.cat([log_iw, i_sum], 1)
-
-        # loss calculation
-        log_iw = log_iw.reshape(-1, k_samples)
-
-        iwelbo = torch.logsumexp(log_iw, dim=1) - np.log(k_samples)
-
-        return iwelbo.mean()
+    # Minimizing negative ELBO
+    def det_loss_old(self, y_pred, y, mu, log_var):
+        return -self.elbo(y_pred, y, mu, log_var)
 
 
 class VIAnomalyScore(SupervisedLearningTransformer):
@@ -2896,7 +2591,6 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         self.prior_mu = 0.0
         self.prior_sigma = 1.0
         self.beta = 1.0
-        self.iwae_samples = 10
 
     def execute(self, df):
 
@@ -2973,12 +2667,10 @@ class VIAnomalyScore(SupervisedLearningTransformer):
                 optim.zero_grad()
                 y_pred, mu, log_var = vi_model(X)
                 loss = -vi_model.elbo(y_pred, Y, mu, log_var)
-                iwae = -vi_model.iwae(X, Y, self.iwae_samples)  # default is to try with 10 samples
                 if epoch % 10 == 0:
-                    logger.debug('Epoch: ' + str(epoch) + ', neg ELBO: ' + str(loss.item()) + ', IWAE ELBO: ' + str(iwae.item()))
+                    logger.debug('Epoch: ' + str(epoch) + ', neg ELBO: ' + str(loss.item()))
 
-                #loss.backward()
-                iwae.backward()
+                loss.backward()
                 optim.step()
 
             logger.debug('Created VAE ' + str(vi_model))
@@ -2988,7 +2680,7 @@ class VIAnomalyScore(SupervisedLearningTransformer):
             except Exception as e:
                 logger.error('Model store failed with ' + str(e))
 
-        # check if training was not allowed or failed
+        # if training was not allowed or failed
         if vi_model is not None:
             self.active_models[entity] = vi_model
 
@@ -3019,6 +2711,7 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         # define arguments that behave as function outputs
         outputs = []
         return inputs, outputs
+
 
 #######################################################################################
 # Crude change point detection

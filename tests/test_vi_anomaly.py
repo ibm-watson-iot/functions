@@ -1,13 +1,3 @@
-# *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
-#
-# This program and the accompanying materials
-# are made available under the terms of the Apache V2.0 license
-# which accompanies this distribution, and is available at
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# *****************************************************************************
-
 import logging
 import numpy as np
 import pandas as pd
@@ -70,7 +60,7 @@ def test_vianomaly_score():
     # Now run the anomaly functions as if they were executed in a pipeline
     vasi = VIAnomalyScore(['speed'], ['rms_x'])
     #spsi.epochs = 1  # only for testing model storage
-    vasi.epochs = 70 # 300 is far too high, it converges much faster
+    vasi.epochs = 300
 
     vasi.auto_train = True
     vasi.delete_model = True
@@ -83,14 +73,13 @@ def test_vianomaly_score():
 
     print('VIAnomaly score - inference')
 
-    #vasi = VIAnomalyScore(['speed'], ['rms_x'])
-    vasi.epochs = 70 # 300 is far too high, it converges much faster
+    vasi = VIAnomalyScore(['speed'], ['rms_x'])
+    vasi.epochs = 300
     vasi.auto_train = True
 
     vasi.delete_model = False
 
     et = vasi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
-    et.name = 'IOT_SHADOW_PUMP_DE_GEN5'
 
     vasi._entity_type = et
     df_i = vasi.execute(df=df_i)

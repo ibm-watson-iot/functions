@@ -1,8 +1,8 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
+# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0 license
+# are made available under the terms of the Apache V2.0
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -26,6 +26,7 @@ import ibm_db_dbi
 import pandas as pd
 import psycopg2
 import urllib3
+import urllib.parse
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
     func, and_, or_
@@ -39,12 +40,7 @@ from . import dbtables
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
-from .util import CosClient, resample, reset_df_index, log_data_frame
-
-try:
-    from MAS_Data_Dictionary.MAM_API import MAM_API
-except ImportError:
-    MAM_API = None
+from .util import CosClient, resample, reset_df_index
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -247,21 +243,7 @@ class Database(object):
             msg = 'Unable to locate META AND KPI URL.. using base API URL'
             logger.warning(msg)
 
-        core_api_host = credentials.get('core_api_host', None)
-        if core_api_host is None:
-            core_api_host = os.environ.get('AS_V2_CORE_API_URL', None)
-        if core_api_host is None:
-            core_api_host = as_api_host
-            logger.warning('Unable to locate CORE API URL.. using base API URL')
-
-        if core_api_host is not None and core_api_host.startswith('https://'):
-            core_api_host = core_api_host[8:]
-        else:
-            core_api_host = as_api_host
-
-
-        self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host, 
-                                       'as_rest_core_host': core_api_host}
+        self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host}
 
         self.tenant_id = self.credentials['tenant_id']
 
@@ -290,7 +272,8 @@ class Database(object):
         elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
             try:
                 sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                    self.credentials['db2']['username'], self.credentials['db2']['password'],
+                    urllib.parse.quote_plus(self.credentials['db2']['username']), # need to encode for special characters in the password
+                    urllib.parse.quote_plus(self.credentials['db2']['password']), # https://stackoverflow.com/questions/58661569/password-with-cant-connect-the-database
                     self.credentials['db2']['host'], self.credentials['db2']['port'],
                     self.credentials['db2']['databaseName'])
 
@@ -355,7 +338,7 @@ class Database(object):
                     try:
                         ev = dict(item.split("=", maxsplit=1) for item in connection_string_from_env.split(";"))
                         sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                            ev['UID'], ev['PWD'].rstrip("\n"), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+                            urllib.parse.quote_plus(ev['UID']), urllib.parse.quote_plus(ev['PWD'].rstrip("\n")), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
 
                         native_connection_string = connection_string_from_env + ';'
 
@@ -411,6 +394,7 @@ class Database(object):
                 raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
                                  'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
+            # this is a test environment branch
             sqlalchemy_connection_string = 'sqlite:///sqldb.db'
             native_connection_string = None
             self.write_chunk_size = 100
@@ -565,28 +549,6 @@ class Database(object):
                                                          'postgresql'] and self.entity_type_id is not None and self.schema is not None:
             self.model_store = dbtables.DBModelStore(self.tenant_id, self.entity_type_id, self.schema,
                                                      self.native_connection, self.db_type)
-
-        # Load url and credentials for Data Dictionary
-        dd_url = os.environ.get("DD_URL")
-        dd_user = os.environ.get("DD_USER_NAME")
-        dd_password = os.environ.get("DD_PASSWORD")
-        dd_space_id = os.environ.get("DD_SPACE_ID")
-
-        self.dd_client = None
-        if MAM_API is not None:
-            if dd_url is not None and dd_user is not None and dd_password is not None and dd_space_id is not None:
-                self.dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
-                                                        tenant_id=dd_space_id)
-                if self.dd_client.connected() is True:
-                    logger.info(f"Connection to Data Dictionary has been established successfully: url='{dd_url}', "
-                                f"tenant_id='{tenant_id}'")
-                else:
-                    raise ConnectionError(f"Connection to Data Dictionary could not be established: url='{dd_url}', "
-                                          f"tenant_id='{tenant_id}'")
-            else:
-                logger.info(f"No connection to Data Dictionary has been defined.")
-        else:
-            logger.info(f"Data Dictionary is not available.")
 
     def _aggregate_item(self, table, column_name, aggregate, alias_column=None, dimension_table=None,
                         timestamp_col=None):
@@ -1029,7 +991,7 @@ class Database(object):
         if object_name is None:
             object_name = ''
         if payload is None:
-            payload = []
+            payload = ''
 
         if self.tenant_id is None:
             msg = 'tenant_id instance variable is not set. database object was not initialized with valid credentials'
@@ -1038,7 +1000,6 @@ class Database(object):
         base_url = 'https://%s/api' % (self.credentials['as']['host'])
         base_meta_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_meta_host'])
         base_kpi_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_kpi_host'])
-        core_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_core_host'])
 
         self.url = {}
         self.url[('allFunctions', 'GET')] = '/'.join(
@@ -1050,8 +1011,7 @@ class Database(object):
         self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('constants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
 
-        self.url[('defaultConstants', 'GET')] = '/'.join(
-            [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
+        self.url[('defaultConstants', 'GET')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
         self.url[('defaultConstants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('defaultConstants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         self.url[('defaultConstants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
@@ -1063,7 +1023,7 @@ class Database(object):
 
         if sample_entity_type:
             self.url[('entityType', 'POST')] = '/'.join(
-                [core_url, 'v2', 'core', 'deviceTypes']) + '?user=aslibrary'
+                [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true&sampleEntityType=true'
         else:
             self.url[('entityType', 'POST')] = '/'.join(
                 [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
@@ -1091,11 +1051,11 @@ class Database(object):
         self.url[('granularitySet', 'GET')] = '/'.join(
             [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
 
-        # self.url[('kpiFunctions', 'POST')] = '/'.join(
-        #     [base_kpi_url, 'kpi', 'v1','entityType', object_name, object_type, 'import'])
-
         self.url[('kpiFunctions', 'POST')] = '/'.join(
-            [core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, 'import'])
+
+        self.url[('kpiFunction', 'POST')] = '/'.join(
+            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
         self.url[('kpiFunction', 'DELETE')] = '/'.join(
             [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
         self.url[('kpiFunction', 'GET')] = '/'.join(
@@ -1105,15 +1065,9 @@ class Database(object):
 
         self.url['usage', 'POST'] = '/'.join([base_kpi_url, 'kpiusage', 'v1', self.tenant_id, 'function', 'usage'])
 
-        self.url['dimensions', 'POST'] = '/'.join(
-            [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
-        self.url['dimensions', 'PUT'] = '/'.join(
-            [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
-
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
-                   'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache",
-                   'tenantId': self.tenant_id, 'mam_user_email': 'analyticsService@ibm.com'}
+                   'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache", }
         try:
             url = self.url[(object_type, request)]
         except KeyError:
@@ -1472,30 +1426,23 @@ class Database(object):
     def read_sql_query(self, sql, parse_dates=None, index_col=None, requested_col_names=None, log_message=None,
                        **kwargs):
 
+        if log_message is None:
+            logger.info('The following sql statement is executed: %s' % sql)
+        else:
+            logger.info('%s: %s' % (log_message, sql))
+
         # We use a sqlAlchemy connection in read_sql_query(). Therefore returned column names are always in lower case.
         parse_dates = None if parse_dates is None else [col.lower() for col in parse_dates]
-        if isinstance(index_col, str):
-            index_col = [index_col]
         index_col = None if index_col is None else [col.lower() for col in index_col]
 
-        start_time = pd.Timestamp.utcnow()
-        try:
-            # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
-            # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
-            # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
-            # to avoid type mismatches later on
-            df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
-
-        except Exception as ex:
-            raise RuntimeError(f"The execution of the following sql statement failed: {sql}") from ex
-        else:
-            execution_time = (pd.Timestamp.utcnow() - start_time).total_seconds()
-            if log_message is None:
-                logger.debug(f"The following sql statement returned {df.shape[0]} records and was executed in "
-                             f"{execution_time} seconds: {sql}.")
-                log_data_frame("Returned data frame:", df.head())
-            else:
-                logger.debug(f"{log_message}: execution time = {execution_time} s, sql = {sql}")
+        # We do not use parameter 'parse_dates' of pd.read_sql_query() because this function can return columns of type
+        # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
+        # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
+        # to avoid type mismatches later on
+        tic = time()
+        df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
+        toc = time()
+        logger.info(f"exec_time_secs={toc - tic:.2f}s sql={' '.join(str(sql).split())}")
 
         if parse_dates is not None and len(parse_dates) > 0:
             df = df.astype(dtype={col: 'datetime64[ns]' for col in parse_dates}, copy=False, errors='ignore')

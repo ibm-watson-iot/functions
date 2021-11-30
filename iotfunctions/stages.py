@@ -1,12 +1,13 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
+# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0 license
+# are made available under the terms of the Apache V2.0
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # *****************************************************************************
+
 
 import datetime as dt
 import json
@@ -311,22 +312,16 @@ class PersistColumns:
         return sql
 
 
-def _timestamp_as_string(timestamp):
-    return f"{timestamp.year:04}-{timestamp.month:02}-{timestamp.day:02} " \
-           f"{timestamp.hour:02}:{timestamp.minute:02}:{timestamp.second:02}." \
-           f"{timestamp.microsecond:06}{timestamp.nanosecond:03}"
-
-
 class ProduceAlerts(object):
     is_system_function = True
     produces_output_items = False
 
-    ALERT_TABLE_NAME = 'dm_wiot_as_alert'
-
-    def __init__(self, dms, alerts=None, data_item_names=None, **kwargs):
+    def __init__(self, dms, alerts=None, all_cols=None, **kwargs):
 
         if dms is None:
             raise RuntimeError("argument dms must be provided")
+        if alerts is None and all_cols is None:
+            raise RuntimeError("either alerts argument or all_cols arguments must be provided")
 
         self.dms = dms
 
@@ -335,9 +330,29 @@ class ProduceAlerts(object):
         except AttributeError:
             self.entity_type_name = dms.entity_type
 
-        self.quoted_schema = dbhelper.quotingSchemaName(dms.default_db_schema, self.dms.is_postgre_sql)
-        self.quoted_table_name = dbhelper.quotingTableName(self.ALERT_TABLE_NAME, self.dms.is_postgre_sql)
+        self.entity_type_id = dms.entity_type_id
+        self.is_postgre_sql = dms.is_postgre_sql
+        self.db_connection = dms.db_connection
+        self.quotedSchema = dbhelper.quotingSchemaName(dms.default_db_schema, self.is_postgre_sql)
+        self.quotedTableName = dbhelper.quotingTableName('dm_wiot_as_alert', self.is_postgre_sql)
         self.alert_to_kpi_input_dict = dict()
+        self.alerts_to_message_hub = []
+        self.alerts_to_database = []
+        self.alert_catalogs = dms.catalog.get_alerts()
+        if alerts is None:
+            if all_cols is not None:
+                for alert_data_item in asList(all_cols):
+                    metadata = dms.data_items.get(alert_data_item)
+                    if metadata is not None:
+                        if md.DATA_ITEM_TAG_ALERT in metadata.get(md.DATA_ITEM_TAGS_KEY, []):
+                            self.alerts_to_message_hub.append(alert_data_item)
+
+                        kpi_func_dto = metadata.get(md.DATA_ITEM_KPI_FUNCTION_DTO_KEY, None)
+                        kpi_function_name = kpi_func_dto.get(md.DATA_ITEM_KPI_FUNCTION_DTO_FUNCTION_NAME, None)
+                        alert_catalog = self.alert_catalogs.get(kpi_function_name, None)
+                        if alert_catalog is not None:
+                            self.alerts_to_database.append(alert_data_item)
+                            self.alert_to_kpi_input_dict[alert_data_item] = kpi_func_dto.get('input')
 
         # Requirement: alerts_to_msg_hub must be a subset of alerts_to_db because the alerts in data base are exploited
         # to avoid duplicated messages to Message Hub
@@ -360,24 +375,8 @@ class ProduceAlerts(object):
                         if md.DATA_ITEM_TAG_ALERT in metadata.get(md.DATA_ITEM_TAGS_KEY, []):
                             self.alerts_to_msg_hub.append(data_item_name)
         else:
-            raise RuntimeError("Invalid combination of parameters: Either alerts or data_item_names must be provided.")
-
+            self.alerts_to_message_hub = alerts
         self.message_hub = MessageHub()
-
-        # Column names in database
-        self.timestamp_col_name = 'timestamp'
-        self.updated_ts_col_name = 'updated_ts'
-        self.entity_id_col_name = 'entity_id'
-        self.alert_id_col_name = 'alert_id'
-        self.created_ts_col_name = 'created_ts'
-        self.alert_col_name = 'data_item_name'
-
-        # Column names in data frame
-        self.timestamp_df_name = self.dms.eventTimestampName
-        self.entity_id_df_name = 'id'
-        self.alert_id_df_name = '###IBM###_alert_id'
-        self.created_ts_df_name = '###IBM###_created_ts'
-        self.alert_df_name = '###IBM###_alert_name'
 
     def __str__(self):
 
@@ -385,62 +384,13 @@ class ProduceAlerts(object):
 
     def execute(self, df, start_ts=None, end_ts=None):
 
-        # Only do for an non-empty dataframe
-        if self.dms.production_mode is True and df.shape[0] > 0:
+        logger.info('alerts_to_produce into message hub = %s ' % str(self.alerts_to_message_hub))
+        logger.info('alerts_to_produce into database = %s ' % str(self.alerts_to_database))
 
-            # Only do when alerts are defined
-            if len(self.alerts_to_db) > 0:
-
-                # Determine if index of dataframe comes with or without entity id.
-                # Note: Indices containing dimensions are not supported and cause an exception
-                index_has_entity_id = self._verify_index_shape(df)
-
-                # Do for each alert separately
-                new_alert_events = {}
-                for alert_name in self.alerts_to_db:
-
-                    # Extract rows from data frame which are alert events, i.e. column 'alert_name' is equal to True
-                    calc_alert_events = df[(df[alert_name] == True)].copy()
-
-                    # Dataframe calc_alert_events can contain duplicates with respect to its index
-                    # (device id/ timestamp). Duplicates are a result of duplicated raw metrics or incorrect
-                    # calculation in a kpi function. Duplicates can cause trouble later on when inserted into database
-                    # because the upsert statement does not allow the modification of the same record twice in the
-                    # same bulk statement. We take corrective action and take the first occurrence of a duplicate only.
-                    # This does not make any difference for table DM_WIOT_AS_ALERT because no metrics are inserted
-                    # into this table but it has a small impact for Message Hub because metrics are added
-                    if calc_alert_events.index.has_duplicates:
-                        number_events_before = calc_alert_events.shape[0]
-                        calc_alert_events = calc_alert_events[(~calc_alert_events.index.duplicated(keep='first'))]
-                        number_removed_events = number_events_before - calc_alert_events.shape[0]
-
-                        logger.warning(f"Dataframe contains {number_removed_events} duplicates with respect to "
-                                       f"device id/ timestamp for alert {alert_name}. Duplicates are removed.")
-
-                    if calc_alert_events.index.size > 0:
-                        # Get earliest and latest timestamp of all alert events
-                        timestamp_level = calc_alert_events.index.get_level_values(self.dms.eventTimestampName)
-                        earliest = timestamp_level.min()
-                        latest = timestamp_level.max()
-
-                        # Retrieve existing alert events from database (table DM_WIOT_AS_ALERT) as index object
-                        existing_alert_events = self._get_alert_events_from_db(alert_name=alert_name,
-                                                                               index_has_entity_id=index_has_entity_id,
-                                                                               start_ts=earliest, end_ts=latest)
-
-                        # Determine all alert events which have been calculated in this pipeline run but which do not
-                        # exist in database yet
-                        difference = calc_alert_events.index.difference(existing_alert_events.index)
-                        new_alert_events[alert_name] = calc_alert_events.reindex(difference)
-
-                        logger.info(f"{difference.size} out of {calc_alert_events.index.size} calculated alert events "
-                                    f"for alert {alert_name} are new alert events.")
-                    else:
-                        new_alert_events[alert_name] = calc_alert_events
-                        logger.info(f"There are no calculated alert events for alert {alert_name}")
-
-                # Push new alert events to database
-                self._push_alert_events_to_db(new_alert_events, index_has_entity_id)
+        if self.dms.production_mode:
+            key_and_msg = []
+            key_and_msg_updated = []
+            key_and_msg_and_db_parameter = []
 
                 # Retrieve alert ids of alert events from database (the only way to obtain them because alert id is
                 # supplied by database. Return the alert events of all alerts in one data frame with index (alert name/
@@ -448,142 +398,101 @@ class ProduceAlerts(object):
                 all_new_alert_events = self._attach_alert_ids(alert_events=new_alert_events,
                                                               index_has_entity_id=index_has_entity_id)
 
-                # Push new alert events to Data Dictionary
-                self._push_alert_events_to_dd(all_new_alert_events, index_has_entity_id)
+                filtered_alerts = []
+                alert_filter = None
 
-                # Push new alerts events to message hub if required
-                if len(self.alerts_to_msg_hub) > 0:
-                    self._push_alert_events_to_msg_hub(new_alert_events)
+                # pre-filtering the data frame to be just those rows with True alert column values.
+                # Iterating through the whole data frame is a slow process.
+                for alert_name in self.alerts_to_message_hub:
+                    if alert_name in df.columns:
+                        if alert_filter is None:
+                            alert_filter = (df[alert_name] == True)
+                        else:
+                            alert_filter = alert_filter | (df[alert_name] == True)
+                        filtered_alerts.append(alert_name)
+
+                filtered_df = df[alert_filter]
+                index_names = filtered_df.index.names
+
+                name_index_map = {name: (index + 1) for index, name in enumerate(filtered_df.columns)}
+                for df_row in filtered_df.itertuples(index=True, name=None):
+
+                    for alert_name in filtered_alerts:
+
+                        if df_row[name_index_map[alert_name]]:
+                            # publish alert format
+                            # key: <tenant-id>|<entity-type-name>|<alert-name>
+                            # value: json document containing all metrics at the same time / same device / same grain
+                            key = '%s|%s|%s' % (self.dms.tenant_id, self.entity_type_name, alert_name)
+                            value = self.get_json_values(index_names, filtered_df.columns, df_row)
+
+                            if alert_name in self.alerts_to_database:
+                                kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+                                db_insert_parameter = (df_row[0][0], df_row[0][1], self.entity_type_id, alert_name,
+                                                       kpi_input.get('Severity', None), kpi_input.get('Priority', None),
+                                                       kpi_input.get('Status', None))
+                                key_and_msg_and_db_parameter.append((key, value, db_insert_parameter))
+                            else:
+                                key_and_msg.append((key, value))
 
             else:
-                logger.info("No alerts have been defined for current grain.")
+                logger.debug("No alerts to produce for %s." % self.entity_type_name)
+                return df
 
+            if len(key_and_msg_and_db_parameter) > 0:
+                key_and_msg_updated = self.insert_data_into_alert_table(key_and_msg_and_db_parameter)
+
+            if not self.dms.is_icp and (len(key_and_msg) > 0 or len(key_and_msg_updated) > 0):
+                # TODO:: Duplicate alert issue is still exist.
+                key_and_msg_merged = []
+                key_and_msg_merged.extend(key_and_msg)
+                key_and_msg_merged.extend(key_and_msg_updated)
+                self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg_merged)
         else:
-            logger.info("No alerts have to be processed because the dataframe is empty.")
+            logger.info("***** The alert data is not stored into the database/Message hub. ***** ")
 
         return df
 
-    def _verify_index_shape(self, df):
+    """
+    Timestamp is not serialized by default by json.dumps()
+    It is necessary to convert the object to string
+    """
 
-        level_names = df.index.names
-        if len(level_names) == 1 and level_names[0] == self.dms.eventTimestampName:
-            index_has_entity_id = False
-            logger.info("The grain is based on timestamp only. The entity ids were dropped for this grain.")
-        elif len(level_names) == 2 and level_names[0] == 'id' and level_names[1] == self.dms.eventTimestampName:
-            index_has_entity_id = True
-            logger.info("The grain is based on entity ids and timestamps.")
+    def _serialize_converter(self, object):
+        if isinstance(object, dt.datetime):
+            return object.__str__()
         else:
-            raise RuntimeError(f"The data frame refers to a grain with dimensions which is not supported for alerts. "
-                               f"The index of the data frame contains the following levels: {str(level_names)}")
+            raise TypeError('Do not know how to convert object of class %s to JSON' % object.__class__.__name__)
 
-        return index_has_entity_id
+    """
+    This function creates a json string which consist of dataframe row records and index key, value .
+    """
 
-    def _get_alert_events_from_db(self, alert_name, index_has_entity_id, start_ts=None, end_ts=None):
+    def get_json_values(self, index_names, col_names, row):
 
-        # Important: Explicitly set lower-case alias for timestamp column. Otherwise the column name in data frame
-        # will be in uppercase for DB2 because sqlalchemy attempts to avoid name clashes with the possibly reserved
-        # keyword TIMESTAMP by quoting
-        select_timestamp = f'{self.timestamp_col_name} as "{self.timestamp_col_name}"'
-
-        if index_has_entity_id is True:
-            select_entity_id = f', {self.entity_id_col_name} as "{self.entity_id_col_name}"'
-            index_col_names = [self.entity_id_col_name, self.timestamp_col_name]
-            requested_col_names = [self.timestamp_df_name, self.entity_id_df_name]
+        index_json = {}
+        if len(index_names) == 1:
+            index_json[index_names[0]] = row[0]
         else:
-            select_entity_id = ''
-            index_col_names = [self.timestamp_col_name]
-            requested_col_names = [self.timestamp_df_name]
+            for index_name, index_value in zip(index_names, row[0]):
+                index_json[index_name] = index_value
 
-        sql_statement = f"SELECT {select_timestamp}{select_entity_id} " \
-                        f"FROM {self.quoted_schema}.{self.quoted_table_name} " \
-                        f"WHERE entity_type_id = {self.dms.entity_type_id} AND {self.alert_col_name} = '{alert_name}'"
+        values = {}
+        for col_name, value in zip(col_names, row[1:]):
+            values[col_name] = value
+        values["index"] = index_json
+        return json.dumps(values, default=self._serialize_converter)
 
-        if start_ts is not None:
-            sql_statement += f" AND {self.timestamp_col_name} >= '{str(start_ts)}'"
-        if end_ts is not None:
-            sql_statement += f" AND {self.timestamp_col_name} <= '{str(end_ts)}'"
-
-        result_df = self.dms.db.read_sql_query(sql_statement, parse_dates=[self.timestamp_col_name],
-                                               index_col=index_col_names,
-                                               requested_col_names=requested_col_names,
-                                               log_message=f"Sql statement for alert {alert_name}")
-
-        logger.debug(f"{result_df.shape[0]} alert events have been read from database.")
-
-        return result_df
-
-    def _get_alert_ids_from_db(self, index_has_entity_id, start_ts=None, end_ts=None):
-
-        # Important: Explicitly set lower-case alias for timestamp column. Otherwise the column name in data frame
-        # will be in uppercase for DB2 because sqlalchemy attempts to avoid name clashes with the possibly reserved
-        # keyword TIMESTAMP by quoting
-        select_alert_name = f'{self.alert_col_name} as "{self.alert_col_name}"'
-        index_col_names = [self.alert_col_name]
-        requested_col_names = [self.alert_df_name]
-
-        if index_has_entity_id is True:
-            select_entity_id = f', {self.entity_id_col_name} as "{self.entity_id_col_name}"'
-            index_col_names.append(self.entity_id_col_name)
-            requested_col_names.append(self.entity_id_df_name)
-        else:
-            select_entity_id = ''
-
-        select_timestamp = f', {self.timestamp_col_name} as "{self.timestamp_col_name}"'
-        index_col_names.append(self.timestamp_col_name)
-        requested_col_names.append(self.timestamp_df_name)
-
-        select_alert_id = f', {self.alert_id_col_name} as "{self.alert_id_col_name}"'
-        requested_col_names.append(self.alert_id_df_name)
-
-        select_created_ts = f', {self.created_ts_col_name} as "{self.created_ts_col_name}"'
-        requested_col_names.append(self.created_ts_df_name)
-
-        sql_statement = f"SELECT {select_alert_name}{select_entity_id}{select_timestamp}{select_alert_id}" \
-                        f"{select_created_ts} FROM {self.quoted_schema}.{self.quoted_table_name} " \
-                        f"WHERE entity_type_id = {self.dms.entity_type_id}"
-
-        if start_ts is not None:
-            sql_statement += f" AND {self.updated_ts_col_name} >= '{str(start_ts)}'"
-        if end_ts is not None:
-            sql_statement += f" AND {self.updated_ts_col_name} <= '{str(end_ts)}'"
-
-        result_df = self.dms.db.read_sql_query(sql_statement, parse_dates=[self.timestamp_col_name],
-                                               index_col=index_col_names,
-                                               requested_col_names=requested_col_names,
-                                               log_message=f"Sql statement for alert id")
-
-        logger.debug(f"Alert ids of {result_df.shape[0]} alert events have been read from database.")
-
-        return result_df
-
-    def _push_alert_events_to_db(self, alert_events, index_has_entity_id):
+    def insert_data_into_alert_table(self, key_and_msg_and_db_parameter=[]):
+        logger.info("Processing %s alerts. This alert may contain duplicates, "
+                    "so need to process the alert before inserting into Database." % len(key_and_msg_and_db_parameter))
+        updated_key_and_msg = []
+        postgres_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (entity_id, timestamp, entity_type_id, data_item_name, severity, priority,domain_status) values (%s, %s, %s, %s, %s, %s, %s)"
+        db2_sql = "insert into " + self.quotedSchema + "." + self.quotedTableName + " (ENTITY_ID, TIMESTAMP, ENTITY_TYPE_ID, DATA_ITEM_NAME, SEVERITY, PRIORITY,DOMAIN_STATUS) values (?, ?, ?, ?, ?, ?, ?) "
 
         total_count = 0
-        rows = []
+        count = 0
         start_time = dt.datetime.now()
-        sql_statement = self._get_sql_statement()
-
-        for alert_name, df_alert_events in alert_events.items():
-
-            # Get attributes linked to this alert
-            kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
-            severity = kpi_input.get('Severity')
-            priority = kpi_input.get('Priority')
-            domain_status = kpi_input.get('Status')
-
-            # Loop over all alert events
-            for index_values in df_alert_events.index:
-                # Distinguish with/without entity id
-                if index_has_entity_id is True:
-                    tmp_entity_id = index_values[0]
-                    tmp_timestamp = index_values[1]
-                else:
-                    tmp_entity_id = None
-                    tmp_timestamp = index_values
-
-                # Setup alert event for DB
-                rows.append((self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp, severity, priority,
-                             domain_status))
 
                 if len(rows) == DATALAKE_BATCH_UPDATE_ROWS:
                     # Push alert events in list 'rows' in chunks to alert table in database
@@ -723,86 +632,94 @@ class ProduceAlerts(object):
                         f"values ({', '.join(['%s'] * len(available_columns))} ) " \
                         f"on conflict on constraint uc_{self.ALERT_TABLE_NAME} do nothing "
         else:
-            available_columns = ['ENTITY_TYPE_ID', 'DATA_ITEM_NAME', 'ENTITY_ID', 'TIMESTAMP', 'SEVERITY', 'PRIORITY',
-                                 'DOMAIN_STATUS']
-            all_columns_list = ', '.join(available_columns)
-            raw_statement = f"MERGE INTO {self.quoted_schema}.{self.quoted_table_name} AS TARGET USING " \
-                            f"(VALUES ({', '.join(['?'] * len(available_columns))})) AS SOURCE ({all_columns_list}) " \
-                            f"ON TARGET.ENTITY_TYPE_ID = SOURCE.ENTITY_TYPE_ID " \
-                            f"AND TARGET.DATA_ITEM_NAME = SOURCE.DATA_ITEM_NAME " \
-                            f"AND TARGET.ENTITY_ID = SOURCE.ENTITY_ID " \
-                            f"AND TARGET.TIMESTAMP = SOURCE.TIMESTAMP " \
-                            f"WHEN NOT MATCHED THEN " \
-                            f"INSERT ({all_columns_list}) " \
-                            f"VALUES (SOURCE.{', SOURCE.'.join(available_columns)})"
-
             try:
-                statement = ibm_db.prepare(self.dms.db_connection, raw_statement)
+                stmt = ibm_db.prepare(self.db_connection, db2_sql)
+
+                try:
+                    for key, msg, db_params in key_and_msg_and_db_parameter:
+                        count += 1
+                        for i, param in enumerate(iterable=db_params, start=1):
+                            ibm_db.bind_param(stmt, i, param)
+
+                        try:
+                            ibm_db.execute(stmt)
+                            updated_key_and_msg.append((key, msg))
+                        except Exception as ex:
+                            if "SQLSTATE=23505" not in ex.args[0]:
+                                raise Exception('Inserting alert %s into table %s.%s failed.' % (
+                                    str(db_params), self.quotedSchema, self.quotedTableName)) from ex
+
+                        if count == 500:
+                            total_count += count
+                            count = 0
+                            logger.info('Alerts that have been processed so far: %d' % total_count)
+                finally:
+                    ibm_db.free_result(stmt)
+
             except Exception as ex:
-                raise RuntimeError("Preparation of sql statement failed for DB2.") from ex
+                raise Exception(
+                    'Inserting alerts into table %s.%s failed.' % (self.quotedSchema, self.quotedTableName)) from ex
 
-        return statement
+        logger.info('%d new alerts out of %d processed alerts have been inserted into table %s.%s in %d seconds.' % (
+            len(updated_key_and_msg), len(key_and_msg_and_db_parameter), self.quotedSchema, self.quotedTableName,
+            (dt.datetime.now() - start_time).total_seconds()))
 
-    def _push_rows_to_db(self, sql_statement, rows):
+        return updated_key_and_msg
 
-        try:
-            if self.dms.is_postgre_sql:
-                dbhelper.execute_batch(self.dms.db_connection, sql=sql_statement, params_list=rows,
-                                       page_size=DATALAKE_BATCH_UPDATE_ROWS)
-                row_count = len(rows)
-            else:
-                res = ibm_db.execute_many(sql_statement, tuple(rows))
-                row_count = res if res is not None else ibm_db.num_rows(sql_statement)
-        except Exception as ex:
-            raise RuntimeError(f"The attempt to write {len(rows)} alert events to alert table in database "
-                               f"failed.") from ex
 
-        return row_count
+class RecordUsage:
 
-    def _push_alert_events_to_msg_hub(self, new_alert_events):
+    def __init__(self, dms, function_kpi_generated, start_ts, completed=False):
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
 
-        key_and_msg = []
+        if dms is None:
+            raise RuntimeError("argument dms must be provided")
+        if function_kpi_generated is None or not isinstance(function_kpi_generated, list):
+            raise RuntimeError("argument function_kpi_generated must be provided as a list")
+        if start_ts is None:
+            raise RuntimeError("argument start_ts must be provided")
 
-        for alert_name in self.alerts_to_msg_hub:
-            alert_events = new_alert_events[alert_name]
-            for df_row in alert_events.itertuples(index=True, name=None):
-                # publish alert format
-                # key: <tenant-id>|<entity-type-name>|<alert-name>
-                # value: json document containing all metrics at the same time / same device / same grain
-                key = f"{self.dms.tenant_id}|{self.entity_type_name}|{alert_name}"
-                msg = self._get_json_values(alert_events.index.names, alert_events.columns, df_row)
-                key_and_msg.append((key, msg))
+        self.dms = dms
+        self.function_kpi_generated = function_kpi_generated
+        self.start_ts = start_ts
+        self.completed = completed
 
-        logger.info(f"Pushing {len(key_and_msg)} alert events to Message Hub.")
+    def execute(self, df, *args, **kwargs):
+        if self.dms.production_mode:
+            end_ts = None
+            if self.completed:
+                end_ts = pd.Timestamp.utcnow().tz_convert(tz=None)
 
-        self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg)
+            usage = []
+            for fname, kfname, kpis, kpiFunctionId in self.function_kpi_generated:
+                total_records = None
+                if self.completed:
+                    total_records = 0
+                    for kpi in kpis:
+                        try:
+                            records = df[kpi].dropna().shape[0]
+                            total_records += records
+                            self.logger.info('fname=%s, kpi=%s, records=%d' % (fname, kpi, records))
+                        except KeyError:
+                            self.logger.info('not able to calculate usage for the %s ' % kpi)
+                usage.append({"entityTypeName": self.dms.entity_type, "kpiFunctionName": kfname,
+                              "startTimestamp": self.start_ts.value // 1000000,
+                              "endTimestamp": (end_ts.value // 1000000) if self.completed else None,
+                              "numberOfResultsProcessed": total_records, })
 
-    def _get_json_values(self, index_names, col_names, row):
+            self.logger.info('usage_records=%s' % str(usage))
 
-        # Create a json string with a list of index names and column names with their corresponding values
-
-        index_json = {}
-        if len(index_names) == 1:
-            index_json[index_names[0]] = row[0]
+            if len(usage) > 0:
+                # util.api_request(USAGE_REQUEST_TEMPLATE.format(self.dms.tenant_id), method='post', json=usage)
+                try:
+                    self.dms.db.http_request(object_type='usage', object_name='', request='POST', payload=usage)
+                except BaseException as e:
+                    msg = 'Unable to write usage. %s' % str(e)
+                    self.logger.error(msg)
         else:
-            for index_name, index_value in zip(index_names, row[0]):
-                index_json[index_name] = index_value
+            self.logger.info("***** The RecordUsage is not stored into the database. ***** ")
 
-        values = {}
-        for col_name, value in zip(col_names, row[1:]):
-            values[col_name] = value
-        values["index"] = index_json
-
-        # Timestamp is not serialized by default by json.dumps(). Therefore timestamps must be explicitly
-        # converted to string by _serialize_converter()
-        return json.dumps(values, default=self._serialize_converter)
-
-    @staticmethod
-    def _serialize_converter(obj):
-        if isinstance(obj, dt.datetime):
-            return obj.__str__()
-        else:
-            raise TypeError(f"Do not know how to convert object of class {obj.__class__.__name__} to JSON")
+        return df
 
 
 class DataWriter(object):
@@ -1140,10 +1057,10 @@ class DataWriterSqlAlchemy(DataWriter):
 
                         col_props[col_name] = (data_item_type, table_name)
                         if first_loop_cycle:
-                            grain_name = kpi_func_dto.get('granularityName')
+                            grain_name = kpi_func_dto.get('granularity')
                             first_loop_cycle = False
                         else:
-                            if grain_name != kpi_func_dto.get('granularityName'):
+                            if grain_name != kpi_func_dto.get('granularity'):
                                 raise Exception('Mismatch of grains. Only data items of same grain type can be '
                                                 'handled together')
 
