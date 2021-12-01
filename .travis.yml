@@ -1,14 +1,14 @@
 language: python
 python:
-  - "3.6"
+  - "3.9"
 # command to install dependencies
 install:
-  - pip install nose pylint
+  - pip install nose2 pylint
   - pip install .
 
 # command to run tests
 script:
-  - nosetests --nocapture
+  - nose2 -s data
   - pytest ./tests/unit
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:
