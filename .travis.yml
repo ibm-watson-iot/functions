@@ -3,6 +3,8 @@ python:
   - "3.9"
 # command to install dependencies
 install:
+  - sudo apt-get -y install liblapack-dev libblas-dev
+  - sudo apt-get install - y gfortran
   - pip install nose2 pylint
   - pip install .
 
