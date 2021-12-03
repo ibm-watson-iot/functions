@@ -1,6 +1,6 @@
 language: python
 python:
-  - "3.8"
+  - "3.8" # TODO: Python 3.9 causes segmentation faults
 # command to install dependencies
 install:
 #  - sudo apt-get -y install liblapack-dev libblas-dev  - only for py 3.9
@@ -14,6 +14,6 @@ script:
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:
   only:
-  - master
-  - development
-  - dev
+    - master
+    - development
+    - dev
