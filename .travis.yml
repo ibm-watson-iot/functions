@@ -1,9 +1,9 @@
 language: python
 python:
-  - "3.9"
+  - "3.8"
 # command to install dependencies
 install:
-  - sudo apt-get -y install liblapack-dev libblas-dev
+#  - sudo apt-get -y install liblapack-dev libblas-dev  - only for py 3.9
   - pip install nose2 pylint
   - pip install .
 
