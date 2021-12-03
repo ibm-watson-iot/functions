@@ -4,7 +4,7 @@ ibm_db_sa==0.3.7
 ibm-watson-machine-learning==1.0.96
 lxml==4.6.3
 lightgbm==3.2.1
-nose2-=0.6.0
+nose2==0.6.0
 # need to upgrade to numpy 1.19.5 at least for python 3.9
 numpy==1.19.5
 pandas==1.2.4
