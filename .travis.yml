@@ -3,12 +3,13 @@ python:
   - "3.8" # TODO: Python 3.9 causes segmentation faults
 # command to install dependencies
 install:
-  - pip install nose pylint
+#  - sudo apt-get -y install liblapack-dev libblas-dev  - only for py 3.9
+  - pip install nose2 pylint
   - pip install .
 
 # command to run tests
 script:
-  - nosetests --nocapture
+  - nose2 -s ./tests
   - pytest ./tests/unit
 #  - find . -name "*.py" -exec pylint -E --disable=import-error '{}' +
 branches:

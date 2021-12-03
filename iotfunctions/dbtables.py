@@ -10,6 +10,7 @@
 
 import logging
 import os
+import uuid
 from pathlib import Path
 
 import dill as pickle
@@ -413,12 +414,17 @@ class FileModelStore:
                 raise Exception(
                     'Serialization of model %s that is supposed to be stored in ModelStore failed.' % model_name) from ex
 
+        model_name = model_name.replace("/",":")
+
         filename = self.path + self.STORE_TABLENAME + model_name
+
         f = open(filename, "wb")
         f.write(model)
         f.close()
 
     def retrieve_model(self, model_name, deserialize=True):
+
+        model_name = model_name.replace("/",":")
 
         filename = self.path + self.STORE_TABLENAME + model_name
 
