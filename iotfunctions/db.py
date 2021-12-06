@@ -81,7 +81,7 @@ class Database(object):
     OS_DB_CERTIFICATE_FILE = 'DB_CERTIFICATE_FILE'
 
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
-                 entity_type=None, entity_type_id=None, model_store=None):
+                 entity_type_id=None, model_store=None):
 
         self.model_store = model_store
         self.function_catalog = {}  # metadata for functions in catalog
@@ -532,33 +532,25 @@ class Database(object):
                         msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
                         logger.warning(msg)
                     for m in metadata:
-                        self.entity_type_metadata[m['name']] = m
+                        self.entity_type_metadata[m['entityTypeId']] = m
                 except Exception:
-                    metadata = None
+                    pass
         else:
             metadata = entity_metadata
-            self.entity_type_metadata[entity_type] = metadata
+            if metadata.get('entityTypeId') is not None:
+                entity_type_id = metadata['entityTypeId']
+            self.entity_type_metadata[entity_type_id] = metadata
 
         # Figure out entity_type, entity_type_id and schema
         self.entity_type_id = None
         self.entity_type = None
         self.schema = None
-        if entity_type is not None:
-            self.entity_type = entity_type
-
-            metadata = self.entity_type_metadata.get(entity_type)
-            if metadata is not None:
-                self.entity_type_id = metadata.get('entityTypeId')
-                self.schema = metadata.get('schemaName')
-
-        elif entity_type_id is not None:
+        if entity_type_id is not None:
             self.entity_type_id = entity_type_id
-
-            for name, metadata in self.entity_type_metadata.items():
-                if metadata.get('entityTypeId') == entity_type_id:
-                    self.entity_type = name
-                    self.schema = metadata.get('schemaName')
-                    break
+            metadata = self.entity_type_metadata.get(entity_type_id)
+            if metadata is not None:
+                self.entity_type = metadata.get('name')
+                self.schema = metadata.get('schemaName')
 
         # Create DBModelStore if it was not handed in
         if self.model_store is None and self.db_type in ['db2',
@@ -866,28 +858,35 @@ class Database(object):
 
         return (package, module, class_name)
 
-    def get_entity_type(self, name):
+    def get_entity_type_by_name(self, name):
+        # Warning: entity type name is not unique anymore. This function is used for backwards compatibility taken
+        # the risk to return the wrong entity type. This function is only used in deprecated function 'GetEntityData'
+        entity_type_id = None
+        for id, metadata in self.entity_type_metadata.items():
+            try:
+                if metadata['name'] == name:
+                    entity_type_id = id
+                    break
+            except Exception as e:
+                print(e)
+        return self.get_entity_type(entity_type_id)
+
+    def get_entity_type(self, entity_type_id):
         """
         Get an EntityType instance by name. Name may be the logical name shown in the UI or the table name.'
 
         """
         metadata = None
         try:
-            metadata = self.entity_type_metadata[name]
+            metadata = self.entity_type_metadata[entity_type_id]
         except KeyError:
-            for m in list(self.entity_type_metadata.values()):
-                if m['metricTableName'] == name:
-                    metadata = m
-                    break
-            if metadata is None:
-                msg = 'No entity called %s in the cached metadata.' % name
-                raise ValueError(msg)
+            msg = 'No entity type with id  %s in the cached metadata.' % entity_type_id
+            raise ValueError(msg)
 
         try:
             timestamp = metadata['metricTimestampColumn']
             schema = metadata['schemaName']
             dim_table = metadata['dimensionTableName']
-            entity_type_id = metadata.get('entityTypeId', None)
         except TypeError:
             try:
                 is_entity_type = metadata.is_entity_type
@@ -897,12 +896,13 @@ class Database(object):
             if is_entity_type:
                 entity = metadata
             else:
-                msg = 'Entity %s not found in the database metadata' % name
+                msg = 'Entity type %s not found in the database metadata' % entity_type_id
                 raise KeyError(msg)
         else:
-            entity = md.EntityType(name=name, db=self,
+            entity = md.EntityType(name=metadata['name'], db=self,
                                    **{'auto_create_table': False, '_timestamp': timestamp, '_db_schema': schema,
-                                      '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table})
+                                      '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table,
+                                      'metric_table_name': metadata['metricTableName']})
 
         return entity
 
