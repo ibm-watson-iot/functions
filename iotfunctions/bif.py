@@ -1205,7 +1205,7 @@ class GetEntityData(BaseDataSource):
         db = self.get_db()
         target = self.get_entity_type()
         # get entity type metadata from the AS API
-        source = db.get_entity_type(self.source_entity_type_name)
+        source = db.get_entity_type_by_name(self.source_entity_type_name)
         source._checkpoint_by_entity = False
         source._pre_aggregate_time_grain = target._pre_aggregate_time_grain
         source._pre_agg_rules = target._pre_agg_rules
