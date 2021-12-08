@@ -43,31 +43,20 @@ class Aggregation(BaseFunction):
            this is not given (None) and it is not allowed to include any
            of entity id columns in sources
     """
-    def __init__(self, dms, ids=None, timestamp=None, granularity=None, simple_aggregators=None,
+    def __init__(self, dms, ids=None, timestamp=None, granularity=None, columns_with_scope=None, simple_aggregators=None,
                  complex_aggregators=None, direct_aggregators=None):
 
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
 
         self.dms = dms
 
-        if simple_aggregators is None:
-            simple_aggregators = []
-
-        if complex_aggregators is None:
-            complex_aggregators = []
-
-        if direct_aggregators is None:
-            direct_aggregators = []
-
-        self.simple_aggregators = simple_aggregators
-        self.complex_aggregators = complex_aggregators
-        self.direct_aggregators = direct_aggregators
+        self.simple_aggregators = simple_aggregators if simple_aggregators is not None else []
+        self.complex_aggregators = complex_aggregators if complex_aggregators is not None else []
+        self.direct_aggregators = direct_aggregators if direct_aggregators is not None else []
 
         self.ids = ids
         if self.ids is not None:
-            # if not set(self.ids).isdisjoint(set([sa[0] for sa in self.simple_aggregators])):
-            #     raise RuntimeError('sources (%s) must not include any columns in ids (%s), use grain entityFirst attribute to have that' % (str(self.sources), str(self.ids)))
-            self.ids = asList(self.ids)
+           self.ids = asList(self.ids)
         else:
             self.ids = list()
 
@@ -90,17 +79,22 @@ class Aggregation(BaseFunction):
         if self.groupby is not None and not isinstance(self.groupby, tuple):
             raise RuntimeError('argument granularity[1] must be a tuple')
 
-        self.logger.debug(
-            'aggregation_ids=%s, aggregation_timestamp=%s, aggregation_simple_aggregators=%s, aggregation_complex_aggregators=%s, aggregation_direct_aggregators=%s, aggregation_frequency=%s, aggregation_groupby=%s, aggregation_entityFirst=%s' % (
-                str(self.ids), str(self.timestamp), str(self.simple_aggregators), str(self.complex_aggregators),
-                str(self.direct_aggregators), str(self.frequency), str(self.groupby), str(self.entityFirst)))
+        self.columns_with_scope = columns_with_scope if columns_with_scope is not None else {}
+
+        self.logger.debug(f'aggregation_ids={str(self.ids)}, aggregation_timestamp={str(self.timestamp)}, '
+                          f'simple_aggregators={str(self.simple_aggregators)}, '
+                          f'complex_aggregators={str(self.complex_aggregators)}, '
+                          f'aggregation_direct_aggregators={str(self.direct_aggregators)}, '
+                          f'aggregation_frequency={str(self.frequency)}, aggregation_groupby={str(self.groupby)}, '
+                          f'aggregation_entityFirst={str(self.entityFirst)}, '
+                          f'columns_with_scope={str(columns_with_scope)}')
 
     def _agg_dict(self, df, simple_aggregators):
         numerics = df.select_dtypes(include=[np.number, bool]).columns.values
 
         agg_dict = defaultdict(list)
-        for srcs, agg, name in simple_aggregators:
-            srcs = asList(srcs)
+        for srcs, scope_sources, agg, name, scope, filtered_sources in simple_aggregators:
+            # kohlmann srcs = asList(srcs)
             for src in srcs:
                 if src in numerics:
                     agg_dict[src].append(agg)
@@ -113,9 +107,6 @@ class Aggregation(BaseFunction):
         return agg_dict
 
     def execute(self, df):
-        agg_dict = self._agg_dict(df, self.simple_aggregators)
-
-        self.logger.debug('aggregation_column_methods=%s' % dict(agg_dict))
 
         df = df.reset_index()
 
@@ -124,6 +115,7 @@ class Aggregation(BaseFunction):
         if 'id' in df.columns:
             df['entity_id'] = df['id']
 
+        # Gather columns which are used to determine the groups
         group_base = []
         group_base_names = []
         if len(self.ids) > 0 and self.entityFirst:
@@ -146,52 +138,63 @@ class Aggregation(BaseFunction):
         self.logger.debug(f'group_base={str(group_base)}, '
                           f'group_base_names={str(group_base_names)}')
 
+        # Handle scopes: Duplicate source column and apply the scope to the duplicate
+        log_messages = []
+        for input_col_name, scope_and_new_col in self.columns_with_scope.items():
+            for scope, new_input_col_name in scope_and_new_col:
+                df[new_input_col_name] = self._apply_scope(df, input_col_name, scope)
+                log_messages.append(f"({input_col_name} --> {new_input_col_name})")
+
+        self.logger.info(f"A scope has been applied on the following columns: {str(log_messages)}")
+
+        # Get list of all input columns (simple and complex aggregator only)
+        all_input_col_names = set()
+        for aggregators in [self.simple_aggregators, self.complex_aggregators]:
+            for func, input_col_names, output_col_names in aggregators:
+                all_input_col_names.update(input_col_names)
+
+        self.logger.debug(
+            f"The following columns are required for simple and complex aggregators: {str(all_input_col_names)}")
+
+        # Check for missing columns
+        missing_col_names = all_input_col_names.difference(df.columns)
+        if len(missing_col_names) > 0:
+            raise RuntimeError(f"The following columns are required as input for the simple and complex aggregation "
+                               f"functions but are missing in the data frame: {str(list(missing_col_names))}. "
+                               f"Available columns in data frame: {str(list(df.columns))}")
+
+        # Split data frame into groups
         groups = df.groupby(group_base)
 
         all_dfs = []
 
+        ###############################################################################
         # simple aggregators
+        ###############################################################################
 
-        df_agg = groups.agg(agg_dict)
+        # Define named aggregations
+        named_aggregations = {}
+        log_messages = []
+        for func, input_col_names, output_col_names in self.simple_aggregators:
+            for input_col_name, output_col_name in zip(input_col_names, output_col_names):
+                named_aggregations[output_col_name] = pd.NamedAgg(column=input_col_name, aggfunc=func)
+                log_messages.append(f"(input={input_col_name} --> agg_func={func.__name__}() --> output={output_col_name})")
+        self.logger.info(f"input/output relationship for simple aggregators: {str(log_messages)}")
 
-        log_data_frame('aggregation_after_groupby_df_agg', df_agg.head())
+        # Aggregate
+        agg_df_simple = groups.agg(**named_aggregations)
+        log_data_frame('Data frame after application of simple aggregators', agg_df_simple.head())
 
-        renamed_cols = {}
-        for srcs, agg, names in self.simple_aggregators:
-            for src, name in zip(asList(srcs), asList(names)):
-                func_name = agg.func.__name__ if hasattr(agg, 'func') else agg.__name__ if hasattr(agg,
-                                                                                                   '__name__') else agg
-                renamed_cols['%s|%s' % (src, func_name)] = name if name is not None else src
-        for name in (
-                set(agg_dict.keys()) - set([item for sa in self.simple_aggregators for item in asList(sa[0])])):
-            for agg in agg_dict[name]:
-                func_name = agg.func.__name__ if hasattr(agg, 'func') else agg.__name__ if hasattr(agg,
-                                                                                                   '__name__') else agg
-                renamed_cols['%s|%s' % (name, func_name)] = name
+        all_dfs.append(agg_df_simple)
 
-        self.logger.info('after simple aggregation function - sources %s' % str(renamed_cols))
-
-        new_columns = []
-        for col in df_agg.columns:
-            if len(col[-1]) == 0:
-                new_columns.append('|'.join(col[:-1]))
-            else:
-                new_columns.append('|'.join(col))
-        df_agg.columns = new_columns
-
-        if len(renamed_cols) > 0:
-            df_agg.rename(columns=renamed_cols, inplace=True)
-
-        all_dfs.append(df_agg)
-
-        log_data_frame('aggregation_df_agg', df_agg.head())
-
+        ###############################################################################
         # complex aggregators
+        ###############################################################################
 
-        for srcs, func, names in self.complex_aggregators:
+        for func, input_col_names, output_col_names in self.complex_aggregators:
 
-            self.logger.info('executing complex aggregation function - sources %s' % str(srcs))
-            self.logger.info('executing complex aggregation function - output %s' % str(names))
+            self.logger.info('executing complex aggregation function - sources %s' % str(input_col_names))
+            self.logger.info('executing complex aggregation function - output %s' % str(output_col_names))
             df_apply = groups.apply(func)
 
             # Some aggregation functions return None instead of an empty data frame. Therefore the result of
@@ -208,11 +211,11 @@ class Aggregation(BaseFunction):
                     new_index = pd.Index([], name=group_base_names[0])
 
                 # Build data frame with index and expected columns
-                df_apply = pd.DataFrame([], columns=names, index=new_index)
+                df_apply = pd.DataFrame([], columns=output_col_names, index=new_index)
 
                 # Cast columns in data frame to the expected type
                 column_types = {}
-                for name in names:
+                for name in output_col_names:
                     source_metadata = self.dms.data_items.get(name)
 
                     if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
@@ -232,16 +235,17 @@ class Aggregation(BaseFunction):
 
             log_data_frame('func=%s, aggregation_df_apply' % str(func), df_apply.head())
 
+        ###############################################################################
         # direct aggregators
+        ###############################################################################
+        for func, input_col_names, output_col_names in self.direct_aggregators:
 
-        for srcs, func, names in self.direct_aggregators:
-
-            self.logger.info('executing direct aggregation function - sources %s' % str(srcs))
-            self.logger.info('executing direct aggregation function - output %s' % str(names))
+            self.logger.info('executing direct aggregation function - sources %s' % str(input_col_names))
+            self.logger.info('executing direct aggregation function - output %s' % str(output_col_names))
 
             df_direct = func(df=df, group_base=group_base)
             if df_direct.empty and df_direct.columns.empty:
-                for name in names:
+                for name in output_col_names:
                     df_direct[name] = None
 
                     source_metadata = self.dms.data_items.get(name)
@@ -261,7 +265,9 @@ class Aggregation(BaseFunction):
 
             log_data_frame('func=%s, aggregation_df_direct' % str(func), df_direct.head())
 
+        ###############################################################################
         # concat all results
+        ###############################################################################
         df = pd.concat(all_dfs, axis=1)
 
         # Corrective action: pd.concat() removes name from Index when we only have one level. There is no issue for
@@ -272,6 +278,34 @@ class Aggregation(BaseFunction):
         log_data_frame('aggregation_final_df', df.head())
 
         return df
+
+    def _apply_scope(self, df, input_col_name, scope):
+        eval_expression = ""
+        if scope.get('type') == 'DIMENSIONS':
+            self.logger.debug('Applying Dimensions Scope')
+            dimension_count = len(scope.get('dimensions'))
+            for dimension_filter in scope.get('dimensions'):
+                dimension_name = dimension_filter['name']
+                dimension_value = dimension_filter['value']
+                dimension_count -= 1
+                if isinstance(dimension_value, str):
+                    dimension_value = [dimension_value]
+                else:
+                    # Convert to list explicitly to guarantee subsequent 'str(dimension_value)' returns a proper
+                    # string. Counter example: str(dict.values()) returns "dict_values([...])"
+                    dimension_value = list(dimension_value)
+                eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
+                eval_expression += ' & ' if dimension_count != 0 else ''
+        else:
+            self.logger.debug('Applying Expression Scope')
+            eval_expression = scope.get('expression')
+            if eval_expression is not None and '${' in eval_expression:
+                eval_expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", eval_expression)
+        self.logger.debug('Final Scope Mask Expression {}'.format(eval_expression))
+
+        scope_mask = eval(eval_expression)
+
+        return df[input_col_name].where(scope_mask)
 
 
 def _general_aggregator_input():

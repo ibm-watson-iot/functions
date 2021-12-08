@@ -109,6 +109,218 @@ class AggregateWithExpression(BaseSimpleAggregator):
         self.log_df_info(y, 'AggregateWithExpression evaluation')
         return y
 
+class AggregateTimeInState(BaseSimpleAggregator):
+    """
+    Creates aggregation from the output of StateTimePreparation, a string
+    encoded pair of a state change variable (-1 for leaving the state,
+    0 for no change, 1 for entering the state) together with a unix epoch
+    timestamp.
+    It computes the overall number of seconds spent in a particular state.
+    """
+
+    def __init__(self, source=None, name=None):
+        super().__init__()
+        logger.info('AggregateTimeInState _init')
+
+        self.source = source
+        self.name = name
+        print(dir(self))
+
+    @classmethod
+    def build_ui(cls):
+        inputs = []
+        inputs.append(UISingleItem(name='source', datatype=None,
+                                  description='Output of StateTimePreparation to aggregate over'))
+
+        outputs = []
+        outputs.append(
+            UIFunctionOutSingle(name='name', datatype=float,
+                                description='Overall amount of seconds spent in a particular state'))
+
+        return (inputs, outputs)
+
+    def execute(self, group):
+        logger.info('Execute AggregateTimeInState')
+        #print('Source ', self.source,  'Name ', self.name, ' Index ', group.index)
+
+        lg = group.size
+        if lg == 0:
+            logger.info('AggregateTimeInState no elements - returns 0 seconds, from 0')
+            return 0.0
+
+        df_group_exp = group.str.split(pat=',', n=2, expand=True)
+
+        g0 = None
+        g1 = None
+        try:
+            g0 = df_group_exp[0].values.astype(int).copy()
+            g1 = df_group_exp[1].values.astype(int).copy()
+        except Exception as esplit:
+            logger.info('AggregateTimeInState elements with NaN- returns 0 seconds, from ' + str(g0.size))
+            return 0.0
+
+        # now reduce false statechange sequences like -1, 0, 0, -1, 0, 1
+        #logger.info('HERE1: ' + str(g0[0:400]))
+
+        flag = 0
+        with np.nditer(g0, op_flags=['readwrite']) as it:
+            for x in it:
+                if flag == 0 and x != 0:
+                    flag = x
+                elif flag == x:
+                    x[...] = 0
+                elif flag == -x:
+                    flag = x
+
+        # adjust for intervals cut in half by aggregation
+        '''
+        +---------------------------- Interval ------------------------+
+        0            1           -1           1           -1           0
+          negative     positive     negative     positive     negative
+          (ignore)       ADD        (ignore)      ADD         (ignore)
+
+        0            1           -1           1                        0
+          (ignore)       ADD        (ignore)      ADD
+
+
+        0           -1            1          -1            1           0
+           ADD         ignore         ADD        ignore       ADD
+
+        0           -1            1          -1                        0
+           ADD         ignore         ADD        (ignore)
+        '''
+
+        # first non zero index
+        nonzeroMin = 0
+        nonzeroMax = 0
+        try:
+            nonzeroMin = np.min(np.nonzero(g0))
+            nonzeroMax = np.max(np.nonzero(g0))
+        except Exception:
+            logger.info('AggregateTimeInState all elements zero - returns 0 seconds, from ' + str(g0.size))
+            return 0.0
+            pass
+
+        if nonzeroMin > 0:
+            if g0[nonzeroMin] < 0:
+                g0[0] = 1
+        else:
+            if g0[0] < 0:
+                g0[0] = 0
+
+        if nonzeroMax > 0:
+            if g0[nonzeroMax] > 0:
+                g0[-1] = -1
+                # if nonzeroMax is last, ignore
+                if g0[nonzeroMax] < 0:
+                    g0[-1] = 0
+
+        # we have odd
+        #   -1     1    -1      -> g0[0] = 0
+        #    1    -1     1      -> g0[-1] = 0
+        #         even
+        #   -1     1    -1     1   -> g0[0] = 0 & g0[-1] = 0
+        #    1    -1     1    -1
+        # small
+        #   -1     1
+        #    1    -1
+        # smallest
+        #   -1           -> g0[0] = 0
+        #    1           -> g0[0] = 0
+
+        siz = 0
+        try:
+            siz = np.count_nonzero(g0)
+            if siz == 1:
+                g0[0] = 0
+            elif siz == 2 or siz == 0:
+                print(2)
+            elif siz % 2 != 0:
+                # odd
+                if g0[0] == -1: g0[0] = 0
+                else: g0[-1] = 0
+            else:
+                # even
+                if g0[0] == -1:
+                    g0[0] = 0
+                    g0[-1] = 0
+        except Exception:
+            logger.debug('AggregateTimeInState: no state change')
+            pass
+
+        logger.debug('AggregateTimeInState:  state changes ' + str(np.count_nonzero(g0 == 1)) + ' ' + str(np.count_nonzero(g0 == -1)))
+
+        y = -(g0 * g1).sum()
+        #logger.debug(str(y))
+        if y < 0:
+            y = 0.0
+
+        logger.info('AggregateTimeInState returns ' + str(y) + ' seconds, computed from ' + str(g0.size))
+        return y
+
+class StateTimePreparation(BaseTransformer):
+    '''
+    Together with AggregateTimeInState StateTimePreparation
+    calculates the amount of time a selected metric has been in a
+    particular state.
+    StateTimePreparation outputs an encoded pair of a state change
+    variable (-1 for leaving the state, 0 for no change,
+     1 for entering the state) together with a unix epoch
+    timestamp.
+    The condition for the state change is given as binary operator
+    together with the second argument, for example
+    ">= 37"  ( for fever) or "=='running'" (for process states)
+    '''
+    def __init__(self, source=None, state_name=None, name=None):
+        super().__init__()
+        logger.info('StateTimePrep _init')
+
+        self.source = source
+        self.state_name = state_name
+        self.name = name
+        print(dir(self))
+
+    @classmethod
+    def build_ui(cls):
+        inputs = []
+        inputs.append(UISingleItem(name='source', datatype=float,
+                                  description='Data item to compute the state change array from'))
+        inputs.append(UISingle(name='state_name', datatype=str,
+                               description='Condition for the state change array computation'))
+
+
+        outputs = []
+        outputs.append(
+            UIFunctionOutSingle(name='name', datatype=str, description='State change array output'))
+
+        return (inputs, outputs)
+
+    def _calc(self, df):
+        logger.info('Execute StateTimePrep per entity')
+
+        index_names = df.index.names
+        ts_name = df.index.names[1]  # TODO: deal with non-standard dataframes (no timestamp)
+
+        logger.info('Source: ' + self.source +  ', state_name ' +  self.state_name +  ', Name: ' + self.name +
+                    ', Entity: ' + df.index[0][0])
+
+        df_copy = df.reset_index()
+
+        # pair of +- seconds and regular timestamp
+        v1 = eval("df_copy[self.source] " + self.state_name).astype(int).diff().values.astype(int)
+
+        v1 = np.roll(v1, -1)  # push the first element, NaN, to the end
+        v1[-1] = 0
+
+        df_copy['__intermediate1__'] = v1
+        df_copy['__intermediate2__'] = (df_copy[ts_name].astype(int)// 1000000000)
+
+        df_copy[self.name] = df_copy['__intermediate1__'].map(str) + ',' + df_copy['__intermediate2__'].map(str) + ',' + df.index[0][0]
+
+        df_copy.drop(columns=['__intermediate1__','__intermediate2__'], inplace=True)
+
+        return df_copy.set_index(index_names)
+
 
 class AlertExpression(BaseEvent):
     """
@@ -1033,7 +1245,7 @@ class GetEntityData(BaseDataSource):
         db = self.get_db()
         target = self.get_entity_type()
         # get entity type metadata from the AS API
-        source = db.get_entity_type(self.source_entity_type_name)
+        source = db.get_entity_type_by_name(self.source_entity_type_name)
         source._checkpoint_by_entity = False
         source._pre_aggregate_time_grain = target._pre_aggregate_time_grain
         source._pre_agg_rules = target._pre_agg_rules

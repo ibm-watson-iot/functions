@@ -20,11 +20,13 @@ import sys
 from time import time
 
 import certifi
+
 import ibm_db
 import ibm_db_dbi
 import pandas as pd
 import psycopg2
 import urllib3
+import urllib.parse
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
     func, and_, or_
@@ -38,12 +40,12 @@ from . import dbtables
 from . import metadata as md
 from . import pipeline as pp
 from .enginelog import EngineLogging
-from .util import CosClient, resample, reset_df_index
+from .util import CosClient, resample, reset_df_index, log_data_frame
 
 try:
-    from MAS_Data_Dictionary.MAS_Core import MAS_Core
+    from MAS_Data_Dictionary.MAM_API import MAM_API
 except ImportError:
-    MAS_Core = None
+    MAM_API = None
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -80,7 +82,7 @@ class Database(object):
     OS_DB_CERTIFICATE_FILE = 'DB_CERTIFICATE_FILE'
 
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
-                 entity_type=None, entity_type_id=None, model_store=None):
+                 entity_type_id=None, model_store=None):
 
         self.model_store = model_store
         self.function_catalog = {}  # metadata for functions in catalog
@@ -289,7 +291,8 @@ class Database(object):
         elif 'db2' in self.credentials and self.credentials.get('db2') is not None:
             try:
                 sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                    self.credentials['db2']['username'], self.credentials['db2']['password'],
+                    urllib.parse.quote_plus(self.credentials['db2']['username']), # need to encode for special characters in the password
+                    urllib.parse.quote_plus(self.credentials['db2']['password']), # https://stackoverflow.com/questions/58661569/password-with-cant-connect-the-database
                     self.credentials['db2']['host'], self.credentials['db2']['port'],
                     self.credentials['db2']['databaseName'])
 
@@ -305,8 +308,8 @@ class Database(object):
                     if Database.CERTIFICATE_FILE in self.credentials['db2']:
                         security_extension += f"SSLServerCertificate=" \
                                               f"{self.credentials['db2'][Database.CERTIFICATE_FILE]};"
-                    elif os.path.exists('/secrets/truststore/db2_certificate.pem'):
-                        security_extension += 'SSLServerCertificate=' + '/secrets/truststore/db2_certificate.pem' + ";"
+                    elif os.path.exists('/secrets/db2cert/db2_certificate.pem'):
+                        security_extension += 'SSLServerCertificate=' + '/secrets/db2cert/db2_certificate.pem' + ";"
                     else:
                         cwd1 = os.getcwd()
                         filename1 = cwd1 + "/db2_certificate.pem"
@@ -354,7 +357,7 @@ class Database(object):
                     try:
                         ev = dict(item.split("=", maxsplit=1) for item in connection_string_from_env.split(";"))
                         sqlalchemy_connection_string = 'db2+ibm_db://%s:%s@%s:%s/%s;' % (
-                            ev['UID'], ev['PWD'].rstrip("\n"), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
+                            urllib.parse.quote_plus(ev['UID']), urllib.parse.quote_plus(ev['PWD'].rstrip("\n")), ev['HOSTNAME'], ev['PORT'], ev['DATABASE'])
 
                         native_connection_string = connection_string_from_env + ';'
 
@@ -410,6 +413,7 @@ class Database(object):
                 raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
                                  'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
+            # this is a test environment branch
             sqlalchemy_connection_string = 'sqlite:///sqldb.db'
             native_connection_string = None
             self.write_chunk_size = 100
@@ -420,8 +424,8 @@ class Database(object):
 
         is_icp = os.environ.get("isICP")
         if is_icp is not None and is_icp == 'true':
-            if os.path.exists('/secrets/truststore/ca_public_cert.pem'):
-                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/truststore/ca_public_cert.pem')
+            if os.path.exists('/secrets/iot-common/ca.crt'):
+                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/iot-common/ca.crt')
             else:
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
                     self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
@@ -531,33 +535,25 @@ class Database(object):
                         msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
                         logger.warning(msg)
                     for m in metadata:
-                        self.entity_type_metadata[m['name']] = m
+                        self.entity_type_metadata[m['entityTypeId']] = m
                 except Exception:
-                    metadata = None
+                    pass
         else:
             metadata = entity_metadata
-            self.entity_type_metadata[entity_type] = metadata
+            if metadata.get('entityTypeId') is not None:
+                entity_type_id = metadata['entityTypeId']
+            self.entity_type_metadata[entity_type_id] = metadata
 
         # Figure out entity_type, entity_type_id and schema
         self.entity_type_id = None
         self.entity_type = None
         self.schema = None
-        if entity_type is not None:
-            self.entity_type = entity_type
-
-            metadata = self.entity_type_metadata.get(entity_type)
-            if metadata is not None:
-                self.entity_type_id = metadata.get('entityTypeId')
-                self.schema = metadata.get('schemaName')
-
-        elif entity_type_id is not None:
+        if entity_type_id is not None:
             self.entity_type_id = entity_type_id
-
-            for name, metadata in self.entity_type_metadata.items():
-                if metadata.get('entityTypeId') == entity_type_id:
-                    self.entity_type = name
-                    self.schema = metadata.get('schemaName')
-                    break
+            metadata = self.entity_type_metadata.get(entity_type_id)
+            if metadata is not None:
+                self.entity_type = metadata.get('name')
+                self.schema = metadata.get('schemaName')
 
         # Create DBModelStore if it was not handed in
         if self.model_store is None and self.db_type in ['db2',
@@ -572,9 +568,9 @@ class Database(object):
         dd_space_id = os.environ.get("DD_SPACE_ID")
 
         self.dd_client = None
-        if MAS_Core is not None:
+        if MAM_API is not None:
             if dd_url is not None and dd_user is not None and dd_password is not None and dd_space_id is not None:
-                self.dd_client = MAS_Core.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
+                self.dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
                                                         tenant_id=dd_space_id)
                 if self.dd_client.connected() is True:
                     logger.info(f"Connection to Data Dictionary has been established successfully: url='{dd_url}', "
@@ -865,28 +861,35 @@ class Database(object):
 
         return (package, module, class_name)
 
-    def get_entity_type(self, name):
+    def get_entity_type_by_name(self, name):
+        # Warning: entity type name is not unique anymore. This function is used for backwards compatibility taken
+        # the risk to return the wrong entity type. This function is only used in deprecated function 'GetEntityData'
+        entity_type_id = None
+        for id, metadata in self.entity_type_metadata.items():
+            try:
+                if metadata['name'] == name:
+                    entity_type_id = id
+                    break
+            except Exception as e:
+                print(e)
+        return self.get_entity_type(entity_type_id)
+
+    def get_entity_type(self, entity_type_id):
         """
         Get an EntityType instance by name. Name may be the logical name shown in the UI or the table name.'
 
         """
         metadata = None
         try:
-            metadata = self.entity_type_metadata[name]
+            metadata = self.entity_type_metadata[entity_type_id]
         except KeyError:
-            for m in list(self.entity_type_metadata.values()):
-                if m['metricTableName'] == name:
-                    metadata = m
-                    break
-            if metadata is None:
-                msg = 'No entity called %s in the cached metadata.' % name
-                raise ValueError(msg)
+            msg = 'No entity type with id  %s in the cached metadata.' % entity_type_id
+            raise ValueError(msg)
 
         try:
             timestamp = metadata['metricTimestampColumn']
             schema = metadata['schemaName']
             dim_table = metadata['dimensionTableName']
-            entity_type_id = metadata.get('entityTypeId', None)
         except TypeError:
             try:
                 is_entity_type = metadata.is_entity_type
@@ -896,12 +899,13 @@ class Database(object):
             if is_entity_type:
                 entity = metadata
             else:
-                msg = 'Entity %s not found in the database metadata' % name
+                msg = 'Entity type %s not found in the database metadata' % entity_type_id
                 raise KeyError(msg)
         else:
-            entity = md.EntityType(name=name, db=self,
+            entity = md.EntityType(name=metadata['name'], db=self,
                                    **{'auto_create_table': False, '_timestamp': timestamp, '_db_schema': schema,
-                                      '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table})
+                                      '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table,
+                                      'metric_table_name': metadata['metricTableName']})
 
         return entity
 
@@ -1490,7 +1494,9 @@ class Database(object):
         else:
             execution_time = (pd.Timestamp.utcnow() - start_time).total_seconds()
             if log_message is None:
-                logger.debug(f"The following sql statement was executed in {execution_time} seconds: {sql}.")
+                logger.debug(f"The following sql statement returned {df.shape[0]} records and was executed in "
+                             f"{execution_time} seconds: {sql}.")
+                log_data_frame("Returned data frame:", df.head())
             else:
                 logger.debug(f"{log_message}: execution time = {execution_time} s, sql = {sql}")
 

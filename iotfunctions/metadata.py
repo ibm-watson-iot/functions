@@ -252,7 +252,7 @@ class EntityType(object):
             else:
                 name = name.lower()
         self.name = name
-        self._metric_table_name = name
+        self._metric_table_name = name if kwargs.get('metric_table_name') is None else kwargs.get('metric_table_name')
         self.description = kwargs.get('description', None)
         if self.description is None:
             self.description = ''
@@ -319,7 +319,7 @@ class EntityType(object):
         #  create a database table if needed using cols
         if name is not None and db is not None and not self.is_local:
             try:
-                self.table = self.db.get_table(self.name, self._db_schema)
+                self.table = self.db.get_table(self._metric_table_name, self._db_schema)
             except KeyError:
                 if self.auto_create_table:
                     ts = db_module.TimeSeriesTable(self.name, self.db, *cols, **kwargs)
@@ -1212,7 +1212,7 @@ class EntityType(object):
             tw['entity_filter'] = '%s entities' % len(entities)
 
         if self._pre_aggregate_time_grain is None:
-            df = self.db.read_table(table_name=self.name, schema=self._db_schema, timestamp_col=self._timestamp,
+            df = self.db.read_table(table_name=self._metric_table_name, schema=self._db_schema, timestamp_col=self._timestamp,
                                     parse_dates=None, columns=columns, start_ts=start_ts, end_ts=end_ts,
                                     entities=entities, dimension=self._dimension_table_name)
             tw['pre-aggregeted'] = None
@@ -1904,13 +1904,16 @@ class EntityType(object):
                    ' may not be registered ')
             raise ValueError(msg)
 
+        if self._timestamp_col is None:
+            self._timestamp_col = self._timestamp
+
         cols = []
         columns = []
         metric_column_names = []
         table = {}
         table['name'] = self.logical_name
         table['metricTableName'] = None
-        table['metricTimestampColumn'] = self._timestamp
+        table['metricTimestampColumn'] = self._timestamp_col
         table['description'] = self.description
         table['origin'] = 'AS_SAMPLE'
         for c in self.db.get_column_names(self.table, schema=self._db_schema):
@@ -2375,7 +2378,7 @@ class BaseCustomEntityType(EntityType):
             description = self.__doc__
 
         params = {'_timestamp': self.timestamp, '_db_schema': db_schema, 'description': description,
-                  'drop_existing': drop_existing}
+                  'drop_existing': drop_existing, '_timestamp_col': self.timestamp}
 
         kwargs = {**params, **kwargs}
 
