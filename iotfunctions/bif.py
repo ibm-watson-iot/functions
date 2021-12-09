@@ -3054,10 +3054,12 @@ class InvokeWMLModel(BaseTransformer):
         self.whoami = 'InvokeWMLModel'
 
         self.input_items = input_items
+
         if isinstance(output_items, str):
-            self.output_items = [output_items]
+            self.output_items = [output_items]    # regression
         else:
-            self.output_items = output_items
+            self.output_items = output_items      # classification
+
         self.wml_auth = wml_auth
 
         self.deployment_id = None
@@ -3096,19 +3098,24 @@ class InvokeWMLModel(BaseTransformer):
 
         # retrieve WML credentials as constant
         #    {"apikey": api_key, "url": 'https://' + location + '.ml.cloud.ibm.com'}
-        if self.wml_auth is not None:
+        c = None
+        if isinstance(self.wml_auth, dict):
+            wml_credentials = self.wml_auth
+        elif self.wml_auth is not None:
             c = self._entity_type.get_attributes_dict()
             try:
                 wml_credentials = c[self.wml_auth]
-                self.deployment_id = wml_credentials['deployment_id']
-                self.space_id = wml_credentials['space_id']
-                logger.info('Found credentials for WML')
             except Exception as ae:
-                #wml_credentials = {'apikey': self.apikey , 'url': self.wml_endpoint, 'space_id': self.space_id}
-                #logger.error('WML Credentials constant ' + self.wml_auth + ' not present. Error ' + str(ae))
                 raise RuntimeError("No WML credentials specified")
         else:
             wml_credentials = {'apikey': self.apikey , 'url': self.wml_endpoint, 'space_id': self.space_id}
+
+        try:
+            self.deployment_id = wml_credentials['deployment_id']
+            self.space_id = wml_credentials['space_id']
+            logger.info('Found credentials for WML')
+        except Exception as ae:
+            raise RuntimeError("No valid WML credentials specified")
 
         # get client and check credentials
         self.client = APIClient(wml_credentials)
@@ -3132,7 +3139,7 @@ class InvokeWMLModel(BaseTransformer):
         logger.info('InvokeWML exec')
 
         # Create missing columns before doing group-apply
-        df = df.copy()
+        df = df.copy().fillna('')
         missing_cols = [x for x in (self.output_items) if x not in df.columns]
         for m in missing_cols:
             df[m] = None
@@ -3159,8 +3166,17 @@ class InvokeWMLModel(BaseTransformer):
         results = self.client.deployments.score(self.deployment_id, scoring_payload)
 
         if results:
-            df.loc[~df.index.isin(index_nans), self.output_items] = \
-                np.array(results['predictions'][0]['values']).flatten()
+            # Regression
+            if len(self.output_items) == 1:
+                df.loc[~df.index.isin(index_nans), self.output_items] = \
+                    np.array(results['predictions'][0]['values']).flatten()
+            # Classification
+            else:
+                arr = np.array(results['predictions'][0]['values'])
+                df.loc[~df.index.isin(index_nans), self.output_items[0]] = arr[:,0].astype(int)
+                arr2 = np.array(arr[:,1].tolist())
+                df.loc[~df.index.isin(index_nans), self.output_items[1]] = arr2.T[0]
+
         else:
             logging.error('error invoking external model')
 
@@ -3179,6 +3195,44 @@ class InvokeWMLModel(BaseTransformer):
         # define arguments that behave as function outputs
         outputs=[]
         outputs.append(UISingle(name='output_items', datatype=float))
+        return (inputs, outputs)
+
+
+class InvokeWMLClassifier(InvokeWMLModel):
+    '''
+    Pass multivariate data in input_items to a classification function deployed to
+    Watson Machine Learning. The results are passed back to the univariate
+    output_items column.
+    Credentials for the WML endpoint representing the deployed function are stored
+    as pipeline constants, a name to lookup the WML credentials as JSON document.
+    Example: 'my_deployed_endpoint_wml_credentials' referring to
+    {
+	    "apikey": "<my api key",
+	    "url": "https://us-south.ml.cloud.ibm.com",
+	    "space_id": "<my space id>",
+	    "deployment_id": "<my deployment id">
+    }
+    This name is passed to InvokeWMLModel in wml_auth.
+    '''
+    def __init__(self, input_items, wml_auth, output_items, confidence):
+        super().__init__(input_items, wml_auth, [output_items, confidence])
+
+        self.whoami = 'InvokeWMLClassifier'
+
+
+    @classmethod
+    def build_ui(cls):
+        #define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UIMultiItem(name = 'input_items', datatype=float,
+                                  description = "Data items adjust", is_output_datatype_derived = True))
+        inputs.append(UISingle(name='wml_auth', datatype=str,
+                               description='Endpoint to WML service where model is hosted', tags=['TEXT'], required=True))
+
+        # define arguments that behave as function outputs
+        outputs=[]
+        outputs.append(UISingle(name='output_items', datatype=float))
+        outputs.append(UISingle(name='confidence', datatype=float))
         return (inputs, outputs)
 
 
