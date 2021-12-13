@@ -18,7 +18,7 @@ from sqlalchemy import Column, Float
 # helper class and function to run aggregators
 from iotfunctions.aggregate import (Aggregation, add_simple_aggregator_execute)
 
-from iotfunctions.bif import AggregateWithExpression
+from iotfunctions.bif import AggregateWithExpression, AggregateTimeInState, StateTimePreparation
 from iotfunctions.db import Database
 from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
@@ -95,7 +95,7 @@ def test_aggregation():
     params_dict['expression'] = 'x.max()-x.min()'
 
     # replace aggregate call with 'execute_AggregateWithExpression'
-    func_name = 'execute_AggregateTimeInState'
+    func_name = 'execute_AggregateWithExpression'
     add_simple_aggregator_execute(func, func_name)
 
     # finally set up closure
@@ -119,9 +119,52 @@ def test_aggregation():
 
     print('Aggregation done', df_agg)
 
+    # remove aggregate from test class before
+    delattr(func, 'execute_AggregateWithExpression')
+
+    # run state time preparation
+
+    statei = StateTimePreparation(source='TEMP_AIR', state_name='> 20', name='warmer')
+
+    et = statei._build_entity_type(columns = [Column('changed',Float())], **jobsettings)
+
+    df_i = statei.execute(df=df_i)
+
+    # prepare parameter list for closure
+    params_dict = {}
+    params_dict['source'] = 'warmer'
+    params_dict['name'] = 'warmday'
+
+    # build closure from aggregation class
+    func = AggregateTimeInState
+
+    # replace aggregate call with 'execute_AggregateWithExpression'
+    func_name = 'execute_AggregateTimeInState'
+    add_simple_aggregator_execute(func, func_name)
+
+    # finally set up closure
+    func_clos = getattr(func(**params_dict), func_name)
+
+    # set up an Aggregation thingy with the entity index, timestamp index,
+    # desired granularity and a (short) chain of aggregators
+    # granularity = frequency, dimension(s), include entity, entity id
+    aggobjt = Aggregation(None, ids=['entity'], timestamp='timestamp', granularity=('D', None, True, 0),
+                    simple_aggregators=[(func_clos, ['warmer'], 'warmday')])
+
+    print(aggobjt)
+
+    et = aggobjt._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+
+    df_agg2= aggobjt.execute(df=df_i)
+    #df_agg_comp = pd.read_csv('./data/aggregated.csv', index_col=False, parse_dates=['timestamp'])
+
+    #assert_true(np.allclose(df_agg['x.max() - x.min()'].values, df_agg_comp['x.max() - x.min()'].values))
+
+    print('Aggregation done', df_agg2)
+
     pass
 
 
 if __name__ == '__main__':
-    test_base_estimator_function()
+    test_aggregation()
 

@@ -165,9 +165,17 @@ class AggregateTimeInState(BaseSimpleAggregator):
             logger.info('AggregateTimeInState elements with NaN- returns 0 seconds, from ' + str(gchange.size))
             return 0.0
 
+        # no statechange at all
+        if not np.any(gchange):
+            logger.debug('AggregateTimeInState: no state change at all in this aggregation, inject it)
+            gchange[0] = gstate[0]
+            gchange[-1] = -gstate[0]
+
+
         # look for state change 2 - start interval for StateTimePrep
         #
         # |  previous run  -1 ...  |2 ..  1 next run    |
+
         flag = 0
         index = 0
         with np.nditer(gchange, op_flags=['readwrite']) as it:
