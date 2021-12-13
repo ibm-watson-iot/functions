@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 db = None
 db_connection = None
-entityType = ''
+entityTypeId = None
 featureC = 'pressure'
 targetC = 'temperature'
 predictC = 'predict'
@@ -47,15 +47,15 @@ startTime = None
 endTime = None
 startTimeV = 0
 endTimeV = 0
-helpString = 'train.py -E <entityType> -f <feature column> -t <target column> -p <prediction column> -m <metric> \
+helpString = 'train.py -E <entityTypeId> -f <feature column> -t <target column> -p <prediction column> -m <metric> \
 -s <starttime> -e <endtime>'
 
 
 def get_options(argv):
-    global db, db_connection, entityType, featureC, targetC, predictC, metric, startTime, endTime, startTimeV, endTimeV, helpString
+    global db, db_connection, entityTypeId, featureC, targetC, predictC, metric, startTime, endTime, startTimeV, endTimeV, helpString
     try:
         opts, args = getopt.getopt(
-            argv, "hf:t:p:m:s:e:E:", ["featureC=", "targetC=", "predictC=", "metric=", "startTime=", "endTime=", "entityType="])
+            argv, "hf:t:p:m:s:e:E:", ["featureC=", "targetC=", "predictC=", "metric=", "startTime=", "endTime=", "entityTypeId="])
     except getopt.GetoptError as ge:
         print(str(ge))
         print(helpString)
@@ -64,8 +64,8 @@ def get_options(argv):
         if opt == '-h':
             print(helpString)
             sys.exit()
-        elif opt in ("-E", "--entityType"):
-            entityType = arg
+        elif opt in ("-E", "--entityTypeId"):
+            entityTypeId = int(arg)
         elif opt in ("-f", "--feature"):
             featureC = arg
         elif opt in ("-t", "--target"):
@@ -78,7 +78,7 @@ def get_options(argv):
             startTime = arg
         elif opt in ("-e", "--endtime"):
             endTime = arg
-    print('EntityType "', entityType)
+    print('EntityTypeId "', entityTypeId)
     print('Feature Column (X) "', featureC)
     print('Target Column (Y) "', targetC)
     print('Predictor Column "', predictC)
@@ -86,8 +86,8 @@ def get_options(argv):
     print('StartTime "', startTime)
     print('EndTime "', endTime)
 
-    if entityType == '':
-        print('entityType name is missing')
+    if entityTypeId is None:
+        print('entityTypeId is missing')
         print(helpString)
         sys.exit(3)
 
@@ -103,7 +103,7 @@ def get_options(argv):
 
 
 def main(argv):
-    global db, db_connection, entityType, featureC, targetC, predictC, metric, startTime, endTime, startTimeV, endTimeV, helpString
+    global db, db_connection, entityTypeId, featureC, targetC, predictC, metric, startTime, endTime, startTimeV, endTimeV, helpString
     get_options(argv)
 
     # endTime == None means now
@@ -122,7 +122,7 @@ def main(argv):
     db_connection = ibm_db.connect(DB2ConnString, '', '')
     print(db_connection)
 
-    model_store = DBModelStore(credentials['tenantId'], entityType, credentials['db2']['username'], db_connection, 'db2')
+    model_store = DBModelStore(credentials['tenantId'], entityTypeId, credentials['db2']['username'], db_connection, 'db2')
     db.model_store = model_store
 
     # with open('output.json', 'w+', encoding='utf-8') as G:
@@ -132,10 +132,10 @@ def main(argv):
 
     meta = None
     try:
-        meta = db.get_entity_type(entityType)
+        meta = db.get_entity_type(entityTypeId)
         print('Entity is ', meta)
     except Exception as e:
-        logger.error('Failed to retrieve information about entityType ' + str(entityType) + ' from the database because of ' + str(e))
+        logger.error('Failed to retrieve information about entityType ' + str(entityTypeId) + ' from the database because of ' + str(e))
 
     # make sure the results of the python expression is saved to the derived metrics table
     if metric == '':

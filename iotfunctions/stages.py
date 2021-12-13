@@ -24,6 +24,11 @@ from .util import MessageHub, asList
 from . import metadata as md
 
 try:
+    from MAS_Data_Dictionary.MAM_API import MAM_API
+except ImportError:
+    MAM_API = None
+
+try:
     from MAS_Data_Dictionary.MAS_Core_Types import EntryType
 except ImportError:
     EntryType = None
@@ -357,6 +362,9 @@ class ProduceAlerts(object):
         else:
             raise RuntimeError("Invalid combination of parameters: Either alerts or data_item_names must be provided.")
 
+        logger.info('alerts going to database = %s ' % str(self.alerts_to_db))
+        logger.info('alerts going to message hub = %s ' % str(self.alerts_to_msg_hub))
+
         self.message_hub = MessageHub()
 
         # Column names in database
@@ -439,7 +447,7 @@ class ProduceAlerts(object):
 
                 # Retrieve alert ids of alert events from database (the only way to obtain them because alert id is
                 # supplied by database. Return the alert events of all alerts in one data frame with index (alert name/
-                # entity id/ timestamp) and one column alert id
+                # entity id/ timestamp) and additional columns for alert id and creation timestamp.
                 all_new_alert_events = self._attach_alert_ids(alert_events=new_alert_events,
                                                               index_has_entity_id=index_has_entity_id)
 
@@ -620,7 +628,7 @@ class ProduceAlerts(object):
 
             # Loop over all alert events
             total_count = 0
-            builder = self.dms.db.dd_client.builder()
+            builder = self.dms.db.dd_client.graph_set(MAM_API.MAS_ALERTS_GRAPH).builder()
             start_time = dt.datetime.now()
             attribute_cache = {}
             for event_row in all_alert_events[[self.alert_id_df_name, self.created_ts_df_name]].itertuples(index=True,
@@ -634,11 +642,25 @@ class ProduceAlerts(object):
                 if index_has_entity_id is True:
                     tmp_entity_id = index[1]
                     tmp_timestamp = index[2]
-                    alert_filter = f"{self.dms.entity_type_dd_id}|{tmp_entity_id}"
                 else:
                     tmp_entity_id = None
                     tmp_timestamp = index[1]
+
+                timestamp_in_nano_seconds = int(tmp_timestamp.to_datetime64())
+                timestamp_in_milli_seconds = timestamp_in_nano_seconds // 1000000
+                created_ts_in_nano_seconds = int(event_row[2].to_datetime64())
+                created_ts_in_milli_seconds = created_ts_in_nano_seconds // 1000000
+
+                if tmp_entity_id is not None and self.dms.entity_type_type == "DEVICE_TYPE":
+                    alert_filter = f"{self.dms.entity_type_dd_id}|{tmp_entity_id}"
+                    device_dto = {"name": tmp_entity_id}
+                    alert_dd_id = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, self.dms.entity_type_id,
+                                                            alert_name, timestamp_in_nano_seconds, tmp_entity_id)
+                else:
                     alert_filter = self.dms.entity_type_dd_id
+                    device_dto = None
+                    alert_dd_id = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, self.dms.entity_type_id,
+                                                            alert_name, timestamp_in_nano_seconds)
 
                 # Get values for severity, priority, status
                 cached_values = attribute_cache.get(alert_name)
@@ -649,30 +671,21 @@ class ProduceAlerts(object):
                     attribute_cache[alert_name] = cached_values
 
                 # Setup alert event for Data Dictionary
-                timestamp_in_nano_seconds = int(tmp_timestamp.to_datetime64())
-                created_ts_in_nano_seconds = int(event_row[2].to_datetime64())
                 alert_attributes = {"alertId": event_row[1],
                                     "name": alert_name,
-                                    "timestamp": timestamp_in_nano_seconds,
+                                    "timestamp": timestamp_in_milli_seconds,
                                     "resourceId": self.dms.entity_type_id,
-                                    "createdTs": created_ts_in_nano_seconds,
-                                    "updatedTs": created_ts_in_nano_seconds,
+                                    "createdTs": created_ts_in_milli_seconds,
+                                    "updatedTs": created_ts_in_milli_seconds,
                                     "alertFilter": alert_filter}
-                if tmp_entity_id is not None:
-                    alert_attributes["deviceDto"] = {"name": tmp_entity_id}
+                if device_dto is not None:
+                    alert_attributes["deviceDto"] = device_dto
                 if cached_values[0] is not None:
                     alert_attributes["severity"] = cached_values[0]
                 if cached_values[1] is not None:
                     alert_attributes["priority"] = cached_values[1]
                 if cached_values[2] is not None:
                     alert_attributes["status"] = cached_values[2]
-
-                if tmp_entity_id is not None:
-                    alert_dd_id = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, self.dms.entity_type_id,
-                                                            alert_name, timestamp_in_nano_seconds, tmp_entity_id)
-                else:
-                    alert_dd_id = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, self.dms.entity_type_id,
-                                                            alert_name, timestamp_in_nano_seconds)
 
                 builder = builder.alert(alert_dd_id).name(alert_name).set_p(alert_attributes)
 

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 def main(argv):
 
     # entityType = 'Clients04'
-    entityType = ''
+    entityTypeId = None
     featureC = 'pressure'
     targetC = 'temperature'
     predictC = 'predict'
@@ -38,12 +38,12 @@ def main(argv):
     endTime = None
     startTimeV = dt.datetime.utcnow()
     endTimeV = dt.datetime.utcnow()
-    helpString = 'train.py -E <entityType> -f <feature column> -o <target column> -p <prediction column> \
+    helpString = 'train.py -E <entityTypeId> -f <feature column> -o <target column> -p <prediction column> \
 -s <starttime> -e <endtime>'
 
     try:
         opts, args = getopt.getopt(
-            argv, "hf:t:p:s:e:E:", ["featureC=", "targetC=", "predictC=", "startTime=", "endTime=", "entityType="])
+            argv, "hf:t:p:s:e:E:", ["featureC=", "targetC=", "predictC=", "startTime=", "endTime=", "entityTypeId="])
     except getopt.GetoptError:
         print(helpString)
         sys.exit(2)
@@ -51,8 +51,8 @@ def main(argv):
         if opt == '-h':
             print(helpString)
             sys.exit()
-        elif opt in ("-E", "--entityType"):
-            entityType = arg
+        elif opt in ("-E", "--entityTypeId"):
+            entityTypeId = int(arg)
         elif opt in ("-f", "--feature"):
             featureC = arg
         elif opt in ("-t", "--target"):
@@ -63,15 +63,15 @@ def main(argv):
             startTime = arg
         elif opt in ("-e", "--endtime"):
             endTime = arg
-    print('EntityType "', entityType)
+    print('EntityTypeId "', entityTypeId)
     print('Feature Column (X) "', featureC)
     print('Target Column (Y) "', targetC)
     print('Predictor Column "', predictC)
     print('StartTime "', startTime)
     print('EndTime "', endTime)
 
-    if entityType == '':
-        print('entityType name is missing')
+    if entityTypeId is None:
+        print('entityTypeId is missing')
         print(helpString)
         sys.exit(3)
 
@@ -88,7 +88,7 @@ def main(argv):
     db = Database(credentials=credentials)
     print(db)
 
-    meta = db.get_entity_type(entityType)
+    meta = db.get_entity_type(entityTypeId)
 
     logger.info('Connected to database')
 
