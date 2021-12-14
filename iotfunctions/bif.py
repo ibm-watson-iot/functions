@@ -20,6 +20,7 @@ import warnings
 from collections import OrderedDict
 
 import numpy as np
+import scipy as sp
 import pandas as pd
 from sqlalchemy import String
 
@@ -158,16 +159,21 @@ class AggregateTimeInState(BaseSimpleAggregator):
         gstate = None
         gtime = None
         try:
-            gchange = df_group_exp[0].values.astype(int).copy()
-            gstate = df_group_exp[1].values.astype(int).copy()
-            gtime = df_group_exp[2].values.astype(int).copy()
+            gchange = np.append(df_group_exp[0].values.astype(int), 0)
+            gstate = np.append(df_group_exp[1].values.astype(int), 0)
+            gtime = df_group_exp[2].values.astype(int)
         except Exception as esplit:
             logger.info('AggregateTimeInState elements with NaN- returns 0 seconds, from ' + str(gchange.size))
             return 0.0
 
+        linear_interpolate = sp.interpolate.interp1d(np.arange(0, len(gtime)), gtime,
+                                     kind='linear', fill_value='extrapolate')
+        gtime = np.append(gtime, linear_interpolate(len(gtime)))
+
+
         # no statechange at all
         if not np.any(gchange):
-            logger.debug('AggregateTimeInState: no state change at all in this aggregation, inject it)
+            logger.debug('AggregateTimeInState: no state change at all in this aggregation, inject it')
             gchange[0] = gstate[0]
             gchange[-1] = -gstate[0]
 

@@ -156,11 +156,42 @@ def test_aggregation():
     et = aggobjt._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
 
     df_agg2= aggobjt.execute(df=df_i)
+
+    df_myagg = df_i.reset_index().groupby(pd.Grouper(key='timestamp', freq='D'))['TEMP_AIR'].\
+                      agg([('count', lambda x: (x>20).sum())])
+
+    print(df_myagg.columns)
     #df_agg_comp = pd.read_csv('./data/aggregated.csv', index_col=False, parse_dates=['timestamp'])
 
     #assert_true(np.allclose(df_agg['x.max() - x.min()'].values, df_agg_comp['x.max() - x.min()'].values))
 
-    print('Aggregation done', df_agg2)
+    print('Aggregation of state in time done') #, df_agg2['w']/3600)
+
+    #print(df_myagg['count'].values - df_agg2['w'].values/3600)
+
+    # myagg aggregation just counts states, but some data has gaps, account for it
+    accounting_array = [ 0.,-6., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,-2.,-1., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0.,-4., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0.,-1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,-3.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0.,-5., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,-2.,-4.,
+                     -5.,-5., 0., 0., 0., 0.,-2.,-1., 0., 0., 0., 0.,-3.,-3., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                      0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]
+
+    assert(np.allclose(df_myagg['count'].values - df_agg2['w'].values/3600, np.array(accounting_array)))
 
     pass
 
