@@ -1165,8 +1165,11 @@ class EntityDataGenerator(BasePreload):
             self.data_item_domain[key] = values
 
         # Add activities metadata to entity type
+        table_name_prefix = self._entity_type.name
+        if self._entity_type._metric_table_name is not None:
+            table_name_prefix = self._entity_type._metric_table_name
         for key, codes in list(self.activities.items()):
-            name = '%s_%s' % (self._entity_type.name, key)
+            name = '%s_%s' % (table_name_prefix, key)
             self._entity_type.add_activity_table(name, codes)
 
         # Generate data
