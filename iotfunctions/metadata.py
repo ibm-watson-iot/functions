@@ -46,6 +46,7 @@ DATA_ITEM_TAGS_KEY = 'tags'
 DATA_ITEM_TYPE_KEY = 'type'
 DATA_ITEM_ID = 'dataItemId'
 
+
 def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     """
     Get server metadata for entity type
@@ -412,8 +413,11 @@ class EntityType(object):
             raise ValueError(msg)
 
         property_name = property_name.lower()
+        name = self.name
+        if self._metric_table_name is not None:
+            name = self._metric_table_name
 
-        name = '%s_scd_%s' % (self.name, property_name)
+        name = '%s_scd_%s' % (name, property_name)
         kwargs['schema'] = self._db_schema
         if self.db.db_type == 'db2':
             name = name.upper()
@@ -1212,7 +1216,8 @@ class EntityType(object):
             tw['entity_filter'] = '%s entities' % len(entities)
 
         if self._pre_aggregate_time_grain is None:
-            df = self.db.read_table(table_name=self._metric_table_name, schema=self._db_schema, timestamp_col=self._timestamp,
+            df = self.db.read_table(table_name=self._metric_table_name, schema=self._db_schema,
+                                    timestamp_col=self._timestamp,
                                     parse_dates=None, columns=columns, start_ts=start_ts, end_ts=end_ts,
                                     entities=entities, dimension=self._dimension_table_name)
             tw['pre-aggregeted'] = None
@@ -1503,7 +1508,8 @@ class EntityType(object):
             df['devicetype'] = self.logical_name
             df['format'] = ''
             df['updated_utc'] = dt.datetime.utcnow()
-            self.db.write_frame(table_name=self._metric_table_name, df=df, schema=self._db_schema, timestamp_col=self._timestamp)
+            self.db.write_frame(table_name=self._metric_table_name, df=df, schema=self._db_schema,
+                                timestamp_col=self._timestamp)
 
         for (at_name, at_table) in list(self.activity_tables.items()):
             adf = self.generate_activity_data(table_name=at_name, activities=at_table._activities, entities=entities,
@@ -1580,7 +1586,7 @@ class EntityType(object):
                 data_item_domain = {}
 
             known_categoricals = set(data_item_domain.keys())
-            
+
             exclude_cols = self.get_excluded_cols()
 
             (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(self._dimension_table_name,
@@ -1599,7 +1605,7 @@ class EntityType(object):
                     sd = data_item_sd.get(m, 1)
                     data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
                     for i, value in enumerate(data[m]):
-                        dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER", 
+                        dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER",
                                                       "value": value})
 
             for c in categoricals:
@@ -1812,7 +1818,8 @@ class EntityType(object):
                 'output': output_item_name
             }
             export.append(kpi_function_metadata)
-            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id, request='POST',
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id,
+                                            request='POST',
                                             payload=kpi_function_metadata, raise_error=raise_error)
 
             logger.debug('Published kpis to entity type')
@@ -2393,6 +2400,7 @@ class BaseCustomEntityType(EntityType):
         """
         Publish the function instances assigned to this entity type to the AS Server
         """
+        self.add_functions_with_table_name()
 
         if self.db is None:
             msg = ('Entity type has no db connection. Local entity types'
@@ -2417,7 +2425,7 @@ class BaseCustomEntityType(EntityType):
                        ' Function %s has no _get_arg_spec() method.'
                        ' It cannot be published') % name
                 raise NotImplementedError(msg)
-            
+
             try:
                 (metadata_input, metadata_output) = s.build_ui()
             except AttributeError:
@@ -2468,6 +2476,9 @@ class BaseCustomEntityType(EntityType):
             logger.debug(response)
 
         return 1
+
+    def add_functions_with_table_name(self):
+        pass
 
 
 class Granularity(object):
