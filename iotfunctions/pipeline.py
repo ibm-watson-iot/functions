@@ -2389,15 +2389,19 @@ class CalcPipeline:
                     dimension_name = dimension_filter['name']
                     dimension_value = dimension_filter['value']
                     dimension_count -= 1
-                    if eval('isinstance(' + str(dimension_value) + ',str)'):
-                        dimension_value = '[' + dimension_value + ']'
+                    if isinstance(dimension_value, str):
+                        dimension_value = [dimension_value]
+                    else:
+                        # Convert to list explicitly to guarantee subsequent 'str(dimension_value)' returns a proper
+                        # string. Counter example: str(dict.values()) returns "dict_values([...])"
+                        dimension_value = list(dimension_value)
                     eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
                     eval_expression += ' & ' if dimension_count != 0 else ''
             else:
                 logger.debug('Applying Expression Scope')
-                expression = scope.get('expression')
-                if expression is not None and '${' in expression:
-                    eval_expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", expression)
+                eval_expression = scope.get('expression')
+                if eval_expression is not None and '${' in eval_expression:
+                    eval_expression = re.sub(r"\$\{(\w+)\}", r"df['\1']", eval_expression)
             logger.debug('Final Scope Mask Expression {}'.format(eval_expression))
             # Create merge index to reliably merge scoped df and original df
             merge_index = pd.Index(np.arange(df.shape[0]), name=MERGE_INDEX)
