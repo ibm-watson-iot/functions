@@ -1130,6 +1130,7 @@ class Database(object):
         logger.debug('URL: %s', url)
         r = self.http.request(request, url, body=encoded_payload, headers=headers)
         response = r.data.decode('utf-8')
+        logger.debug('payload: %s', encoded_payload)
 
         if 200 <= r.status <= 299:
             logger.debug(f'http request {url} successful. status {r.status}')
