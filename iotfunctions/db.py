@@ -425,22 +425,25 @@ class Database(object):
         is_icp = os.environ.get("isICP")
         if is_icp is not None and is_icp == 'true':
             if os.path.exists('/secrets/iot-common/ca.crt'):
-                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs='/secrets/iot-common/ca.crt')
+                self.http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10, read=60), cert_reqs='CERT_REQUIRED',
+                                                ca_certs='/secrets/iot-common/ca.crt')
             else:
                 if os.path.exists('/var/www/as-pipeline/ca_public_cert.pem'):
-                    self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                    self.http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10, read=60), cert_reqs='CERT_REQUIRED',
                                                     ca_certs='/var/www/as-pipeline/ca_public_cert.pem')
                 else:
                     if os.path.exists('/project_data/data_asset/ca_public_cert.pem'):
-                        self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                        self.http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10, read=60),
+                                                        cert_reqs='CERT_REQUIRED',
                                                         ca_certs='/project_data/data_asset/ca_public_cert.pem')
         else:
             if 'as' in self.credentials and Database.CERTIFICATE_FILE in self.credentials['as'] and \
                     self.credentials['as'][Database.CERTIFICATE_FILE] is not None:
-                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED',
+                self.http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10, read=60), cert_reqs='CERT_REQUIRED',
                                                 ca_certs=self.credentials['as'][Database.CERTIFICATE_FILE])
             else:
-                self.http = urllib3.PoolManager(timeout=30.0, cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+                self.http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10, read=60), cert_reqs='CERT_REQUIRED',
+                                                ca_certs=certifi.where())
 
         try:
             self.cos_client = CosClient(self.credentials)
@@ -1127,6 +1130,7 @@ class Database(object):
         logger.debug('URL: %s', url)
         r = self.http.request(request, url, body=encoded_payload, headers=headers)
         response = r.data.decode('utf-8')
+        logger.debug('payload: %s', encoded_payload)
 
         if 200 <= r.status <= 299:
             logger.debug(f'http request {url} successful. status {r.status}')

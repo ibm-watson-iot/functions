@@ -121,8 +121,6 @@ class SampleBlankEntity(metadata.BaseCustomEntityType):
         # columns
 
         functions = []
-        # simulation settings
-        sim = {'data_item_mean': {}, 'drop_existing': False}
 
         # dimension columns
         dimension_columns = []
@@ -200,8 +198,6 @@ class BuildingWorkstation(metadata.BaseCustomEntityType):
         # constants
         constants = []
 
-        physical_name = name.lower()
-
         # granularities
         granularities = []
 
@@ -248,8 +244,6 @@ class Robot(metadata.BaseCustomEntityType):
     """
 
     def __init__(self, name, db, db_schema=None, description=None, generate_days=10, drop_existing=False):
-        physical_name = name.lower()
-
         # constants
         constants = []
 
@@ -284,16 +278,6 @@ class Robot(metadata.BaseCustomEntityType):
                                            period_start_date='shift_start_date', period_end_date='shift_end_date',
                                            shift_day='shift_day', shift_id='shift_id'))
 
-        functions.append(bif.SCDLookup(table_name='%s_scd_operator' % physical_name, output_item='operator', ))
-
-        functions.append(bif.ActivityDuration(table_name='%s_maintenance' % physical_name,
-                                              activity_codes=['scheduled_maint', 'unscheduled_maint',
-                                                              'firmware_upgrade', 'testing'],
-                                              activity_duration=['scheduled_maint', 'unscheduled_maint',
-                                                                 'firmware_upgrade', 'testing'],
-                                              additional_items=['start_date'],
-                                              additional_output_names=['maintenance_start_date']))
-
         functions.append(bif.RandomDiscreteNumeric(discrete_values=[0, 1, 2, 3, 4, 5, 6, 7, 8],
                                                    probabilities=[0.2, 0.05, 0.05, .2, .3, 0.05, 0.05, 0.05, 0.05],
                                                    output_item='completed_movement_count'))
@@ -323,6 +307,28 @@ class Robot(metadata.BaseCustomEntityType):
                          functions=functions, dimension_columns=dimension_columns,
                          output_items_extended_metadata=output_items_extended_metadata, generate_days=generate_days,
                          drop_existing=drop_existing, description=description, db_schema=db_schema)
+
+    def add_functions_with_table_name(self):
+        """
+        Note added on 12/17/2021 after v2 changes
+        table name for entity is determined after the entity is registered
+        table name follow format "IOT_DEVICE_TYPE_ID_*"
+        For this reason we will add functions that depend on this name after sample entity is registered
+        :return:
+        """
+        physical_name = self.name.lower()
+        if self._metric_table_name is not None:
+            physical_name = self._metric_table_name.lower()
+
+        self._functions.append(bif.SCDLookup(table_name='%s_scd_operator' % physical_name, output_item='operator', ))
+
+        self._functions.append(bif.ActivityDuration(table_name='%s_maintenance' % physical_name,
+                                                    activity_codes=['scheduled_maint', 'unscheduled_maint',
+                                                                    'firmware_upgrade', 'testing'],
+                                                    activity_duration=['scheduled_maint', 'unscheduled_maint',
+                                                                       'firmware_upgrade', 'testing'],
+                                                    additional_items=['start_date'],
+                                                    additional_output_names=['maintenance_start_date']))
 
 
 class PackagingHopper(metadata.BaseCustomEntityType):
