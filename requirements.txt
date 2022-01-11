@@ -1,12 +1,12 @@
 dill==0.3.0
 ibm_db==3.1.0   #  3.02 results in "error in ibm_db setup command: use_2to3 is invalid."
 ibm_db_sa==0.3.7
-ibm-watson-machine-learning==1.0.166
+ibm-watson-machine-learning==1.0.173
 lxml==4.6.5
 lightgbm==3.2.1
 nose2==0.6.0
 # need to upgrade to numpy 1.19.5 at least for python 3.9
-numpy==1.19.5
+numpy==1.21.5 # https://nvd.nist.gov/vuln/detail/CVE-2021-41496
 pandas==1.2.4
 psycopg2-binary==2.8.6
 pyarrow==3.0.0
