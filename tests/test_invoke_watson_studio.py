@@ -5,6 +5,7 @@
 #  restricted by GSA ADP Schedule Contract with IBM Corp.
 
 import logging
+import unittest
 import pandas as pd
 from iotfunctions.bif import InvokeWMLModel
 from iotfunctions.enginelog import EngineLogging

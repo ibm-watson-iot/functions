@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+import unittest
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
@@ -18,7 +19,7 @@ from iotfunctions.anomaly import BayesRidgeRegressor, BayesRidgeRegressorExt
 from iotfunctions.db import Database
 from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
-from nose.tools import assert_true, nottest
+#from nose.tools import assert_true, nottest
 
 # constants
 Temperature = 'TEMP_AIR'
@@ -27,7 +28,7 @@ KW = 'KW'
 
 logger = logging.getLogger('Test Regressor')
 
-@nottest
+#@nottest
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
@@ -98,7 +99,7 @@ def test_bayes_ridge():
 
     mtrc = brgi.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOR.BayesRidgeRegressor.KW.MyShop'][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert_true(mtrc > 0.4)
+    assert (mtrc > 0.4)
 
     print('Bayes regressor - testing training pipeline done ')
 
@@ -122,7 +123,7 @@ def test_bayes_ridge():
 
     mtrc = brgi.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOR.BayesRidgeRegressor.KW.MyShop'][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert_true(mtrc > 0.4)
+    assert (mtrc > 0.4)
 
     print('Bayes regressor - inference done')
 
@@ -144,7 +145,7 @@ def test_bayes_ridge():
 
     mtrc = brgi.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOR.BayesRidgeRegressor.KW.MyShop'][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert_true(mtrc > 0.4)
+    assert (mtrc > 0.4)
 
     print('Bayes regressor - enforce retraining done')
 
@@ -166,7 +167,7 @@ def test_bayes_ridge():
 
     mtrc = brgei.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOREXT.BayesRidgeRegressorExt.KW.MyShop'][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert_true(mtrc > 0.4)
+    assert (mtrc > 0.4)
 
     print('Bayes regressor ext - training done')
 

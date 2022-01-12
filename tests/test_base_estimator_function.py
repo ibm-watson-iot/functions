@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+import unittest
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
@@ -19,7 +20,7 @@ from iotfunctions.anomaly import GBMRegressor
 from iotfunctions.db import Database
 from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
-from nose.tools import assert_true, nottest
+#from nose.tools import assert_true, nottest
 
 # constants
 Temperature = 'TEMP_AIR'
@@ -33,7 +34,7 @@ gen = 'TemperatureGeneralizedScore'
 
 logger = logging.getLogger('Test Regressor')
 
-@nottest
+#@nottest
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
@@ -42,7 +43,7 @@ class DatabaseDummy:
         return
 
 
-@nottest
+#@nottest
 class TestRegressor(BaseEstimatorFunction):
 
     eval_metric = staticmethod(r2_score)
@@ -130,7 +131,7 @@ def test_base_estimator_function():
 
     mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert_true(mtrc > 0.4)
+    assert (mtrc > 0.4)
 
     print('Base regressor - testing training pipeline done ')
 
@@ -152,7 +153,7 @@ def test_base_estimator_function():
 
     mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert_true(mtrc > 0.35)
+    assert (mtrc > 0.35)
 
     print('Base regressor - testing training pipeline done ')
 
@@ -174,7 +175,7 @@ def test_base_estimator_function():
 
     mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert_true(mtrc > 0.35)
+    assert (mtrc > 0.35)
 
     print('Base regressor - inference done')
 
@@ -195,7 +196,7 @@ def test_base_estimator_function():
 
     mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert_true(mtrc > 0.35)
+    assert (mtrc > 0.35)
 
     print('Base regressor - enforce retraining done')
 
