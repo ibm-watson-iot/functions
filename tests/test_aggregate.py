@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+import unittest
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
@@ -22,7 +23,7 @@ from iotfunctions.bif import AggregateWithExpression, AggregateTimeInState, Stat
 from iotfunctions.db import Database
 from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
-from nose.tools import assert_true, nottest
+#from nose.tools import assert, nottest
 
 # constants
 Temperature = 'TEMP_AIR'
@@ -36,7 +37,7 @@ gen = 'TemperatureGeneralizedScore'
 
 logger = logging.getLogger('Test Regressor')
 
-@nottest
+#@nottest
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
@@ -115,7 +116,7 @@ def test_aggregation():
     df_agg = aggobj.execute(df=df_i)
     df_agg_comp = pd.read_csv('./data/aggregated.csv', index_col=False, parse_dates=['timestamp'])
 
-    assert_true(np.allclose(df_agg['x.max() - x.min()'].values, df_agg_comp['x.max() - x.min()'].values))
+    assert     (np.allclose(df_agg['x.max() - x.min()'].values, df_agg_comp['x.max() - x.min()'].values))
 
     print('Aggregation done', df_agg)
 

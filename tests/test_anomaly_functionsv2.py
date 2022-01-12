@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+import unittest
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
@@ -18,7 +19,7 @@ from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
 from iotfunctions.anomaly import (SaliencybasedGeneralizedAnomalyScoreV2, SpectralAnomalyScoreExt,
                                   FFTbasedGeneralizedAnomalyScoreV2, KMeansAnomalyScoreV2)
-from nose.tools import assert_true, nottest
+#from nose.tools import assert_true, nottest
 
 # constants
 Temperature = 'Temperature'
@@ -31,7 +32,7 @@ gen = 'TemperatureGeneralizedScore'
 
 logger = logging.getLogger('Test Regressor')
 
-@nottest
+#@nottest
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
@@ -140,8 +141,8 @@ def test_anomaly_scores():
     print(comp2)
 
     # assert_true(comp2[spectral] > 0.9)
-    assert_true(comp2[fft] > 0.9)
-    assert_true(comp2[sal] > 0.9)
+    assert (comp2[fft] > 0.9)
+    assert (comp2[sal] > 0.9)
     # assert_true(comp2[kmeans] > 0.9)
 
     df_agg = df_i.copy()
