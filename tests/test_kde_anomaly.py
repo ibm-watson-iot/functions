@@ -9,6 +9,7 @@
 # *****************************************************************************
 
 import logging
+import unittest
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
@@ -18,7 +19,7 @@ from iotfunctions.anomaly import (FeatureBuilder, GBMForecaster, KDEAnomalyScore
 from iotfunctions.db import Database
 from iotfunctions.dbtables import FileModelStore
 from iotfunctions.enginelog import EngineLogging
-from nose.tools import assert_true, nottest
+#from nose.tools import assert_true, nottest
 
 # constants
 Temperature = 'TEMP_AIR'
@@ -27,7 +28,7 @@ KW = 'KW'
 
 logger = logging.getLogger('Test Regressor')
 
-@nottest
+#@nottest
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
