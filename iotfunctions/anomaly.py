@@ -582,7 +582,8 @@ class AnomalyScorer(BaseTransformer):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        if not df_copy.empty:
+            df_copy = df_copy.groupby(group_base).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy

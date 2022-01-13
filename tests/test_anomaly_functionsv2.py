@@ -95,7 +95,39 @@ def test_anomaly_scores():
     kmi._entity_type = et
     df_comp = kmi.execute(df=df_i)
 
-    print("Executed Anomaly functions on sklearn 0.21.3")
+    #####
+    print('Test with data frame with 0 rows')
+
+    db.model_store = FileModelStore('/tmp')   # generate new scalings
+    df_0rows= df_i[0:0]   # new data frame with same index and columns, but 0 rows
+
+    print('Compute Scores of empty frame - integrity check')
+    spsi = SpectralAnomalyScoreExt(Temperature, 12, spectral, spectralinv)
+    et = spsi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    spsi._entity_type = et
+    df_0rows = spsi.execute(df=df_0rows)
+
+    sali = SaliencybasedGeneralizedAnomalyScoreV2(Temperature, 12, True, sal)
+    et = sali._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    sali._entity_type = et
+    df_0rows = sali.execute(df=df_0rows)
+
+    ffti = FFTbasedGeneralizedAnomalyScoreV2(Temperature, 12, True, fft)
+    et = ffti._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    ffti._entity_type = et
+    df_0rows = ffti.execute(df=df_0rows)
+
+    kmi = KMeansAnomalyScoreV2(Temperature, 12, True, kmeans)
+    et = kmi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
+    kmi._entity_type = et
+    df_0rows = kmi.execute(df=df_0rows)
+
+    assert (len(df_0rows.index.names) > 0)
+
+    return
+
+    ####
+    print("Executed Anomaly functions on sklearn 0.24.1")
 
     print("Now generate new scalings with recent sklearn")
     db.model_store = FileModelStore('/tmp')
