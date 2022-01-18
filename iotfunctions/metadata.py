@@ -639,7 +639,7 @@ class EntityType(object):
             grouper = []
             freq = None
             entity_id = None
-            if g['entityFirst']:
+            if g['aggregateByDevice']:
                 grouper.append(pd.Grouper(key=self._entity_id))
                 entity_id = self._entity_id
             if g['frequency'] is not None:
@@ -655,7 +655,7 @@ class EntityType(object):
             custom_calendar_keys = []
             dimensions = []
             # differentiate between dimensions and custom calendar items
-            for d in g['dataItems']:
+            for d in g['dimensions']:
                 grouper.append(pd.Grouper(key=d))
                 if self._custom_calendar is not None:
                     if d in self._custom_calendar._output_list:
