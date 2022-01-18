@@ -1867,13 +1867,14 @@ class EntityType(object):
                 self.populate_entity_list_table()
 
                 # KITT integration: write dimension data after populating the entity list
-                logger.debug(self._generated_dimension_payload)
-                response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
-                                                request='PUT',
-                                                payload=self._generated_dimension_payload, raise_error=True)
-
-                logger.debug(f'Set dimensions in KITT and {self._dimension_table_name} table')
-                logger.debug(response)
+                if self._generated_dimension_payload:
+                    logger.debug(self._generated_dimension_payload)
+                    response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
+                                                    request='PUT',
+                                                    payload=self._generated_dimension_payload, raise_error=True)
+    
+                    logger.debug(f'Set dimensions in KITT and {self._dimension_table_name} table')
+                    logger.debug(response)
 
     def populate_entity_list_table(self):
         entity_list_table_name = 'dm_wiot_entity_list'
