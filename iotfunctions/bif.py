@@ -2358,7 +2358,7 @@ class Alert:
         return df
 
 
-class NewColFromCalculation:
+class NewColFromCalculation(BaseTransformer):
 
     @classmethod
     def metadata(cls):
@@ -2400,7 +2400,7 @@ class NewColFromCalculation:
         return df
 
 
-class Filter:
+class Filter(BaseTransformer):
 
     @classmethod
     def metadata(cls):
@@ -2479,7 +2479,7 @@ class Filter:
         return df
 
 
-class NewColFromSql:
+class NewColFromSql(BaseTransformer):
 
     def _set_dms(self, dms):
         self.dms = dms
@@ -2558,7 +2558,7 @@ class NewColFromSql:
         return df
 
 
-class NewColFromScalarSql:
+class NewColFromScalarSql(BaseTransformer):
 
     def _set_dms(self, dms):
         self.dms = dms
@@ -2594,7 +2594,7 @@ class NewColFromScalarSql:
         return df
 
 
-class Shift:
+class Shift(BaseTransformer):
     def __init__(self, name, start, end, cross_day_to_next=True):
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
 
@@ -2655,7 +2655,7 @@ class Shift:
         return "%s: (%s, %s)" % (self.name, self.ranges[0][0], self.ranges[-1][1])
 
 
-class ShiftPlan:
+class ShiftPlan(BaseTransformer):
     def __init__(self, shifts, cross_day_to_next=True):
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
 
@@ -2754,7 +2754,7 @@ class ShiftPlan:
         return str(self.shifts)
 
 
-class IdentifyShiftFromTimestamp:
+class IdentifyShiftFromTimestamp(BaseTransformer):
 
     @classmethod
     def metadata(cls):
@@ -2888,7 +2888,7 @@ class IdentifyShiftFromTimestamp:
         return df
 
 
-class SplitDataByActiveShifts:
+class SplitDataByActiveShifts(BaseTransformer):
 
     @classmethod
     def metadata(cls):
@@ -3056,7 +3056,7 @@ class SplitDataByActiveShifts:
         return df
 
 
-class MergeByFirstValid:
+class MergeByFirstValid(BaseTransformer):
 
     @classmethod
     def metadata(cls):
