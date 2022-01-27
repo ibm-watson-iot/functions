@@ -248,6 +248,7 @@ class Database(object):
             msg = 'Unable to locate META AND KPI URL.. using base API URL'
             logger.warning(msg)
 
+        self.use_internal_core_url = False
         core_api_host = credentials.get('core_api_host', None)
         if core_api_host is None:
             core_api_host = os.environ.get('AS_V2_CORE_API_URL', None)
@@ -257,6 +258,8 @@ class Database(object):
 
         if core_api_host is not None and core_api_host.startswith('https://'):
             core_api_host = core_api_host[8:]
+        elif core_api_host is not None and core_api_host.startswith('http://'):
+            self.use_internal_core_url = True
         else:
             core_api_host = as_api_host
 
@@ -1044,7 +1047,10 @@ class Database(object):
         base_url = 'https://%s/api' % (self.credentials['as']['host'])
         base_meta_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_meta_host'])
         base_kpi_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_kpi_host'])
-        core_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_core_host'])
+        if self.use_internal_core_url:
+            core_url = self.credentials['as_rest']['as_rest_core_host']
+        else:
+            core_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_core_host'])
 
         self.url = {}
         self.url[('allFunctions', 'GET')] = '/'.join(
