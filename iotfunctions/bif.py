@@ -144,8 +144,9 @@ class AggregateTimeInState(BaseSimpleAggregator):
         logger.info('Execute AggregateTimeInState')
 
         lg = group.size
-        if lg == 0:
-            logger.info('AggregateTimeInState no elements - returns 0 seconds, from 0')
+        if lg < 2:
+            # We need at least two data points for function sp.interpolate.interp1d()
+            logger.info(f'AggregateTimeInState no elements - returns 0 seconds, from {lg}')
             return 0.0
 
         # debug stuff
@@ -2038,7 +2039,7 @@ class TraceConstants(BaseTransformer):
     Write the values of available constants to the trace
     """
 
-    def __init__(self, dummy_items, output_item=None):
+    def __init__(self, dummy_items=None, output_item=None):
         super().__init__()
 
         self.dummy_items = dummy_items
@@ -2051,6 +2052,13 @@ class TraceConstants(BaseTransformer):
         c = self._entity_type.get_attributes_dict()
         msg = 'entity constants retrieved'
         self.trace_append(msg, **c)
+
+        if c is None or len(c) == 0:
+            logger.info("No constants have been defined")
+        else:
+            logger.info("The list of available constants (name: value):")
+            for name, value in c.items():
+                logger.info(f"{name:>30}: {str(value)}")
 
         df[self.output_item] = True
         return df
