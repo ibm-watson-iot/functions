@@ -53,7 +53,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     """
     db = kwargs['_db']
     # get kpi functions metadata
-    meta = db.http_request(object_type='engineInput', object_name=kwargs['logical_name'], request='GET',
+    meta = db.http_request(object_type='input', object_name=kwargs['logical_name'], request='GET',
                            raise_error=raise_error)
     try:
         meta = json.loads(meta)
@@ -1818,7 +1818,7 @@ class EntityType(object):
                 'output': output_item_name
             }
             export.append(kpi_function_metadata)
-            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id,
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_uuid,
                                             request='POST',
                                             payload=kpi_function_metadata, raise_error=raise_error)
 
@@ -1967,7 +1967,7 @@ class EntityType(object):
             payload = table
         else:
             payload = [table]
-        response = self.db.http_request(request='POST', object_type='entityType', object_name=self.name,
+        response = self.db.http_request(request='POST', object_type='entityType', object_name=self._entity_type_uuid,
                                         payload=payload, raise_error=raise_error, sample_entity_type=sample_entity_type)
 
         response_data = json.loads(response)
@@ -2099,13 +2099,13 @@ class ServerEntityType(EntityType):
     Initialize an entity type using AS Server metadata
     """
 
-    def __init__(self, logical_name, db, db_schema):
+    def __init__(self, resource_uuid, db, db_schema):
 
         self.db = db
-        self.logical_name = logical_name
+        self.resource_uuid = resource_uuid
 
         # get server metadata
-        server_meta = db.http_request(object_type='engineInput', object_name=logical_name, request='GET',
+        server_meta = db.http_request(object_type='input', object_name=resource_uuid, request='GET',
                                       raise_error=True)
         try:
             server_meta = json.loads(server_meta)
@@ -2113,7 +2113,7 @@ class ServerEntityType(EntityType):
             server_meta = None
         if server_meta is None or 'exception' in server_meta:
             raise RuntimeError(('API call to server did not retrieve valid entity '
-                                ' type properties for %s.' % logical_name))
+                                ' type properties for %s.' % resource_uuid))
 
         # functions
         kpis = server_meta.get('kpiDeclarations', [])
@@ -2176,7 +2176,7 @@ class ServerEntityType(EntityType):
         #    server and copied onto the entity type
 
         params = {}
-        c_meta = db.http_request(object_type='constants', object_name=logical_name, request='GET')
+        c_meta = db.http_request(object_type='constants', object_name=resource_uuid, request='GET')
         try:
             c_meta = json.loads(c_meta)
         except (TypeError, json.JSONDecodeError):
