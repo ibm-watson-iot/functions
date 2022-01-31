@@ -1047,23 +1047,21 @@ class Database(object):
         core_url = 'https://%s/api' % (self.credentials['as_rest']['as_rest_core_host'])
 
         self.url = {}
-        self.url[('allFunctions', 'GET')] = '/'.join(
-            [base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function?customFunctionsOnly=false'])
 
-        self.url[('constants', 'GET')] = '/'.join(
-            [base_kpi_url, 'constants', 'v1', self.tenant_id]) + '?entityType=%s' % object_name
-        self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
-        self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
-        self.url[('constants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        self.url[('constants', 'GET')] = '/'.join([core_url, 'v2', 'core', 'deviceType', object_name, 'constants'])
 
-        self.url[('defaultConstants', 'GET')] = '/'.join(
-            [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
-        self.url[('defaultConstants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
-        self.url[('defaultConstants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
-        self.url[('defaultConstants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        # self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        # self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        # self.url[('constants', 'DELETE')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
 
-        self.url[('dataItem', 'PUT')] = '/'.join(
-            [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
+        # self.url[('defaultConstants', 'GET')] = '/'.join(
+        #     [base_kpi_url, 'constants', 'v1', self.tenant_id, '?entityType=%s' % object_name])
+        # self.url[('defaultConstants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
+        self.url[('defaultConstants', 'DELETE')] = '/'.join([core_url, 'v2', 'core', 'workspaces', 'constants', object_name])
+        self.url[('defaultConstants', 'POST')] = '/'.join([core_url, 'v2', 'core', 'workspaces', 'constants'])
+
+        # self.url[('dataItem', 'PUT')] = '/'.join(
+        #     [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
         self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
 
@@ -1072,44 +1070,41 @@ class Database(object):
                 [core_url, 'v2', 'core', 'deviceTypes']) + '?user=aslibrary'
         else:
             self.url[('entityType', 'POST')] = '/'.join(
-                [base_meta_url, 'meta', 'v1', self.tenant_id, object_type]) + '?createTables=true'
+                [core_url, 'v2', 'core', 'deviceTypes'])
 
-        self.url[('entityType', 'GET')] = '/'.join(
-            [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
+        # self.url[('entityType', 'GET')] = '/'.join(
+        #     [base_meta_url, 'meta', 'v1', self.tenant_id, object_type, object_name])
 
-        self.url[('engineInput', 'GET')] = '/'.join(
-            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
-        self.url[('engineInputByEntityId', 'GET')] = '/'.join(
-            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'engineInput', object_name])
+        self.url[('input', 'GET')] = '/'.join(
+            [core_url, 'v2', 'core', 'pipeline', object_name, object_type])
 
-        self.url[('function', 'GET')] = '/'.join(
-            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
-        self.url[('function', 'DELETE')] = '/'.join(
-            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
-        self.url[('function', 'PUT')] = '/'.join(
-            [base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type, object_name])
-        self.url[('function', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, object_type])
+        # self.url[('engineInputByEntityId', 'GET')] = '/'.join(
+        #     [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'engineInput', object_name])
 
-        self.url[('granularitySet', 'POST')] = '/'.join(
-            [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
-        self.url[('granularitySet', 'DELETE')] = '/'.join(
-            [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
-        self.url[('granularitySet', 'GET')] = '/'.join(
-            [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+        if object_name is None:
+            self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core', 'catalogFunctions'])
+        else:
+            self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
+        self.url[('catalogFunctions', 'DELETE')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
+        self.url[('catalogFunctions', 'PUT')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
+        self.url[('catalogFunctions', 'POST')] = '/'.join([core_url, 'v2', 'core','catalogFunctions'])
 
-        # self.url[('kpiFunctions', 'POST')] = '/'.join(
-        #     [base_kpi_url, 'kpi', 'v1','entityType', object_name, object_type, 'import'])
+        # self.url[('granularitySet', 'POST')] = '/'.join(
+        #     [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+        # self.url[('granularitySet', 'DELETE')] = '/'.join(
+        #     [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
+        # self.url[('granularitySet', 'GET')] = '/'.join(
+        #     [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
 
-        self.url[('kpiFunctions', 'POST')] = '/'.join(
-            [core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
-        self.url[('kpiFunction', 'DELETE')] = '/'.join(
-            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
-        self.url[('kpiFunction', 'GET')] = '/'.join(
-            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
-        self.url[('kpiFunction', 'PUT')] = '/'.join(
-            [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
+        self.url[('kpiFunctions', 'POST')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
+        # self.url[('kpiFunction', 'DELETE')] = '/'.join(
+        #     [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
+        # self.url[('kpiFunction', 'GET')] = '/'.join(
+        #     [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+        # self.url[('kpiFunction', 'PUT')] = '/'.join(
+        #     [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
-        self.url['usage', 'POST'] = '/'.join([base_kpi_url, 'kpiusage', 'v1', self.tenant_id, 'function', 'usage'])
+        # self.url['usage', 'POST'] = '/'.join([base_kpi_url, 'kpiusage', 'v1', self.tenant_id, 'function', 'usage'])
 
         self.url['dimensions', 'POST'] = '/'.join(
             [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
@@ -1242,7 +1237,7 @@ class Database(object):
 
         result = {}
 
-        fns = json.loads(self.http_request('allFunctions', object_name=None, request='GET', payload=None))
+        fns = json.loads(self.http_request('catalogFunctions', object_name=None, request='GET', payload=None))
         for fn in fns:
             function_name = fn["name"]
             if (function_list is not None) and (function_name not in function_list):
@@ -1741,7 +1736,7 @@ class Database(object):
                        'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
-                self.http_request(object_type='function', object_name=name, request="POST", payload=payload,
+                self.http_request(object_type='catalogFunction', object_name=name, request="POST", payload=payload,
                                   raise_error=raise_error)
 
             else:
@@ -2810,7 +2805,7 @@ class Database(object):
 
         for f in function_names:
             payload = {'name': f}
-            r = self.http_request(object_type='function', object_name=f, request='DELETE', payload=payload)
+            r = self.http_request(object_type='catalogFunction', object_name=f, request='DELETE', payload=payload)
             try:
                 msg = 'Function registration deletion status: %s' % (r.data.decode('utf-8'))
             except AttributeError:
