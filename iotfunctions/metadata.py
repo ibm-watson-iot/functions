@@ -639,10 +639,10 @@ class EntityType(object):
             grouper = []
             freq = None
             entity_id = None
-            if g['aggregateByDevice']:
+            if g.get('aggregateByDevice', False):
                 grouper.append(pd.Grouper(key=self._entity_id))
                 entity_id = self._entity_id
-            if g['frequency'] is not None:
+            if g.get('frequency') is not None:
                 freq = (self.get_grain_freq(g['frequency'], freq_lookup, None))
                 if freq is None:
                     raise ValueError(('Invalid frequency name %s. The frequency name'
@@ -655,7 +655,7 @@ class EntityType(object):
             custom_calendar_keys = []
             dimensions = []
             # differentiate between dimensions and custom calendar items
-            for d in g['dimensions']:
+            for d in g.get('dimensions', []):
                 grouper.append(pd.Grouper(key=d))
                 if self._custom_calendar is not None:
                     if d in self._custom_calendar._output_list:
