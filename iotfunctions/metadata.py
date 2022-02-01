@@ -53,7 +53,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     """
     db = kwargs['_db']
     # get kpi functions metadata
-    meta = db.http_request(object_type='input', object_name=kwargs['logical_name'], request='GET',
+    meta = db.http_request(object_type='input', object_name=kwargs['resourceUuId'], request='GET',
                            raise_error=raise_error)
     try:
         meta = json.loads(meta)
@@ -81,7 +81,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     params['_data_items'] = meta['dataItems']
 
     # constants
-    c_meta = db.http_request(object_type='constants', object_name=kwargs['logical_name'], request='GET')
+    c_meta = db.http_request(object_type='constants', object_name=kwargs['resourceUuId'], request='GET')
     try:
         c_meta = json.loads(c_meta)
     except (TypeError, json.JSONDecodeError):
@@ -1964,7 +1964,7 @@ class EntityType(object):
                 except KeyError:
                     raise KeyError('No database credentials found. Unable to register table.')
 
-        response = self.db.http_request(request='POST', object_type='entityType', object_name=self._entity_type_uuid,
+        response = self.db.http_request(request='POST', object_type='entityType', object_name=None,
                                         payload=table, raise_error=raise_error, sample_entity_type=sample_entity_type)
 
         response_data = json.loads(response)
@@ -2007,7 +2007,7 @@ class EntityType(object):
             logger.debug(msg)
             return {}
 
-        meta = self.db.http_request(object_type='constants', object_name=self.logical_name, request='GET')
+        meta = self.db.http_request(object_type='constants', object_name=self._entity_type_uuid, request='GET')
         try:
             meta = json.loads(meta)
         except (TypeError, json.JSONDecodeError):
