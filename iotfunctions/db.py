@@ -1048,7 +1048,7 @@ class Database(object):
 
         self.url = {}
 
-        self.url[('constants', 'GET')] = '/'.join([core_url, 'v2', 'core', 'deviceType', object_name, 'constants'])
+        self.url[('constants', 'GET')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, 'constants'])
 
         # self.url[('constants', 'PUT')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
         # self.url[('constants', 'POST')] = '/'.join([base_kpi_url, 'constants', 'v1', self.tenant_id])
