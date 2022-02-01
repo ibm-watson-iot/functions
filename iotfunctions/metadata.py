@@ -1963,16 +1963,12 @@ class EntityType(object):
                     table["schemaName"] = "public"
                 except KeyError:
                     raise KeyError('No database credentials found. Unable to register table.')
-        if sample_entity_type:
-            payload = table
-        else:
-            payload = [table]
+
         response = self.db.http_request(request='POST', object_type='entityType', object_name=self._entity_type_uuid,
-                                        payload=payload, raise_error=raise_error, sample_entity_type=sample_entity_type)
+                                        payload=table, raise_error=raise_error, sample_entity_type=sample_entity_type)
 
         response_data = json.loads(response)
-        if not sample_entity_type:
-            response_data = response_data[0]
+
         self._entity_type_uuid = response_data.get('uuid')
         self._entity_type_id = response_data.get('resourceId')
         self._metric_table_name = response_data.get('metricTableName')
