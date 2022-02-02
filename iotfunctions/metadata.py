@@ -53,7 +53,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     """
     db = kwargs['_db']
     # get kpi functions metadata
-    meta = db.http_request(object_type='engineInput', object_name=kwargs['logical_name'], request='GET',
+    meta = db.http_request(object_type='input', object_name=kwargs['resourceUuId'], request='GET',
                            raise_error=raise_error)
     try:
         meta = json.loads(meta)
@@ -81,7 +81,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     params['_data_items'] = meta['dataItems']
 
     # constants
-    c_meta = db.http_request(object_type='constants', object_name=kwargs['logical_name'], request='GET')
+    c_meta = db.http_request(object_type='constants', object_name=kwargs['resourceUuId'], request='GET')
     try:
         c_meta = json.loads(c_meta)
     except (TypeError, json.JSONDecodeError):
@@ -639,10 +639,10 @@ class EntityType(object):
             grouper = []
             freq = None
             entity_id = None
-            if g['aggregateByDevice']:
+            if g.get('aggregateByDevice', False):
                 grouper.append(pd.Grouper(key=self._entity_id))
                 entity_id = self._entity_id
-            if g['frequency'] is not None:
+            if g.get('frequency') is not None:
                 freq = (self.get_grain_freq(g['frequency'], freq_lookup, None))
                 if freq is None:
                     raise ValueError(('Invalid frequency name %s. The frequency name'
@@ -655,7 +655,7 @@ class EntityType(object):
             custom_calendar_keys = []
             dimensions = []
             # differentiate between dimensions and custom calendar items
-            for d in g['dimensions']:
+            for d in g.get('dimensions', []):
                 grouper.append(pd.Grouper(key=d))
                 if self._custom_calendar is not None:
                     if d in self._custom_calendar._output_list:
@@ -1818,7 +1818,7 @@ class EntityType(object):
                 'output': output_item_name
             }
             export.append(kpi_function_metadata)
-            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id,
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_uuid,
                                             request='POST',
                                             payload=kpi_function_metadata, raise_error=raise_error)
 
@@ -1963,16 +1963,12 @@ class EntityType(object):
                     table["schemaName"] = "public"
                 except KeyError:
                     raise KeyError('No database credentials found. Unable to register table.')
-        if sample_entity_type:
-            payload = table
-        else:
-            payload = [table]
-        response = self.db.http_request(request='POST', object_type='entityType', object_name=self.name,
-                                        payload=payload, raise_error=raise_error, sample_entity_type=sample_entity_type)
+
+        response = self.db.http_request(request='POST', object_type='entityType', object_name=None,
+                                        payload=table, raise_error=raise_error, sample_entity_type=sample_entity_type)
 
         response_data = json.loads(response)
-        if not sample_entity_type:
-            response_data = response_data[0]
+
         self._entity_type_uuid = response_data.get('uuid')
         self._entity_type_id = response_data.get('resourceId')
         self._metric_table_name = response_data.get('metricTableName')
@@ -2011,7 +2007,7 @@ class EntityType(object):
             logger.debug(msg)
             return {}
 
-        meta = self.db.http_request(object_type='constants', object_name=self.logical_name, request='GET')
+        meta = self.db.http_request(object_type='constants', object_name=self._entity_type_uuid, request='GET')
         try:
             meta = json.loads(meta)
         except (TypeError, json.JSONDecodeError):
@@ -2099,13 +2095,13 @@ class ServerEntityType(EntityType):
     Initialize an entity type using AS Server metadata
     """
 
-    def __init__(self, logical_name, db, db_schema):
+    def __init__(self, resource_uuid, db, db_schema):
 
         self.db = db
-        self.logical_name = logical_name
+        self.resource_uuid = resource_uuid
 
         # get server metadata
-        server_meta = db.http_request(object_type='engineInput', object_name=logical_name, request='GET',
+        server_meta = db.http_request(object_type='input', object_name=resource_uuid, request='GET',
                                       raise_error=True)
         try:
             server_meta = json.loads(server_meta)
@@ -2113,7 +2109,7 @@ class ServerEntityType(EntityType):
             server_meta = None
         if server_meta is None or 'exception' in server_meta:
             raise RuntimeError(('API call to server did not retrieve valid entity '
-                                ' type properties for %s.' % logical_name))
+                                ' type properties for %s.' % resource_uuid))
 
         # functions
         kpis = server_meta.get('kpiDeclarations', [])
@@ -2148,7 +2144,7 @@ class ServerEntityType(EntityType):
         (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)
 
         #  map server properties to entity type properties
-        self._entity_type_id = server_meta['entityTypeId']
+        self._entity_type_id = server_meta['resourceId']
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
         self._dimension_table_name = server_meta['dimensionsTable']
@@ -2176,7 +2172,7 @@ class ServerEntityType(EntityType):
         #    server and copied onto the entity type
 
         params = {}
-        c_meta = db.http_request(object_type='constants', object_name=logical_name, request='GET')
+        c_meta = db.http_request(object_type='constants', object_name=resource_uuid, request='GET')
         try:
             c_meta = json.loads(c_meta)
         except (TypeError, json.JSONDecodeError):
