@@ -1,4 +1,4 @@
-dill==0.3.0
+dill==0.3.2
 ibm_db==3.1.0   #  3.02 results in "error in ibm_db setup command: use_2to3 is invalid."
 ibm_db_sa==0.3.7
 ibm-watson-machine-learning==1.0.173
