@@ -1625,19 +1625,25 @@ class Database(object):
 
         if not isinstance(constants, list):
             constants = [constants]
-        payload = []
+
         for c in constants:
             meta = c.to_metadata()
             name = meta['name']
             default = meta.get('value', None)
+            if default is None:
+                default = meta.get('values', {})
             del meta['name']
             try:
                 del meta['value']
             except KeyError:
                 pass
-            payload.append({'name': name, 'entityType': None, 'enabled': True, 'value': default, 'metadata': meta})
-        self.http_request(object_type='defaultConstants', object_name=None, request="POST", payload=payload,
-                          raise_error=True)
+            try:
+                del meta['values']
+            except KeyError:
+                pass
+            payload = {'name': name, 'entityType': None, 'enabled': True, 'value': default, 'metadata': meta}
+            self.http_request(object_type='defaultConstants', object_name=None, request="POST", payload=payload,
+                              raise_error=True)
 
     def register_functions(self, functions, url=None, raise_error=True, force_preinstall=False):
         """
@@ -2819,12 +2825,9 @@ class Database(object):
 
         if not isinstance(constant_names, list):
             constant_names = [constant_names]
-        payload = []
 
         for f in constant_names:
-            payload.append({'name': f, 'entityType': None})
-
-        r = self.http_request(object_type='defaultConstants', object_name=f, request='DELETE', payload=payload)
+            r = self.http_request(object_type='defaultConstants', object_name=f, request='DELETE')
         try:
             msg = 'Constants deletion status: %s' % (r.data.decode('utf-8'))
         except AttributeError:
