@@ -1086,8 +1086,8 @@ class Database(object):
         else:
             self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
         self.url[('catalogFunctions', 'DELETE')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
-        self.url[('catalogFunctions', 'PUT')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
-        self.url[('catalogFunctions', 'POST')] = '/'.join([core_url, 'v2', 'core','catalogFunctions'])
+        self.url[('catalogFunctions', 'PUT')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function', object_name])
+        self.url[('catalogFunctions', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function'])
 
         # self.url[('granularitySet', 'POST')] = '/'.join(
         #     [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
@@ -1736,7 +1736,7 @@ class Database(object):
                        'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
-                self.http_request(object_type='catalogFunction', object_name=name, request="POST", payload=payload,
+                self.http_request(object_type='catalogFunctions', object_name=name, request="POST", payload=payload,
                                   raise_error=raise_error)
 
             else:
@@ -2805,7 +2805,7 @@ class Database(object):
 
         for f in function_names:
             payload = {'name': f}
-            r = self.http_request(object_type='catalogFunction', object_name=f, request='DELETE', payload=payload)
+            r = self.http_request(object_type='catalogFunctions', object_name=f, request='DELETE', payload=payload)
             try:
                 msg = 'Function registration deletion status: %s' % (r.data.decode('utf-8'))
             except AttributeError:
