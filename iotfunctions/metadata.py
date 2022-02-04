@@ -2138,7 +2138,8 @@ class ServerEntityType(EntityType):
 
         # build a schedules dict keyed by freq
 
-        self._schedules_dict = self.build_schedules(kpis)
+        # not needed for predict
+        # self._schedules_dict = self.build_schedules(kpis)
 
         # turn function metadata into function objects
         (self._functions, self._invalid_stages, self._disabled_stages) = self.build_function_objects(kpis)

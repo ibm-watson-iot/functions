@@ -1086,8 +1086,8 @@ class Database(object):
         else:
             self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
         self.url[('catalogFunctions', 'DELETE')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
-        self.url[('catalogFunctions', 'PUT')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
-        self.url[('catalogFunctions', 'POST')] = '/'.join([core_url, 'v2', 'core','catalogFunctions'])
+        self.url[('catalogFunctions', 'PUT')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function', object_name])
+        self.url[('catalogFunctions', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function'])
 
         # self.url[('granularitySet', 'POST')] = '/'.join(
         #     [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
@@ -1625,19 +1625,25 @@ class Database(object):
 
         if not isinstance(constants, list):
             constants = [constants]
-        payload = []
+
         for c in constants:
             meta = c.to_metadata()
             name = meta['name']
             default = meta.get('value', None)
+            if default is None:
+                default = meta.get('values', {})
             del meta['name']
             try:
                 del meta['value']
             except KeyError:
                 pass
-            payload.append({'name': name, 'entityType': None, 'enabled': True, 'value': default, 'metadata': meta})
-        self.http_request(object_type='defaultConstants', object_name=None, request="POST", payload=payload,
-                          raise_error=True)
+            try:
+                del meta['values']
+            except KeyError:
+                pass
+            payload = {'name': name, 'entityType': None, 'enabled': True, 'value': default, 'metadata': meta}
+            self.http_request(object_type='defaultConstants', object_name=None, request="POST", payload=payload,
+                              raise_error=True)
 
     def register_functions(self, functions, url=None, raise_error=True, force_preinstall=False):
         """
@@ -1736,7 +1742,7 @@ class Database(object):
                        'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
-                self.http_request(object_type='catalogFunction', object_name=name, request="POST", payload=payload,
+                self.http_request(object_type='catalogFunctions', object_name=name, request="POST", payload=payload,
                                   raise_error=raise_error)
 
             else:
@@ -2805,7 +2811,7 @@ class Database(object):
 
         for f in function_names:
             payload = {'name': f}
-            r = self.http_request(object_type='catalogFunction', object_name=f, request='DELETE', payload=payload)
+            r = self.http_request(object_type='catalogFunctions', object_name=f, request='DELETE', payload=payload)
             try:
                 msg = 'Function registration deletion status: %s' % (r.data.decode('utf-8'))
             except AttributeError:
@@ -2819,12 +2825,9 @@ class Database(object):
 
         if not isinstance(constant_names, list):
             constant_names = [constant_names]
-        payload = []
 
         for f in constant_names:
-            payload.append({'name': f, 'entityType': None})
-
-        r = self.http_request(object_type='defaultConstants', object_name=f, request='DELETE', payload=payload)
+            r = self.http_request(object_type='defaultConstants', object_name=f, request='DELETE')
         try:
             msg = 'Constants deletion status: %s' % (r.data.decode('utf-8'))
         except AttributeError:
