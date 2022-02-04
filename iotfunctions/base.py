@@ -1233,14 +1233,14 @@ class BaseFunction(object):
         else:
             entity_type = self.get_entity_type()
             try:
-                response = entity_type.db.http_request(object_type='catalogFunction', object_name=name, request='DELETE',
+                response = entity_type.db.http_request(object_type='catalogFunctions', object_name=name, request='DELETE',
                                                        payload=payload)
             except TypeError:
                 msg = 'Unable to serialize payload %s' % payload
                 raise TypeError(msg)
             msg = 'Unregistered function with response %s' % response
             logger.debug(msg)
-            response = entity_type.db.http_request(object_type='catalogFunction', object_name=None, request='POST',
+            response = entity_type.db.http_request(object_type='catalogFunctions', object_name=None, request='POST',
                                                    payload=payload)
             msg = 'Registered function with response %s' % response
             logger.debug(msg)
