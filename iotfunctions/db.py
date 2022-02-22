@@ -1495,7 +1495,7 @@ class Database(object):
             if log_message is None:
                 logger.debug(f"The following sql statement returned {df.shape[0]} records and was executed in "
                              f"{execution_time} seconds: {sql}.")
-                log_data_frame("Returned data frame:", df.head())
+                log_data_frame("Returned data frame:", df)
             else:
                 logger.debug(f"{log_message}: execution time = {execution_time} s, sql = {sql}")
 

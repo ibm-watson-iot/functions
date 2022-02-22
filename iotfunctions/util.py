@@ -511,13 +511,17 @@ def log_df_info(df, msg, include_data=False):
         return ''
 
 
-def log_data_frame(message=None, df=None):
+def log_data_frame(message=None, df=None, head_only=True):
     try:
         log_message = None
         if message is not None:
             log_message = message
         if df is not None:
-            df_copy = df.copy()
+            if head_only is True:
+                df_copy = df.head().copy()
+            else:
+                df_copy = df.copy()
+
             if not df_copy.empty:
                 # Replace all True/False values in columns of type 'object' by 'true'/false' respectively because
                 # of a bug in tabulate that tries to handle 'object' columns as 'float' columns whenever possible.
@@ -527,8 +531,10 @@ def log_data_frame(message=None, df=None):
                     if col_type.name == 'object':
                         df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'True', 'true')
                         df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'False', 'false')
-            log_message = log_message + ' = %s \n%s' % (
-                str(df_copy.shape), tabulate(df_copy, headers='keys', tablefmt='psql'))
+            log_message = f"{log_message} = {str(df.shape)} \n" \
+                          f"{tabulate(df_copy, headers='keys', tablefmt='psql')} \n" \
+                          f"Data types of index: {df_copy.index.to_frame(index=False).dtypes.to_dict()} \n" \
+                          f"Data types of columns: {df_copy.dtypes.sort_index().to_dict()}"
         logger.debug(log_message)
     except Exception as ex:
         logger.debug("Error while pretty printing the dataframe.", ex)

@@ -183,7 +183,7 @@ class Aggregation(BaseFunction):
 
         # Aggregate
         agg_df_simple = groups.agg(**named_aggregations)
-        log_data_frame('Data frame after application of simple aggregators', agg_df_simple.head())
+        log_data_frame('Data frame after application of simple aggregators', agg_df_simple)
 
         all_dfs.append(agg_df_simple)
 
@@ -233,7 +233,7 @@ class Aggregation(BaseFunction):
 
             all_dfs.append(df_apply)
 
-            log_data_frame('func=%s, aggregation_df_apply' % str(func), df_apply.head())
+            log_data_frame('func=%s, aggregation_df_apply' % str(func), df_apply)
 
         ###############################################################################
         # direct aggregators
@@ -263,7 +263,7 @@ class Aggregation(BaseFunction):
 
             all_dfs.append(df_direct)
 
-            log_data_frame('func=%s, aggregation_df_direct' % str(func), df_direct.head())
+            log_data_frame('func=%s, aggregation_df_direct' % str(func), df_direct)
 
         ###############################################################################
         # concat all results
@@ -275,7 +275,7 @@ class Aggregation(BaseFunction):
         if len(group_base_names) == 1:
             df.index.names = group_base_names
 
-        log_data_frame('aggregation_final_df', df.head())
+        log_data_frame('aggregation_final_df', df)
 
         return df
 
