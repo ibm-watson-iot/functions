@@ -1340,45 +1340,6 @@ class GetEntityData(BaseDataSource):
 
         return (inputs, outputs)
 
-
-class EntityId(BaseTransformer):
-    """
-    Deliver a data item containing the id of each entity. Optionally only return the entity
-    id when one or more data items are populated, else deliver a null value.
-    """
-
-    def __init__(self, data_items=None, output_item=None):
-
-        super().__init__()
-        self.data_items = data_items
-        if output_item is None:
-            self.output_item = 'entity_id'
-        else:
-            self.output_item = output_item
-
-    def execute(self, df):
-
-        df = df.copy()
-        if self.data_items is None:
-            df[self.output_item] = df[self.get_entity_type()._entity_id]
-        else:
-            df[self.output_item] = np.where(df[self.data_items].notna().max(axis=1),
-                                            df[self.get_entity_type()._entity_id], None)
-        return df
-
-    @classmethod
-    def build_ui(cls):
-        # define arguments that behave as function inputs
-        inputs = []
-        inputs.append(UIMultiItem(name='data_items', datatype=None, required=False, description='Choose one or more data items. If data items are defined, \
-                                               entity id will only be shown if these data items are not null'))
-        # define arguments that behave as function outputs
-        outputs = []
-        outputs.append(UIFunctionOutSingle(name='output_item', datatype=bool, description='Dummy function output'))
-
-        return (inputs, outputs)
-
-
 class IfThenElse(BaseTransformer):
     """
     Set the value of the output_item based on a conditional expression.
@@ -2125,7 +2086,6 @@ IoTDatabaseLookup = DatabaseLookup
 IoTDeleteInputData = DeleteInputData
 IoTDropNull = DropNull
 IoTEntityFilter = EntityFilter
-IoTGetEntityId = EntityId
 IoTIfThenElse = IfThenElse
 IoTPackageInfo = PackageInfo
 IoTRaiseError = RaiseError
