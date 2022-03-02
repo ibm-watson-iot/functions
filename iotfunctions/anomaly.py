@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018-2021.  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -17,6 +17,7 @@ import datetime as dt
 import importlib
 import logging
 import time
+import hashlib # encode feature names
 
 import numpy as np
 import pandas as pd
@@ -43,6 +44,8 @@ from sklearn.covariance import MinCovDet
 from sklearn.neighbors import (KernelDensity, LocalOutlierFactor)
 from sklearn.pipeline import Pipeline, TransformerMixin
 from sklearn.model_selection import train_test_split
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.mixture import BayesianGaussianMixture
 from sklearn.preprocessing import (StandardScaler, RobustScaler, MinMaxScaler,
                                    minmax_scale, PolynomialFeatures)
 from sklearn.utils import check_array
@@ -61,6 +64,7 @@ from statsmodels.tsa.arima.model import ARIMA
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
+from .dbtables import (FileModelStore, DBModelStore)
 
 # VAE
 import torch
@@ -91,7 +95,6 @@ Spectral_normalizer = 100 / 2.8
 FFT_normalizer = 1
 Saliency_normalizer = 1
 Generalized_normalizer = 1 / 300
-
 
 # from
 # https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
@@ -525,6 +528,12 @@ class AnomalyScorer(BaseTransformer):
 
         self.whoami = 'Anomaly'
 
+    def _set_dms(self, dms):
+        self.dms = dms
+
+    def _get_dms(self):
+        return self.dms
+
     def get_model_name(self, prefix='model', suffix=None):
 
         name = []
@@ -590,7 +599,8 @@ class AnomalyScorer(BaseTransformer):
 
     def _calc(self, df):
 
-        entity = df.index.levels[0][0]
+        #entity = df.index.levels[0][0]
+        entity = df.index[0][0]
 
         # get rid of entity id as part of the index
         df = df.droplevel(0)
@@ -701,7 +711,10 @@ class AnomalyScorer(BaseTransformer):
             logger.error('Found Nan or infinite value in input data,  error: ' + str(e))
             return temperature
 
+        # obtain db handler
         db = self._entity_type.db
+        if db is None:
+            db = self._get_dms().db
 
         scaler_model = None
         # per entity - copy for later inplace operations
@@ -1418,9 +1431,13 @@ class MatrixProfileAnomalyScore(AnomalyScorer):
             scores.append(np.zeros(temperature.shape))
 
         try:  # calculate scores
-            matrix_profile = stumpy.aamp(temperature, m=self.windowsize)[:, 0]
+            # replaced aamp with stump for stumpy 1.8.0 and above
+            #matrix_profile = stumpy.aamp(temperature, m=self.windowsize)[:, 0]
+            matrix_profile = stumpy.stump(temperature, m=self.windowsize, normalize=False)[:, 0]
+
             # fill in a small value for newer data points outside the last possible window
             fillers = np.array([self.DATAPOINTS_AFTER_LAST_WINDOW] * (self.windowsize - 1))
+
             matrix_profile = np.append(matrix_profile, fillers)
         except Exception as er:
             logger.warning(f' Error in calculating Matrix Profile Scores. {er}')
@@ -1831,8 +1848,13 @@ class RobustThreshold(SupervisedLearningTransformer):
 
     def _calc(self, df):
         # per entity - copy for later inplace operations
+        #entity = df.index.levels[0][0]
+        entity = df.index[0][0]
+
+        # obtain db handler
         db = self._entity_type.db
-        entity = df.index.levels[0][0]
+        if db is None:
+            db = self._get_dms().db
 
         model_name, robust_model, version = self.load_model(suffix=entity)
 
@@ -1944,8 +1966,13 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
     def _calc(self, df):
 
+        #entity = df.index.levels[0][0]
+        entity = df.index[0][0]
+
+        # obtain db handle
         db = self._entity_type.db
-        entity = df.index.levels[0][0]
+        if db is None:
+            db = self._get_dms().db
 
         logger.debug('BayesRidgeRegressor execute: ' + str(type(df)) + ' for entity ' + str(entity) +
                      ' predicting ' + str(self.targets) + ' from ' + str(self.features) +
@@ -2051,8 +2078,13 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
 
     def _calc(self, df):
 
+        #entity = df.index.levels[0][0]
+        entity = df.index[0][0]
+
+        # obtain db handler
         db = self._entity_type.db
-        entity = df.index.levels[0][0]
+        if db is None:
+            db = self._get_dms().db
 
         logger.debug('BayesRidgeRegressor execute: ' + str(type(df)) + ' for entity ' + str(entity) +
                      ' predicting ' + str(self.targets) + ' from ' + str(self.features) +
@@ -2271,8 +2303,13 @@ class GBMRegressor(BaseEstimatorFunction):
 
     def _calc(self, df):
 
+        #entity = df.index.levels[0][0]
+        entity = df.index[0][0]
+
+        # obtain db handler
         db = self._entity_type.db
-        entity = df.index.levels[0][0]
+        if db is None:
+            db = self._get_dms().db
 
         logger.debug('GBMRegressor execute: ' + str(type(df)) + ' for entity ' + str(entity) +
                      ' predicting ' + str(self.targets) + ' from ' + str(self.features) +
@@ -2570,8 +2607,13 @@ class ARIMAForecaster(SupervisedLearningTransformer):
     '''
     def _calc(self, df):
         # per entity - copy for later inplace operations
+        #entity = df.index.levels[0][0]
+        entity = df.index[0][0]
+
+        # obtain db handler
         db = self._entity_type.db
-        entity = df.index.levels[0][0]
+        if db is None:
+            db = self._get_dms().db
 
         df = df.droplevel(0)
 
@@ -2663,8 +2705,12 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
 
     def _calc(self, df):
 
+        entity = df.index[0][0]
+
+        # obtain db handler
         db = self._entity_type.db
-        entity = df.index.levels[0][0]
+        if db is None:
+            db = self._get_dms().db
 
         logger.debug('KDEAnomalyScore execute: ' + str(type(df)) + ' for entity ' + str(entity))
 
@@ -2694,7 +2740,7 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
             except Exception as e:
                 logger.error('Model store failed with ' + str(e))
 
-            self.active_models[entity] = kde_model
+        self.active_models[entity] = kde_model
 
         predictions = kde_model.pdf(xy).reshape(-1,1)
         print(predictions.shape, df[self.predictions].values.shape)
@@ -2751,8 +2797,9 @@ def l_gaussian(y, mu, log_var):
     return 1/torch.sqrt(2 * np.pi * sigma**2) / torch.exp((1 / (2 * sigma**2)) * (y-mu)**2)
 
 
+# not used - 100% buggy
 def kl_div(mu1, mu2, lg_sigma1, lg_sigma2):
-    return 0.5 * (2 * lg_sigma2 - 2 * lg_sigma1 + (lg_sigma1.exp() ** 2 + (mu1 - mu2)**2)/lg_sigma2.exp()**2 - 1)
+    return 0.5 * torch.sum(2 * lg_sigma2 - 2 * lg_sigma1 + (lg_sigma1.exp() ** 2 + (mu1 - mu2)**2)/lg_sigma2.exp()**2 - 1)
 
 
 class VI(nn.Module):
@@ -2804,15 +2851,19 @@ class VI(nn.Module):
     def elbo(self, y_pred, y, mu, log_var):
         # likelihood of observing y given Variational mu and sigma - reconstruction error
         loglikelihood = ll_gaussian(y, mu, log_var)
+
         # Sample from p(x|z) by sampling from q(z|x), passing through decoder (y_pred)
         # likelihood of observing y given Variational decoder mu and sigma - reconstruction error
         log_qzCx = ll_gaussian(y, mu, log_var)
 
-        # KL - prior probability of sample y_pred w.r.t. N(0,1)
+        # KL - probability of sample y_pred w.r.t. prior
         log_pz = ll_gaussian(y_pred, self.prior_mu, torch.log(torch.tensor(self.prior_sigma)))
 
-        # KL - probability of y_pred w.r.t the variational likelihood
+        # KL - probability of sample y_pred w.r.t the variational likelihood
         log_pxCz = ll_gaussian(y_pred, mu, log_var)
+
+        ## Alternatively we could compute the KL div to the gaussian prior with something like
+        # KL = -0.5 * torch.sum(1 + log_var - torch.square(mu) - torch.exp(log_var)))
 
         if self.show_once:
             self.show_once = False
@@ -2830,7 +2881,6 @@ class VI(nn.Module):
 
         log_iw = None
         for _ in range(k_samples):
-
 
             # Encode - sample from the encoder
             #  Latent variables mean,variance: mu_enc, log_var_enc
@@ -2877,14 +2927,15 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         self.whoami = "VIAnomalyScore"
         super().__init__(features, targets)
 
-        self.epochs = 1500
+        self.epochs = 80  # turns out to be sufficient for IWAE
         self.learning_rate = 0.005
+        self.quantile = 0.99
 
         self.active_models = dict()
         self.Input = {}
         self.Output = {}
         self.mu = {}
-        self.quantile095 = {}
+        self.quantile099 = {}
 
         if predictions is None:
             predictions = ['predicted_%s' % x for x in self.targets]
@@ -2894,6 +2945,7 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         self.predictions = predictions
         self.pred_stddev = pred_stddev
 
+        # make sure mean is > 0
         self.prior_mu = 0.0
         self.prior_sigma = 1.0
         self.beta = 1.0
@@ -2912,8 +2964,12 @@ class VIAnomalyScore(SupervisedLearningTransformer):
 
     def _calc(self, df):
 
+        entity = df.index[0][0]
+
+        # obtain db handler
         db = self._entity_type.db
-        entity = df.index.levels[0][0]
+        if db is None:
+            db = self._get_dms().db
 
         logger.debug('VIAnomalyScore execute: ' + str(type(df)) + ' for entity ' + str(entity))
 
@@ -2937,10 +2993,10 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         features = scaler.transform(df[self.features].values)
         targets = df[self.targets].values
 
-        # deal with negative means - are the issues related to ReLU ?
-        #  adjust targets to have mean == 0
+        # deal with negative means - ReLU doesn't like negative values
+        #  adjust targets wth the (positive) prior mean to make sure it's > 0
         if vi_model is None:
-            adjust_mean = targets.mean()
+            adjust_mean = targets.mean() - self.prior_mu
         else:
             adjust_mean = vi_model.adjust_mean
         logger.info('Adjusting target mean with ' + str(adjust_mean))
@@ -2960,6 +3016,7 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         # train new model if there is none and autotrain is set
         if vi_model is None and self.auto_train:
 
+            # equip prior with a 'plausible' deviation
             self.prior_sigma = targets.std()
 
             vi_model = VI(scaler, prior_mu=self.prior_mu, prior_sigma=self.prior_sigma,
@@ -2998,9 +3055,9 @@ class VIAnomalyScore(SupervisedLearningTransformer):
                 mue = mu_and_log_sigma[1]
                 sigma = torch.exp(0.5 * mu_and_log_sigma[2]) + 1e-5
                 mu = sp.stats.norm.ppf(0.5, loc=mue, scale=sigma).reshape(-1,)
-                q1 = sp.stats.norm.ppf(0.95, loc=mue, scale=sigma).reshape(-1,)
+                q1 = sp.stats.norm.ppf(self.quantile, loc=mue, scale=sigma).reshape(-1,)
                 self.mu[entity] = mu
-                self.quantile095[entity] = q1
+                self.quantile099[entity] = q1
 
             df[self.predictions] = (mu[ind_r] + vi_model.adjust_mean).reshape(-1,1)
             df[self.pred_stddev] = (q1[ind_r]).reshape(-1,1)

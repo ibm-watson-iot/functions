@@ -25,6 +25,7 @@ from iotfunctions.enginelog import EngineLogging
 Temperature = 'TEMP_AIR'
 Humidity = 'HUMIDITY'
 KW = 'KW'
+MyShop = 'MyShop'
 
 logger = logging.getLogger('Test Regressor')
 
@@ -78,6 +79,7 @@ def test_bayes_ridge():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
 
     df_i = brgi.execute(df=df_i)
 
@@ -93,11 +95,14 @@ def test_bayes_ridge():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
 
     df_i = brgi.execute(df=df_i)
     print('Bayes regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOR.BayesRidgeRegressor.KW.MyShop'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 
@@ -118,10 +123,14 @@ def test_bayes_ridge():
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
 
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
+
     df_i = brgi.execute(df=df_i)
     print('Bayes regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOR.BayesRidgeRegressor.KW.MyShop'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 
@@ -140,10 +149,14 @@ def test_bayes_ridge():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
+
     df_i = brgi.execute(df=df_i)
     print('Bayes regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOR.BayesRidgeRegressor.KW.MyShop'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 
@@ -162,10 +175,14 @@ def test_bayes_ridge():
 
     et = brgei._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgei._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
+
     df_i = brgei.execute(df=df_i)
     print('Bayes regressor ext done')
 
-    mtrc = brgei.active_models['model.TEST_ENTITY_FOR_BAYESRIDGEREGRESSOREXT.BayesRidgeRegressorExt.KW.MyShop'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 
