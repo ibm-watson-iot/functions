@@ -2172,7 +2172,7 @@ class GBMRegressor(BaseEstimatorFunction):
 
     def set_parameters(self):
         self.params = {'gbm__n_estimators': [self.n_estimators], 'gbm__num_leaves': [self.num_leaves],
-                       'gbm__learning_rate': [self.learning_rate], 'gbm__max_depth': [self.max_depth], 'gbm__verbosity': [2]}
+                       'gbm__learning_rate': [self.learning_rate], 'gbm__max_depth': [self.max_depth], 'gbm__verbosity': [-1]}
 
     #
     # forecasting support
@@ -3124,13 +3124,12 @@ class AutoRegScore(SupervisedLearningTransformer):
     category = 'PreTrainedPipeline'
     tags = None
 
-    def __init__(self, features, output, model=None):
-        if isinstance(features, set):
-            features = list(features)
-        super().__init__([features[0]], [features[1]], [output])
-        #self.model = model
+    #def __init__(self, features, output, model=None):
+    def __init__(self, features, target, prediction, model=None):
+        if isinstance(features, set): features = list(features)
+        super().__init__(features, [target], [prediction])
         self.auto_train = True
-        self.model = None
+        self.model = model
         self.whoami = 'AutoRegScore'
         #self.category = 'PreTrainedPipeline'
         #self.tag = None
@@ -3138,13 +3137,10 @@ class AutoRegScore(SupervisedLearningTransformer):
     def _calc(self, df):
 
         entity = df.index[0][0]
-        print('AutoReg 3', self.features, df[self.features])
 
         try:
             df[self.predictions] = self.model.predict(df[self.features])
-
         except Exception as e:
-            print (e)
             logger.info('AutoReg for entity failed with: ' + str(e))
 
         return df
@@ -3152,46 +3148,41 @@ class AutoRegScore(SupervisedLearningTransformer):
     def execute(self, df):
 
         df_copy = df.copy()
-        print('AutoReg 2')
+        logger.info('AutoReg ' + ' Inference, Features: ' + str(self.features) + ' Targets: ' + str(self.targets))
 
         missing_cols = [x for x in self.targets + self.predictions if x not in df_copy.columns]
         for m in missing_cols:
             df_copy[m] = None
 
         db = self.get_db()
-        print('AutoReg 2a', db)
+
         # model singleton first
         #model_name, autoreg_model, version = self.load_model(suffix=entity)
-        model_name, self.model, version = self.load_model()
-        print('AutoReg 2b', model_name)
+        if self.model is None:
+            model_name, self.model, version = self.load_model()
 
         if self.model is None and self.auto_train:
 
-            print('AutoReg 2c', self.features, self.targets)
+            logger.info('AutoReg ' + ' Train ' + model_name)
             steps = [('scaler', StandardScaler()),
-                     ('gbm', GradientBoostingRegressor(n_estimators = 500, learning_rate=0.2))]
+                     ('lin', linear_model.BayesianRidge(compute_score=True))]
+                     #('gbm', GradientBoostingRegressor(n_estimators = 500, learning_rate=0.2))]
             self.model = Pipeline(steps)
-            print('AutoReg 2d', df_copy)
 
             df_train, df_test = train_test_split(df_copy, test_size=0.2)
-            print('AutoReg 2dd', df_train[self.features])
 
             try:
                 # do some interesting stuff
                 self.model.fit(df_train[self.features], df_train[self.targets])
-                print('AutoReg 2e', model_name)
                 db.model_store.store_model(model_name, self.model)
             except Exception as e:
-                print('AutoReg 2f', e)
                 logger.error('Training failed with ' + str(e))
 
         if self.model is None:
             # go away if training failed (ignore failures to save the model)
-            print('AutoReg 2g', self.targets)
             df[self.targets[0]] = 0
             return df
 
         # evaluate on a per entity basis
-        print('AutoReg 1')
         return super().execute(df)
 
