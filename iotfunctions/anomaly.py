@@ -64,6 +64,7 @@ from statsmodels.tsa.arima.model import ARIMA
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
+from .db import (Database, DatabaseFacade)
 from .dbtables import (FileModelStore, DBModelStore)
 
 # VAE
@@ -712,9 +713,7 @@ class AnomalyScorer(BaseTransformer):
             return temperature
 
         # obtain db handler
-        db = self._entity_type.db
-        if db is None:
-            db = self._get_dms().db
+        db = self.get_db()
 
         scaler_model = None
         # per entity - copy for later inplace operations
@@ -1681,7 +1680,7 @@ class SupervisedLearningTransformer(BaseTransformer):
     and automatically store a trained model in the tenant database
     Inferencing is run in the pipeline
     """
-    def __init__(self, features, targets):
+    def __init__(self, features, targets, predictions=None):
         super().__init__()
 
         logging.debug("__init__" + self.name)
@@ -1692,6 +1691,8 @@ class SupervisedLearningTransformer(BaseTransformer):
 
         self.features = features
         self.targets = targets
+        self.predictions = predictions
+
         parms = []
         if features is not None:
             parms.extend(features)
@@ -1699,32 +1700,16 @@ class SupervisedLearningTransformer(BaseTransformer):
             parms.extend(targets)
         parms = '.'.join(parms)
         logging.debug("__init__ done with parameters: " + parms)
-
-    '''
-    Generate unique model name from entity, optionally features and target for consistency checks
-    '''
-    def get_model_name(self, prefix='model', features=None, targets=None, suffix=None):
-
-        name = []
-        if prefix is not None:
-            name.append(prefix)
-
-        name.extend([self._entity_type.name, self.name])
-        if features is not None:
-            name.extend(features)
-        if targets is not None:
-            name.extend(targets)
-        if suffix is not None:
-            name.append(suffix)
-        name = '.'.join(name)
-        return name
+        self.whoami = 'SupervisedLearningTransformer'
 
 
     def load_model(self, suffix=None):
-        model_name = self.get_model_name(targets=self.targets, suffix=suffix)
+        # TODO: Lift assumption there is only a single target
+        model_name = self.generate_model_name([], self.targets[0], prefix='model', suffix=suffix)
         my_model = None
+        db = self.get_db()
         try:
-            my_model = self._entity_type.db.model_store.retrieve_model(model_name)
+            my_model = db.model_store.retrieve_model(model_name)
             logger.info('load model %s' % str(my_model))
         except Exception as e:
             logger.error('Model retrieval failed with ' + str(e))
@@ -1744,14 +1729,22 @@ class SupervisedLearningTransformer(BaseTransformer):
 
     def execute(self, df):
         logger.debug('Execute ' + self.whoami)
-        df_copy = df # no copy
+
+        # obtain db handler
+        db = self.get_db()
 
         # check data type
         #if df[self.input_item].dtype != np.float64:
         for feature in self.features:
-            if not pd.api.types.is_numeric_dtype(df_copy[feature].dtype):
+            if not pd.api.types.is_numeric_dtype(df[feature].dtype):
                 logger.error('Regression on non-numeric feature:' + str(feature))
-                return (df_copy)
+                return (df)
+
+        # Create missing columns before doing group-apply
+        df_copy = df.copy()
+        missing_cols = [x for x in self.targets + self.predictions if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
 
         # delegate to _calc
         logger.debug('Execute ' + self.whoami + ' enter per entity execution')
@@ -1762,6 +1755,7 @@ class SupervisedLearningTransformer(BaseTransformer):
         df_copy = df_copy.groupby(group_base).apply(self._calc)
 
         logger.debug('Scoring done')
+
         return df_copy
 
 
@@ -1852,9 +1846,7 @@ class RobustThreshold(SupervisedLearningTransformer):
         entity = df.index[0][0]
 
         # obtain db handler
-        db = self._entity_type.db
-        if db is None:
-            db = self._get_dms().db
+        db = self.get_db()
 
         model_name, robust_model, version = self.load_model(suffix=entity)
 
@@ -1970,9 +1962,7 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
         entity = df.index[0][0]
 
         # obtain db handle
-        db = self._entity_type.db
-        if db is None:
-            db = self._get_dms().db
+        db = self.get_db()
 
         logger.debug('BayesRidgeRegressor execute: ' + str(type(df)) + ' for entity ' + str(entity) +
                      ' predicting ' + str(self.targets) + ' from ' + str(self.features) +
@@ -2082,9 +2072,7 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
         entity = df.index[0][0]
 
         # obtain db handler
-        db = self._entity_type.db
-        if db is None:
-            db = self._get_dms().db
+        db = self.get_db()
 
         logger.debug('BayesRidgeRegressor execute: ' + str(type(df)) + ' for entity ' + str(entity) +
                      ' predicting ' + str(self.targets) + ' from ' + str(self.features) +
@@ -2307,9 +2295,7 @@ class GBMRegressor(BaseEstimatorFunction):
         entity = df.index[0][0]
 
         # obtain db handler
-        db = self._entity_type.db
-        if db is None:
-            db = self._get_dms().db
+        db = self.get_db()
 
         logger.debug('GBMRegressor execute: ' + str(type(df)) + ' for entity ' + str(entity) +
                      ' predicting ' + str(self.targets) + ' from ' + str(self.features) +
@@ -2611,9 +2597,7 @@ class ARIMAForecaster(SupervisedLearningTransformer):
         entity = df.index[0][0]
 
         # obtain db handler
-        db = self._entity_type.db
-        if db is None:
-            db = self._get_dms().db
+        db = self.get_db()
 
         df = df.droplevel(0)
 
@@ -2708,9 +2692,7 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
         entity = df.index[0][0]
 
         # obtain db handler
-        db = self._entity_type.db
-        if db is None:
-            db = self._get_dms().db
+        db = self.get_db()
 
         logger.debug('KDEAnomalyScore execute: ' + str(type(df)) + ' for entity ' + str(entity))
 
@@ -2967,9 +2949,7 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         entity = df.index[0][0]
 
         # obtain db handler
-        db = self._entity_type.db
-        if db is None:
-            db = self._get_dms().db
+        db = self.get_db()
 
         logger.debug('VIAnomalyScore execute: ' + str(type(df)) + ' for entity ' + str(entity))
 
@@ -3135,3 +3115,83 @@ class HistogramAggregator(BaseSimpleAggregator):
         outputs = []
         outputs.append(UIFunctionOutSingle(name='name', datatype=str, description='Histogram encoded as string'))
         return inputs, outputs
+
+
+# SROM Org Function Scorer
+class AutoRegScore(SupervisedLearningTransformer):
+    """_summary_
+    """
+    category = 'PreTrainedPipeline'
+    tags = None
+
+    def __init__(self, features, output, model=None):
+        if isinstance(features, set):
+            features = list(features)
+        super().__init__([features[0]], [features[1]], [output])
+        #self.model = model
+        self.auto_train = True
+        self.model = None
+        self.whoami = 'AutoRegScore'
+        #self.category = 'PreTrainedPipeline'
+        #self.tag = None
+
+    def _calc(self, df):
+
+        entity = df.index[0][0]
+        print('AutoReg 3', self.features, df[self.features])
+
+        try:
+            df[self.predictions] = self.model.predict(df[self.features])
+
+        except Exception as e:
+            print (e)
+            logger.info('AutoReg for entity failed with: ' + str(e))
+
+        return df
+
+    def execute(self, df):
+
+        df_copy = df.copy()
+        print('AutoReg 2')
+
+        missing_cols = [x for x in self.targets + self.predictions if x not in df_copy.columns]
+        for m in missing_cols:
+            df_copy[m] = None
+
+        db = self.get_db()
+        print('AutoReg 2a', db)
+        # model singleton first
+        #model_name, autoreg_model, version = self.load_model(suffix=entity)
+        model_name, self.model, version = self.load_model()
+        print('AutoReg 2b', model_name)
+
+        if self.model is None and self.auto_train:
+
+            print('AutoReg 2c', self.features, self.targets)
+            steps = [('scaler', StandardScaler()),
+                     ('gbm', GradientBoostingRegressor(n_estimators = 500, learning_rate=0.2))]
+            self.model = Pipeline(steps)
+            print('AutoReg 2d', df_copy)
+
+            df_train, df_test = train_test_split(df_copy, test_size=0.2)
+            print('AutoReg 2dd', df_train[self.features])
+
+            try:
+                # do some interesting stuff
+                self.model.fit(df_train[self.features], df_train[self.targets])
+                print('AutoReg 2e', model_name)
+                db.model_store.store_model(model_name, self.model)
+            except Exception as e:
+                print('AutoReg 2f', e)
+                logger.error('Training failed with ' + str(e))
+
+        if self.model is None:
+            # go away if training failed (ignore failures to save the model)
+            print('AutoReg 2g', self.targets)
+            df[self.targets[0]] = 0
+            return df
+
+        # evaluate on a per entity basis
+        print('AutoReg 1')
+        return super().execute(df)
+

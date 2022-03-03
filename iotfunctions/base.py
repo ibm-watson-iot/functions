@@ -32,7 +32,7 @@ from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.preprocessing import StandardScaler
 
-from .db import Database
+from .db import (Database, DatabaseFacade)
 from .metadata import EntityType, Model, LocalEntityType
 from .pipeline import CalcPipeline, PipelineExpression
 from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
@@ -352,9 +352,10 @@ class BaseFunction(object):
         """
 
         name = []
-        my_name = self._entity_type.name
-        if my_name is None:
-            my_name = 'Test'
+        if self._entity_type is None or self._entity_type.name is None:
+            my_name = '_Test_'
+        else:
+            my_name = self._entity_type.name
 
         if prefix is not None:
             name.append(prefix)
@@ -438,10 +439,19 @@ class BaseFunction(object):
         credentials and tenant id. If no credentials are supplied, credentials will be
         derived from environment variables
         """
+        if self._entity_type is None:
+            return DatabaseFacade()
+
         try:
             db = self._entity_type.db
         except AttributeError:
             db = None
+
+        if db is None:
+            try:
+                db = self._get_dms().db
+            except AttributeError:
+                db = None
 
         if db is None:
             db = Database(credentials=credentials, tenant_id=tenant_id)
@@ -1317,8 +1327,11 @@ class BaseFunction(object):
         Add to the trace info collected during function execution
         """
 
-        et = self.get_entity_type()
-        et.trace_append(created_by=self, msg=msg, log_method=log_method, df=df, **kwargs)
+        try:
+            et = self.get_entity_type()
+            et.trace_append(created_by=self, msg=msg, log_method=log_method, df=df, **kwargs)
+        except Exception as e:
+            logger.info(str(msg))
 
     @classmethod
     def _transform_metadata(cls, metadata_input, metadata_output, db=None):
