@@ -402,7 +402,10 @@ class AlertExpression(BaseEvent):
         return df
 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         df = df.copy()
         if '${' in self.expression:
             expr = re.sub(r"\$\{(\w+)\}", r"df['\1']", self.expression)
@@ -449,7 +452,10 @@ class AlertExpressionWithFilter(BaseEvent):
 
     # evaluate alerts by entity
     def _calc(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         df = df.copy()
         logger.info('AlertExpressionWithFilter  exp: ' + self.expression + '  input: ' + str(df.columns))
 
@@ -850,7 +856,10 @@ class ConditionalItems(BaseTransformer):
         self.output_items = output_items
 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         df = df.copy()
         result = eval(self.conditional_expression)
         for i, o in enumerate(self.conditional_items):
@@ -955,7 +964,10 @@ class DateDifferenceConstant(BaseTransformer):
         else:
             ds_1 = df[self.date_1]
 
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         constant_value = c[self.date_constant]
         ds_2 = pd.Series(data=constant_value, index=df.index)
         ds_2 = pd.to_datetime(ds_2)
@@ -1260,7 +1272,10 @@ class PythonExpression(BaseTransformer):
         self.outputs = ['output_name']
 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         df = df.copy()
         requested = list(self.get_input_items())
         msg = self.expression + ' .'
@@ -1362,7 +1377,10 @@ class IfThenElse(BaseTransformer):
             self.output_item = output_item
 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         df = df.copy()
         df[self.output_item] = np.where(eval(self.conditional_expression), eval(self.true_expression),
                                         eval(self.false_expression))
@@ -1509,11 +1527,15 @@ class PythonFunction(BaseTransformer):
             kw['source'] = 'paste-in code'
             kw['filename'] = None
 
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         kw['input_items'] = self.input_items
         kw['output_item'] = self.output_item
         kw['entity_type'] = self._entity_type
         kw['db'] = self._entity_type.db
-        kw['c'] = self._entity_type.get_attributes_dict()
+        kw['c'] = c
         kw['logger'] = logger
         self.trace_append(msg=self.function_code, log_method=logger.debug, **kw)
 
@@ -2010,7 +2032,10 @@ class TraceConstants(BaseTransformer):
             self.output_item = output_item
 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         msg = 'entity constants retrieved'
         self.trace_append(msg, **c)
 
@@ -2307,7 +2332,10 @@ class Alert:
         self.sources = sources
 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
 
         sources_not_in_column = df.index.names
         df = df.reset_index()
@@ -2354,7 +2382,10 @@ class NewColFromCalculation(BaseTransformer):
         self.sources = sources
 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
         sources_not_in_column = df.index.names
         df = df.reset_index()
 
@@ -2412,7 +2443,10 @@ class Filter(BaseTransformer):
         self.filtered_sources = filtered_sources
 
     def execute(self, df):
-        c = self._entity_type.get_attributes_dict()
+        try:
+            c = self._entity_type.get_attributes_dict()
+        except Exception:
+            c = None
 
         # Make index levels available as columns
         sources_not_in_column = df.index.names
@@ -3135,7 +3169,10 @@ class InvokeWMLModel(BaseTransformer):
         if isinstance(self.wml_auth, dict):
             wml_credentials = self.wml_auth
         elif self.wml_auth is not None:
-            c = self._entity_type.get_attributes_dict()
+            try:
+                c = self._entity_type.get_attributes_dict()
+            except Exception:
+                c = None
             try:
                 wml_credentials = c[self.wml_auth]
             except Exception as ae:
