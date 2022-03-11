@@ -25,6 +25,7 @@ from iotfunctions.enginelog import EngineLogging
 Temperature = 'TEMP_AIR'
 Humidity = 'HUMIDITY'
 KW = 'KW'
+MyShop = 'MyShop'  # entity name
 
 logger = logging.getLogger('Test Regressor')
 
@@ -48,7 +49,7 @@ def test_light_gbm():
     df_i = pd.read_csv('./data/RegressionTestData.csv', index_col=False, parse_dates=['DATETIME'])
     df_i = df_i.rename(columns={'DATETIME': 'timestamp'})
 
-    df_i['entity'] = 'MyShop'
+    df_i['entity'] = MyShop
     df_i[Temperature] = pd.to_numeric(df_i[Temperature], errors='coerce')
     df_i[Humidity] = pd.to_numeric(df_i[Humidity], errors='coerce')
 
@@ -82,6 +83,10 @@ def test_light_gbm():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
+    print (model_name)
 
     df_i = brgi.execute(df=df_i)
 
@@ -98,11 +103,16 @@ def test_light_gbm():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
 
     df_i = brgi.execute(df=df_i)
     print('lightGBM regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_GBMREGRESSOR.GBMRegressor.KW.MyShop'][0].eval_metric_test
+    #mtrc = brgi.active_models['model.TEST_ENTITY_FOR_GBMREGRESSOR.GBMRegressor.KW.MyShop'][0].eval_metric_test
+
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 
@@ -123,10 +133,13 @@ def test_light_gbm():
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
 
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
+
     df_i = brgi.execute(df=df_i)
     print('lightGBM regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_GBMREGRESSOR.GBMRegressor.KW.MyShop'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 
@@ -145,10 +158,13 @@ def test_light_gbm():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
+
     df_i = brgi.execute(df=df_i)
     print('lightGBM regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_GBMREGRESSOR.GBMRegressor.KW.MyShop'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 
@@ -165,10 +181,13 @@ def test_light_gbm():
 
     et = brgei._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgei._entity_type = et
+    brgi._entity_type.name = MyShop
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW, suffix=MyShop)
+
     df_i = brgei.execute(df=df_i)
     print('lightGBM forecaster done')
 
-    mtrc = brgei.active_models['model.TEST_ENTITY_FOR_GBMFORECASTER.GBMForecaster.KW.MyShop'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 

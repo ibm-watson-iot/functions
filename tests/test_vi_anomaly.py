@@ -32,7 +32,7 @@ logger = logging.getLogger('Test Regressor')
 class DatabaseDummy:
     tenant_id = '###_IBM_###'
     db_type = 'db2'
-    model_store = FileModelStore('./tmp')
+    model_store = FileModelStore('/tmp')
     def _init(self):
         return
 

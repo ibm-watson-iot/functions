@@ -26,6 +26,7 @@ from iotfunctions.enginelog import EngineLogging
 Temperature = 'TEMP_AIR'
 Humidity = 'HUMIDITY'
 KW = 'KW'
+MyShop = 'MyShop'
 kmeans = 'TemperatureKmeansScore'
 fft = 'TemperatureFFTScore'
 spectral = 'TemperatureSpectralScore'
@@ -126,10 +127,14 @@ def test_base_estimator_function():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW)  # no suffix, works on entity type level
+
     df_i = brgi.execute(df=df_i)
     print('Base regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.4)
 
@@ -148,10 +153,14 @@ def test_base_estimator_function():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW)
+
     df_i = brgi.execute(df=df_i)
     print('Base regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.35)
 
@@ -170,10 +179,14 @@ def test_base_estimator_function():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW)
+
     df_i = brgi.execute(df=df_i)
     print('Base regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.35)
 
@@ -191,10 +204,14 @@ def test_base_estimator_function():
 
     et = brgi._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
     brgi._entity_type = et
+    brgi._entity_type.name = MyShop
+
+    model_name = brgi.generate_model_name([Temperature, Humidity], KW)
+
     df_i = brgi.execute(df=df_i)
     print('Base regressor done')
 
-    mtrc = brgi.active_models['model.TEST_ENTITY_FOR_TESTREGRESSOR.TestRegressor.KW'][0].eval_metric_test
+    mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
     assert (mtrc > 0.35)
 
