@@ -21,6 +21,7 @@ import re
 import warnings
 from collections import OrderedDict
 from inspect import getargspec, signature
+import hashlib # encode feature names
 
 import numpy as np
 import pandas as pd
@@ -31,7 +32,7 @@ from sklearn import ensemble, linear_model, metrics, neural_network
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.preprocessing import StandardScaler
 
-from .db import Database
+from .db import (Database, DatabaseFacade)
 from .metadata import EntityType, Model, LocalEntityType
 from .pipeline import CalcPipeline, PipelineExpression
 from .ui import UIFunctionOutSingle, UIMultiItem, UISingle
@@ -40,7 +41,6 @@ from .util import log_df_info, UNIQUE_EXTENSION_LABEL
 logger = logging.getLogger(__name__)
 
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
-
 
 class BaseFunction(object):
     """
@@ -345,20 +345,32 @@ class BaseFunction(object):
 
         return df
 
-    def generate_model_name(self, target_name, prefix='model', suffix=None):
+    def generate_model_name(self, features, target_name, prefix='model', suffix=None):
 
         """
         Generate a model name
         """
 
         name = []
+        if self._entity_type is None or self._entity_type.name is None:
+            my_name = '_Test_'
+        else:
+            my_name = self._entity_type.name
+
         if prefix is not None:
             name.append(prefix)
-        name.extend([self._entity_type.name, self.name, target_name])
+
+        # treat model names like a password and target like a salt
+        feature_names = ','.join(list(filter(None, features)))
+        feature_target_hash = hashlib.sha256(target_name.encode() + feature_names.encode()).hexdigest() + ':' + target_name
+
+        name.extend([my_name, self.name, feature_target_hash])
+
         if suffix is not None:
             name.append(suffix)
         name = '.'.join(name)
         return name
+
 
     def get_column_map(self):
 
@@ -427,10 +439,19 @@ class BaseFunction(object):
         credentials and tenant id. If no credentials are supplied, credentials will be
         derived from environment variables
         """
+        if self._entity_type is None:
+            return DatabaseFacade()
+
         try:
             db = self._entity_type.db
         except AttributeError:
             db = None
+
+        if db is None:
+            try:
+                db = self._get_dms().db
+            except AttributeError:
+                db = None
 
         if db is None:
             db = Database(credentials=credentials, tenant_id=tenant_id)
@@ -1306,8 +1327,11 @@ class BaseFunction(object):
         Add to the trace info collected during function execution
         """
 
-        et = self.get_entity_type()
-        et.trace_append(created_by=self, msg=msg, log_method=log_method, df=df, **kwargs)
+        try:
+            et = self.get_entity_type()
+            et.trace_append(created_by=self, msg=msg, log_method=log_method, df=df, **kwargs)
+        except Exception as e:
+            logger.info(str(msg))
 
     @classmethod
     def _transform_metadata(cls, metadata_input, metadata_output, db=None):
@@ -3096,7 +3120,7 @@ class BaseEstimatorFunction(BaseTransformer):
             else:
                 features = self.features
 
-            model_name = self.get_model_name(target, suffix=entity_name)
+            model_name = self.get_model_name(features, target, suffix=entity_name)
 
             # retrieve existing model
             model = None
@@ -3143,7 +3167,7 @@ class BaseEstimatorFunction(BaseTransformer):
         models = []
         trace_dict = {}
         for i, target in enumerate(self.targets):
-            model_name = self.get_model_name(target, suffix=entity_name)
+            model_name = self.get_model_name(self.features, target, suffix=entity_name)
             # retrieve existing model
             model = db.model_store.retrieve_model(model_name)
             if model is not None:
@@ -3185,7 +3209,7 @@ class BaseEstimatorFunction(BaseTransformer):
         if model_names is None:
             model_names = []
             for target in self.targets:
-                model_names.append(self.get_model_name(target, entity_name))
+                model_names.append(self.get_model_name(self.features, target, entity_name))
 
         logger.info('Model names to delete: ' + str(model_names))
 
@@ -3374,7 +3398,7 @@ class BaseEstimatorFunction(BaseTransformer):
             est.fit(df_train[features])
             est_score = 1
 
-            results = {'name': self.get_model_name(target_name=target, suffix=entity_name), 'target': target,
+            results = {'name': self.get_model_name(features, target_name=target, suffix=entity_name), 'target': target,
                        'features': features, 'params': params, 'eval_metric_name': metric_name,
                        'eval_metric_train': est_score, 'eval_metric_test': 1, 'estimator_name': name,
                        'shelf_life_days': self.shelf_life_days, 'col_name': col_name}  # no stddev for scalers
@@ -3405,7 +3429,7 @@ class BaseEstimatorFunction(BaseTransformer):
                 est_score = 0
                 continue
 
-            results = {'name': self.get_model_name(target_name=target, suffix=entity_name), 'target': target,
+            results = {'name': self.get_model_name(features, target_name=target, suffix=entity_name), 'target': target,
                        'features': features, 'params': estimator.best_params_, 'eval_metric_name': metric_name,
                        'eval_metric_train': est_score, 'estimator_name': name, 'shelf_life_days': self.shelf_life_days,
                        'col_name': col_name, 'col_name_stddev': col_name_stddev}
@@ -3518,8 +3542,8 @@ class BaseEstimatorFunction(BaseTransformer):
         Add the preprocessing stages that will transform data prior to training, evaluation or making prediction
         """  # self.add_preprocessor(ClassName(args))
 
-    def get_model_name(self, target_name, suffix=None):
-        return self.generate_model_name(target_name=target_name, suffix=suffix)
+    def get_model_name(self, features, target_name, suffix=None):
+        return self.generate_model_name(features, target_name=target_name, suffix=suffix)
 
     def make_estimators(self, names=None, count=None):
         """

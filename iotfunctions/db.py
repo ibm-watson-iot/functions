@@ -59,6 +59,17 @@ except ImportError:
     DB2_DOUBLE = None
 
 
+class DatabaseFacade:
+    """
+    Use DatabaseFacades for unit test cases
+    """
+    tenant_id = '###_DUMMY_###'
+    db_type = 'db2'
+    model_store = dbtables.FileModelStore('/tmp')
+    def _init(self):
+        return
+
+
 class Database(object):
     """
     Use Database objects to establish database connectivity, manage database metadata and sessions, build queries and write DataFrames to tables.
@@ -261,7 +272,7 @@ class Database(object):
             core_api_host = as_api_host
 
 
-        self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host, 
+        self.credentials['as_rest'] = {'as_rest_meta_host': as_rest_meta_host, 'as_rest_kpi_host': as_rest_kpi_host,
                                        'as_rest_core_host': core_api_host}
 
         self.tenant_id = self.credentials['tenant_id']
@@ -1495,7 +1506,7 @@ class Database(object):
             if log_message is None:
                 logger.debug(f"The following sql statement returned {df.shape[0]} records and was executed in "
                              f"{execution_time} seconds: {sql}.")
-                log_data_frame("Returned data frame:", df.head())
+                log_data_frame("Returned data frame:", df)
             else:
                 logger.debug(f"{log_message}: execution time = {execution_time} s, sql = {sql}")
 

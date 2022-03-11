@@ -24,8 +24,7 @@ class LoaderPipeline:
 
     def execute(self, df, start_ts, end_ts, entities):
         if df is not None:
-            util.log_data_frame(f"df before loaders: column types = {df.dtypes.to_dict()}, "
-                                f"index types = {df.index.to_frame().dtypes.to_dict()}, shape", df.head())
+            util.log_data_frame(f"df before loaders: shape", df)
         else:
             self.logger.info("df is None before loaders")
         for s in self.stages:
@@ -45,8 +44,7 @@ class LoaderPipeline:
             self.logger.debug('End of stage {{ %s }}, execution time = %s s' % (
                 name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
 
-        util.log_data_frame(f"df after loaders: column types = {df.dtypes.to_dict()}, "
-                            f"index types = {df.index.to_frame().dtypes.to_dict()}, shape", df.head())
+        util.log_data_frame(f"df after loaders: shape", df)
 
         return df
 
