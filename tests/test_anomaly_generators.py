@@ -1,11 +1,24 @@
+# *****************************************************************************
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
+#
+# This program and the accompanying materials
+# are made available under the terms of the Apache V2.0 license
+# which accompanies this distribution, and is available at
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# *****************************************************************************
+
+import logging
+import unittest
 from collections import OrderedDict
 import datetime as dt
 import numpy as np
 import pandas as pd
 from sqlalchemy import Column, Float, DateTime
-from iotfunctions.bif import DateDifference
-from iotfunctions.generator import AnomalyGeneratorExtremeValue
-from nose.tools import assert_true
+from iotfunctions.db import Database
+from iotfunctions.dbtables import FileModelStore
+from iotfunctions.generator import (AnomalyGeneratorExtremeValue, AnomalyGeneratorFlatline)
+#from nose.tools import assert_true
 
 # constants
 Temperature = 'Temperature'
@@ -15,10 +28,22 @@ spectral = 'TemperatureSpectralScore'
 sal = 'SaliencyAnomalyScore'
 gen = 'TemperatureGeneralizedScore'
 
+#@nottest
+class DatabaseDummy:
+    tenant_id = '###_IBM_###'
+    db_type = 'db2'
+    model_store = FileModelStore('/tmp')
+    def _init(self):
+        return
 
 def test_anomaly_generators():
 
-    # Run on the good pump first
+    ####
+    print('Create dummy database')
+    db_schema=None
+    db = DatabaseDummy()
+    print (db.model_store)
+
     # Get stuff in
     print('Read Anomaly Sample data in')
     df_i = pd.read_csv('./data/AzureAnomalysample.csv', index_col=False, parse_dates=['timestamp'])
@@ -32,7 +57,7 @@ def test_anomaly_generators():
     df_i = df_i.sort_values(by='timestamp')
     df_i = df_i.set_index(['id', 'timestamp']).dropna()
 
-    print('Add columns with NaNs')
+    print('Add columns with fixed values')
     addl = np.arange(0, 5, 0.00125)
     df_i['Test1'] = df_i[Temperature] + addl
     df_i['Test2'] = df_i[Temperature] + addl
@@ -54,20 +79,27 @@ def test_anomaly_generators():
     evg._entity_type = et
     df_i = evg.execute(df=df_i)
 
-    print(df_i.head(15))
-
     print('Compare Scores')
+
+    print('Run Flatline Generator')
+    evg = AnomalyGeneratorFlatline('Test2', 5, 7, 'Results3')
+    evg.count = {'MyRoom': 3}
+    et = evg._build_entity_type(columns=[Column('Test3', Float())])
+    evg._entity_type = et
+    df_i = evg.execute(df=df_i)
+
+    print(df_i.head(25))
 
     #print(results1)
     #print(results2)
     #print(origins1)
     #print(origins2)
 
-    # assert_true(comp[0])
-    # assert_true(comp[1])
-    # assert_true(comp[2])
+    # assert (comp[0])
+    # assert (comp[1])
+    # assert (comp[2])
 
     pass
 
-# uncomment to run from CLI
-# test_anomaly_generators()
+if __name__ == '__main__':
+    test_anomaly_generators()

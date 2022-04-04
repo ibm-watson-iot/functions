@@ -1,8 +1,8 @@
 # *****************************************************************************
-# Â© Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018.  All Rights Reserved.
 #
 # This program and the accompanying materials
-# are made available under the terms of the Apache V2.0
+# are made available under the terms of the Apache V2.0 license
 # which accompanies this distribution, and is available at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -86,7 +86,7 @@ class AnomalyGenerator(BaseTransformer):
         if a.size >= self.factor:
             lim_size = a.size - a.size % self.factor
             logger.debug('InjectAnomaly:  Main:   entity ' + entity_name + ', a-Size: ' + str(a.size) + ', Lim: ' + str(
-                lim_size) + ', Factor: ' + str(self.factor))
+                lim_size) + ', Factor: ' + str(self.factor) + ', Width: ' + str(self.width))
             a_reshape_arr = a[:lim_size].copy()
 
             # Final numpy array to be transformed into 2d array
@@ -169,7 +169,7 @@ class AnomalyGenerator(BaseTransformer):
         if raw_dataframe is not None and raw_dataframe.empty:
             # delete old counts if present
             db.model_store.delete_model(self.key)
-            logger.debug('Reintialize count')
+            logger.debug('Reinitialize count')
 
         self.counts_by_entity_id = None
         try:
@@ -298,7 +298,7 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
         self.input_item = input_item
         self.output_item = output_item
         self.width = int(width)
-        self.factor = int(factor)
+        self.factor = int(factor) + int(width)
         self.count = None  # allow to set count != 0 for unit testing
 
     def execute(self, df):
@@ -375,7 +375,7 @@ class AnomalyGeneratorFlatline(AnomalyGenerator):
         self.input_item = input_item
         self.output_item = output_item
         self.width = int(width)
-        self.factor = int(factor)
+        self.factor = int(factor) + int(width)
         self.count = None  # allow to set count != 0 for unit testing
 
     def execute(self, df):
