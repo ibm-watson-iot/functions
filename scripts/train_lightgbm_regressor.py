@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # *****************************************************************************
-# © Copyright IBM Corp. 2018 - 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
