@@ -564,6 +564,15 @@ class ProduceAlerts(object):
             index = new_alert_events[alert_name]
             # Remove duplicates from df_alert_events. Otherwise df_alert_events.reindex() fails
             df_alert_events = df[(df[alert_name] == True)]
+
+            # Corrective action for pandas' issue https://github.com/pandas-dev/pandas/issues/44786
+            # Convert MultiIndex of dataframe to numpy array. Then convert the numpy array back to a MultiIndex.
+            # The flag about duplicates in MultiIndex is correctly recalculated.
+            if df_alert_events.index.size > 0 and df_alert_events.index.nlevels > 1:
+                tmp_names = df_alert_events.index.names
+                df_alert_events.index = pd.MultiIndex.from_tuples(df_alert_events.index.to_numpy())
+                df_alert_events.index.names = tmp_names
+
             if df_alert_events.index.has_duplicates:
                 df_alert_events = df_alert_events[~(df_alert_events.index.duplicated(keep='first'))]
 
