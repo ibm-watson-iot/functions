@@ -371,6 +371,14 @@ class ProduceAlerts(object):
                     # Remove all values from series which are not equal to 'True' and only keep index of new series
                     calc_alert_events = alert_series[(alert_series == True)].index
 
+                    # Corrective action for pandas' issue https://github.com/pandas-dev/pandas/issues/44786
+                    # Convert MultiIndex of dataframe to numpy array. Then convert the numpy array back to a MultiIndex.
+                    # The flag about duplicates in MultiIndex is correctly recalculated.
+                    if calc_alert_events.size > 0 and calc_alert_events.nlevels > 1:
+                        tmp_names = calc_alert_events.names
+                        calc_alert_events = pd.MultiIndex.from_tuples(calc_alert_events.to_numpy())
+                        calc_alert_events.names = tmp_names
+
                     # Remove duplicates from calc_alert_events. Otherwise calc_alert_events.difference() fails later on
                     if calc_alert_events.has_duplicates:
                         calc_alert_events = calc_alert_events.drop_duplicates(keep='first')
