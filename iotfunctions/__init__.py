@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -11,5 +11,5 @@
 import os
 import pkgutil
 
-__version__ = '8.7.0'
+__version__ = '8.8.0'
 __all__ = list(module for (_, module, _) in pkgutil.iter_modules([os.path.dirname(__file__)]))

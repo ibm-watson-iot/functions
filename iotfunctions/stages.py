@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018.  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -404,6 +404,14 @@ class ProduceAlerts(object):
 
                     # Extract rows from data frame which are alert events, i.e. column 'alert_name' is equal to True
                     calc_alert_events = df[(df[alert_name] == True)].copy()
+
+                    # Corrective action for pandas' issue https://github.com/pandas-dev/pandas/issues/44786
+                    # Convert MultiIndex of dataframe to numpy array. Then convert the numpy array back to a MultiIndex.
+                    # The flag about duplicates in MultiIndex is correctly recalculated.
+                    if calc_alert_events.index.size > 0 and calc_alert_events.index.nlevels > 1:
+                        tmp_names = calc_alert_events.index.names
+                        calc_alert_events.index = pd.MultiIndex.from_tuples(calc_alert_events.index.to_numpy())
+                        calc_alert_events.index.names = tmp_names
 
                     # Dataframe calc_alert_events can contain duplicates with respect to its index
                     # (device id/ timestamp). Duplicates are a result of duplicated raw metrics or incorrect
