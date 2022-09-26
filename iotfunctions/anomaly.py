@@ -1169,7 +1169,7 @@ class KMeansAnomalyScore(AnomalyScorer):
 
             logger.debug(self.whoami + 'params, Clusters: ' + str(n_cluster) + ', Slices: ' + str(slices.shape))
 
-            cblofwin = CBLOF(n_clusters=n_cluster, n_jobs=-1)
+            cblofwin = CBLOF(n_clusters=n_cluster, n_jobs=-1, random_state=42)
             try:
                 cblofwin.fit(slices)
             except Exception as e:
