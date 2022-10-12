@@ -75,4 +75,3 @@ Keep up to date with the latest [changes](https://github.com/ibm-watson-iot/func
 + [IBM Knowledge Center - IoT Platform Analytics](https://www.ibm.com/support/knowledgecenter/SSQP8H/iot/analytics/as_overview.html)
 + [Sample Notebook](https://www.ibm.com/support/knowledgecenter/SSQP8H/iot/analytics/as_notebook_references.html) 
 
-
