@@ -495,10 +495,11 @@ class BaseFunction(object):
         all_items = set()
         for e in expressions:
             # get all quoted strings in expression
-            e = e.replace("'", '"')
-            possible_items = re.findall('"([^"]*)"', e)
+            e = e.replace('"', "'")
+            e = re.sub(r"\$\{(\w+)\}", r"df['\1']", e)
+            detected_items = re.findall("df\['(.+?)'\]", e)
             # check if they have df[] wrapped around them
-            all_items |= set([x for x in possible_items if 'df["%s"]' % x in e])
+            all_items |= set(detected_items)
 
         if len(all_items) == 0:
             msg = 'Expression in function %s does not contain input items' % self.__class__.__name__

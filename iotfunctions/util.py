@@ -444,7 +444,7 @@ def get_fn_expression_args(function_metadata, kpi_metadata):
     args = kpi_metadata.get('input', {})
 
     for (arg, value) in list(args.items()):
-        if arg == 'expression' and value is not None:
+        if 'expression' in arg and value is not None:
             logger.debug('Found expression %s', value)
             value = re.sub(r"\$\{(\w+)\}", r"df['\1']", value)
             expressions.append(value)
