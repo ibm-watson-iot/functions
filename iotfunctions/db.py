@@ -1100,12 +1100,9 @@ class Database(object):
         self.url[('catalogFunctions', 'PUT')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function', object_name])
         self.url[('catalogFunctions', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function'])
 
-        # self.url[('granularitySet', 'POST')] = '/'.join(
-        #     [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
-        # self.url[('granularitySet', 'DELETE')] = '/'.join(
-        #     [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
-        # self.url[('granularitySet', 'GET')] = '/'.join(
-        #     [base_kpi_url, 'granularity', 'v1', self.tenant_id, 'entityType', object_name, object_type])
+        self.url[('granularity', 'POST')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
+        self.url[('granularity', 'DELETE')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type, object_name_2])
+        self.url[('granularity', 'GET')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
 
         self.url[('kpiFunctions', 'POST')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
         # self.url[('kpiFunction', 'DELETE')] = '/'.join(
