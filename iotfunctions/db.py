@@ -17,7 +17,7 @@ import logging
 import os
 import subprocess
 import sys
-from time import time
+import time
 
 import certifi
 
@@ -91,6 +91,8 @@ class Database(object):
 
     OS_API_CERTIFICATE_FILE = 'API_CERTIFICATE_FILE'
     OS_DB_CERTIFICATE_FILE = 'DB_CERTIFICATE_FILE'
+
+    KITT_MAX_CONNECTION_RETRY_COUNT = 5
 
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
                  entity_type_id=None, model_store=None):
@@ -584,14 +586,24 @@ class Database(object):
         self.dd_client = None
         if MAM_API is not None:
             if dd_url is not None and dd_user is not None and dd_password is not None and dd_space_id is not None:
-                self.dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password,
-                                                        tenant_id=dd_space_id)
-                if self.dd_client.connected() is True:
-                    logger.info(f"Connection to Data Dictionary has been established successfully: url='{dd_url}', "
-                                f"tenant_id='{tenant_id}'")
-                else:
-                    raise ConnectionError(f"Connection to Data Dictionary could not be established: url='{dd_url}', "
-                                          f"tenant_id='{tenant_id}'")
+
+                connected = False
+                retry_count = -1
+                while connected is False and retry_count < Database.KITT_MAX_CONNECTION_RETRY_COUNT:
+
+                    retry_count = retry_count + 1
+
+                    self.dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password, tenant_id=dd_space_id)
+
+                    if self.dd_client is not None and self.dd_client.connected() is True:
+                        connected = True
+                        logger.info(f"Connection to Data Dictionary has been established successfully: Retry count={retry_count} url='{dd_url}', tenant_id='{tenant_id}'")
+                    else:
+                        logger.warning(f"Connection attempt to Data Dictionary failed. Retry count={retry_count} url='{dd_url}', tenant_id='{tenant_id}'")
+                        time.sleep(2**retry_count)
+
+                if connected is False:
+                    raise ConnectionError(f"Connection to Data Dictionary could not be established after {retry_count} retries: url='{dd_url}', tenant_id='{tenant_id}'")
             else:
                 logger.info(f"No connection to Data Dictionary has been defined.")
         else:
