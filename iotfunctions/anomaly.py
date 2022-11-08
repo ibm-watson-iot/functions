@@ -673,7 +673,7 @@ class AnomalyScorer(BaseTransformer):
 
             logger.debug('--->')
 
-            return df
+        return df
 
     def score(self, temperature):
 
@@ -1164,6 +1164,8 @@ class KMeansAnomalyScore(AnomalyScorer):
                 n_cluster = 40
             else:
                 n_cluster = 20
+
+            n_cluster = 15
 
             n_cluster = np.minimum(n_cluster, slices.shape[0] // 2)
 
