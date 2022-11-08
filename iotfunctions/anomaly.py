@@ -673,7 +673,7 @@ class AnomalyScorer(BaseTransformer):
 
             logger.debug('--->')
 
-            return df
+        return df
 
     def score(self, temperature):
 
