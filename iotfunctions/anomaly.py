@@ -632,7 +632,7 @@ class AnomalyScorer(BaseTransformer):
             for output_item in self.output_items:
                 dfe[output_item] = Error_SmallWindowsize
         else:
-            logger.debug(str(temperature.size) + str(self.windowsize))
+            logger.debug(str(temperature.size) + ", " + str(self.windowsize))
 
             for output_item in self.output_items:
                 dfe[output_item] = Error_Generic
@@ -1234,7 +1234,7 @@ class GeneralizedAnomalyScore(AnomalyScorer):
         for output_item in self.output_items:
             scores.append(np.zeros(temperature.shape))
 
-        logger.debug(str(temperature.size) + "," + str(self.windowsize))
+        logger.debug(str(temperature.size) + ", " + str(self.windowsize))
 
         temperature -= np.mean(temperature.astype(np.float64), axis=0)
         mcd = MinCovDet()
