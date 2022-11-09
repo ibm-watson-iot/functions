@@ -225,6 +225,16 @@ def test_anomaly_scores():
 
     print("Executed Anomaly functions on aggregation data")
 
+    df_i = df_i[0:10]   # cut off data
+    spsi = SpectralAnomalyScore(Temperature, 12, spectral)
+    et = spsi._build_entity_type(columns=[Column(Temperature, Float())])
+    spsi._entity_type = et
+    df_i = spsi.execute(df=df_i)
+
+    assert (not df_i.empty)
+
+    print("Executed Anomaly functions on minimal data ", df_i.empty)
+
     pass
 
 
