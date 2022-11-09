@@ -104,7 +104,7 @@ class AggregateWithExpression(BaseSimpleAggregator):
 
     def execute(self, x):
         logger.info('Execute AggregateWithExpression')
-        logger.debug('Source ' + str(self.source) +  'Expression ' +  str(self.expression) + 'Name ' + str(self.name))
+        logger.debug('Source=' + str(self.source) +  ', Expression=' +  str(self.expression) + ', Name=' + str(self.name))
         y = eval(self.expression)
 
         self.log_df_info(y, 'AggregateWithExpression evaluation')
