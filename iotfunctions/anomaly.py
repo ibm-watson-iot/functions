@@ -666,7 +666,11 @@ class AnomalyScorer(BaseTransformer):
                     else:
                         zScoreII = scores[i]
 
-                    df[output_item] = zScoreII
+                    # make sure shape is correct
+                    try:
+                        df[output_item] = zScoreII
+                    except Exception as e2:                    
+                        df[output_item] = zScoreII.reshape(-1,1)
 
             except Exception as e:
                 logger.error(self.whoami + ' score integration failed with ' + str(e))
