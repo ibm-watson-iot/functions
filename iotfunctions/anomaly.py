@@ -632,7 +632,7 @@ class AnomalyScorer(BaseTransformer):
             for output_item in self.output_items:
                 dfe[output_item] = Error_SmallWindowsize
         else:
-            logger.debug(str(temperature.size) + str(self.windowsize))
+            logger.debug(str(temperature.size) + ", " + str(self.windowsize))
 
             for output_item in self.output_items:
                 dfe[output_item] = Error_Generic
@@ -666,14 +666,19 @@ class AnomalyScorer(BaseTransformer):
                     else:
                         zScoreII = scores[i]
 
-                    df[output_item] = zScoreII
+                    # make sure shape is correct
+                    try:
+                        df[output_item] = zScoreII
+                    except Exception as e2:                    
+                        df[output_item] = zScoreII.reshape(-1,1)
+                        pass
 
             except Exception as e:
                 logger.error(self.whoami + ' score integration failed with ' + str(e))
 
             logger.debug('--->')
 
-            return df
+        return df
 
     def score(self, temperature):
 
@@ -1165,6 +1170,8 @@ class KMeansAnomalyScore(AnomalyScorer):
             else:
                 n_cluster = 20
 
+            n_cluster = 15
+
             n_cluster = np.minimum(n_cluster, slices.shape[0] // 2)
 
             logger.debug(self.whoami + 'params, Clusters: ' + str(n_cluster) + ', Slices: ' + str(slices.shape))
@@ -1234,7 +1241,7 @@ class GeneralizedAnomalyScore(AnomalyScorer):
         for output_item in self.output_items:
             scores.append(np.zeros(temperature.shape))
 
-        logger.debug(str(temperature.size) + "," + str(self.windowsize))
+        logger.debug(str(temperature.size) + ", " + str(self.windowsize))
 
         temperature -= np.mean(temperature.astype(np.float64), axis=0)
         mcd = MinCovDet()
