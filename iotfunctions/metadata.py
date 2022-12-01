@@ -1200,6 +1200,21 @@ class EntityType(object):
         return self._custom_calendar
 
     def get_data(self, start_ts=None, end_ts=None, entities=None, columns=None):
+
+        df = self.get_data_with_col_names(start_ts=start_ts, end_ts=end_ts, entities=entities, columns=columns)
+
+        # Replace column names of data frame which are actually the DB2 column names in lower cases by the data item name
+        db_col_name_to_data_item_name = {}
+        for data_item in self._data_items:
+            data_item_name = data_item.get('name')
+            if data_item.get('type') == 'METRIC' and data_item_name not in ['ENTITY_ID', 'RCV_TIMESTAMP_UTC']:
+                db_col_name_to_data_item_name[data_item.get('columnName').lower()] = data_item_name.lower()
+
+        df.rename(columns=db_col_name_to_data_item_name, inplace=True)
+
+        return df
+
+    def get_data_with_col_names(self, start_ts=None, end_ts=None, entities=None, columns=None):
         """
         Retrieve entity data at input grain or preaggregated
         """
