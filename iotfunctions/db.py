@@ -931,7 +931,7 @@ class Database(object):
             entity = md.EntityType(name=metadata['name'], db=self,
                                    **{'auto_create_table': False, '_timestamp': timestamp, '_db_schema': schema,
                                       '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table,
-                                      'metric_table_name': metadata['metricTableName']})
+                                      'metric_table_name': metadata['metricTableName'], '_data_items': metadata.get('dataItemDto')})
 
         return entity
 
