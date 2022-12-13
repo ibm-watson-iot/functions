@@ -1201,20 +1201,50 @@ class EntityType(object):
 
     def get_data(self, start_ts=None, end_ts=None, entities=None, columns=None):
 
-        df = self.get_data_with_col_names(start_ts=start_ts, end_ts=end_ts, entities=entities, columns=columns)
-
-        # Replace column names of data frame which are actually the DB2 column names in lower cases by the data item name
+        # Column names for raw metrics differ from data item name starting with Monitor 8.8 (column name = data item name + event id)
+        # To provide backward compatibility we have to map all data item names of raw metrics to column names when they are used as column names.
+        # The backward compatibility only works when the data item names are unique, i.e. a data item name must not be used in more than one event.
+        data_item_name_to_db_col_name = {}
         db_col_name_to_data_item_name = {}
         for data_item in self._data_items:
             data_item_name = data_item.get('name')
-            if data_item.get('type') == 'METRIC' and data_item_name not in ['ENTITY_ID', 'RCV_TIMESTAMP_UTC']:
-                db_col_name_to_data_item_name[data_item.get('columnName').lower()] = data_item_name.lower()
+            if data_item.get('type') == 'METRIC':
+                if data_item_name_to_db_col_name.get(data_item_name) is None:
+                    data_item_col_name = data_item.get('columnName')
+                    data_item_name_to_db_col_name[data_item_name] = data_item_col_name
+                    db_col_name_to_data_item_name[data_item_col_name] = data_item_name
+                else:
+                    raise ValueError("Data item name %s is defined in multiple events and therefore not unique. This is currently not supported in this function." % data_item_name)
 
+        if columns is not None:
+            mapped_columns = [data_item_name_to_db_col_name.get(col_name, col_name) for col_name in columns]
+        else:
+            mapped_columns = None
+
+        if self._pre_agg_rules is not None:
+            agg_rules = {data_item_name_to_db_col_name.get(name, name): func_list for name, func_list in self._pre_agg_rules.items()}
+        else:
+            agg_rules = {}
+
+        agg_outputs = {}
+        if self._pre_agg_outputs is not None:
+            for name, output_list in self._pre_agg_outputs.items():
+                new_output_list = [data_item_name_to_db_col_name.get(output, output) for output in output_list]
+                agg_outputs[data_item_name_to_db_col_name.get(name, name)] = new_output_list
+
+        df = self.get_data_with_col_names(start_ts=start_ts, end_ts=end_ts, entities=entities, columns=mapped_columns, agg_rules=agg_rules, agg_outputs=agg_outputs)
+
+        # Column names of data frame are either column names of database table or as defined in self._pre_agg_outputs. We mapped all data item names
+        # to db column names self._pre_agg_outputs. Map db column names back to data item names.
         df.rename(columns=db_col_name_to_data_item_name, inplace=True)
+
+        # Repeat mapping taking into account upper case to lower case conversion of sqlalchemy
+        tmp_mapping = {col_name.lower(): name for col_name, name in db_col_name_to_data_item_name.items()}
+        df.rename(columns=tmp_mapping, inplace=True)
 
         return df
 
-    def get_data_with_col_names(self, start_ts=None, end_ts=None, entities=None, columns=None):
+    def get_data_with_col_names(self, start_ts=None, end_ts=None, entities=None, columns=None, agg_rules=None, agg_outputs=None):
         """
         Retrieve entity data at input grain or preaggregated
         """
@@ -1250,26 +1280,26 @@ class EntityType(object):
 
             # make sure each column is in the aggregate dictionary
             # apply a default aggregate for each column not specified in the aggregation metadata
-            if self._pre_agg_rules is None:
-                self._pre_agg_rules = {}
-                self._pre_agg_outputs = {}
+            if agg_rules is None:
+                agg_rules = {}
+                agg_outputs = {}
             for c in columns:
                 try:
-                    self._pre_agg_rules[c]
+                    agg_rules[c]
                 except KeyError:
                     if c not in [self._timestamp, self._entity_id]:
                         if c in metrics:
-                            self._pre_agg_rules[c] = 'mean'
-                            self._pre_agg_outputs[c] = 'mean_%s' % c
+                            agg_rules[c] = 'mean'
+                            agg_outputs[c] = 'mean_%s' % c
                         else:
-                            self._pre_agg_rules[c] = 'max'
-                            self._pre_agg_outputs[c] = 'max_%s' % c
+                            agg_rules[c] = 'max'
+                            agg_outputs[c] = 'max_%s' % c
                 else:
                     pass
 
             df = self.db.read_agg(table_name=self.name, schema=self._db_schema, groupby=[self._entity_id],
                                   timestamp=self._timestamp, time_grain=self._pre_aggregate_time_grain,
-                                  agg_dict=self._pre_agg_rules, agg_outputs=self._pre_agg_outputs, start_ts=start_ts,
+                                  agg_dict=agg_rules, agg_outputs=agg_outputs, start_ts=start_ts,
                                   end_ts=end_ts, entities=entities, dimension=self._dimension_table_name)
 
             tw['pre-aggregeted'] = self._pre_aggregate_time_grain
@@ -1284,6 +1314,10 @@ class EntityType(object):
             memo = MemoryOptimizer()
             df = memo.downcastNumeric(df)
         try:
+            if self._entity_id in df.columns and self._df_index_entity_id not in df.columns:
+                df[self._df_index_entity_id] = df[self._entity_id]
+            if self._timestamp.lower() in df.columns:
+                df.rename(columns={self._timestamp.lower(): self._timestamp}, inplace=True)
             df = self.index_df(df)
         except (AttributeError, KeyError):
             pass
