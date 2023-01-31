@@ -503,6 +503,7 @@ class Database(object):
             sqlalchemy_dialect_kwargs = {}
 
         # Establish database connection via sqlalchemy
+        logger.info('Establishing database connection via SqlAlchemy.')
         sqlalchemy_connection_kwargs = {**sqlalchemy_dialect_kwargs, **sqlalchemy_connection_kwargs}
         self.connection = create_engine(sqlalchemy_connection_string, echo=echo, **sqlalchemy_connection_kwargs)
 
@@ -518,13 +519,14 @@ class Database(object):
         else:
             self.session = None
         self.metadata = MetaData(self.connection)
-        logger.debug('Database connection via SqlAlchemy established.')
+        logger.info('Database connection via SqlAlchemy established.')
 
         # Establish native database connection (for DB2 and PostgreSQL only)
+        logger.info('Establishing native database connection.')
         if self.db_type == 'db2':
-            self.native_connection = ibm_db.connect(native_connection_string, '', '')
+            self.native_connection = self.connect_to_db2(native_connection_string)
             self.native_connection_dbi = ibm_db_dbi.Connection(self.native_connection)
-            logger.debug('Native database connection to DB2 established.')
+            logger.info('Native database connection to DB2 established.')
 
         elif self.db_type == 'postgresql':
             cred = self.credentials['postgresql']
@@ -532,7 +534,7 @@ class Database(object):
                                                       host=cred['host'], port=cred['port'], database=cred['db'],
                                                       application_name="AS %s Native Connection" % self.application_name)
             self.native_connection_dbi = self.native_connection
-            logger.debug('Native database connection to PostgreSQL established.')
+            logger.info('Native database connection to PostgreSQL established.')
         else:
             self.native_connection = None
             self.native_connection_dbi = None
@@ -608,6 +610,27 @@ class Database(object):
                 logger.info(f"No connection to Data Dictionary has been defined.")
         else:
             logger.info(f"Data Dictionary is not available.")
+
+    def connect_to_db2(self, native_connection_string):
+        time_out = pd.Timestamp.utcnow() + pd.Timedelta(value=45, unit='seconds')
+        connection_attempt = 0
+        connection = None
+        while connection is None and time_out > pd.Timestamp.utcnow():
+            connection_attempt += 1
+            if connection_attempt > 2:
+                # Delay execution of each attempt as follows (attempt/seconds): 1/0, 2/0, 3/4, 4/8, 5/16, 6/32
+                time.sleep(2**(connection_attempt-1))
+            try:
+                connection = ibm_db.connect(native_connection_string, '', '')
+            except Exception:
+                logger.error(f"Attempt #{connection_attempt} to connect to DB2 failed.", exc_info=True)
+
+        if connection is None:
+            raise ConnectionError(f"DB2 connection could not be established in {connection_attempt} attempts.")
+        else:
+            logger.debug(f"DB2 connection was established at attempt #{connection_attempt}.")
+
+        return connection
 
     def _aggregate_item(self, table, column_name, aggregate, alias_column=None, dimension_table=None,
                         timestamp_col=None):
