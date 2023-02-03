@@ -99,7 +99,7 @@ Generalized_normalizer = 1 / 300
 
 # Do away with numba logs
 numba_logger = logging.getLogger('numba')
-numba_logger.setLevel(logging.INFO)
+numba_logger.setLevel(logging.ERROR)
 
 # from
 # https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
