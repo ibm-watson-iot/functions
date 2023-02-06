@@ -18,6 +18,7 @@ import importlib
 import logging
 import time
 import hashlib # encode feature names
+import traceback
 
 import numpy as np
 import pandas as pd
@@ -96,6 +97,10 @@ Spectral_normalizer = 100 / 2.8
 FFT_normalizer = 1
 Saliency_normalizer = 1
 Generalized_normalizer = 1 / 300
+
+# Do away with numba logs
+numba_logger = logging.getLogger('numba')
+numba_logger.setLevel(logging.ERROR)
 
 # from
 # https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
@@ -259,27 +264,6 @@ class Saliency(object):
         saliency_map = self.transform_saliency_map(values)
         spectral_residual = np.sqrt(saliency_map.real ** 2 + saliency_map.imag ** 2)
         return spectral_residual
-
-
-def merge_score(dfEntity, dfEntityOrig, column_name, score, mindelta):
-    """
-    Fit interpolated score to original entity slice of the full dataframe
-    """
-
-    # equip score with time values, make sure it's positive
-    score[score < 0] = 0
-    dfEntity[column_name] = score
-
-    # merge
-    dfEntityOrig = pd.merge_asof(dfEntityOrig, dfEntity[column_name], left_index=True, right_index=True,
-                                 direction='nearest', tolerance=mindelta)
-
-    if column_name + '_y' in dfEntityOrig:
-        merged_score = dfEntityOrig[column_name + '_y'].to_numpy()
-    else:
-        merged_score = dfEntityOrig[column_name].to_numpy()
-
-    return merged_score
 
 
 #######################################################################################
@@ -563,7 +547,8 @@ class AnomalyScorer(BaseTransformer):
 
         # interpolate gaps - data imputation
         try:
-            dfe = dfe.dropna(subset=[self.input_item]).interpolate(method="time")
+            #dfe = dfe.dropna(subset=[self.input_item]).interpolate(method="time")
+            dfe = dfe.interpolate(method="time")
         except Exception as e:
             logger.error('Prepare data error: ' + str(e))
 
@@ -611,9 +596,14 @@ class AnomalyScorer(BaseTransformer):
 
         # remove all rows with only null entries
         dfe = dfe_orig.dropna(how='all')
+        logger.info('Anomaly ' + str(df[self.output_items[0]].values.shape) + ', ' +
+                                 str(dfe_orig[self.output_items[0]].values.shape) + ', ' +
+                                 str(dfe[self.output_items[0]].values.shape))
 
         # minimal time delta for merging
         mindelta, dfe_orig = min_delta(dfe_orig)
+
+        logger.info('Anomaly II  ' + str(dfe_orig[self.output_items[0]].values.shape))
 
         logger.debug('Timedelta:' + str(mindelta) + ' Index: ' + str(dfe_orig.index))
 
@@ -658,8 +648,25 @@ class AnomalyScorer(BaseTransformer):
                         linear_interpolate = sp.interpolate.interp1d(time_series_temperature, scores[i], kind='linear',
                                                                      fill_value='extrapolate')
 
-                        zScoreII = merge_score(dfe, dfe_orig, output_item,
-                                               abs(linear_interpolate(np.arange(0, temperature.size, 1))), mindelta)
+                        # stretch anomaly score to fit temperature.size
+                        score = abs(linear_interpolate(np.arange(0, temperature.size, 1)))
+
+                        # and make sure sure it's positive
+                        score[score < 0] = 0
+
+                        dfe[output_item] = score
+
+                        # merge so that data is stretched to match the original data w/o gaps and NaNs
+                        dfe_orig = pd.merge_asof(dfe_orig, dfe[output_item], left_index=True, right_index=True,
+                                     direction='nearest', tolerance=mindelta)
+
+                        if output_item + '_y' in dfe_orig:
+                            zScoreII = dfe_orig[output_item + '_y'].to_numpy()
+                        else:
+                            zScoreII = dfe_orig[output_item].to_numpy()
+
+                        logger.debug('Merge Score : ' + str(score.shape) + ', ' + str(zScoreII.shape))
+
                     # fast path - either cut off or just copy
                     elif diff < 0:
                         zScoreII = scores[i][0:temperature.size]
@@ -669,12 +676,12 @@ class AnomalyScorer(BaseTransformer):
                     # make sure shape is correct
                     try:
                         df[output_item] = zScoreII
-                    except Exception as e2:                    
+                    except Exception as e2:
                         df[output_item] = zScoreII.reshape(-1,1)
                         pass
 
             except Exception as e:
-                logger.error(self.whoami + ' score integration failed with ' + str(e))
+                logger.error(self.whoami + ' score integration failed with ' + str(e) + '\n' + traceback.format_exc())
 
             logger.debug('--->')
 
