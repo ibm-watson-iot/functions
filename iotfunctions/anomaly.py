@@ -596,6 +596,8 @@ class AnomalyScorer(BaseTransformer):
         # remove all rows with only null entries
         dfe = dfe_orig.dropna(how='all')
         logger.info('Anomaly ' + str(df[self.output_items[0]].values.shape) + ', ' +
+                                 str(dfe_orig[self.output_items[0]].values.shape) + ', ' +
+                                 str(dfe[self.output_items[0]].values.shape))
 
         # minimal time delta for merging
         mindelta, dfe_orig = min_delta(dfe_orig)
