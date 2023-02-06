@@ -18,6 +18,7 @@ import importlib
 import logging
 import time
 import hashlib # encode feature names
+import traceback
 
 import numpy as np
 import pandas as pd
@@ -636,19 +637,26 @@ class AnomalyScorer(BaseTransformer):
                     # slow path - interpolate result score to stretch it to the size of the input data
                     if diff > 0:
                         dfe[output_item] = 0.0006
+                        logger.debug('HERE 1')
                         time_series_temperature = np.linspace(self.windowsize // 2, temperature.size - self.windowsize // 2 + 1,
                                                               temperature.size - diff)
+                        logger.debug('HERE 2')
                         linear_interpolate = sp.interpolate.interp1d(time_series_temperature, scores[i], kind='linear',
                                                                      fill_value='extrapolate')
 
+                        logger.debug('HERE 3')
                         # stretch anomaly score to fit temperature.size
                         score = abs(linear_interpolate(np.arange(0, temperature.size, 1)))
 
                         # and make sure sure it's positive
+                        logger.debug('HERE 4   -> ' + str(dfe[output_item].values.shape))
                         score[score < 0] = 0
+
+                        logger.debug('HERE 5')
                         dfe[output_item] = score
 
                         # merge so that data is stretched to match the original data w/o gaps and NaNs
+                        logger.debug('HERE 6')
                         dfe_orig = pd.merge_asof(dfe_orig, dfe[output_item], left_index=True, right_index=True,
                                      direction='nearest', tolerance=mindelta)
 
@@ -673,7 +681,7 @@ class AnomalyScorer(BaseTransformer):
                         pass
 
             except Exception as e:
-                logger.error(self.whoami + ' score integration failed with ' + str(e))
+                logger.error(self.whoami + ' score integration failed with ' + str(e) + '\n' + traceback.format_exc())
 
             logger.debug('--->')
 
