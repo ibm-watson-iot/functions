@@ -538,7 +538,7 @@ class AnomalyScorer(BaseTransformer):
 
         # interpolate gaps - data imputation
         try:
-            dfe = dfe.dropna(subset=[self.input_item]).interpolate(method="time")
+            dfe = dfe.interpolate(method="time")
         except Exception as e:
             logger.error('Prepare data error: ' + str(e))
 
