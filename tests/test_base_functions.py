@@ -49,10 +49,10 @@ def test_base_functions():
     df_i['Test2'] = df_i[Temperature] + addl
     df_i['Test3'] = df_i[Temperature] + addl
     df_i['Test4'] = df_i[Temperature] + addl
-    df_i['Test1'][3] = None
-    df_i['Test2'][2] = None
-    df_i['Test2'][3] = None
-    df_i['Test3'][1] = None
+    df_i['Test1'][3] = np.nan
+    df_i['Test2'][2] = np.nan
+    df_i['Test2'][3] = np.nan
+    df_i['Test3'][1] = np.nan
     df_i['Test4'][1] = 10000.0
     df_i['Test4'][3] = 20000.0
 
