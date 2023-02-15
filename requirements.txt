@@ -19,7 +19,7 @@ sqlalchemy==1.4.27
 statsmodels==0.12.2
 stumpy==1.9.2
 tabulate==0.8.9
-torch==1.10.2
+torch==1.13.1
 urllib3==1.26.7
 
 #
