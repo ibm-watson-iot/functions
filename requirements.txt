@@ -32,3 +32,4 @@ urllib3==1.26.11
 #  2. Set PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python (but this will use pure-Python parsing and will be much slower).
 #
 protobuf==3.20.2    # (> CP4D 4.6.3 which has 3.19.1, Version defined by Jörn/KITT 2022-Aug-11)
+
