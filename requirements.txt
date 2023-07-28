@@ -10,7 +10,8 @@ pandas==1.4.3
 psycopg2-binary==2.9.5
 pyarrow==8.0.0
 pyod==1.0.0
-requests==2.28.1
+certifi>=2023.7.22
+requests==2.31.0
 ruptures==1.1.5
 scikit-learn==1.1.1
 scikit-image==0.19.2
