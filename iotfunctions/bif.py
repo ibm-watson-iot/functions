@@ -793,7 +793,23 @@ class Coalesce(BaseTransformer):
             self.output_item = output_item
 
     def execute(self, df):
-        df[self.output_item] = df[self.data_items].bfill(axis=1).iloc[:, 0]
+
+        if isinstance(self.data_items, str):
+            self.data_items = [self.data_items]
+
+        tmp_df = df[[]].copy()
+        for data_item in self.data_items:
+            if data_item in df.columns:
+                tmp_df[data_item] = df[data_item]
+            else:
+                try:
+                    tmp_df[data_item] = df.index.get_level_values(level=data_item)
+                except KeyError as ex:
+                    raise KeyError(f"Data item {data_item} does not exist in data frame neither as column nor in index.")
+
+        tmp_s = tmp_df[self.data_items].bfill(axis=1).iloc[:, 0]
+
+        df[self.output_item] = pd.to_numeric(tmp_s, errors='coerce')
 
         return df
 
@@ -824,7 +840,23 @@ class CoalesceDimension(BaseTransformer):
             self.output_item = output_item
 
     def execute(self, df):
-        df[self.output_item] = df[self.data_items].bfill(axis=1).iloc[:, 0]
+
+        if isinstance(self.data_items, str):
+            self.data_items = [self.data_items]
+
+        tmp_df = df[[]].copy()
+        for data_item in self.data_items:
+            if data_item in df.columns:
+                tmp_df[data_item] = df[data_item]
+            else:
+                try:
+                    tmp_df[data_item] = df.index.get_level_values(level=data_item)
+                except KeyError as ex:
+                    raise KeyError(f"Data item {data_item} does not exist in data frame neither as column nor in index.")
+
+        tmp_s = tmp_df[self.data_items].bfill(axis=1).iloc[:, 0]
+
+        df[self.output_item] = pd.to_numeric(tmp_s, errors='coerce')
 
         return df
 
