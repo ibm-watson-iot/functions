@@ -892,7 +892,7 @@ class DateDifference(BaseTransformer):
     Calculate the difference between two date data items in days,ie: ie date_2 - date_1
     """
 
-    def __init__(self, date_1, date_2, num_days=None):
+    def __init__(self, date_1=None, date_2=None, num_days=None):
 
         super().__init__()
         self.date_1 = date_1
