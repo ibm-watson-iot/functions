@@ -158,11 +158,6 @@ class Aggregation(BaseFunction):
 
         # Check for missing columns
         missing_col_names = all_input_col_names.difference(df.columns)
-
-        # AggregateWithCalculation defines an expression which contains the term 'GROUP'. This is incorrectly interpreted as
-        # a data item but it is a placeholder for the aggregation groups. Therefore remove it from the list of missing data items
-        missing_col_names.discard("GROUP")
-
         if len(missing_col_names) > 0:
             raise RuntimeError(f"The following columns are required as input for the simple and complex aggregation "
                                f"functions but are missing in the data frame: {str(list(missing_col_names))}. "
