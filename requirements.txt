@@ -5,7 +5,6 @@ ibm-watson-machine-learning==1.0.264
 lxml==4.9.1
 lightgbm==3.3.2
 nose2==0.6.0
-numpy==1.23.1
 pandas==1.4.3
 psycopg2-binary==2.9.5
 pyarrow==8.0.0
@@ -19,6 +18,7 @@ scipy==1.8.1
 sqlalchemy==1.4.39
 statsmodels==0.13.2
 stumpy==1.9.2
+numpy==1.23.1
 tabulate==0.8.10
 torch==1.13.1
 urllib3==1.26.11
