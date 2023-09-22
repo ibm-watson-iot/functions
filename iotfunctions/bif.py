@@ -3223,12 +3223,18 @@ class InvokeWMLModel(BaseTransformer):
 
         if len(self.input_items) >= 1:
             index_nans = df[df[self.input_items].isna().any(axis=1)].index
-            rows = df.loc[~df.index.isin(index_nans), self.input_items].values.tolist()
-            scoring_payload = {
-                'input_data': [{
-                    'fields': self.input_items,
-                    'values': rows}]
-            }
+            rows = df.loc[~df.index.isin(index_nans), self.input_items]
+
+            if rows.shape[0] > 0:
+                rows = rows.values.tolist()
+                scoring_payload = {
+                    'input_data': [{
+                        'fields': self.input_items,
+                        'values': rows}]
+                }
+            else:
+                logging.info("Empty data frame, WML Model is not invoked.")
+                return df
         else:
             logging.error("no input columns provided, forwarding all")
             return df
