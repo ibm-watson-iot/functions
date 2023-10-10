@@ -14,7 +14,7 @@ requests==2.31.0
 ruptures==1.1.5
 scikit-learn==1.1.1
 scikit-image==0.19.2
-scipy==1.8.1
+scipy==1.11.1
 sqlalchemy==1.4.39
 statsmodels==0.13.2
 stumpy==1.9.2
