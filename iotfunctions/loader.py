@@ -130,7 +130,7 @@ class LoadTableAndConcat(BaseLoader):
         if timestamp_col is None or not isinstance(timestamp_col, list):
             raise RuntimeError("argument timestamp_col must be string")
 
-        self.table = table
+        self.schema, separator, self.table = table.rpartition(".")
         self.columns = columns
         self.names = names
         self.where_clause = where_clause
@@ -142,10 +142,16 @@ class LoadTableAndConcat(BaseLoader):
         key_id = 'key_id_'
         key_timestamp = 'key_timestamp_'
 
-        sql = 'SELECT %s, %s AS "%s", %s AS "%s" FROM %s' % (
+        if self.schema is not None and len(self.schema) > 0:
+            schema_prefix = f"{dbhelper.quotingSchemaName(self.schema, self.dms.is_postgre_sql)}."
+        else:
+            schema_prefix = ""
+
+        sql = 'SELECT %s, %s AS "%s", %s AS "%s" FROM %s%s' % (
             ', '.join([dbhelper.quotingColumnName(col, self.dms.is_postgre_sql) for col in self.columns]),
             dbhelper.quotingColumnName(self.id_col, self.dms.is_postgre_sql), key_id,
             dbhelper.quotingColumnName(self.timestamp_col, self.dms.is_postgre_sql), key_timestamp,
+            schema_prefix,
             dbhelper.quotingTableName(self.table, self.dms.is_postgre_sql))
         condition_applied = False
         if self.where_clause is not None:
