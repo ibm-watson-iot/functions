@@ -71,7 +71,7 @@ def test_vianomaly_score():
     # Now run the anomaly functions as if they were executed in a pipeline
     vasi = VIAnomalyScore(['speed'], ['rms_x'])
     #spsi.epochs = 1  # only for testing model storage
-    vasi.epochs = 70 # 300 is far too high, it converges much faster
+    vasi.epochs = 60 #70 # 300 is far too high, it converges much faster
 
     vasi.auto_train = True
     vasi.delete_model = True
@@ -85,7 +85,7 @@ def test_vianomaly_score():
     print('VIAnomaly score - inference')
 
     #vasi = VIAnomalyScore(['speed'], ['rms_x'])
-    vasi.epochs = 70 # 300 is far too high, it converges much faster
+    vasi.epochs = 30 # 300 is far too high, it converges much faster
     vasi.auto_train = True
 
     vasi.delete_model = False
@@ -96,6 +96,10 @@ def test_vianomaly_score():
     vasi._entity_type = et
     df_i = vasi.execute(df=df_i)
     print('VIAnomaly inferencing done')
+
+    df_i.to_csv("/home/markus/Downloads/iot.cvs")
+
+    vasi.to_onnx()
 
     pass
 
