@@ -147,7 +147,7 @@ class LoadTableAndConcat(BaseLoader):
         else:
             schema_prefix = ""
 
-        sql = 'SELECT %s, %s AS "%s", %s AS "%s" FROM %s%s' % (
+        sql = "SELECT '%s', '%s' AS \"'%s'\", '%s' AS \"'%s'\" FROM '%s''%s'", (
             ', '.join([dbhelper.quotingColumnName(col, self.dms.is_postgre_sql) for col in self.columns]),
             dbhelper.quotingColumnName(self.id_col, self.dms.is_postgre_sql), key_id,
             dbhelper.quotingColumnName(self.timestamp_col, self.dms.is_postgre_sql), key_timestamp,
@@ -155,25 +155,25 @@ class LoadTableAndConcat(BaseLoader):
             dbhelper.quotingTableName(self.table, self.dms.is_postgre_sql))
         condition_applied = False
         if self.where_clause is not None:
-            sql += ' WHERE %s' % self.where_clause
+            sql += " WHERE '%s'", (self.where_clause, )
             condition_applied = True
         if start_ts is not None and end_ts is not None:  # TODO start_ts and end_ts are expected to be not None
             if not condition_applied:
                 sql += ' WHERE '
             else:
                 sql += ' AND '
-            sql += "%s < %s AND %s <= %s" % (dbhelper.quotingSqlString(str(start_ts)),
+            sql += "'%s' < '%s' AND '%s' <= '%s'", (dbhelper.quotingSqlString(str(start_ts)),
                                              dbhelper.quotingColumnName(self.timestamp_col, self.dms.is_postgre_sql),
                                              dbhelper.quotingColumnName(self.timestamp_col, self.dms.is_postgre_sql),
-                                             dbhelper.quotingSqlString(str(end_ts)))
+                                             dbhelper.quotingSqlString(str(end_ts)), )
             condition_applied = True
         if entities is not None:
             if not condition_applied:
                 sql += ' WHERE '
             else:
                 sql += ' AND '
-            sql += "%s IN (%s)" % (dbhelper.quotingColumnName(self.id_col, self.dms.is_postgre_sql),
-                                   ', '.join([dbhelper.quotingSqlString(ent) for ent in entities]))
+            sql += "'%s' IN ('%s')", (dbhelper.quotingColumnName(self.id_col, self.dms.is_postgre_sql),
+                                   ', '.join([dbhelper.quotingSqlString(ent) for ent in entities]), )
 
         self.parse_dates.add(key_timestamp)
         requested_col_names = self.names + [key_id, key_timestamp]
