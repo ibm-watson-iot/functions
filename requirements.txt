@@ -7,7 +7,7 @@ lightgbm==3.3.2
 nose2==0.6.0
 pandas==1.4.3
 psycopg2-binary==2.9.5
-pyarrow==8.0.0
+pyarrow==14.0.1
 pyod==1.0.0
 certifi>=2023.7.22
 requests==2.31.0
