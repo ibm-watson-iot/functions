@@ -262,7 +262,9 @@ class PersistColumns:
             if grain[0] is not None:
                 dimensions.append('TIMESTAMP')
             if grain[1] is not None:
-                dimensions.extend(grain[1])
+                # Map dimension names to dimension column names
+                for dimension_name in grain[1]:
+                    dimensions.append(self.dms.data_items.get(dimension_name)["columnName"])
 
         colExtension = ''
         parmExtension = ''
