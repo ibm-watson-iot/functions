@@ -21,6 +21,7 @@ import pyarrow
 import pyarrow.parquet
 
 from iotfunctions import dbhelper
+from iotfunctions.dbhelper import check_sql_injection
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,9 @@ class DBDataCache:
             raise Exception('Initialization of %s failed because the database type %s is unknown.' % (
                 self.__class__.__name__, self.db_type))
 
-        self.quoted_schema = dbhelper.quotingSchemaName(self.schema, self.is_postgre_sql)
-        self.quoted_cache_tablename = dbhelper.quotingTableName(self.cache_tablename, self.is_postgre_sql)
+        self.quoted_schema = dbhelper.quotingSchemaName(check_sql_injection(self.schema), self.is_postgre_sql)
+        self.quoted_cache_tablename = dbhelper.quotingTableName(check_sql_injection(self.cache_tablename), self.is_postgre_sql)
+        self.quoted_constraint_name = dbhelper.quotingTableName(check_sql_injection('uc_%s' % self.cache_tablename), self.is_postgre_sql)
 
         self._handle_cache_table()
 
@@ -66,8 +68,7 @@ class DBDataCache:
                             "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
                             "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, PARQUET_NAME) ENFORCED ) " \
                             "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_cache_tablename,
-                                                 dbhelper.quotingTableName('uc_%s' % self.cache_tablename,
-                                                                           self.is_postgre_sql))
+                                                 self.quoted_constraint_name)
             try:
                 stmt = ibm_db.exec_immediate(self.db_connection, sql_statement)
                 ibm_db.free_result(stmt)
@@ -80,8 +81,7 @@ class DBDataCache:
                             "parquet_file BYTEA, " \
                             "updated_ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " \
                             "CONSTRAINT %s UNIQUE(entity_type_id, parquet_name))" % (
-                                self.quoted_schema, self.quoted_cache_tablename,
-                                dbhelper.quotingTableName('uc_%s' % self.cache_tablename, self.is_postgre_sql))
+                                self.quoted_schema, self.quoted_cache_tablename, self.quoted_constraint_name)
             try:
                 dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement)
             except Exception as ex:
@@ -161,8 +161,7 @@ class DBDataCache:
 
                 statement3 = "ON CONFLICT ON CONSTRAINT %s DO update set entity_type_id = EXCLUDED.entity_type_id, " \
                              "parquet_name = EXCLUDED.parquet_name, parquet_file = EXCLUDED.parquet_file, " \
-                             "updated_ts = EXCLUDED.updated_ts" % dbhelper.quotingTableName(
-                    ('uc_%s' % self.cache_tablename), self.is_postgre_sql)
+                             "updated_ts = EXCLUDED.updated_ts" % self.quoted_constraint_name
 
                 sql_statement = statement1 + " values (%s, %s, %s, current_timestamp) " + statement3
 
@@ -482,8 +481,9 @@ class DBModelStore:
             raise Exception('Initialization of %s failed because the database type %s is unknown.' % (
                 self.__class__.__name__, self.db_type))
 
-        self.quoted_schema = dbhelper.quotingSchemaName(self.schema, self.is_postgre_sql)
-        self.quoted_store_tablename = dbhelper.quotingTableName(self.store_tablename, self.is_postgre_sql)
+        self.quoted_schema = dbhelper.quotingSchemaName(check_sql_injection(self.schema), self.is_postgre_sql)
+        self.quoted_store_tablename = dbhelper.quotingTableName(check_sql_injection(self.store_tablename), self.is_postgre_sql)
+        self.quoted_constraint_name = dbhelper.quotingTableName(check_sql_injection('uc_%s' % self.store_tablename), self.is_postgre_sql)
 
         self._handle_store_table()
 
@@ -497,9 +497,7 @@ class DBModelStore:
                             "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
                             "LAST_UPDATED_BY VARCHAR(256), " \
                             "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, MODEL_NAME) ENFORCED) " \
-                            "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_store_tablename,
-                                                 dbhelper.quotingTableName('uc_%s' % self.store_tablename,
-                                                                           self.is_postgre_sql))
+                            "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_store_tablename, self.quoted_constraint_name)
             try:
                 stmt = ibm_db.exec_immediate(self.db_connection, sql_statement)
                 ibm_db.free_result(stmt)
@@ -513,8 +511,7 @@ class DBModelStore:
                             "updated_ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " \
                             "last_updated_by VARCHAR(256), " \
                             "CONSTRAINT %s UNIQUE(entity_type_id, model_name))" % (
-                                self.quoted_schema, self.quoted_store_tablename,
-                                dbhelper.quotingTableName('uc_%s' % self.store_tablename, self.is_postgre_sql))
+                                self.quoted_schema, self.quoted_store_tablename, self.quoted_constraint_name)
             try:
                 dbhelper.execute_postgre_sql_query(self.db_connection, sql_statement)
             except Exception as ex:
@@ -591,8 +588,7 @@ class DBModelStore:
 
             statement3 = "ON CONFLICT ON CONSTRAINT %s DO update set entity_type_id = EXCLUDED.entity_type_id, " \
                          "model_name = EXCLUDED.model_name, model = EXCLUDED.model, " \
-                         "updated_ts = EXCLUDED.updated_ts, last_updated_by = EXCLUDED.last_updated_by" % dbhelper.quotingTableName(
-                ('uc_%s' % self.store_tablename), self.is_postgre_sql)
+                         "updated_ts = EXCLUDED.updated_ts, last_updated_by = EXCLUDED.last_updated_by" % self.quoted_constraint_name
 
             sql_statement = statement1 + " values (%s, %s, %s, current_timestamp, %s) " + statement3
 

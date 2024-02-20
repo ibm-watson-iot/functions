@@ -13,6 +13,7 @@ import logging
 import pandas as pd
 
 from iotfunctions import dbhelper, util
+from iotfunctions.dbhelper import check_sql_injection
 
 
 class LoaderPipeline:
@@ -143,7 +144,7 @@ class LoadTableAndConcat(BaseLoader):
         key_timestamp = 'key_timestamp_'
 
         if self.schema is not None and len(self.schema) > 0:
-            schema_prefix = f"{dbhelper.quotingSchemaName(self.schema, self.dms.is_postgre_sql)}."
+            schema_prefix = f"{dbhelper.quotingSchemaName(check_sql_injection(self.schema), self.dms.is_postgre_sql)}."
         else:
             schema_prefix = ""
 
@@ -152,7 +153,7 @@ class LoadTableAndConcat(BaseLoader):
             dbhelper.quotingColumnName(self.id_col, self.dms.is_postgre_sql), key_id,
             dbhelper.quotingColumnName(self.timestamp_col, self.dms.is_postgre_sql), key_timestamp,
             schema_prefix,
-            dbhelper.quotingTableName(self.table, self.dms.is_postgre_sql))
+            dbhelper.quotingTableName(check_sql_injection(self.table), self.dms.is_postgre_sql))
         condition_applied = False
         if self.where_clause is not None:
             sql += ' WHERE %s' % self.where_clause

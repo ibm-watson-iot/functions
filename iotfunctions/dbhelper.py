@@ -12,8 +12,10 @@ import logging
 
 import ibm_db
 import psycopg2.extras
+import re
 
 logger = logging.getLogger(__name__)
+SQL_PATTERN = re.compile('\w+')
 
 # PostgreSQL Queries
 POSTGRE_SQL_INFORMATION_SCHEMA = " SELECT table_schema,table_name , column_name ,udt_name, character_maximum_length FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s ; "
@@ -30,26 +32,21 @@ def quotingSchemaName(schemaName, is_postgre_sql=False):
 
 def quotingTableName(tableName, is_postgre_sql=False):
     quotedTableName = 'NULL'
-    quote = '\"'
-    twoQuotes = '\"\"'
 
     if tableName is not None:
-        tableName = tableName if is_postgre_sql else tableName.upper()
         # Quote string and escape all quotes in string by an additional quote
-        quotedTableName = quote + tableName.replace(quote, twoQuotes) + quote
+        quotedTableName = f'"{tableName if is_postgre_sql else tableName.upper()}"'
 
     return quotedTableName
 
 
 def quotingSqlString(sqlValue):
     preparedValue = 'NULL'
-    quote = '\''
-    twoQuotes = '\'\''
 
     if sqlValue is not None:
         if isinstance(sqlValue, str):
             # Quote string and escape all quotes in string by an additional quote
-            preparedValue = quote + sqlValue.replace(quote, twoQuotes) + quote
+            preparedValue = f"'{sqlValue}'"
         else:
             # sqlValue is no string; therefore just return it as is
             preparedValue = sqlValue
@@ -141,3 +138,10 @@ def execute_postgre_sql_query(db_connection, sql, params=None, raise_error=True)
     finally:
         if cursor is not None:
             cursor.close()
+
+
+def check_sql_injection(input):
+    if SQL_PATTERN.fullmatch(input) is None:
+        raise RuntimeError(f"The following string contains forbidden characters and cannot be inserted into a sql "
+                           f"statement for security reason. Only letters including underscore are allowed: {input}")
+    return input
