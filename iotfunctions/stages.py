@@ -272,7 +272,7 @@ class PersistColumns:
         joinExtension = ''
         sourceExtension = ''
         for dimension in dimensions:
-            quoted_dimension = dbhelper.quotingColumnName(dimension)
+            quoted_dimension = dbhelper.quotingColumnName(check_sql_injection(dimension))
             colExtension += ', ' + quoted_dimension
             parmExtension += ', ?'
             joinExtension += ' AND TARGET.' + quoted_dimension + ' = SOURCE.' + quoted_dimension
@@ -306,7 +306,7 @@ class PersistColumns:
 
         for dimension in dimensions:
             # Note: the dimension grain need to be in lower case since the table will be created with lowercase column.
-            quoted_dimension = dbhelper.quotingColumnName(dimension.lower(), self.is_postgre_sql)
+            quoted_dimension = dbhelper.quotingColumnName(check_sql_injection(dimension.lower()), self.is_postgre_sql)
             colExtension += ', ' + quoted_dimension
             parmExtension += ', %s'
 
