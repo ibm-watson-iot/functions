@@ -13,7 +13,7 @@ import logging
 import pandas as pd
 
 from iotfunctions import dbhelper, util
-from iotfunctions.dbhelper import check_sql_injection
+from iotfunctions.dbhelper import check_sql_injection, check_sql_injection_extended
 
 
 class LoaderPipeline:
@@ -149,9 +149,9 @@ class LoadTableAndConcat(BaseLoader):
             schema_prefix = ""
 
         sql = 'SELECT %s, %s AS "%s", %s AS "%s" FROM %s%s' % (
-            ', '.join([dbhelper.quotingColumnName(col, self.dms.is_postgre_sql) for col in self.columns]),
-            dbhelper.quotingColumnName(self.id_col, self.dms.is_postgre_sql), key_id,
-            dbhelper.quotingColumnName(self.timestamp_col, self.dms.is_postgre_sql), key_timestamp,
+            ', '.join([dbhelper.quotingColumnName(check_sql_injection(col), self.dms.is_postgre_sql) for col in self.columns]),
+            dbhelper.quotingColumnName(check_sql_injection(self.id_col), self.dms.is_postgre_sql), key_id,
+            dbhelper.quotingColumnName(check_sql_injection(self.timestamp_col), self.dms.is_postgre_sql), key_timestamp,
             schema_prefix,
             dbhelper.quotingTableName(check_sql_injection(self.table), self.dms.is_postgre_sql))
         condition_applied = False
@@ -163,18 +163,18 @@ class LoadTableAndConcat(BaseLoader):
                 sql += ' WHERE '
             else:
                 sql += ' AND '
-            sql += "%s < %s AND %s <= %s" % (dbhelper.quotingSqlString(str(start_ts)),
-                                             dbhelper.quotingColumnName(self.timestamp_col, self.dms.is_postgre_sql),
-                                             dbhelper.quotingColumnName(self.timestamp_col, self.dms.is_postgre_sql),
-                                             dbhelper.quotingSqlString(str(end_ts)))
+            sql += "%s < %s AND %s <= %s" % (dbhelper.quotingSqlString(str(check_sql_injection(start_ts))),
+                                             dbhelper.quotingColumnName(check_sql_injection(self.timestamp_col), self.dms.is_postgre_sql),
+                                             dbhelper.quotingColumnName(check_sql_injection(self.timestamp_col), self.dms.is_postgre_sql),
+                                             dbhelper.quotingSqlString(str(check_sql_injection(end_ts))))
             condition_applied = True
         if entities is not None:
             if not condition_applied:
                 sql += ' WHERE '
             else:
                 sql += ' AND '
-            sql += "%s IN (%s)" % (dbhelper.quotingColumnName(self.id_col, self.dms.is_postgre_sql),
-                                   ', '.join([dbhelper.quotingSqlString(ent) for ent in entities]))
+            sql += "%s IN (%s)" % (dbhelper.quotingColumnName(check_sql_injection(self.id_col), self.dms.is_postgre_sql),
+                                   ', '.join([dbhelper.quotingSqlString(check_sql_injection_extended(ent)) for ent in entities]))
 
         self.parse_dates.add(key_timestamp)
         requested_col_names = self.names + [key_id, key_timestamp]

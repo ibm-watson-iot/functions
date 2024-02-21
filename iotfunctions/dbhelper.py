@@ -7,15 +7,17 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # *****************************************************************************
-
+import datetime
 import logging
 
 import ibm_db
+import pandas as pd
 import psycopg2.extras
 import re
 
 logger = logging.getLogger(__name__)
-SQL_PATTERN = re.compile('\w+')
+SQL_PATTERN = re.compile('\w*')
+SQL_PATTERN_EXTENDED = re.compile('[\w-]*')
 
 # PostgreSQL Queries
 POSTGRE_SQL_INFORMATION_SCHEMA = " SELECT table_schema,table_name , column_name ,udt_name, character_maximum_length FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s ; "
@@ -140,8 +142,30 @@ def execute_postgre_sql_query(db_connection, sql, params=None, raise_error=True)
             cursor.close()
 
 
-def check_sql_injection(input):
-    if SQL_PATTERN.fullmatch(input) is None:
-        raise RuntimeError(f"The following string contains forbidden characters and cannot be inserted into a sql "
-                           f"statement for security reason. Only letters including underscore are allowed: {input}")
-    return input
+def check_sql_injection(input_obj):
+    input_type = type(input_obj)
+    if input_type == str:
+        if SQL_PATTERN.fullmatch(input_obj) is None:
+            raise RuntimeError(f"The following string contains forbidden characters and cannot be inserted into a sql "
+                               f"statement for security reason. Only letters including underscore are allowed: {input_obj}")
+    elif input_type == int or input_type == float:
+        pass
+    elif input_type == pd.Timestamp or input_type == datetime.datetime:
+        pass
+    else:
+        raise RuntimeError(f"The following object of type {input_type} is unexpected and cannot be inserted into a sql statement for security reason: {input_obj}")
+
+    return input_obj
+
+
+def check_sql_injection_extended(input_string):
+
+    if type(input_string) == str:
+        if SQL_PATTERN_EXTENDED.fullmatch(input_string) is None:
+            raise RuntimeError(f"The string {input_string} contains forbidden characters and cannot be inserted "
+                               f"into a sql statement for security reason. Only letters, underscore and hyphen are allowed.")
+    else:
+        raise RuntimeError(f"A string is expected but the object {input_string} has type {type(input_string)}. "
+                           f"It cannot be inserted into a sql statement for security reason.")
+
+    return input_string
