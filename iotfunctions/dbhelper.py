@@ -153,7 +153,8 @@ def check_sql_injection(input_obj):
     elif input_type == pd.Timestamp or input_type == datetime.datetime:
         pass
     else:
-        raise RuntimeError(f"The following object of type {input_type} is unexpected and cannot be inserted into a sql statement for security reason: {input_obj}")
+        raise RuntimeError(f"The following object has an unexpected type {input_type} and cannot be inserted into a "
+                           f"sql statement for security reason: {input_obj}")
 
     return input_obj
 
