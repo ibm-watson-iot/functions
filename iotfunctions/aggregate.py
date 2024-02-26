@@ -15,7 +15,6 @@ from collections import defaultdict
 import pandas as pd
 import numpy as np
 import ibm_db
-import datetime as dt
 
 import iotfunctions.metadata as md
 from iotfunctions.base import (BaseAggregator, BaseFunction)
@@ -650,6 +649,9 @@ class AggregateWithCalculation(SimpleAggregator):
 class CsaUserCount(DirectAggregator):
 
     KPI_FUNCTION_NAME="CiscoSpaceAdapter_UserCount"
+
+    BACKTRACK_IMPACTING_PARAMETER = "start_of_calculation"
+
     CSA_USER_PRESENCE_EVENT_TYPE = "UserPresenceEventType"
     CSA_USER_PRESENCE_EVENT_TYPE_USER_ENTRY = "USER_ENTRY_EVENT"
     CSA_USER_PRESENCE_EVENT_TYPE_USER_EXIT = "USER_EXIT_EVENT"
@@ -658,6 +660,8 @@ class CsaUserCount(DirectAggregator):
 
     def __init__(self, event_type, user_presence_event_type, was_active, start_of_calculation=None, name=None):
         super().__init__()
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
         if event_type is not None and len(event_type) > 0 and \
                 user_presence_event_type is not None and len(user_presence_event_type) > 0 and \
                 was_active is not None and len(was_active) > 0:
@@ -725,11 +729,15 @@ class CsaUserCount(DirectAggregator):
                 aligned_run_start = aligned_run_end
 
         # Find any explicitly defined backtrack for this KPI function
-        backtrack = result_data_item.get('kpiFunctionDto').get('backtrack')
-        if backtrack is not None and len(backtrack) > 0:
-            # backtrack = complete_backtrack_setting(backtrack)       # kohlmann todo: is this step required when rollback is applied lateron????
-            backtrack_start = aligned_run_end - pd.tseries.offsets.DateOffset(**backtrack)
-            #backtrack_start = rollback_to_interval_boundary(backtrack_start, agg_frequency)
+        # backtrack = result_data_item.get('kpiFunctionDto').get('backtrack')
+        # if backtrack is not None and len(backtrack) > 0:
+        #     backtrack_start = aligned_run_end - pd.tseries.offsets.DateOffset(**backtrack)
+        # else:
+        #     backtrack_start = None
+
+        # Check if recalculation of UserCount is configured
+        if self.start_of_calculation is not None:
+            backtrack_start = rollback_to_interval_boundary(self.start_of_calculation, agg_frequency)
         else:
             backtrack_start = None
 
@@ -752,6 +760,12 @@ class CsaUserCount(DirectAggregator):
             aligned_cycle_start = aligned_run_start
             aligned_cycle_end = aligned_run_end
             aligned_calc_start = aligned_cycle_start
+
+        self.logger.debug(f"aligned_cycle_start = {aligned_cycle_start}, aligned_cycle_end = {aligned_cycle_end}, "
+                          f"aligned_calc_start = {aligned_calc_start}, "
+                          f"self.dms.running_with_backtrack = {self.dms.running_with_backtrack}, "
+                          f"self.start_of_calculation = {self.start_of_calculation}, "
+                          f"agg_frequency = {agg_frequency}")
 
         s_agg_result = None
         if aligned_cycle_start < aligned_cycle_end:
@@ -781,7 +795,9 @@ class CsaUserCount(DirectAggregator):
 
                     if len(result_data) > 0:
                         s_missing_result_values = pd.Series(data=result_data, index=pd.MultiIndex.from_tuples(tuples=result_index, names=group_base_names), name=self.output_name)
-
+                        self.logger.debug(f"Number of missing results: {len(s_missing_result_values)}")
+                    else:
+                        self.logger.debug(f"No missing results available.")
                 except Exception as ex:
                     raise Exception(
                         f'Retrieval of result values failed with sql statement "{sql_statement}"') from ex
@@ -815,6 +831,9 @@ class CsaUserCount(DirectAggregator):
                         row = ibm_db.fetch_tuple(stmt)
                     if len(result_data) > 0:
                         s_start_result_values = pd.Series(data=result_data, index=pd.Index(result_index, name=group_base_names[0]))
+                        self.logger.debug(f"Number of start results: {len(s_start_result_values)}")
+                    else:
+                        self.logger.debug(f"No start results available.")
                 except Exception as ex:
                     raise Exception(
                         f'Retrieval of previous result value failed with sql statement "{sql_statement}"') from ex

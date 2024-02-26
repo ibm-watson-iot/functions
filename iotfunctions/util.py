@@ -1327,3 +1327,47 @@ def complete_backtrack_setting(backtrack):
             backtrack[label] = 0
 
     return backtrack
+
+
+def get_backtrack_from_frequency(frequency):
+
+    if frequency == 'Y':
+        backtrack = {'year': 1}
+    elif frequency == 'MS':
+        backtrack = {'month': 1}
+    elif frequency == 'W':
+        backtrack = {'week': 1}
+    elif frequency == 'D':
+        backtrack = {'day': 1}
+    elif frequency == 'H' or frequency == 'h':
+        backtrack = {'hour': 1}
+    elif frequency == 'T' or frequency == 'min':
+        backtrack = {'minute': 1}
+    elif frequency == 'S' or frequency == 's':
+        backtrack = {'second': 1}
+    else:
+        raise RuntimeError()
+
+    return complete_backtrack_setting(backtrack)
+
+
+def get_max_frequency(active_agg_frequencies):
+
+    max_frequency = None
+    if len(active_agg_frequencies) > 0:
+        if 'Y' in active_agg_frequencies:
+            max_frequency = 'Y'
+        elif 'MS' in active_agg_frequencies:
+            max_frequency = 'MS'
+        elif 'W' in active_agg_frequencies:
+            max_frequency = 'W'
+        elif 'D' in active_agg_frequencies:
+            max_frequency = 'D'
+        elif 'H' in active_agg_frequencies or 'h' in active_agg_frequencies:
+            max_frequency = 'H'
+        elif 'T' in active_agg_frequencies or 'min' in active_agg_frequencies:
+            max_frequency = 'T'
+        elif 'S' in active_agg_frequencies or 's' in active_agg_frequencies:
+            max_frequency = 'S'
+
+    return max_frequency
