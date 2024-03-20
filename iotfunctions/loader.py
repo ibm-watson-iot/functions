@@ -163,7 +163,7 @@ class LoadTableAndConcat(BaseLoader):
                 sql += ' WHERE '
             else:
                 sql += ' AND '
-            sql += "%s < %s AND %s <= %s" % (dbhelper.quotingSqlString(str(check_sql_injection(start_ts))),
+            sql += "%s <= %s AND %s < %s" % (dbhelper.quotingSqlString(str(check_sql_injection(start_ts))),
                                              dbhelper.quotingColumnName(check_sql_injection(self.timestamp_col), self.dms.is_postgre_sql),
                                              dbhelper.quotingColumnName(check_sql_injection(self.timestamp_col), self.dms.is_postgre_sql),
                                              dbhelper.quotingSqlString(str(check_sql_injection(end_ts))))
