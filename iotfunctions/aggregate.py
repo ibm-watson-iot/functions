@@ -18,6 +18,7 @@ import ibm_db
 
 import iotfunctions.metadata as md
 from iotfunctions.base import (BaseAggregator, BaseFunction)
+from iotfunctions.dbhelper import check_sql_injection
 from iotfunctions.util import log_data_frame, rollback_to_interval_boundary, UNIQUE_EXTENSION_LABEL
 from iotfunctions import dbhelper
 
@@ -693,10 +694,10 @@ class MsiOccupancyCount(DirectAggregator):
     def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None):
 
         # Schema name and table name of result table for sql statement
-        sql_schema_name = self.dms.schema
+        sql_schema_name = check_sql_injection(self.dms.schema)
         sql_quoted_schema_name = dbhelper.quotingSchemaName(sql_schema_name, self.dms.is_postgre_sql)
 
-        sql_table_name = self.dms.entity_type_obj._data_items.get(self.output_name).get('sourceTableName')
+        sql_table_name = check_sql_injection(self.dms.entity_type_obj._data_items.get(self.output_name).get('sourceTableName'))
         sql_quoted_table_name = dbhelper.quotingTableName(sql_table_name, self.dms.is_postgre_sql)
 
         # Find data item representing the result of this KPI function
@@ -806,8 +807,10 @@ class MsiOccupancyCount(DirectAggregator):
                 finally:
                     ibm_db.free_result(stmt)
 
-            # Kohlmann todo: Rework text Because OccupancyCount is a cumulative measure we have to fetch the latest available OccupancyCount values from
-            # output table. This step is not required for cycles in which we do not calculate any OccupancyCount values.
+            # Because we only get a data event when the raw metric changes but we want to provide values for all time
+            # units of the derived metric we have to fetch the latest available OccupancyCount values from
+            # output table to fill gaps at the beginning. This step is not required for cycles in which we do not
+            # calculate any OccupancyCount values.
             if aligned_calc_start < aligned_cycle_end:
                 s_start_result_values = None
 
