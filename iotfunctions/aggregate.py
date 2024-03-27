@@ -501,7 +501,15 @@ class Count(SimpleAggregator):
             self.min_count = min_count
 
     def execute(self, group):
-        cnt = group.count()
+        # group is expected to be a pandas series but in case of an empty dataframe groupby.agg() hands over an empty
+        # data frame. This is an erroneous behaviour in pandas but we have to take it into account: Group.count()
+        # returns a series instead of integer when group is a data frame instead of series. When cnt is a series the
+        # subsequent cnt >= self.min_count raises an ambiguous truth exception - at least for some panda versions
+        # like 1.4.3 but not for 1.3.4 and 1.5.4
+        if not group.empty:
+            cnt = group.count()
+        else:
+            cnt = 0
         return cnt if cnt >= self.min_count else None
 
 
@@ -523,7 +531,13 @@ class DistinctCount(SimpleAggregator):
             self.min_count = min_count
 
     def execute(self, group):
-        cnt = len(group.dropna().unique())
+        # group is expected to be a pandas series but in case of an empty dataframe groupby.agg() hands over an empty
+        # data frame. This is an erroneous behaviour in pandas but we have to take it into account: Do not deploy
+        # unique() on group when it is a dataframe because unique() does only exist for series.
+        if not group.empty:
+            cnt = len(group.dropna().unique())
+        else:
+            cnt = 0
         return cnt if cnt >= self.min_count else None
 
 
