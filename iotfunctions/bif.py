@@ -3344,6 +3344,29 @@ class InvokeWMLClassifier(InvokeWMLModel):
         return (inputs, outputs)
 
 
+class SpaceOccupancyRate(BaseTransformer):
+    def __init__(self, input, output):
+        self.output = output
+        self.input = input
+
+    def execute(self, df):
+        sources_not_in_column = df.index.names
+        df = df.reset_index()
+
+        pattern = r"\b\w*capacity\w*\b"
+        capacity_dimensions = [item for i, item in enumerate(df.columns) if re.search(pattern, str.lower(item))]
+
+        df = df.copy()
+        to_float = lambda x: float(x)
+
+        df[self.output] = df[self.input].transform(to_float).div(
+                                df[capacity_dimensions[0]].transform(to_float), axis=0)*100.0
+        df[self.output] = df[self.output].transform(lambda x: round(x, 2))
+
+        df = df.set_index(keys=sources_not_in_column)
+
+        return df
+
 def pairwise(iterable):
     "s -> (s0, s1), (s2, s3), (s4, s5), ..."
     a = iter(iterable)
