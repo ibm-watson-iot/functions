@@ -3360,6 +3360,19 @@ class MsiOccupancyCountByOrganisation(BaseTransformer):
 
         return df
 
+class OccupancyRate(BaseTransformer):
+    def __init__(self, occupancy_count, capacity, occupancy_rate):
+        super().__init__()
+        self.output = occupancy_rate
+        self.input = occupancy_count
+        self.capacity = capacity
+
+    def execute(self, df):
+        df[self.output] = df[self.input].astype(float).div(df[self.capacity].astype(float), axis=0)*100.0
+        df[self.output] = df[self.output].round(2)
+
+        return df
+
 def pairwise(iterable):
     "s -> (s0, s1), (s2, s3), (s4, s5), ..."
     a = iter(iterable)
