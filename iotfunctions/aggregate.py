@@ -850,6 +850,9 @@ class MsiOccupancyCount(DirectAggregator):
                 df_calc = df[[*group_base_names, self.raw_occupancy_count]]
                 df_calc = df_calc[(df_calc[group_base_names[1]] >= max(aligned_calc_start, aligned_cycle_start)) & (df_calc[group_base_names[1]] < aligned_cycle_end)]
 
+                # Cast column self.raw_occupancy_count to float because we allow it to be of type string for convenience
+                df_calc = df_calc.astype({self.raw_occupancy_count: float})
+
                 # Aggregate new column to get result metric. Result metric has name self.raw_output_name in data frame df_agg_result.
                 # Columns in group_base_names go into index of df_agg_result. We search for the max occupancy count.
                 df_agg_result = df_calc.groupby(group_base).max()
