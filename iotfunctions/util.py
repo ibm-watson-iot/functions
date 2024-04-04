@@ -66,7 +66,6 @@ UNIQUE_EXTENSION_LABEL = '_###IBM_Temporary###'
 ANALYTICS_SERVICE_TOP_LOGGER = 'analytics_service'
 IOTFUNCTIONS_TOP_LOGGER = __package__
 
-
 def setup_logging(as_log_level=logging.INFO, root_log_level=logging.DEBUG, filename=None):
 
     as_formatter = logging.Formatter(
@@ -517,29 +516,50 @@ def log_data_frame(message=None, df=None, head_only=True):
         if message is not None:
             log_message = message
         if df is not None:
+            # tabulate cannot handle Series: Turn any series into data frame
+            if type(df) == pd.Series:
+                df = pd.DataFrame(df)
+
             if head_only is True:
-                df_copy = df.head().copy()
+                row_count = df.shape[0]
+                if row_count > 10:
+                    df_copy = df.head(5).copy()
+                    df_copy2 = df.tail(5).copy()
+                else:
+                    df_copy = df.head(10).copy()
+                    df_copy2 = None
             else:
                 df_copy = df.copy()
+                df_copy2 = None
 
-            if not df_copy.empty:
-                # Replace all True/False values in columns of type 'object' by 'true'/false' respectively because
-                # of a bug in tabulate that tries to handle 'object' columns as 'float' columns whenever possible.
-                # Unfortunately, 'True'/'False' is considered a numeric value ( bool('True') = 1) although the conversion
-                # to float (float('True')) fails with 'ValueError: could not convert string to float: 'True''
-                for col_name, col_type in df_copy.dtypes.iteritems():
-                    if col_type.name == 'object':
-                        df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'True', 'true')
-                        df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'False', 'false')
+            # Replace all True/False values in columns of type 'object' by 'true'/false' respectively because
+            # of a bug in tabulate that tries to handle 'object' columns as 'float' columns whenever possible.
+            # Unfortunately, 'True'/'False' is considered a numeric value ( bool('True') = 1) although the conversion
+            # to float (float('True')) fails with 'ValueError: could not convert string to float: 'True''
+            exchange_boolean_by_string(df_copy)
+            exchange_boolean_by_string(df_copy2)
+
             log_message = f"{log_message} = {str(df.shape)} \n" \
-                          f"{tabulate(df_copy, headers='keys', tablefmt='psql')} \n" \
                           f"Data types of index: {df_copy.index.to_frame(index=False).dtypes.to_dict()} \n" \
-                          f"Data types of columns: {df_copy.dtypes.sort_index().to_dict()}"
+                          f"Data types of columns: {df_copy.dtypes.sort_index().to_dict()} \n" \
+                          f"{tabulate(df_copy, headers='keys', tablefmt='psql')}"
+            if df_copy2 is not None and not df_copy2.empty:
+                log_message = f"{log_message}\n" \
+                              f"{tabulate(df_copy2, headers='keys', tablefmt='psql')}"
+
         logger.debug(log_message)
     except Exception as ex:
         logger.debug("Error while pretty printing the dataframe.", ex)
         log_message = message + ' = %s \n%s' % (str(df.shape), df.head())
         logger.debug(log_message)
+
+
+def exchange_boolean_by_string(df):
+    if df is not None and not df.empty:
+        for col_name, col_type in df.dtypes.iteritems():
+            if col_type.name == 'object':
+                df[col_name] = df[col_name].mask(df[col_name] == 'True', 'true')
+                df[col_name] = df[col_name].mask(df[col_name] == 'False', 'false')
 
 
 def asList(x):
@@ -1271,3 +1291,83 @@ class Trace(object):
             out = out + entry['text']
 
         return out
+
+
+def rollback_to_interval_boundary(timestamp, grain_frequency):
+
+    if grain_frequency == 'S' or grain_frequency == 's':
+        boundary = timestamp - pd.DateOffset(microsecond=0, nanosecond=0)
+    elif grain_frequency == 'T' or grain_frequency == 'min':
+        boundary = timestamp - pd.DateOffset(second=0, microsecond=0, nanosecond=0)
+    elif grain_frequency == 'H' or grain_frequency == 'h':
+        boundary = timestamp - pd.DateOffset(minute=0, second=0, microsecond=0, nanosecond=0)
+    elif grain_frequency == 'D':
+        boundary = timestamp - pd.DateOffset(hour=0, minute=0, second=0, microsecond=0, nanosecond=0)
+    elif grain_frequency == 'W' or grain_frequency == 'MS' or grain_frequency == 'YS':
+        boundary = pd.tseries.frequencies.to_offset(grain_frequency).rollback(timestamp) \
+                   - pd.DateOffset(hour=0, minute=0, second=0, microsecond=0, nanosecond=0)
+    else:
+        raise RuntimeError(f"Frequency {grain_frequency} is currently not supported.")
+
+    return boundary
+
+
+def complete_backtrack_setting(backtrack):
+    # Add missing time-related labels to backtrack: For example,
+    # if backtrack contains 'minute' add all shorter units like 'second=0',
+    # 'microsecond=0' and 'nanosecond=0' if they are not explicitly given in backtrack.
+    # Especially 'second' and 'microsecond' are not provided by the configuration but are
+    # mandatory to exactly hit the boundary of, for example, a shift begin.
+    backtrack_keys = backtrack.keys()
+    label_found = False
+    for label in ['day', 'hour', 'minute', 'second', 'microsecond', 'nanosecond']:
+        if label in backtrack_keys:
+            label_found = True
+        elif label_found:
+            backtrack[label] = 0
+
+    return backtrack
+
+
+def get_backtrack_from_frequency(frequency):
+
+    if frequency == 'Y':
+        backtrack = {'year': 1}
+    elif frequency == 'MS':
+        backtrack = {'month': 1}
+    elif frequency == 'W':
+        backtrack = {'week': 1}
+    elif frequency == 'D':
+        backtrack = {'day': 1}
+    elif frequency == 'H' or frequency == 'h':
+        backtrack = {'hour': 1}
+    elif frequency == 'T' or frequency == 'min':
+        backtrack = {'minute': 1}
+    elif frequency == 'S' or frequency == 's':
+        backtrack = {'second': 1}
+    else:
+        raise RuntimeError()
+
+    return complete_backtrack_setting(backtrack)
+
+
+def get_max_frequency(active_agg_frequencies):
+
+    max_frequency = None
+    if len(active_agg_frequencies) > 0:
+        if 'Y' in active_agg_frequencies:
+            max_frequency = 'Y'
+        elif 'MS' in active_agg_frequencies:
+            max_frequency = 'MS'
+        elif 'W' in active_agg_frequencies:
+            max_frequency = 'W'
+        elif 'D' in active_agg_frequencies:
+            max_frequency = 'D'
+        elif 'H' in active_agg_frequencies or 'h' in active_agg_frequencies:
+            max_frequency = 'H'
+        elif 'T' in active_agg_frequencies or 'min' in active_agg_frequencies:
+            max_frequency = 'T'
+        elif 'S' in active_agg_frequencies or 's' in active_agg_frequencies:
+            max_frequency = 'S'
+
+    return max_frequency

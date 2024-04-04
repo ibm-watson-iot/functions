@@ -177,6 +177,12 @@ class BaseFunction(object):
                     except KeyError:
                         pass
 
+    def _set_dms(self, dms):
+        self.dms = dms
+
+    def _get_dms(self):
+        return self.dms
+
     def __str__(self):
 
         out = self.__class__.__name__

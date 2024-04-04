@@ -3344,6 +3344,22 @@ class InvokeWMLClassifier(InvokeWMLModel):
         return (inputs, outputs)
 
 
+class MsiOccupancyCountByOrganisation(BaseTransformer):
+
+    def __init__(self, occupancy_count, weights, weighted_occupancy_counts):
+        super().__init__()
+        self.occupancy_count = occupancy_count
+        self.weights = weights
+        self.weighted_occupancy_counts = weighted_occupancy_counts
+
+
+    def execute(self, df):
+        s_occupancy_count = df[self.occupancy_count]
+        for weight, weighted_count in zip(self.weights, self.weighted_occupancy_counts):
+            df[weighted_count] = s_occupancy_count * df[weight].astype(float)
+
+        return df
+
 class OccupancyRate(BaseTransformer):
     def __init__(self, occupancy_count, capacity, occupancy_rate):
         super().__init__()
