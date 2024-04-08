@@ -97,7 +97,7 @@ def test_vianomaly_score():
     df_i = vasi.execute(df=df_i)
     print('VIAnomaly inferencing done')
 
-    df_i.to_csv("/home/markus/Downloads/iot.cvs")
+    df_i.to_csv("iot.cvs")
 
     vasi.to_onnx()
 
