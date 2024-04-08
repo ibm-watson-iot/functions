@@ -30,7 +30,7 @@ from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
 from .util import adjust_probabilities, reset_df_index, asList
-#from ibm_watson_machine_learning import APIClient
+from ibm_watson_machine_learning import APIClient
 
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,7 @@ class AggregateTimeInState(BaseSimpleAggregator):
 
         # debug stuff
         #pd.set_option("display.max_rows", 50)
-        logger.info(str(group))
+        #logger.info(str(group))
 
         df_group_exp = group.str.split(pat=',', n=3, expand=True)
         #logger.info(str(df_group_exp))

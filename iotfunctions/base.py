@@ -20,7 +20,7 @@ import os
 import re
 import warnings
 from collections import OrderedDict
-from inspect import getfullargspec, signature
+from inspect import getfullargspec, signature    # ready for python 3.11
 import hashlib # encode feature names
 
 import numpy as np
@@ -406,7 +406,7 @@ class BaseFunction(object):
         """
 
         metadata = {}
-        args = (getfullargspec(self.__init__))[0][1:]
+        args = (getfullargspec(self.__init__))[0][1:]    # ready for python 3.11
         for a in args:
             try:
                 metadata[a] = self.__dict__[a]
@@ -673,7 +673,7 @@ class BaseFunction(object):
         array_inputs = []
 
         # introspect function to get a list of argumnents
-        args = (getfullargspec(self.__init__))[0][1:]
+        args = (getfullargspec(self.__init__))[0][1:]     # ready for python 3.11
         for a in args:
             if a is None:
                 msg = 'Cannot infer metadata for argument %s as it was initialized with a value of None. \
