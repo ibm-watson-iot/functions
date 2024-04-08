@@ -19,6 +19,7 @@ import pandas as pd
 from sqlalchemy import (MetaData, Table)
 
 from . import dbhelper
+from .dbhelper import check_sql_injection
 from .exceptions import StageException, DataWriterException
 from .util import MessageHub, asList
 from . import metadata as md
@@ -262,14 +263,16 @@ class PersistColumns:
             if grain[0] is not None:
                 dimensions.append('TIMESTAMP')
             if grain[1] is not None:
-                dimensions.extend(grain[1])
+                # Map dimension names to dimension column names
+                for dimension_name in grain[1]:
+                    dimensions.append(self.dms.data_items.get(dimension_name)["columnName"])
 
         colExtension = ''
         parmExtension = ''
         joinExtension = ''
         sourceExtension = ''
         for dimension in dimensions:
-            quoted_dimension = dbhelper.quotingColumnName(dimension)
+            quoted_dimension = dbhelper.quotingColumnName(check_sql_injection(dimension))
             colExtension += ', ' + quoted_dimension
             parmExtension += ', ?'
             joinExtension += ' AND TARGET.' + quoted_dimension + ' = SOURCE.' + quoted_dimension
@@ -282,7 +285,7 @@ class PersistColumns:
                 "UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
                 "WHEN NOT MATCHED THEN "
                 "INSERT (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) VALUES (SOURCE.KEY%s, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, CURRENT TIMESTAMP)") % (
-                   dbhelper.quotingSchemaName(self.schema), dbhelper.quotingTableName(tableName), parmExtension,
+                   dbhelper.quotingSchemaName(check_sql_injection(self.schema)), dbhelper.quotingTableName(check_sql_injection(tableName)), parmExtension,
                    colExtension, joinExtension, colExtension, sourceExtension)
 
     def create_upsert_statement_postgres_sql(self, tableName, grain):
@@ -303,7 +306,7 @@ class PersistColumns:
 
         for dimension in dimensions:
             # Note: the dimension grain need to be in lower case since the table will be created with lowercase column.
-            quoted_dimension = dbhelper.quotingColumnName(dimension.lower(), self.is_postgre_sql)
+            quoted_dimension = dbhelper.quotingColumnName(check_sql_injection(dimension.lower()), self.is_postgre_sql)
             colExtension += ', ' + quoted_dimension
             parmExtension += ', %s'
 
@@ -335,8 +338,8 @@ class ProduceAlerts(object):
         except AttributeError:
             self.entity_type_name = dms.entity_type
 
-        self.quoted_schema = dbhelper.quotingSchemaName(dms.default_db_schema, self.dms.is_postgre_sql)
-        self.quoted_table_name = dbhelper.quotingTableName(self.ALERT_TABLE_NAME, self.dms.is_postgre_sql)
+        self.quoted_schema = dbhelper.quotingSchemaName(check_sql_injection(dms.default_db_schema), self.dms.is_postgre_sql)
+        self.quoted_table_name = dbhelper.quotingTableName(check_sql_injection(self.ALERT_TABLE_NAME), self.dms.is_postgre_sql)
         self.alert_to_kpi_input_dict = dict()
 
         # Requirement: alerts_to_msg_hub must be a subset of alerts_to_db because the alerts in data base are exploited

@@ -1216,10 +1216,22 @@ class EntityType(object):
                 else:
                     raise ValueError("Data item name %s is defined in multiple events and therefore not unique. This is currently not supported in this function." % data_item_name)
 
+        # self._entity_id (=='deviceid') and self._timestamp (either RCV_TIMESTAMP_UTC or a user-selected timestamp column) are required for dataframe index
+        mapped_columns = {self._entity_id, self._timestamp}
+
+        # Map data item names to column names
         if columns is not None:
-            mapped_columns = [data_item_name_to_db_col_name.get(col_name, col_name) for col_name in columns]
+            for data_item_name in columns:
+                col_name = data_item_name_to_db_col_name.get(data_item_name)
+                # Only add column names of known data items and avoid any duplicate 'DEVICE_ID'
+                if col_name is not None and col_name.lower() != self._entity_id:
+                    mapped_columns.add(col_name)
         else:
-            mapped_columns = None
+            # Add column names of all data items
+            for col_name in db_col_name_to_data_item_name.keys():
+                # Avoid any duplicate 'DEVICE_ID'
+                if col_name.lower() != self._entity_id:
+                    mapped_columns.add(col_name)
 
         if self._pre_agg_rules is not None:
             agg_rules = {data_item_name_to_db_col_name.get(name, name): func_list for name, func_list in self._pre_agg_rules.items()}
@@ -1241,6 +1253,13 @@ class EntityType(object):
         # Repeat mapping taking into account upper case to lower case conversion of sqlalchemy
         tmp_mapping = {col_name.lower(): name for col_name, name in db_col_name_to_data_item_name.items()}
         df.rename(columns=tmp_mapping, inplace=True)
+
+        # Timestamp column was swallowed by index creation: Copy timestamp column from df index to df columns when it was explicitly requested in parameter columns
+        timestamp_data_item_name = db_col_name_to_data_item_name.get(self._timestamp)
+        if timestamp_data_item_name is not None:
+            if columns is None or timestamp_data_item_name in columns:
+                if self._timestamp in df.index.names and timestamp_data_item_name not in df.columns:
+                    df[timestamp_data_item_name] = df.index.get_level_values(self._timestamp)
 
         return df
 
@@ -1314,8 +1333,10 @@ class EntityType(object):
             memo = MemoryOptimizer()
             df = memo.downcastNumeric(df)
         try:
+            # We need a column named 'id' for the creation of index
             if self._entity_id in df.columns and self._df_index_entity_id not in df.columns:
                 df[self._df_index_entity_id] = df[self._entity_id]
+            # We need a column named self._timestamp for creation of index but sqlalchemy converted column name to lowercase
             if self._timestamp.lower() in df.columns:
                 df.rename(columns={self._timestamp.lower(): self._timestamp}, inplace=True)
             df = self.index_df(df)

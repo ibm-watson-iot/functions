@@ -813,7 +813,23 @@ class Coalesce(BaseTransformer):
             self.output_item = output_item
 
     def execute(self, df):
-        df[self.output_item] = df[self.data_items].bfill(axis=1).iloc[:, 0]
+
+        if isinstance(self.data_items, str):
+            self.data_items = [self.data_items]
+
+        tmp_df = df[[]].copy()
+        for data_item in self.data_items:
+            if data_item in df.columns:
+                tmp_df[data_item] = df[data_item]
+            else:
+                try:
+                    tmp_df[data_item] = df.index.get_level_values(level=data_item)
+                except KeyError as ex:
+                    raise KeyError(f"Data item {data_item} does not exist in data frame neither as column nor in index.")
+
+        tmp_s = tmp_df[self.data_items].bfill(axis=1).iloc[:, 0]
+
+        df[self.output_item] = pd.to_numeric(tmp_s, errors='coerce')
 
         return df
 
@@ -844,7 +860,23 @@ class CoalesceDimension(BaseTransformer):
             self.output_item = output_item
 
     def execute(self, df):
-        df[self.output_item] = df[self.data_items].bfill(axis=1).iloc[:, 0]
+
+        if isinstance(self.data_items, str):
+            self.data_items = [self.data_items]
+
+        tmp_df = df[[]].copy()
+        for data_item in self.data_items:
+            if data_item in df.columns:
+                tmp_df[data_item] = df[data_item]
+            else:
+                try:
+                    tmp_df[data_item] = df.index.get_level_values(level=data_item)
+                except KeyError as ex:
+                    raise KeyError(f"Data item {data_item} does not exist in data frame neither as column nor in index.")
+
+        tmp_s = tmp_df[self.data_items].bfill(axis=1).iloc[:, 0]
+
+        df[self.output_item] = pd.to_numeric(tmp_s, errors='coerce')
 
         return df
 
@@ -912,7 +944,7 @@ class DateDifference(BaseTransformer):
     Calculate the difference between two date data items in days,ie: ie date_2 - date_1
     """
 
-    def __init__(self, date_1, date_2, num_days=None):
+    def __init__(self, date_1=None, date_2=None, num_days=None):
 
         super().__init__()
         self.date_1 = date_1
@@ -3243,12 +3275,18 @@ class InvokeWMLModel(BaseTransformer):
 
         if len(self.input_items) >= 1:
             index_nans = df[df[self.input_items].isna().any(axis=1)].index
-            rows = df.loc[~df.index.isin(index_nans), self.input_items].values.tolist()
-            scoring_payload = {
-                'input_data': [{
-                    'fields': self.input_items,
-                    'values': rows}]
-            }
+            rows = df.loc[~df.index.isin(index_nans), self.input_items]
+
+            if rows.shape[0] > 0:
+                rows = rows.values.tolist()
+                scoring_payload = {
+                    'input_data': [{
+                        'fields': self.input_items,
+                        'values': rows}]
+                }
+            else:
+                logging.info("Empty data frame, WML Model is not invoked.")
+                return df
         else:
             logging.error("no input columns provided, forwarding all")
             return df
@@ -3325,6 +3363,35 @@ class InvokeWMLClassifier(InvokeWMLModel):
         outputs.append(UISingle(name='confidence', datatype=float))
         return (inputs, outputs)
 
+
+class MsiOccupancyCountByUnit(BaseTransformer):
+
+    def __init__(self, occupancy_count, weights, weighted_occupancy_counts):
+        super().__init__()
+        self.occupancy_count = occupancy_count
+        self.weights = weights
+        self.weighted_occupancy_counts = weighted_occupancy_counts
+
+
+    def execute(self, df):
+        s_occupancy_count = df[self.occupancy_count].astype(float)
+        for weight, weighted_count in zip(self.weights, self.weighted_occupancy_counts):
+            df[weighted_count] = s_occupancy_count * df[weight].astype(float)
+
+        return df
+
+class MsiOccupancyRate(BaseTransformer):
+    def __init__(self, occupancy_count, capacity, occupancy_rate):
+        super().__init__()
+        self.output = occupancy_rate
+        self.input = occupancy_count
+        self.capacity = capacity
+
+    def execute(self, df):
+        df[self.output] = df[self.input].astype(float).div(df[self.capacity].astype(float), axis=0)*100.0
+        df[self.output] = df[self.output].round(2)
+
+        return df
 
 def pairwise(iterable):
     "s -> (s0, s1), (s2, s3), (s4, s5), ..."
