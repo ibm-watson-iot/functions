@@ -19,7 +19,8 @@ import ibm_db
 import iotfunctions.metadata as md
 from iotfunctions.base import (BaseAggregator, BaseFunction)
 from iotfunctions.dbhelper import check_sql_injection
-from iotfunctions.util import log_data_frame, rollback_to_interval_boundary, UNIQUE_EXTENSION_LABEL
+from iotfunctions.util import log_data_frame, rollback_to_interval_boundary, UNIQUE_EXTENSION_LABEL, \
+    rollforward_to_interval_boundary, find_frequency_from_data_item
 from iotfunctions import dbhelper
 
 
@@ -97,7 +98,7 @@ class Aggregation(BaseFunction):
 
         agg_dict = defaultdict(list)
         for srcs, scope_sources, agg, name, scope, filtered_sources in simple_aggregators:
-            # kohlmann srcs = asList(srcs)
+
             for src in srcs:
                 if src in numerics:
                     agg_dict[src].append(agg)
@@ -110,8 +111,6 @@ class Aggregation(BaseFunction):
         return agg_dict
 
     def execute(self, df, start_ts=None, end_ts=None, entities=None):
-
-        df = df.reset_index()
 
         # The index has been moved to the columns and the index levels ('id', event timestamp, dimensions) can now be
         # used as a starting point of an aggregation. Provide index level 'id' - if it exists - as 'entity_id' as well.
@@ -128,10 +127,10 @@ class Aggregation(BaseFunction):
         if self.timestamp is not None and self.frequency is not None:
             if self.frequency == 'W':
                 # 'W' by default use right label and right closed
-                group_base.append(pd.Grouper(key=self.timestamp, freq=self.frequency, label='left', closed='left'))
+                group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency, label='left', closed='left'))
             else:
                 # other alias seems to not needing to special handle
-                group_base.append(pd.Grouper(key=self.timestamp, freq=self.frequency))
+                group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency))
             group_base_names.append(self.timestamp)
 
         if self.groupby is not None and len(self.groupby) > 0:
@@ -201,7 +200,7 @@ class Aggregation(BaseFunction):
             self.logger.info('executing complex aggregation function - output %s' % str(output_col_names))
             df_apply = groups.apply(func)
 
-            # Some aggregation functions return None instead of an empty data frame. Therefore the result of
+            # Some aggregation functions return None instead of an empty data frame. Therefore, the result of
             # groups.apply() can be an empty data frame without columns and without index when all function calls
             # returned None. We take corrective action and build a new empty dataframe with the expected columns and
             # the expected index including level names
@@ -502,8 +501,8 @@ class Count(SimpleAggregator):
             self.min_count = min_count
 
     def execute(self, group):
-        # group is expected to be a pandas series but in case of an empty dataframe groupby.agg() hands over an empty
-        # data frame. This is an erroneous behaviour in pandas but we have to take it into account: Group.count()
+        # group is expected to be a pandas' series but in case of an empty dataframe groupby.agg() hands over an empty
+        # data frame. This is an erroneous behaviour in pandas, but we have to take it into account: Group.count()
         # returns a series instead of integer when group is a data frame instead of series. When cnt is a series the
         # subsequent cnt >= self.min_count raises an ambiguous truth exception - at least for some panda versions
         # like 1.4.3 but not for 1.3.4 and 1.5.4
@@ -532,8 +531,8 @@ class DistinctCount(SimpleAggregator):
             self.min_count = min_count
 
     def execute(self, group):
-        # group is expected to be a pandas series but in case of an empty dataframe groupby.agg() hands over an empty
-        # data frame. This is an erroneous behaviour in pandas but we have to take it into account: Do not deploy
+        # group is expected to be a pandas' series but in case of an empty dataframe groupby.agg() hands over an empty
+        # data frame. This is an erroneous behaviour in pandas, but we have to take it into account: Do not deploy
         # unique() on group when it is a dataframe because unique() does only exist for series.
         if not group.empty:
             cnt = len(group.dropna().unique())
@@ -663,7 +662,7 @@ class AggregateWithCalculation(SimpleAggregator):
 
 class MsiOccupancyCount(DirectAggregator):
 
-    KPI_FUNCTION_NAME="MSI_OccupancyCount"
+    KPI_FUNCTION_NAME = "MSI_OccupancyCount"
 
     BACKTRACK_IMPACTING_PARAMETER = "start_of_calculation"
 
@@ -704,27 +703,16 @@ class MsiOccupancyCount(DirectAggregator):
         result_data_item = self.dms.entity_type_obj._data_items.get(self.output_name)
 
         # Find granularity_set/frequency of this aggregation
-        granulatity_set_id = result_data_item.get('kpiFunctionDto').get('granularitySetId')
-        granularity_set = None
-        for granu in self.dms.granularities.values():
-            if granu is not None and granu[3] == granulatity_set_id:
-                granularity_set = granu
-                break
-        if granularity_set is None:
-            raise RuntimeError(f"Granularity with id={granulatity_set_id} could not be found in configuration")
-
-        agg_frequency = granularity_set[0]
-        if agg_frequency is None:
-            raise RuntimeError("Definition of granularity has no frequency")
+        agg_frequency = find_frequency_from_data_item(result_data_item, self.dms.granularities)
 
         # Find time range covered by this pipeline run (align start and end date with grain boundaries)
         aligned_run_end = rollback_to_interval_boundary(self.dms.launch_date, agg_frequency)
         if self.dms.previous_launch_date is not None:
             aligned_run_start = rollback_to_interval_boundary(self.dms.previous_launch_date, agg_frequency)
         else:
-            # No previous execution date available (first pipeline run for this resource type). Fall back to earliest
+            # No previous execution date available (first pipeline run for this resource type). Fall back to the earliest
             # data event in input data frame
-            time_min = df[group_base_names[1]].min()
+            time_min = df.index.get_level_values(level=group_base_names[1]).min()
             if pd.notna(time_min):
                 aligned_run_start = rollback_to_interval_boundary(time_min, agg_frequency)
             else:
@@ -807,7 +795,7 @@ class MsiOccupancyCount(DirectAggregator):
                 finally:
                     ibm_db.free_result(stmt)
 
-            # Because we only get a data event when the raw metric changes but we want to provide values for all time
+            # Because we only get a data event when the raw metric changes, but we want to provide values for all time
             # units of the derived metric we have to fetch the latest available OccupancyCount values from
             # output table to fill gaps at the beginning. This step is not required for cycles in which we do not
             # calculate any OccupancyCount values.
@@ -847,37 +835,35 @@ class MsiOccupancyCount(DirectAggregator):
 
                 # We only want to calculate OccupancyCount between aligned_calc_start and aligned_cycle_end. Shrink data
                 # frame to required time range.
-                df_calc = df[[*group_base_names, self.raw_occupancy_count]]
-                df_calc = df_calc[(df_calc[group_base_names[1]] >= max(aligned_calc_start, aligned_cycle_start)) & (df_calc[group_base_names[1]] < aligned_cycle_end)]
+                s_calc = df[self.raw_occupancy_count].copy()
+                tmp_timestamps = s_calc.index.get_level_values(level=group_base_names[1])
+                s_calc = s_calc[(tmp_timestamps >= max(aligned_calc_start, aligned_cycle_start)) & (tmp_timestamps < aligned_cycle_end)]
 
                 # Cast column self.raw_occupancy_count to float because we allow it to be of type string for convenience
-                df_calc = df_calc.astype({self.raw_occupancy_count: float})
+                s_calc = s_calc.astype(float)
 
                 # Aggregate new column to get result metric. Result metric has name self.raw_output_name in data frame df_agg_result.
                 # Columns in group_base_names go into index of df_agg_result. We search for the max occupancy count.
-                df_agg_result = df_calc.groupby(group_base).max()
+                s_agg_result = s_calc.groupby(group_base).max()
 
-                # Rename column self.raw_occupancy_count to self.output_name in df_agg_result
-                df_agg_result.rename(columns={self.raw_occupancy_count: self.output_name}, inplace=True)
+                # Rename series s_agg_result from self.raw_occupancy_count to self.output_name
+                s_agg_result.name = self.output_name
 
                 # df_agg_result only holds values for aggregation intervals for which we had data events. Therefore,
                 # create data frame with an index which holds entries for each aggregation interval between
                 # aligned_calc_start (including) and aligned_cycle_end (excluding)
                 time_index = pd.date_range(start=max(aligned_calc_start, aligned_cycle_start), end=(aligned_cycle_end - pd.Timedelta(value=1, unit='ns')), freq=agg_frequency)
-                full_index = pd.MultiIndex.from_product([df_agg_result.index.get_level_values(level=group_base_names[0]).unique(), time_index], names=group_base_names)
+                full_index = pd.MultiIndex.from_product([s_agg_result.index.get_level_values(level=group_base_names[0]).unique(), time_index], names=group_base_names)
                 tmp_col_name = self.output_name + UNIQUE_EXTENSION_LABEL
                 full_df = pd.DataFrame(data={tmp_col_name: np.nan}, index=full_index)
-                df_agg_result = df_agg_result.join(full_df, how='right')
-                # df_agg_result[self.output_name].mask(df_agg_result[self.output_name].isna(), other=df_agg_result[tmp_col_name], inplace=True)
-                df_agg_result.drop(columns=tmp_col_name, inplace=True)
+                df_agg_result = full_df.join(s_agg_result, how='left')
+                s_agg_result = df_agg_result[self.output_name]
+                df_agg_result = None
 
                 if s_start_result_values is not None:
                     # Add previous result(s) to first value(s) in df_agg_result when first value is np.nan
-                    s_agg_result = df_agg_result[self.output_name].groupby(level=group_base_names[0], sort=False).transform(self.add_to_first, s_start_result_values)
-                else:
-                    # No previous values available
-                    s_agg_result = df_agg_result[self.output_name]
-                df_agg_result = None
+                    s_agg_result = s_agg_result.groupby(level=group_base_names[0], sort=False).transform(self.add_to_first, s_start_result_values)
+
                 s_agg_result.ffill(inplace=True)
 
             # Add result values which has not been calculated in this run but were taken from output table
@@ -899,7 +885,100 @@ class MsiOccupancyCount(DirectAggregator):
 
         return s_agg_result
 
+    @classmethod
     def add_to_first(self, sub_s, value_map):
         if pd.isna(sub_s.iat[0]) and sub_s.name in value_map.index:
             sub_s.iat[0] = value_map.at[sub_s.name]
         return sub_s
+
+
+class MsiOccupancyFrequency(DirectAggregator):
+
+    KPI_FUNCTION_NAME = "MSI_OccupancyFrequency"
+
+    def __init__(self, occupancy_count, office_hour_start, office_hour_end, name=None):
+        super().__init__()
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if occupancy_count is not None and len(occupancy_count) > 0:
+            self.occupancy_count = occupancy_count
+        else:
+            raise RuntimeError(f"Function {self.KPI_FUNCTION_NAME} requires the parameter occupancy_count "
+                               f"but it is empty: occupancy_count={occupancy_count}")
+
+        self.office_hour_start = office_hour_start
+        self.office_hour_end = office_hour_end
+
+        if name is not None and len(name) > 0:
+            self.output_name = name
+        else:
+            raise RuntimeError(
+                f"No name was provided for the metric which is calculated by function {self.KPI_FUNCTION_NAME}: name={name}")
+
+    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None):
+
+        # Find data item representing the result of this KPI function
+        result_data_item = self.dms.entity_type_obj._data_items.get(self.output_name)
+
+        # Determine destination frequency of this aggregation
+        agg_frequency = find_frequency_from_data_item(result_data_item, self.dms.granularities)
+
+        # Only daily agg_frequency is meaningful because of the involvements of office hours
+        if agg_frequency != "D":
+            raise RuntimeError(f'Aggregation function {self.__class__.__name__} only supports daily grain ("D"): agg_frequency={agg_frequency}')
+
+        if not df.empty:
+            # Define new column names which are temporarily used inside this function. Use output name as stem because
+            # we can be sure it is not used in the data frame yet
+            diff_col_name = self.output_name
+            missing_diff_col_name = diff_col_name + UNIQUE_EXTENSION_LABEL
+            availability_col_name = missing_diff_col_name + '_2'
+
+            # Get a copy of input data frame with group base in index
+            df_copy = df[[self.occupancy_count]].copy()
+
+            # Copy timestamps from index back into columns; use a different name to avoid ambiguities
+            timestamp_level_name = group_base_names[1]
+            timestamp_col_name = timestamp_level_name + UNIQUE_EXTENSION_LABEL
+            df_copy[timestamp_col_name] = df_copy.index.get_level_values(level=timestamp_level_name)
+
+            # Determine duration of (forward-directed) time gaps between each row for each aggregation interval. The
+            # duration of last time gap is always np.nan for all aggregation intervals because of the missing successor.
+            # Use output column name as temporary column name because we can be sure it is not used in data frame.
+            groupby = df_copy.groupby(group_base)
+            df_copy[diff_col_name] = groupby[timestamp_col_name].diff(-1) * -1
+
+            # Fill in duration of last time gap for each aggregation interval with duration between last row and corresponding aggregation boundary
+            df_copy_diff_isna = df_copy[diff_col_name].isna()
+            df_copy[missing_diff_col_name] = pd.NaT
+            df_copy[missing_diff_col_name].mask(df_copy_diff_isna, df_copy[timestamp_col_name], inplace=True)
+            df_copy[missing_diff_col_name] = df_copy[missing_diff_col_name].transform(lambda x: rollforward_to_interval_boundary(x, agg_frequency) - x if pd.notna(x) else pd.NaT)
+            df_copy[diff_col_name].mask(df_copy_diff_isna, df_copy[missing_diff_col_name], inplace=True)
+
+            # Remove a time gap when its corresponding occupancy count is zero
+            df_copy[diff_col_name].where(df_copy[self.occupancy_count] > 0, pd.NaT, inplace=True)
+
+            # Sum up the time gaps for each aggregation interval
+            s_frequency = groupby[diff_col_name].sum()
+
+            # Determine availability per space
+            df_per_space = df[[self.office_hour_start, self.office_hour_end]].groupby(group_base[0]).first()
+            s_availability = pd.to_timedelta(df_per_space[self.office_hour_end].where(df_per_space[self.office_hour_end].notna(), "24:00") + ":00") - \
+                             pd.to_timedelta(df_per_space[self.office_hour_start].where(df_per_space[self.office_hour_start].notna(), "00:00") + ":00")
+            s_availability.name = availability_col_name
+
+            # Merge s_availability with s_frequency
+            df_frequency = s_frequency.to_frame()
+            df_frequency = df_frequency.join(s_availability, how='left', on=group_base[0])
+
+            # Divide frequency by availability. Avoid division by zero, replace frequency by -1 for negative availabilities
+            s_avail_greater_zero = (df_frequency[availability_col_name] > pd.Timedelta(0))
+            df_frequency[diff_col_name].where(s_avail_greater_zero, -1, inplace=True)
+            df_frequency[availability_col_name].where(s_avail_greater_zero, 1, inplace=True)
+            s_frequency = (df_frequency[diff_col_name] / df_frequency[availability_col_name]) * 100
+            s_frequency.name = self.output_name
+
+        else:
+            s_frequency = None
+
+        return s_frequency

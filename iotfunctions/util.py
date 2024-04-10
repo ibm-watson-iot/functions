@@ -33,7 +33,7 @@ import requests
 from lxml import etree
 from tabulate import tabulate
 
-logger= logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 try:
     from confluent_kafka import Producer
@@ -1311,6 +1311,23 @@ def rollback_to_interval_boundary(timestamp, grain_frequency):
 
     return boundary
 
+def rollforward_to_interval_boundary(timestamp, grain_frequency):
+
+    if grain_frequency == 'S' or grain_frequency == 's':
+        boundary = timestamp + pd.DateOffset(seconds=1, microsecond=0, nanosecond=0)
+    elif grain_frequency == 'T' or grain_frequency == 'min':
+        boundary = timestamp + pd.DateOffset(minutes=1, second=0, microsecond=0, nanosecond=0)
+    elif grain_frequency == 'H' or grain_frequency == 'h':
+        boundary = timestamp + pd.DateOffset(hours=1, minute=0, second=0, microsecond=0, nanosecond=0)
+    elif grain_frequency == 'D':
+        boundary = timestamp + pd.DateOffset(days=1, hour=0, minute=0, second=0, microsecond=0, nanosecond=0)
+    elif grain_frequency == 'W' or grain_frequency == 'MS' or grain_frequency == 'YS':
+        boundary = pd.tseries.frequencies.to_offset(grain_frequency).rollforward(timestamp) \
+                   - pd.DateOffset(hour=0, minute=0, second=0, microsecond=0, nanosecond=0)
+    else:
+        raise RuntimeError(f"Frequency {grain_frequency} is currently not supported.")
+
+    return boundary
 
 def complete_backtrack_setting(backtrack):
     # Add missing time-related labels to backtrack: For example,
@@ -1371,3 +1388,21 @@ def get_max_frequency(active_agg_frequencies):
             max_frequency = 'S'
 
     return max_frequency
+
+
+def find_frequency_from_data_item(data_item, granularities):
+    # Find granularity_set/frequency of this aggregation
+    granularity_set_id = data_item.get('kpiFunctionDto').get('granularitySetId')
+    granularity_set = None
+    for granu in granularities.values():
+        if granu is not None and granu[3] == granularity_set_id:
+            granularity_set = granu
+            break
+    if granularity_set is None:
+        raise RuntimeError(f"Granularity with id={granularity_set_id} could not be found in configuration")
+
+    agg_frequency = granularity_set[0]
+    if agg_frequency is None:
+        raise RuntimeError("Definition of granularity has no frequency")
+
+    return agg_frequency
