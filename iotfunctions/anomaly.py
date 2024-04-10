@@ -50,7 +50,6 @@ from sklearn.preprocessing import (StandardScaler, RobustScaler, MinMaxScaler,
                                    minmax_scale, PolynomialFeatures)
 from sklearn.utils import check_array
 
-
 # for Matrix Profile
 import stumpy
 
@@ -96,6 +95,10 @@ Spectral_normalizer = 100 / 2.8
 FFT_normalizer = 1
 Saliency_normalizer = 1
 Generalized_normalizer = 1 / 300
+
+# Do away with numba logs
+numba_logger = logging.getLogger('numba')
+numba_logger.setLevel(logging.INFO)
 
 # from
 # https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
@@ -669,7 +672,7 @@ class AnomalyScorer(BaseTransformer):
                     # make sure shape is correct
                     try:
                         df[output_item] = zScoreII
-                    except Exception as e2:                    
+                    except Exception as e2:
                         df[output_item] = zScoreII.reshape(-1,1)
                         pass
 
@@ -2769,7 +2772,7 @@ class KDEAnomalyScore(SupervisedLearningTransformer):
 
 
 #######################################################################################
-# Variational Autoencoder
+# Amortized Variational Inference
 #   to approximate probability distribution of targets with respect to features
 #######################################################################################
 # from https://www.ritchievink.com/blog/2019/09/16/variational-inference-from-scratch/
@@ -2832,14 +2835,15 @@ class VI(nn.Module):
     # sample from the one-dimensional normal distribution N(mu, exp(log_var))
     def forward(self, x):
         mu = self.q_mu(x)
+        #mu_adj = torch.add(mu, torch.full(mu.shape, self.adjust_mean))
         log_var = self.q_log_var(x)
-        return self.reparameterize(mu, log_var), mu, log_var
+        return self.reparameterize(mu, log_var), mu, log_var,  mu + self.adjust_mean
 
-    # see 2.3 in https://arxiv.org/pdf/1312.6114.pdf
+    # see 2.3 in https://arxiv.org/pdf/1312.6114.pdf - *the* Kingma-Welling article
     #
     def elbo(self, y_pred, y, mu, log_var):
         # likelihood of observing y given Variational mu and sigma - reconstruction error
-        loglikelihood = ll_gaussian(y, mu, log_var)
+        ##loglikelihood = ll_gaussian(y, mu, log_var)
 
         # Sample from p(x|z) by sampling from q(z|x), passing through decoder (y_pred)
         # likelihood of observing y given Variational decoder mu and sigma - reconstruction error
@@ -2864,7 +2868,7 @@ class VI(nn.Module):
         return (log_qzCx + self.beta * (log_pz - log_pxCz)).mean()
 
 
-    # from https://arxiv.org/pdf/1509.00519.pdf
+    # from https://arxiv.org/pdf/1509.00519.pdf  - the Burda,Grosse article
     #  and https://justin-tan.github.io/blog/2020/06/20/Intuitive-Importance-Weighted-ELBO-Bounds
     def iwae(self, x, y, k_samples):
 
@@ -2874,7 +2878,7 @@ class VI(nn.Module):
             # Encode - sample from the encoder
             #  Latent variables mean,variance: mu_enc, log_var_enc
             # y_pred: Sample from q(z|x) by passing data through encoder and reparametrizing
-            y_pred, mu_enc, log_var_enc = self.forward(x)
+            y_pred, mu_enc, log_var_enc,_ = self.forward(x)
 
             # there is not much of a decoder - hence we use the identity below as decoder 'stub'
             dec_mu = mu_enc
@@ -2907,7 +2911,7 @@ class VI(nn.Module):
 class VIAnomalyScore(SupervisedLearningTransformer):
     """
     A supervised anomaly detection function.
-     Uses VAE based density approximation to assign an anomaly score
+     Uses amortised VI based density approximation to assign an anomaly score
     """
     # set self.auto_train and self.delete_model
     def __init__(self, features, targets, predictions=None, pred_stddev=None):
@@ -2950,6 +2954,24 @@ class VIAnomalyScore(SupervisedLearningTransformer):
 
         return super().execute(df)
 
+    # requires onnx and onnxscript which are *not* part of requirements.txt
+    def to_onnx(self, path=None):
+
+        for key in self.active_models:
+            model = self.active_models[key]
+            print(model)
+            torch_input = torch.randn(32, 1)   #_CALC torch.Size([177980, 1])
+            if path is None or len(path) == 0: path = "/tmp/amortizedVariationalInference.onnx"
+
+            #onnx_program = torch.onnx.dynamo_export(model, torch_input)
+            #onnx_program.save(path)
+            torch.onnx.export(model, torch_input,
+                  path,
+                  export_params=True,        # store the trained parameter weights inside the model file
+                  input_names = ['input'],   # the model's input names
+                  output_names = ['output'], # the model's output names
+                  dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
+                                'output' : {0 : 'batch_size'}})
 
     def _calc(self, df):
 
@@ -2992,12 +3014,22 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         xy = np.hstack([features, targets])
 
         # TODO: assumption is cardinality of One for features and targets !!!
-        ind = np.lexsort((xy[:, 1], xy[:, 0]))
-        ind_r = np.argsort(ind)
+        # for training sort the feature/target pairs w.r.t. features
+        #  because the first linear layers weight is *directly* related to the order of the input features
+        if vi_model is None:
+            ind = np.lexsort((xy[:, 1], xy[:, 0]))
+            ind_r = np.argsort(ind)
+
+            # sorting doesn't matter for inference, though
+        else:
+            # dummy operation
+            ind = range(xy.shape[0])
+            ind_r = range(xy.shape[0])
 
         self.Input[entity] = xy[ind][:, 0]
 
         X = torch.tensor(xy[ind][:, 0].reshape(-1, 1), dtype=torch.float)
+        #print('_CALC', X.shape)
         Y = torch.tensor(xy[ind][:, 1].reshape(-1, 1), dtype=torch.float)
 
         # train new model if there is none and autotrain is set
@@ -3016,8 +3048,8 @@ class VIAnomalyScore(SupervisedLearningTransformer):
 
             for epoch in range(self.epochs):
                 optim.zero_grad()
-                y_pred, mu, log_var = vi_model(X)
-                loss = -vi_model.elbo(y_pred, Y, mu, log_var)
+                y_pred, mu, log_var, _ = vi_model(X)   # ignore adjusted mean
+                loss = -vi_model.elbo(y_pred, Y, mu, log_var)   # compute for logging purposes only
                 iwae = -vi_model.iwae(X, Y, self.iwae_samples)  # default is to try with 10 samples
                 if epoch % 10 == 0:
                     logger.debug('Epoch: ' + str(epoch) + ', neg ELBO: ' + str(loss.item()) + ', IWAE ELBO: ' + str(iwae.item()))
@@ -3039,14 +3071,16 @@ class VIAnomalyScore(SupervisedLearningTransformer):
 
             with torch.no_grad():
                 mu_and_log_sigma = vi_model(X)
-                mue = mu_and_log_sigma[1]
+                mue = mu_and_log_sigma[3]
                 sigma = torch.exp(0.5 * mu_and_log_sigma[2]) + 1e-5
+                print('Sigma', sigma)
                 mu = sp.stats.norm.ppf(0.5, loc=mue, scale=sigma).reshape(-1,)
-                q1 = sp.stats.norm.ppf(self.quantile, loc=mue, scale=sigma).reshape(-1,)
+                q1 = sp.stats.norm.ppf(self.quantile, loc=0, scale=sigma).reshape(-1,)
                 self.mu[entity] = mu
                 self.quantile099[entity] = q1
 
-            df[self.predictions] = (mu[ind_r] + vi_model.adjust_mean).reshape(-1,1)
+            #df[self.predictions] = (mu[ind_r] + vi_model.adjust_mean).reshape(-1,1)  - HERE
+            df[self.predictions] = mu[ind_r].reshape(-1,1)
             df[self.pred_stddev] = (q1[ind_r]).reshape(-1,1)
         else:
             logger.debug('No VI model for entity: ' + str(entity))
