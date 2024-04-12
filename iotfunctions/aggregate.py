@@ -110,7 +110,7 @@ class Aggregation(BaseFunction):
 
         return agg_dict
 
-    def execute(self, df, start_ts=None, end_ts=None, entities=None):
+    def execute(self, df, start_ts=None, end_ts=None, entities=None, offset=None):
 
         # The index has been moved to the columns and the index levels ('id', event timestamp, dimensions) can now be
         # used as a starting point of an aggregation. Provide index level 'id' - if it exists - as 'entity_id' as well.
@@ -127,10 +127,10 @@ class Aggregation(BaseFunction):
         if self.timestamp is not None and self.frequency is not None:
             if self.frequency == 'W':
                 # 'W' by default use right label and right closed
-                group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency, label='left', closed='left'))
+                group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency, label='left', closed='left', offset=-offset))
             else:
                 # other alias seems to not needing to special handle
-                group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency))
+                group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency, offset=-offset))
             group_base_names.append(self.timestamp)
 
         if self.groupby is not None and len(self.groupby) > 0:
@@ -246,7 +246,7 @@ class Aggregation(BaseFunction):
             self.logger.info('executing direct aggregation function - sources %s' % str(input_col_names))
             self.logger.info('executing direct aggregation function - output %s' % str(output_col_names))
 
-            df_direct = func(df=df, group_base=group_base, group_base_names=group_base_names, start_ts=start_ts, end_ts=end_ts, entities=entities)
+            df_direct = func(df=df, group_base=group_base, group_base_names=group_base_names, start_ts=start_ts, end_ts=end_ts, entities=entities, offset=offset)
             if df_direct.empty and df_direct.columns.empty:
                 for name in output_col_names:
                     df_direct[name] = None
@@ -690,7 +690,11 @@ class MsiOccupancyCount(DirectAggregator):
         else:
             raise RuntimeError(f"No name was provided for the metric which is calculated by function {self.KPI_FUNCTION_NAME}: name={name}")
 
-    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None):
+    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None, offset=None):
+
+        # If entities is None define list of entities by data frame. The list of entities can then be incomplete!
+        if entities is None:
+            entities = df.index.get_level_values(level=group_base_names[0]).unique()
 
         # Schema name and table name of result table for sql statement
         sql_schema_name = check_sql_injection(self.dms.schema)
@@ -729,6 +733,10 @@ class MsiOccupancyCount(DirectAggregator):
         # Check if recalculation of OccupancyCount is configured
         if self.start_of_calculation is not None:
             backtrack_start = rollback_to_interval_boundary(self.start_of_calculation, agg_frequency)
+            if offset is not None:
+                backtrack_start = backtrack_start - offset
+                if backtrack_start > self.start_of_calculation:
+                    backtrack_start = backtrack_start - pd.Timedelta(days=1)
         else:
             backtrack_start = None
 
@@ -768,13 +776,14 @@ class MsiOccupancyCount(DirectAggregator):
             if aligned_calc_start > aligned_cycle_start:
                 # Load missing OccupancyCount values from output table (this only happens in BackTrack mode)
                 sql_statement = f'SELECT "VALUE_N", "TIMESTAMP", "ENTITY_ID" FROM {sql_quoted_schema_name}.{sql_quoted_table_name} ' \
-                                f'WHERE KEY = ? AND TIMESTAMP >= ? AND TIMESTAMP < ? ORDER BY "ENTITY_ID", "TIMESTAMP" ASC'
+                                f'WHERE "KEY" = ? AND "TIMESTAMP" >= ? AND "TIMESTAMP" < ? AND "ENTITY_ID" IN ? ORDER BY "ENTITY_ID", "TIMESTAMP" ASC'
 
                 stmt = ibm_db.prepare(self.dms.db_connection, sql_statement)
                 try:
                     ibm_db.bind_param(stmt, 1, self.output_name)
                     ibm_db.bind_param(stmt, 2, aligned_cycle_start)
                     ibm_db.bind_param(stmt, 3, min(aligned_calc_start, aligned_cycle_end))
+                    ibm_db.bind_param(stmt, 4, list(entities))
                     ibm_db.execute(stmt)
                     row = ibm_db.fetch_tuple(stmt)
                     result_data = []
@@ -807,13 +816,14 @@ class MsiOccupancyCount(DirectAggregator):
                                     f'(SELECT "VALUE_N", "ENTITY_ID", ' \
                                     f'ROW_NUMBER() OVER ( PARTITION BY "ENTITY_ID" ORDER BY "TIMESTAMP" DESC) ROW_NUM ' \
                                     f'FROM {sql_quoted_schema_name}.{sql_quoted_table_name} ' \
-                                    f'WHERE KEY = ? AND TIMESTAMP < ?) ' \
+                                    f'WHERE "KEY" = ? AND "TIMESTAMP" < ? AND "ENTITY_ID" IN ?) ' \
                                 f'SELECT "VALUE_N", "ENTITY_ID" FROM PREVIOUS_VALUES WHERE ROW_NUM = 1'
 
                 stmt = ibm_db.prepare(self.dms.db_connection, sql_statement)
                 try:
                     ibm_db.bind_param(stmt, 1, self.output_name)
                     ibm_db.bind_param(stmt, 2, max(aligned_calc_start, aligned_cycle_start))
+                    ibm_db.bind_param(stmt, 3, list(entities))
                     ibm_db.execute(stmt)
                     row = ibm_db.fetch_tuple(stmt)
                     result_data = []
@@ -843,8 +853,9 @@ class MsiOccupancyCount(DirectAggregator):
                 s_calc = s_calc.astype(float)
 
                 # Aggregate new column to get result metric. Result metric has name self.raw_output_name in data frame df_agg_result.
-                # Columns in group_base_names go into index of df_agg_result. We search for the max occupancy count.
-                s_agg_result = s_calc.groupby(group_base).max()
+                # Columns in group_base_names go into index of df_agg_result. We search for the last raw occupancy count
+                # in every aggregation interval.
+                s_agg_result = s_calc.groupby(group_base).last()
 
                 # Rename series s_agg_result from self.raw_occupancy_count to self.output_name
                 s_agg_result.name = self.output_name
@@ -853,7 +864,7 @@ class MsiOccupancyCount(DirectAggregator):
                 # create data frame with an index which holds entries for each aggregation interval between
                 # aligned_calc_start (including) and aligned_cycle_end (excluding)
                 time_index = pd.date_range(start=max(aligned_calc_start, aligned_cycle_start), end=(aligned_cycle_end - pd.Timedelta(value=1, unit='ns')), freq=agg_frequency)
-                full_index = pd.MultiIndex.from_product([s_agg_result.index.get_level_values(level=group_base_names[0]).unique(), time_index], names=group_base_names)
+                full_index = pd.MultiIndex.from_product([entities, time_index], names=group_base_names)
                 tmp_col_name = self.output_name + UNIQUE_EXTENSION_LABEL
                 full_df = pd.DataFrame(data={tmp_col_name: np.nan}, index=full_index)
                 df_agg_result = full_df.join(s_agg_result, how='left')
@@ -915,7 +926,7 @@ class MsiOccupancyFrequency(DirectAggregator):
             raise RuntimeError(
                 f"No name was provided for the metric which is calculated by function {self.KPI_FUNCTION_NAME}: name={name}")
 
-    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None):
+    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None, offset=None):
 
         # Find data item representing the result of this KPI function
         result_data_item = self.dms.entity_type_obj._data_items.get(self.output_name)
