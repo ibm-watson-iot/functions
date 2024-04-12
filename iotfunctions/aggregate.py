@@ -853,6 +853,9 @@ class MsiOccupancyCount(DirectAggregator):
                 # Cast column self.raw_occupancy_count to float because we allow it to be of type string for convenience
                 df_calc = df_calc.astype({self.raw_occupancy_count: float})
 
+                # Explicitly replace all negative raw occupancy counts by zero. We interpret negative counts which can occur in the input data as zero-counts.
+                df_calc[self.raw_occupancy_count].mask(df_calc[self.raw_occupancy_count] < 0, 0.0, inplace=True)
+
                 # Aggregate new column to get result metric. Result metric has name self.raw_output_name in data frame df_agg_result.
                 # Columns in group_base_names go into index of df_agg_result. We search for the max occupancy count.
                 df_agg_result = df_calc.groupby(group_base).max()
@@ -864,7 +867,13 @@ class MsiOccupancyCount(DirectAggregator):
                 # create data frame with an index which holds entries for each aggregation interval between
                 # aligned_calc_start (including) and aligned_cycle_end (excluding)
                 time_index = pd.date_range(start=max(aligned_calc_start, aligned_cycle_start), end=(aligned_cycle_end - pd.Timedelta(value=1, unit='ns')), freq=agg_frequency)
-                full_index = pd.MultiIndex.from_product([df_agg_result.index.get_level_values(level=group_base_names[0]).unique(), time_index], names=group_base_names)
+                if self.dms.df_devices is not None:
+                    # Get list of devices from configuration to catch those devices which are not included in current pipeline run, too
+                    devices = self.dms.df_devices[self.dms.entityIdName].unique()
+                else:
+                    # Fall back to list of devices found in the data frame of current pipeline run.
+                    devices = df_agg_result.index.get_level_values(level=group_base_names[0]).unique()
+                full_index = pd.MultiIndex.from_product([devices, time_index], names=group_base_names)
                 tmp_col_name = self.output_name + UNIQUE_EXTENSION_LABEL
                 full_df = pd.DataFrame(data={tmp_col_name: np.nan}, index=full_index)
                 df_agg_result = df_agg_result.join(full_df, how='right')
