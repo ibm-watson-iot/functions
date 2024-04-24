@@ -53,7 +53,7 @@ class LoaderPipeline:
             if legacy_mode:
                 df = s.execute(df, start_ts, end_ts, entities)
             else:
-                for offset, tmp_df in df:
+                for offset, tmp_df in df.items():
                     df[offset] = s.execute(tmp_df, start_ts[offset], end_ts[offset], entities[offset])
 
             self.logger.debug('End of stage {{ %s }}, execution time = %s s' % (
@@ -62,7 +62,7 @@ class LoaderPipeline:
         if legacy_mode:
             util.log_data_frame(f"df after loaders: shape", df)
         else:
-            for offset, tmp_df in df:
+            for offset, tmp_df in df.items():
                 util.log_data_frame(f"df after loaders for offset {offset}: shape", tmp_df)
 
         return df
