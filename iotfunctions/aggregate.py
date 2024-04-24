@@ -703,7 +703,11 @@ class MsiOccupancyCount(DirectAggregator):
 
         # If entities is None define list of entities by data frame. The list of entities can then be incomplete!
         if entities is None:
-            entities = df.index.get_level_values(level=group_base_names[0]).unique()
+            raise RuntimeError(f'The framework does not provide a list of entities to function {self.__class__.__name__} '
+                               f'for offset {offset}.')
+
+        if offset is None:
+            raise RuntimeError(f'The framework does not provide an offset to function {self.__class__.__name__}.')
 
         # Schema name and table name of result table for sql statement
         sql_schema_name = check_sql_injection(self.dms.schema)
@@ -741,11 +745,7 @@ class MsiOccupancyCount(DirectAggregator):
 
         # Check if recalculation of OccupancyCount is configured
         if self.start_of_calculation is not None:
-            backtrack_start = rollback_to_interval_boundary(self.start_of_calculation, agg_frequency)
-            if offset is not None:
-                backtrack_start = backtrack_start - offset
-                if backtrack_start > self.start_of_calculation:
-                    backtrack_start = backtrack_start - pd.Timedelta(days=1)
+            backtrack_start = rollback_to_interval_boundary(self.start_of_calculation + offset, agg_frequency) - offset
         else:
             backtrack_start = None
 
@@ -754,10 +754,10 @@ class MsiOccupancyCount(DirectAggregator):
         #   2) aligned_calc_start: Point in time from which OccupancyCount is supposed to be calculated (it will be aligned with grain boundaries).
         if self.dms.running_with_backtrack:
             # Pipeline runs in BackTrack mode.
-            # Hint: start_ts is already aligned with grain boundaries
-            #       end_ts is aligned with grain boundaries except for the last cycle
-            aligned_cycle_start = rollback_to_interval_boundary(start_ts, agg_frequency)
-            aligned_cycle_end = rollback_to_interval_boundary(end_ts, agg_frequency)
+            # Hint: start_ts is already aligned with grain boundaries (including offset)
+            #       end_ts is aligned with grain boundaries (including offset) except for the last cycle
+            aligned_cycle_start = rollback_to_interval_boundary(start_ts + offset, agg_frequency) - offset
+            aligned_cycle_end = rollback_to_interval_boundary(end_ts + offset, agg_frequency) - offset
             if backtrack_start is None:
                 aligned_calc_start = aligned_run_start
             else:
@@ -776,6 +776,7 @@ class MsiOccupancyCount(DirectAggregator):
                           f"agg_frequency = {agg_frequency}")
 
         s_agg_result = None
+        entities_placeholders = ', '.join(['?' for x in entities])
         if aligned_cycle_start < aligned_cycle_end:
             # When aligned_calc_start <= aligned_cycle_start then we calculate all OccupancyCount values in this cycle. But
             # when aligned_calc_start > aligned_cycle_start then we **do not** calculate all OccupancyCount values in this
@@ -785,14 +786,16 @@ class MsiOccupancyCount(DirectAggregator):
             if aligned_calc_start > aligned_cycle_start:
                 # Load missing OccupancyCount values from output table (this only happens in BackTrack mode)
                 sql_statement = f'SELECT "VALUE_N", "TIMESTAMP", "ENTITY_ID" FROM {sql_quoted_schema_name}.{sql_quoted_table_name} ' \
-                                f'WHERE "KEY" = ? AND "TIMESTAMP" >= ? AND "TIMESTAMP" < ? AND "ENTITY_ID" IN ? ORDER BY "ENTITY_ID", "TIMESTAMP" ASC'
+                                f'WHERE "KEY" = ? AND "TIMESTAMP" >= ? AND "TIMESTAMP" < ? AND ' \
+                                f'"ENTITY_ID" IN ({entities_placeholders}) ORDER BY "ENTITY_ID", "TIMESTAMP" ASC'
 
                 stmt = ibm_db.prepare(self.dms.db_connection, sql_statement)
                 try:
                     ibm_db.bind_param(stmt, 1, self.output_name)
                     ibm_db.bind_param(stmt, 2, aligned_cycle_start)
                     ibm_db.bind_param(stmt, 3, min(aligned_calc_start, aligned_cycle_end))
-                    ibm_db.bind_param(stmt, 4, list(entities))
+                    for position, device in enumerate(entities, 4):
+                        ibm_db.bind_param(stmt, position, device)
                     ibm_db.execute(stmt)
                     row = ibm_db.fetch_tuple(stmt)
                     result_data = []
@@ -825,14 +828,15 @@ class MsiOccupancyCount(DirectAggregator):
                                     f'(SELECT "VALUE_N", "ENTITY_ID", ' \
                                     f'ROW_NUMBER() OVER ( PARTITION BY "ENTITY_ID" ORDER BY "TIMESTAMP" DESC) ROW_NUM ' \
                                     f'FROM {sql_quoted_schema_name}.{sql_quoted_table_name} ' \
-                                    f'WHERE "KEY" = ? AND "TIMESTAMP" < ? AND "ENTITY_ID" IN ?) ' \
+                                    f'WHERE "KEY" = ? AND "TIMESTAMP" < ? AND "ENTITY_ID" IN ({entities_placeholders})) ' \
                                 f'SELECT "VALUE_N", "ENTITY_ID" FROM PREVIOUS_VALUES WHERE ROW_NUM = 1'
 
                 stmt = ibm_db.prepare(self.dms.db_connection, sql_statement)
                 try:
                     ibm_db.bind_param(stmt, 1, self.output_name)
                     ibm_db.bind_param(stmt, 2, max(aligned_calc_start, aligned_cycle_start))
-                    ibm_db.bind_param(stmt, 3, list(entities))
+                    for position, device in enumerate(entities, 3):
+                        ibm_db.bind_param(stmt, position, device)
                     ibm_db.execute(stmt)
                     row = ibm_db.fetch_tuple(stmt)
                     result_data = []
@@ -876,13 +880,7 @@ class MsiOccupancyCount(DirectAggregator):
                 # create data frame with an index which holds entries for each aggregation interval between
                 # aligned_calc_start (including) and aligned_cycle_end (excluding)
                 time_index = pd.date_range(start=max(aligned_calc_start, aligned_cycle_start), end=(aligned_cycle_end - pd.Timedelta(value=1, unit='ns')), freq=agg_frequency)
-                if self.dms.df_devices is not None:
-                    # Get list of devices from configuration to catch those devices which are not included in current pipeline run, too
-                    devices = self.dms.df_devices[self.dms.entityIdName].unique()
-                else:
-                    # Fall back to list of devices found in the data frame of current pipeline run.
-                    devices = s_agg_result.index.get_level_values(level=group_base_names[0]).unique()
-                full_index = pd.MultiIndex.from_product([devices, time_index], names=group_base_names)
+                full_index = pd.MultiIndex.from_product([entities, time_index], names=group_base_names)
                 tmp_col_name = self.output_name + UNIQUE_EXTENSION_LABEL
                 full_df = pd.DataFrame(data={tmp_col_name: np.nan}, index=full_index)
                 df_agg_result = full_df.join(s_agg_result, how='left')
