@@ -127,10 +127,19 @@ class Aggregation(BaseFunction):
         if self.timestamp is not None and self.frequency is not None:
             if self.frequency == 'W':
                 # 'W' by default use right label and right closed
-                group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency, label='left', closed='left', offset=-offset))
+                if offset is not None:
+                    group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency,
+                                                 label='left', closed='left', offset=-offset))
+                else:
+                    group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency,
+                                                 label='left', closed='left'))
             else:
                 # other alias seems to not needing to special handle
-                group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency, offset=-offset))
+                if offset is not None:
+                    group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency, offset=-offset))
+                else:
+                    group_base.append(pd.Grouper(level=self.timestamp, freq=self.frequency))
+
             group_base_names.append(self.timestamp)
 
         if self.groupby is not None and len(self.groupby) > 0:
