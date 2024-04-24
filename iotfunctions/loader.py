@@ -24,10 +24,20 @@ class LoaderPipeline:
         self.dblogging = dblogging
 
     def execute(self, df, start_ts, end_ts, entities):
+        if type(df) != dict:
+            legacy_mode = True
+        else:
+            legacy_mode = False
+
         if df is not None:
-            util.log_data_frame(f"df before loaders: shape", df)
+            if legacy_mode:
+                util.log_data_frame(f"df before loaders: shape", df)
+            else:
+                for offset, tmp_df in df.items():
+                    util.log_data_frame(f"df before loaders for offset {offset}: shape", tmp_df)
         else:
             self.logger.info("df is None before loaders")
+
         for s in self.stages:
             try:
                 name = s.name
@@ -40,12 +50,20 @@ class LoaderPipeline:
             if self.dblogging is not None:
                 self.dblogging.update_stage_info(name)
 
-            df = s.execute(df, start_ts, end_ts, entities)
+            if legacy_mode:
+                df = s.execute(df, start_ts, end_ts, entities)
+            else:
+                for offset, tmp_df in df:
+                    df[offset] = s.execute(tmp_df, start_ts[offset], end_ts[offset], entities[offset])
 
             self.logger.debug('End of stage {{ %s }}, execution time = %s s' % (
                 name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
 
-        util.log_data_frame(f"df after loaders: shape", df)
+        if legacy_mode:
+            util.log_data_frame(f"df after loaders: shape", df)
+        else:
+            for offset, tmp_df in df:
+                util.log_data_frame(f"df after loaders for offset {offset}: shape", tmp_df)
 
         return df
 

@@ -22,6 +22,7 @@ import time
 import traceback
 
 import numpy as np
+import pandas as pd
 from pandas.api.types import is_bool_dtype, is_numeric_dtype, is_string_dtype, is_datetime64_any_dtype, is_object_dtype
 from sqlalchemy import (MetaData, Table, Column, String, DateTime, and_, func, select)
 
@@ -2089,7 +2090,7 @@ class CalcPipeline:
 
         return (extracted_stages, stages)
 
-    def _execute_preload_stages(self, start_ts=None, end_ts=None, entities=None, register=False):
+    def _execute_preload_stages(self, start_ts, end_ts, entities, register=False):
         """
         Extract and run preload stages
         Return remaining stages to process
@@ -2113,27 +2114,23 @@ class CalcPipeline:
 
                 start_time = pd.Timestamp.utcnow()
 
+                logger.debug(f'=== Executing stage {name} ===')
                 status = p.execute(df=None, start_ts=start_ts, end_ts=end_ts, entities=entities)
-
-                if register:
-                    p.register(df=None)
+                if not status:
+                    raise RuntimeError(f'Preload stage {name} returned with status of False. Aborting execution.')
                 try:
                     preload_item_names.append(p.output_item)
                 except AttributeError:
                     msg = 'Preload functions are expected to have an argument and property called output_item. This preload function is not defined correctly'
                     raise AttributeError(msg)
-                finally:
-                    msg = '%s completed as pre-load. ' % name
-                    self.trace_add(msg)
-                    logger.debug('End of stage {{ %s }}, execution time = %s s' % (
-                        name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
-                if not status:
-                    msg = 'Preload stage %s returned with status of False. Aborting execution. ' % name
-                    self.trace_add(msg)
-                    stages = []
-                    break
+
+                if register:
+                    p.register(df=None)
+
+                logger.debug('End of stage {{ %s }}, execution time = %s s' % (name, (pd.Timestamp.utcnow() - start_time).total_seconds()))
+
         self.entity_type._is_preload_complete = True
-        return (stages, preload_item_names)
+        return stages, preload_item_names
 
     def _execute_data_sources(self, stages, df, start_ts=None, end_ts=None, entities=None, to_csv=False, register=False,
                               dropna=False):
@@ -2206,10 +2203,30 @@ class CalcPipeline:
         return (df, remaining_stages)
 
     def execute(self, df=None, to_csv=False, dropna=False, start_ts=None, end_ts=None, entities=None,
-                preloaded_item_names=None, register=False):
+                preloaded_item_names=None, register=False, start_ts_utc=None, end_ts_utc=None):
         """
         Execute the pipeline using an input dataframe as source.
         """
+        if df is None or type(df) != dict:
+            legacy_mode = True
+            # start_ts/end_ts are timestamps; entities is a list. No timezones
+            if entities is None:
+                entities = self.entity_type.get_entity_filter()
+        else:
+            legacy_mode = False
+            df_tz = df
+            # start_ts/end_ts are dictionaries of timestamps; entities is a dictionary, too. Timezones are involved
+            start_ts_tz = start_ts
+            end_ts_tz = end_ts
+            entities_tz = entities
+            all_entities_tz = []
+            for tmp_entities in entities_tz.values():
+                if tmp_entities is not None:
+                    all_entities_tz.extend(tmp_entities)
+                else:
+                    all_entities_tz = None
+                    break
+
         # preload may  have already taken place. if so pass the names of the items produced by stages that were executed prior to loading.
         if preloaded_item_names is None:
             preloaded_item_names = []
@@ -2219,102 +2236,177 @@ class CalcPipeline:
         # A single execution can contain multiple CalcPipeline executions
         # An initial transform and one or more aggregation executions and post aggregation transforms
         # Behavior is different during initial transform
-        if entities is None:
-            entities = self.entity_type.get_entity_filter()
 
         start_ts_override = self.entity_type.get_start_ts_override()
         if start_ts_override is not None:
-            start_ts = start_ts_override
+            if legacy_mode:
+                start_ts = start_ts_override
+            else:
+                start_ts_tz[pd.Timedelta(0)] = start_ts_override
         end_ts_override = self.entity_type.get_end_ts_override()
         if end_ts_override is not None:
-            end_ts = end_ts_override
+            if legacy_mode:
+                end_ts = end_ts_override
+            else:
+                end_ts_tz[pd.Timedelta(0)] = end_ts_override
 
         if is_initial_transform:
-            if not start_ts is None:
-                msg = 'Start timestamp: %s.' % start_ts
-                logger.debug(msg)
-                self.trace_add(msg)
-            if not end_ts is None:
-                msg = 'End timestamp: %s.' % end_ts
-                logger.debug(msg)
-                self.trace_add(msg)
+            if legacy_mode:
+                msg1 = 'Start timestamp: %s.' % start_ts
+                msg2 = 'End timestamp: %s.' % end_ts
+            else:
+                msg1 = 'Start timestamps: %s.' % start_ts_tz
+                msg2 = 'End timestamps: %s.' % end_ts_tz
+            logger.debug(msg1)
+            self.trace_add(msg1)
+            logger.debug(msg2)
+            self.trace_add(msg2)
+
             # process preload stages first if there are any
-            (stages, preload_item_names) = self._execute_preload_stages(start_ts=start_ts, end_ts=end_ts,
-                                                                        entities=entities, register=register)
+            if legacy_mode:
+                (stages, preload_item_names) = self._execute_preload_stages(start_ts=start_ts, end_ts=end_ts,
+                                                                            entities=entities, register=register)
+            else:
+                (stages, preload_item_names) = self._execute_preload_stages(start_ts=start_ts_utc, end_ts=end_ts_utc,
+                                                                            entities=all_entities_tz, register=register)
             preloaded_item_names.extend(preload_item_names)
-            if df is None:
-                msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
-                logger.debug(msg)
-                df = self.entity_type.get_data(start_ts=start_ts, end_ts=end_ts, entities=entities)
+
             # Divide the pipeline into data retrieval stages and transformation stages. First look for
             # a primary data source. A primary data source will have a merge_method of 'replace'. This
             # implies that it replaces whatever data was fed into the pipeline as default entity data.
-            (df, stages) = self._execute_data_sources(df=df, stages=stages, start_ts=start_ts, end_ts=end_ts,
-                                                      entities=entities, to_csv=to_csv, register=register,
-                                                      dropna=dropna)
+            if legacy_mode and df is None:
+                # 'df is None' can only happen in legacy mode
+                msg = 'No dataframe supplied for pipeline execution. Getting entity source data'
+                logger.debug(msg)
 
+                (df, stages) = self._execute_data_sources(df=None, stages=stages, start_ts=start_ts,
+                                                          end_ts=end_ts,
+                                                          entities=entities, to_csv=to_csv, register=register,
+                                                          dropna=dropna)
         else:
             stages = []
             stages.extend(self.stages)
-        if df is None:
-            msg = 'Pipeline has no source dataframe'
-            raise ValueError(msg)
-        if to_csv:
+        if to_csv and legacy_mode:
             filename = 'debugPipelineSourceData.csv'
             df.to_csv(filename)
         if dropna:
-            df = df.replace([np.inf, -np.inf], np.nan)
-            df = df.dropna()
+            if legacy_mode:
+                df = df.replace([np.inf, -np.inf], np.nan)
+                df = df.dropna()
+            else:
+                result_df = {}
+                for offset, tmp_df in df_tz.items():
+                    tmp_df = tmp_df.replace([np.inf, -np.inf], np.nan)
+                    tmp_df = tmp_df.dropna()
+                    result_df[offset] = tmp_df
+                df_tz = result_df
+
         # remove rows that contain all nulls ignore deviceid and timestamp
         if self.entity_type.get_param('_drop_all_null_rows'):
             exclude_cols = self.get_system_columns()
             exclude_cols.extend(self.entity_type.get_param('_custom_exclude_col_from_auto_drop_nulls'))
             msg = 'columns excluded when dropping null rows %s' % exclude_cols
             logger.debug(msg)
-            subset = [x for x in df.columns if x not in exclude_cols]
-            msg = 'columns considered when dropping null rows %s' % subset
-            logger.debug(msg)
-            for col in subset:
-                count = df[col].count()
-                msg = '%s count not null: %s' % (col, count)
+            if legacy_mode:
+                subset = [x for x in df.columns if x not in exclude_cols]
+                msg = 'columns considered when dropping null rows %s' % subset
                 logger.debug(msg)
-            df = df.dropna(how='all', subset=subset)
-            self.log_df_info(df, 'post drop all null rows')
+                for col in subset:
+                    count = df[col].count()
+                    msg = '%s count not null: %s' % (col, count)
+                    logger.debug(msg)
+                df = df.dropna(how='all', subset=subset)
+                self.log_df_info(df, 'post drop all null rows')
+            else:
+                result_df = {}
+                for offset, tmp_df in df_tz.items():
+                    subset = [x for x in tmp_df.columns if x not in exclude_cols]
+                    logger.debug(f'columns considered for offset {offset} when dropping null rows {subset}')
+                    for col in subset:
+                        count = tmp_df[col].count()
+                        logger.debug(f'{col} count for offset {offset} not null: {count}')
+                    tmp_df = tmp_df.dropna(how='all', subset=subset)
+                    self.log_df_info(tmp_df, f'post drop all null rows for offset {offset}')
+                    result_df[offset] = tmp_df
+                df_tz = result_df
         else:
             logger.debug('drop all null rows disabled')
+
         # add a dummy item to the dataframe for each preload stage
         # added as the ui expects each stage to contribute one or more output items
         for pl in preloaded_item_names:
-            df[pl] = True
+            if legacy_mode:
+                df[pl] = True
+            else:
+                result_df = {}
+                for offset, tmp_df in df_tz.items():
+                    tmp_df[pl] = True
+                    result_df[offset] = tmp_df
+                df_tz = result_df
+
         for counter, s in enumerate(stages):
             # Test for no records in data frame. Don't use df.empty because it is true for no columns as well but no
             # columns is a valid scenario for aggregations on index levels only (exotic case, for example daily
             # aggregation last() on event timestamp)
-            if df.shape[0] == 0:
-                self.logger.info('No data retrieved from all sources. Pipeline execution is skipped for this grain.')
-                df = None
-                remaining = len(stages) - counter
-                if self.dblogging is not None:
-                    self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
-                break
+            if legacy_mode:
+                if df.shape[0] == 0:
+                    self.logger.info('No data retrieved from all sources. Pipeline execution is skipped for this grain.')
+                    df = None
+                    remaining = len(stages) - counter
+                    if self.dblogging is not None:
+                        self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
+                    break
 
-            df = self._execute_stage(stage=s, df=df, start_ts=start_ts, end_ts=end_ts, entities=entities,
-                                     register=register, to_csv=to_csv, dropna=dropna, abort_on_fail=True)
+                df = self._execute_stage(stage=s, df=df, start_ts=start_ts, end_ts=end_ts, entities=entities,
+                                         register=register, to_csv=to_csv, dropna=dropna, abort_on_fail=True)
+            else:
+                result_df = {}
+                has_data = False
+                for offset, tmp_df in df_tz.items():
+                    if tmp_df.shape[0] == 0:
+                        self.logger.info(f'No data retrieved for offset {offset}. '
+                                         f'Pipeline execution is skipped for this offset and grain.')
+                        tmp_df = None
+                    else:
+                        has_data = True
+                        tmp_df = self._execute_stage(stage=s, df=tmp_df, start_ts=start_ts_tz[offset],
+                                                     end_ts=end_ts_tz[offset], entities=entities_tz[offset],
+                                                     register=register, to_csv=to_csv, dropna=dropna,
+                                                     abort_on_fail=True, offset=offset)
+                    result_df[offset] = tmp_df
+                df_tz = result_df
+                if not has_data:
+                    remaining = len(stages) - counter
+                    if self.dblogging is not None:
+                        self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
+
         if is_initial_transform:
-            try:
-                if self.dblogging is not None:
-                    self.dblogging.update_stage_info('WritingUnmatchedEntities')
-                if df is not None:
-                    self.entity_type.write_unmatched_members(df)
-            except Exception as e:
-                msg = 'Error while writing unmatched members to dimension. %s' % e
-                self.trace_add(msg, created_by=self,
-                               log_method=logger.warning)  # self.entity_type.raise_error(exception = e,abort_on_fail = False)
+            if self.dblogging is not None:
+                self.dblogging.update_stage_info('WritingUnmatchedEntities')
+            if legacy_mode:
+                try:
+                    if df is not None:
+                        self.entity_type.write_unmatched_members(df)
+                except Exception as e:
+                    msg = 'Error while writing unmatched members to dimension. %s' % e
+                    self.trace_add(msg, created_by=self, log_method=logger.warning)
+            else:
+                for offset, tmp_df in df_tz.items():
+                    try:
+                        if tmp_df is not None:
+                            self.entity_type.write_unmatched_members(tmp_df)
+                    except Exception as e:
+                        msg = f'Error while writing unmatched members to dimension for offset {offset}. {e}'
+                        self.trace_add(msg, created_by=self, log_method=logger.warning)
+
             self.mark_initial_transform_complete()
+
+        if not legacy_mode:
+            df = df_tz
 
         return df
 
-    def _execute_stage(self, stage, df, start_ts, end_ts, entities, register, to_csv, dropna, abort_on_fail):
+    def _execute_stage(self, stage, df, start_ts, end_ts, entities, register, to_csv, dropna, abort_on_fail, offset=None):
 
         try:
             name = stage.name
@@ -2342,7 +2434,10 @@ class CalcPipeline:
                 df_stage = df
             contains_extended_args = self._contains_extended_arguments(stage.execute)
             if contains_extended_args:
-                newdf = stage.execute(df=df_stage, start_ts=start_ts, end_ts=end_ts, entities=entities)
+                if self._contains_extended_arguments(stage.execute, extended_argument=['offset']):
+                    newdf = stage.execute(df=df_stage, start_ts=start_ts, end_ts=end_ts, entities=entities, offset=offset)
+                else:
+                    newdf = stage.execute(df=df_stage, start_ts=start_ts, end_ts=end_ts, entities=entities)
             else:
                 newdf = stage.execute(df=df_stage)
 
