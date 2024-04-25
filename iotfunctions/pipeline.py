@@ -2296,8 +2296,9 @@ class CalcPipeline:
             else:
                 result_df = {}
                 for offset, tmp_df in df_tz.items():
-                    tmp_df = tmp_df.replace([np.inf, -np.inf], np.nan)
-                    tmp_df = tmp_df.dropna()
+                    if tmp_df is not None:
+                        tmp_df = tmp_df.replace([np.inf, -np.inf], np.nan)
+                        tmp_df = tmp_df.dropna()
                     result_df[offset] = tmp_df
                 df_tz = result_df
 
@@ -2320,13 +2321,16 @@ class CalcPipeline:
             else:
                 result_df = {}
                 for offset, tmp_df in df_tz.items():
-                    subset = [x for x in tmp_df.columns if x not in exclude_cols]
-                    logger.debug(f'columns considered for offset {offset} when dropping null rows {subset}')
-                    for col in subset:
-                        count = tmp_df[col].count()
-                        logger.debug(f'{col} count for offset {offset} not null: {count}')
-                    tmp_df = tmp_df.dropna(how='all', subset=subset)
-                    self.log_df_info(tmp_df, f'post drop all null rows for offset {offset}')
+                    if tmp_df is not None:
+                        subset = [x for x in tmp_df.columns if x not in exclude_cols]
+                        logger.debug(f'columns considered for offset {offset} when dropping null rows {subset}')
+                        for col in subset:
+                            count = tmp_df[col].count()
+                            logger.debug(f'{col} count for offset {offset} not null: {count}')
+                        tmp_df = tmp_df.dropna(how='all', subset=subset)
+                        self.log_df_info(tmp_df, f'post drop all null rows for offset {offset}')
+                    else:
+                        self.logger.debug(f'post drop all null rows for offset {offset}: df is None')
                     result_df[offset] = tmp_df
                 df_tz = result_df
         else:
@@ -2340,7 +2344,8 @@ class CalcPipeline:
             else:
                 result_df = {}
                 for offset, tmp_df in df_tz.items():
-                    tmp_df[pl] = True
+                    if tmp_df is not None:
+                        tmp_df[pl] = True
                     result_df[offset] = tmp_df
                 df_tz = result_df
 
@@ -2361,24 +2366,22 @@ class CalcPipeline:
                                          register=register, to_csv=to_csv, dropna=dropna, abort_on_fail=True)
             else:
                 result_df = {}
-                has_data = False
                 for offset, tmp_df in df_tz.items():
-                    if tmp_df.shape[0] == 0:
-                        self.logger.info(f'No data retrieved for offset {offset}. '
-                                         f'Pipeline execution is skipped for this offset and grain.')
-                        tmp_df = None
-                    else:
-                        has_data = True
-                        tmp_df = self._execute_stage(stage=s, df=tmp_df, start_ts=start_ts_tz[offset],
-                                                     end_ts=end_ts_tz[offset], entities=entities_tz[offset],
-                                                     register=register, to_csv=to_csv, dropna=dropna,
-                                                     abort_on_fail=True, offset=offset)
+                    if tmp_df is not None:
+                        if tmp_df.shape[0] == 0:
+                            self.logger.info(f'No data retrieved for offset {offset}. '
+                                             f'Pipeline execution is skipped for this offset and grain.')
+                            tmp_df = None
+                        else:
+                            remaining = len(stages) - counter
+                            if self.dblogging is not None:
+                                self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
+                            tmp_df = self._execute_stage(stage=s, df=tmp_df, start_ts=start_ts_tz[offset],
+                                                         end_ts=end_ts_tz[offset], entities=entities_tz[offset],
+                                                         register=register, to_csv=to_csv, dropna=dropna,
+                                                         abort_on_fail=True, offset=offset)
                     result_df[offset] = tmp_df
                 df_tz = result_df
-                if not has_data:
-                    remaining = len(stages) - counter
-                    if self.dblogging is not None:
-                        self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
 
         if is_initial_transform:
             if self.dblogging is not None:

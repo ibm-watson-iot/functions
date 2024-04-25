@@ -908,9 +908,9 @@ class MsiOccupancyCount(DirectAggregator):
             pass
 
         if s_agg_result is None:
-            s_agg_result = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), dtype='int64')
+            s_agg_result = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='int64')
 
-        return s_agg_result
+        return s_agg_result.to_frame()
 
     @classmethod
     def add_to_first(self, sub_s, value_map):
@@ -1006,6 +1006,6 @@ class MsiOccupancyFrequency(DirectAggregator):
             s_frequency.name = self.output_name
 
         else:
-            s_frequency = None
+            s_frequency = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='float64')
 
-        return s_frequency
+        return s_frequency.to_frame()

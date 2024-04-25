@@ -34,7 +34,10 @@ class LoaderPipeline:
                 util.log_data_frame(f"df before loaders: shape", df)
             else:
                 for offset, tmp_df in df.items():
-                    util.log_data_frame(f"df before loaders for offset {offset}: shape", tmp_df)
+                    if tmp_df is not None:
+                        util.log_data_frame(f"df before loaders for offset {offset}: shape", tmp_df)
+                    else:
+                        self.logger.info(f"df is None before loaders for offset {offset}")
         else:
             self.logger.info("df is None before loaders")
 
@@ -63,7 +66,10 @@ class LoaderPipeline:
             util.log_data_frame(f"df after loaders: shape", df)
         else:
             for offset, tmp_df in df.items():
-                util.log_data_frame(f"df after loaders for offset {offset}: shape", tmp_df)
+                if tmp_df is not None:
+                    util.log_data_frame(f"df after loaders for offset {offset}: shape", tmp_df)
+                else:
+                    self.logger.debug(f"df after loaders is None for offset {offset}")
 
         return df
 
