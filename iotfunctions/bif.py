@@ -3372,13 +3372,24 @@ class MsiOccupancyCountByUnit(BaseTransformer):
         self.weights = weights
         self.weighted_occupancy_counts = weighted_occupancy_counts
 
-
     def execute(self, df):
-        s_occupancy_count = df[self.occupancy_count].astype(float)
-        for weight, weighted_count in zip(self.weights, self.weighted_occupancy_counts):
-            df[weighted_count] = s_occupancy_count * df[weight].astype(float)
+        # Determine contribution of each unit
+        total_weight = 0
+        for unit in self.weights:
+            total_weight = total_weight + np.where(df[unit] == True, 1, 0)
+
+        # Determine occupancy count per contributing unit
+        # Hint: Division by zero returns np.inf
+        s_unit_occupancy_count = df[self.occupancy_count].astype(float) / total_weight
+
+        # Determine occupancy count for each unit
+        for unit, weighted_count in zip(self.weights, self.weighted_occupancy_counts):
+            # Fill in values for those units only which contribute to the total weight
+            # As a consequence, we never fill in any zeros
+            df[weighted_count] = s_unit_occupancy_count.where(df[unit], np.nan)
 
         return df
+
 
 class MsiOccupancyRate(BaseTransformer):
     def __init__(self, occupancy_count, capacity, occupancy_rate):
