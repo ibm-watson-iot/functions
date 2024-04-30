@@ -871,10 +871,10 @@ class MsiOccupancyCount(DirectAggregator):
                 # Aggregate new column to get result metric. Result metric has name self.raw_output_name in data frame df_agg_result.
                 # Columns in group_base_names go into index of df_agg_result. We search for the last raw occupancy count
                 # in every aggregation interval.
-                s_agg_result = s_calc.groupby(group_base).last()
+                df_agg_result = s_calc.groupby(group_base).agg(func=['max','last'])
 
-                # Rename series s_agg_result from self.raw_occupancy_count to self.output_name
-                s_agg_result.name = self.output_name
+                # Rename column 'max' in df_agg_result to self.output_name
+                df_agg_result.rename(columns={'max': self.output_name}, inplace=True)
 
                 # df_agg_result only holds values for aggregation intervals for which we had data events. Therefore,
                 # create data frame with an index which holds entries for each aggregation interval between
@@ -883,15 +883,18 @@ class MsiOccupancyCount(DirectAggregator):
                 full_index = pd.MultiIndex.from_product([entities, time_index], names=group_base_names)
                 tmp_col_name = self.output_name + UNIQUE_EXTENSION_LABEL
                 full_df = pd.DataFrame(data={tmp_col_name: np.nan}, index=full_index)
-                df_agg_result = full_df.join(s_agg_result, how='left')
-                s_agg_result = df_agg_result[self.output_name]
-                df_agg_result = None
+                df_agg_result = full_df.join(df_agg_result, how='left')
+                df_agg_result.drop(columns=[tmp_col_name], inplace=True)
 
                 if s_start_result_values is not None:
                     # Add previous result(s) to first value(s) in df_agg_result when first value is np.nan
-                    s_agg_result = s_agg_result.groupby(level=group_base_names[0], sort=False).transform(self.add_to_first, s_start_result_values)
+                    df_agg_result['last'] = df_agg_result['last'].groupby(level=group_base_names[0], sort=False).transform(self.add_to_first, s_start_result_values)
 
-                s_agg_result.ffill(inplace=True)
+                # Use the last data event for the forward fill instead of maximum data event because the last count can
+                # substantially deviate from the maximum in the same aggregation interval
+                df_agg_result['last'].ffill(inplace=True)
+                df_agg_result[self.output_name].mask(df_agg_result[self.output_name].isna(), df_agg_result['last'], inplace=True)
+                s_agg_result = df_agg_result[self.output_name]
 
             # Add result values which has not been calculated in this run but were taken from output table
             if s_missing_result_values is not None:
