@@ -987,7 +987,7 @@ class MsiOccupancyFrequency(DirectAggregator):
             df_copy_diff_isna = df_copy[diff_col_name].isna()
             df_copy[missing_diff_col_name] = pd.NaT
             df_copy[missing_diff_col_name].mask(df_copy_diff_isna, df_copy[timestamp_col_name], inplace=True)
-            df_copy[missing_diff_col_name] = df_copy[missing_diff_col_name].transform(lambda x: rollforward_to_interval_boundary(x, agg_frequency) - x if pd.notna(x) else pd.NaT)
+            df_copy[missing_diff_col_name] = df_copy[missing_diff_col_name].transform(lambda x: rollforward_to_interval_boundary(x + offset, agg_frequency) - offset - x if pd.notna(x) else pd.NaT)
             df_copy[diff_col_name].mask(df_copy_diff_isna, df_copy[missing_diff_col_name], inplace=True)
 
             # Remove a time gap when its corresponding occupancy count is zero
