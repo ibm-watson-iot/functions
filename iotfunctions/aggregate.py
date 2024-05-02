@@ -926,7 +926,7 @@ class MsiOccupancyFrequency(DirectAggregator):
 
     KPI_FUNCTION_NAME = "MSI_OccupancyFrequency"
 
-    def __init__(self, occupancy_count, office_hour_start, office_hour_end, name=None):
+    def __init__(self, occupancy_count, office_hour_start=None, office_hour_end=None, name=None):
         super().__init__()
         self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
 
@@ -939,11 +939,16 @@ class MsiOccupancyFrequency(DirectAggregator):
         self.office_hour_start = office_hour_start
         self.office_hour_end = office_hour_end
 
+        # Hint: office_hour_start == office_hour_end == None is a valid scenario
+        if self.office_hour_start is not None and self.office_hour_start == self.office_hour_end:
+            raise RuntimeError(f"The dimension used as office_hour_start is identical to the dimension used as "
+                               f"office_hour_end: {self.office_hour_start}")
+
         if name is not None and len(name) > 0:
             self.output_name = name
         else:
-            raise RuntimeError(
-                f"No name was provided for the metric which is calculated by function {self.KPI_FUNCTION_NAME}: name={name}")
+            raise RuntimeError(f"No name was provided for the metric which is calculated by function "
+                               f"{self.KPI_FUNCTION_NAME}: name={name}")
 
     def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None, offset=None):
 
@@ -992,19 +997,37 @@ class MsiOccupancyFrequency(DirectAggregator):
             s_frequency = groupby[diff_col_name].sum()
 
             # Determine availability per space
-            df_per_space = df[[self.office_hour_start, self.office_hour_end]].groupby(group_base[0]).first()
-            s_availability = pd.to_timedelta(df_per_space[self.office_hour_end].where(df_per_space[self.office_hour_end].notna(), "24:00") + ":00") - \
-                             pd.to_timedelta(df_per_space[self.office_hour_start].where(df_per_space[self.office_hour_start].notna(), "00:00") + ":00")
-            s_availability.name = availability_col_name
+            if self.office_hour_start is not None and self.office_hour_end is not None:
+                df_per_space = df[[self.office_hour_start, self.office_hour_end]].groupby(group_base[0]).first()
+                s_availability = pd.to_timedelta(df_per_space[self.office_hour_end].where(df_per_space[self.office_hour_end].notna(), "24:00") + ":00") - \
+                                 pd.to_timedelta(df_per_space[self.office_hour_start].where(df_per_space[self.office_hour_start].notna(), "00:00") + ":00")
 
-            # Merge s_availability with s_frequency
+            elif self.office_hour_start is not None and self.office_hour_end is None:
+                s_start_per_space = df[self.office_hour_start].groupby(group_base[0]).first()
+                s_availability = pd.to_timedelta("24:00:00") - \
+                                 pd.to_timedelta(s_start_per_space.where(s_start_per_space.notna(), "00:00") + ":00")
+
+            elif self.office_hour_start is None and self.office_hour_end is not None:
+                s_end_per_space = df[self.office_hour_end].groupby(group_base[0]).first()
+                s_availability = pd.to_timedelta(
+                    s_end_per_space.where(s_end_per_space.notna(), "24:00") + ":00")
+
+            else:
+                s_availability = None
+
+
+            # Merge s_availability with s_frequency or set result column to 24 hours when not available
             df_frequency = s_frequency.to_frame()
-            df_frequency = df_frequency.join(s_availability, how='left', on=group_base[0])
+            if s_availability is not None:
+                s_availability.name = availability_col_name
+                df_frequency = df_frequency.join(s_availability, how='left', on=group_base[0])
+            else:
+                df_frequency[availability_col_name] = pd.Timedelta("24:00:00")
 
             # Divide frequency by availability. Avoid division by zero, replace frequency by -1 for negative availabilities
             s_avail_greater_zero = (df_frequency[availability_col_name] > pd.Timedelta(0))
             df_frequency[diff_col_name].where(s_avail_greater_zero, -1, inplace=True)
-            df_frequency[availability_col_name].where(s_avail_greater_zero, 1, inplace=True)
+            df_frequency[availability_col_name].where(s_avail_greater_zero, 100, inplace=True)
             s_frequency = (df_frequency[diff_col_name] / df_frequency[availability_col_name]) * 100
             s_frequency.name = self.output_name
 
