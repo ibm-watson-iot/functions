@@ -5,6 +5,7 @@ python:
 install:
 #  - sudo apt-get -y install liblapack-dev libblas-dev  - only for py 3.9
   - pip install nose2 pylint
+  - pip install torch==2.2.0 --break-system-packages --index-url https://download.pytorch.org/whl/cpu
   - pip install .
 
 # command to run tests
