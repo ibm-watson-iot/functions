@@ -1035,3 +1035,71 @@ class MsiOccupancyFrequency(DirectAggregator):
             s_frequency = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='float64')
 
         return s_frequency.to_frame()
+
+class MsiOccupancy(DirectAggregator):
+
+    KPI_FUNCTION_NAME = "MSI_Occupancy"
+
+    def __init__(self, occupancy_count, occupancy=None):
+        super().__init__()
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if occupancy_count is not None and len(occupancy_count) > 0:
+            self.occupancy_count = occupancy_count
+        else:
+            raise RuntimeError(f"Function {self.KPI_FUNCTION_NAME} requires the parameter occupancy_count "
+                               f"but parameter occupancy_count is empty: occupancy_count={occupancy_count}")
+
+        if occupancy is not None and len(occupancy) > 0:
+            self.output_name = occupancy
+        else:
+            raise RuntimeError(f"No name was provided for the metric which is calculated by function "
+                               f"{self.KPI_FUNCTION_NAME}: occupancy={occupancy}")
+
+    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None, offset=None):
+
+        # Find data item representing the result of this KPI function
+        result_data_item = self.dms.entity_type_obj._data_items.get(self.output_name)
+
+        # Determine destination frequency of this aggregation
+        agg_frequency = find_frequency_from_data_item(result_data_item, self.dms.granularities)
+
+        if not df.empty:
+            # Define new column names which are temporarily used inside this function. Use output name as stem because
+            # we can be sure it is not used in the data frame yet
+            diff_col_name = self.output_name
+            missing_diff_col_name = diff_col_name + UNIQUE_EXTENSION_LABEL
+
+            # Get a copy of input data frame with group base in index
+            df_copy = df[[self.occupancy_count]].copy()
+
+            # Copy timestamps from index back into columns; use a different name to avoid ambiguities
+            timestamp_level_name = group_base_names[1]
+            timestamp_col_name = timestamp_level_name + UNIQUE_EXTENSION_LABEL
+            df_copy[timestamp_col_name] = df_copy.index.get_level_values(level=timestamp_level_name)
+
+            # Determine duration of (forward-directed) time gaps between each row for each aggregation interval. The
+            # duration of last time gap is always np.nan for all aggregation intervals because of the missing successor.
+            # Use output column name as temporary column name because we can be sure it is not used in data frame.
+            groupby = df_copy.groupby(group_base)
+            df_copy[diff_col_name] = groupby[timestamp_col_name].diff(-1) * -1
+
+            # Fill in duration of last time gap for each aggregation interval with duration between last row and corresponding aggregation boundary
+            df_copy_diff_isna = df_copy[diff_col_name].isna()
+            df_copy[missing_diff_col_name] = pd.NaT
+            df_copy[missing_diff_col_name].mask(df_copy_diff_isna, df_copy[timestamp_col_name], inplace=True)
+            df_copy[missing_diff_col_name] = df_copy[missing_diff_col_name].transform(lambda x: rollforward_to_interval_boundary(x + offset, agg_frequency) - offset - x if pd.notna(x) else pd.NaT)
+            df_copy[diff_col_name].mask(df_copy_diff_isna, df_copy[missing_diff_col_name], inplace=True)
+
+            # Remove a time gap when its corresponding occupancy count is zero
+            df_copy[diff_col_name].where(df_copy[self.occupancy_count] > 0, pd.NaT, inplace=True)
+
+            # Sum up the time gaps for each aggregation interval
+            s_occupancy = groupby[diff_col_name].sum()
+
+            s_occupancy = s_occupancy.dt.total_seconds() / 3600
+
+        else:
+            s_occupancy = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='float64')
+
+        return s_occupancy.to_frame()
