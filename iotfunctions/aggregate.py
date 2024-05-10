@@ -1065,10 +1065,6 @@ class MsiOccupancy(DirectAggregator):
         agg_frequency = find_frequency_from_data_item(result_data_item, self.dms.granularities)
 
         if not df.empty:
-            # Define new column names which are temporarily used inside this function. Use output name as stem because
-            # we can be sure it is not used in the data frame yet
-            diff_col_name = self.output_name
-            missing_diff_col_name = diff_col_name + UNIQUE_EXTENSION_LABEL
 
             # Get a copy of input data frame with group base in index
             df_copy = df[[self.occupancy_count]].copy()
@@ -1082,21 +1078,23 @@ class MsiOccupancy(DirectAggregator):
             # duration of last time gap is always np.nan for all aggregation intervals because of the missing successor.
             # Use output column name as temporary column name because we can be sure it is not used in data frame.
             groupby = df_copy.groupby(group_base)
-            df_copy[diff_col_name] = groupby[timestamp_col_name].diff(-1) * -1
+            df_copy[self.output_name] = groupby[timestamp_col_name].diff(-1) * -1
 
-            # Fill in duration of last time gap for each aggregation interval with duration between last row and corresponding aggregation boundary
-            df_copy_diff_isna = df_copy[diff_col_name].isna()
-            df_copy[missing_diff_col_name] = pd.NaT
-            df_copy[missing_diff_col_name].mask(df_copy_diff_isna, df_copy[timestamp_col_name], inplace=True)
-            df_copy[missing_diff_col_name] = df_copy[missing_diff_col_name].transform(lambda x: rollforward_to_interval_boundary(x + offset, agg_frequency) - offset - x if pd.notna(x) else pd.NaT)
-            df_copy[diff_col_name].mask(df_copy_diff_isna, df_copy[missing_diff_col_name], inplace=True)
+            # Fill in duration of last time gap for each aggregation interval with the length of source granularity
+            input_data_item = self.dms.entity_type_obj._data_items.get(self.occupancy_count)
+            input_frequency = find_frequency_from_data_item(input_data_item, self.dms.granularities)
+            if input_frequency is not None:
+                input_frequency_duration = pd.Timedelta(value=1, unit=input_frequency)
+                df_copy_diff_isna = df_copy[self.output_name].isna()
+                df_copy[self.output_name].mask(df_copy_diff_isna, input_frequency_duration, inplace=True)
 
             # Remove a time gap when its corresponding occupancy count is zero
-            df_copy[diff_col_name].where(df_copy[self.occupancy_count] > 0, pd.NaT, inplace=True)
+            df_copy[self.output_name].where(df_copy[self.occupancy_count] > 0, pd.NaT, inplace=True)
 
             # Sum up the time gaps for each aggregation interval
-            s_occupancy = groupby[diff_col_name].sum()
+            s_occupancy = groupby[self.output_name].sum()
 
+            # Convert pd.Timedelta to float64 (unit = hours)
             s_occupancy = s_occupancy.dt.total_seconds() / 3600
 
         else:
