@@ -29,7 +29,7 @@ from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithD
 from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
-from .util import adjust_probabilities, reset_df_index, asList
+from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL
 from ibm_watson_machine_learning import APIClient
 
 
@@ -3401,6 +3401,76 @@ class MsiOccupancyRate(BaseTransformer):
     def execute(self, df):
         df[self.output] = df[self.input].astype(float).div(df[self.capacity].astype(float), axis=0)*100.0
         df[self.output] = df[self.output].round(2)
+
+        return df
+
+
+class MsiFrequencyRate(BaseTransformer):
+
+    KPI_FUNCTION_NAME = "MSI_FrequencyRate"
+
+    def __init__(self, occupancy_per_day, office_hour_start=None, office_hour_end=None, frequency_rate=None):
+        super().__init__()
+
+        if occupancy_per_day is not None and len(occupancy_per_day) > 0:
+            self.input_name = occupancy_per_day
+        else:
+            raise RuntimeError(f"Function {self.KPI_FUNCTION_NAME} requires the parameter occupancy_per_day "
+                               f"but parameter occupancy_per_day is empty: occupancy_per_day={occupancy_per_day}")
+
+        self.office_hour_start = office_hour_start
+        self.office_hour_end = office_hour_end
+
+        # Hint: office_hour_start == office_hour_end == None is a valid scenario; we assume 00:00 and 24:00 when None.
+        if self.office_hour_start is not None and self.office_hour_start == self.office_hour_end:
+            raise RuntimeError(f"The dimension used as office_hour_start is identical to the dimension used as "
+                               f"office_hour_end: {self.office_hour_start}")
+
+        if frequency_rate is not None and len(frequency_rate) > 0:
+            self.output_name = frequency_rate
+        else:
+            raise RuntimeError(f"No name was provided for the metric which is calculated by function "
+                               f"{self.KPI_FUNCTION_NAME}: frequency_rate={frequency_rate}")
+
+    def execute(self, df):
+
+        # Determine availability per space
+        if self.office_hour_start is not None and self.office_hour_end is not None:
+            df_per_space = df[[self.office_hour_start, self.office_hour_end]].groupby(df.index.names[0]).first()
+            s_availability = pd.to_timedelta(df_per_space[self.office_hour_end].where(df_per_space[self.office_hour_end].notna(), "24:00") + ":00") - \
+                             pd.to_timedelta(df_per_space[self.office_hour_start].where(df_per_space[self.office_hour_start].notna(), "00:00") + ":00")
+
+        elif self.office_hour_start is not None and self.office_hour_end is None:
+            s_start_per_space = df[self.office_hour_start].groupby(df.index.names[0]).first()
+            s_availability = pd.to_timedelta("24:00:00") - \
+                             pd.to_timedelta(s_start_per_space.where(s_start_per_space.notna(), "00:00") + ":00")
+
+        elif self.office_hour_start is None and self.office_hour_end is not None:
+            s_end_per_space = df[self.office_hour_end].groupby(df.index.names[0]).first()
+            s_availability = pd.to_timedelta(s_end_per_space.where(s_end_per_space.notna(), "24:00") + ":00")
+
+        else:
+            s_availability = None
+
+        # Get a new data frame with column self.input_name. Either merge s_availability with new data frame or set new
+        # column to 24 hours when s_availability is not available
+        df_occupancy = df[[self.input_name]].copy()
+        availability_name = self.input_name + UNIQUE_EXTENSION_LABEL
+        if s_availability is not None:
+            # Convert pd.Timedelta to hours (float64)
+            s_availability = s_availability.dt.total_seconds() / 3600
+            s_availability.name = availability_name
+            df_occupancy = df_occupancy.join(s_availability, how='left', on=df_occupancy.index.names[0])
+        else:
+            df_occupancy[availability_name] = 24.0
+
+        # Divide frequency by availability. Avoid division by zero, replace frequency by -1 for negative availabilities
+        # to indicate implausible configuration
+        s_avail_greater_zero = (df_occupancy[availability_name] > 0.0)
+        df_occupancy[self.input_name].where(s_avail_greater_zero, -1, inplace=True)
+        df_occupancy[availability_name].where(s_avail_greater_zero, 100, inplace=True)
+
+        df[self.output_name] = (df_occupancy[self.input_name] / df_occupancy[availability_name]) * 100
 
         return df
 

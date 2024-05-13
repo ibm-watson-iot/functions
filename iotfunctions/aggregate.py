@@ -1035,3 +1035,69 @@ class MsiOccupancyFrequency(DirectAggregator):
             s_frequency = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='float64')
 
         return s_frequency.to_frame()
+
+class MsiOccupancy(DirectAggregator):
+
+    KPI_FUNCTION_NAME = "MSI_Occupancy"
+
+    def __init__(self, occupancy_count, occupancy=None):
+        super().__init__()
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if occupancy_count is not None and len(occupancy_count) > 0:
+            self.occupancy_count = occupancy_count
+        else:
+            raise RuntimeError(f"Function {self.KPI_FUNCTION_NAME} requires the parameter occupancy_count "
+                               f"but parameter occupancy_count is empty: occupancy_count={occupancy_count}")
+
+        if occupancy is not None and len(occupancy) > 0:
+            self.output_name = occupancy
+        else:
+            raise RuntimeError(f"No name was provided for the metric which is calculated by function "
+                               f"{self.KPI_FUNCTION_NAME}: occupancy={occupancy}")
+
+    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None, offset=None):
+
+        # Find data item representing the result of this KPI function
+        result_data_item = self.dms.entity_type_obj._data_items.get(self.output_name)
+
+        # Determine destination frequency of this aggregation
+        agg_frequency = find_frequency_from_data_item(result_data_item, self.dms.granularities)
+
+        if not df.empty:
+
+            # Get a copy of input data frame with group base in index
+            df_copy = df[[self.occupancy_count]].copy()
+
+            # Copy timestamps from index back into columns; use a different name to avoid ambiguities
+            timestamp_level_name = group_base_names[1]
+            timestamp_col_name = timestamp_level_name + UNIQUE_EXTENSION_LABEL
+            df_copy[timestamp_col_name] = df_copy.index.get_level_values(level=timestamp_level_name)
+
+            # Determine duration of (forward-directed) time gaps between each row for each aggregation interval. The
+            # duration of last time gap is always np.nan for all aggregation intervals because of the missing successor.
+            # Use output column name as temporary column name because we can be sure it is not used in data frame.
+            groupby = df_copy.groupby(group_base)
+            df_copy[self.output_name] = groupby[timestamp_col_name].diff(-1) * -1
+
+            # Fill in duration of last time gap for each aggregation interval with the length of source granularity
+            input_data_item = self.dms.entity_type_obj._data_items.get(self.occupancy_count)
+            input_frequency = find_frequency_from_data_item(input_data_item, self.dms.granularities)
+            if input_frequency is not None:
+                input_frequency_duration = pd.Timedelta(value=1, unit=input_frequency)
+                df_copy_diff_isna = df_copy[self.output_name].isna()
+                df_copy[self.output_name].mask(df_copy_diff_isna, input_frequency_duration, inplace=True)
+
+            # Remove a time gap when its corresponding occupancy count is zero
+            df_copy[self.output_name].where(df_copy[self.occupancy_count] > 0, pd.NaT, inplace=True)
+
+            # Sum up the time gaps for each aggregation interval
+            s_occupancy = groupby[self.output_name].sum()
+
+            # Convert pd.Timedelta to float64 (unit = hours)
+            s_occupancy = s_occupancy.dt.total_seconds() / 3600
+
+        else:
+            s_occupancy = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='float64')
+
+        return s_occupancy.to_frame()
