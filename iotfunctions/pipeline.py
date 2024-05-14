@@ -2368,18 +2368,10 @@ class CalcPipeline:
                 result_df = {}
                 for offset, tmp_df in df_tz.items():
                     if tmp_df is not None:
-                        if tmp_df.shape[0] == 0:
-                            self.logger.info(f'No data retrieved for offset {offset}. '
-                                             f'Pipeline execution is skipped for this offset and grain.')
-                            tmp_df = None
-                        else:
-                            remaining = len(stages) - counter
-                            if self.dblogging is not None:
-                                self.dblogging.update_stage_info(f"Skipping {remaining} stages", delta=remaining)
-                            tmp_df = self._execute_stage(stage=s, df=tmp_df, start_ts=start_ts_tz[offset],
-                                                         end_ts=end_ts_tz[offset], entities=entities_tz[offset],
-                                                         register=register, to_csv=to_csv, dropna=dropna,
-                                                         abort_on_fail=True, offset=offset)
+                        tmp_df = self._execute_stage(stage=s, df=tmp_df, start_ts=start_ts_tz[offset],
+                                                     end_ts=end_ts_tz[offset], entities=entities_tz[offset],
+                                                     register=register, to_csv=to_csv, dropna=dropna,
+                                                     abort_on_fail=True, offset=offset)
                     result_df[offset] = tmp_df
                 df_tz = result_df
 
