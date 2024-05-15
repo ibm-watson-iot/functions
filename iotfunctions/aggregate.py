@@ -1083,6 +1083,7 @@ class MsiOccupancy(DirectAggregator):
             # Fill in duration of last time gap for each aggregation interval with the length of source granularity
             input_data_item = self.dms.entity_type_obj._data_items.get(self.occupancy_count)
             input_frequency = find_frequency_from_data_item(input_data_item, self.dms.granularities)
+            input_frequency_duration = None
             if input_frequency is not None:
                 input_frequency_duration = pd.Timedelta(value=1, unit=input_frequency)
                 df_copy_diff_isna = df_copy[self.output_name].isna()
@@ -1094,8 +1095,11 @@ class MsiOccupancy(DirectAggregator):
             # Sum up the time gaps for each aggregation interval
             s_occupancy = groupby[self.output_name].sum()
 
-            # Convert pd.Timedelta to float64 (unit = hours)
-            s_occupancy = s_occupancy.dt.total_seconds() / 3600
+            # Convert pd.Timedelta to float64 depending on the input frequency
+            if input_frequency_duration is not None:
+                s_occupancy = s_occupancy / input_frequency_duration
+            else:
+                s_occupancy = s_occupancy.dt.total_seconds()
 
         else:
             s_occupancy = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='float64')
