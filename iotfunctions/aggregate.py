@@ -174,6 +174,37 @@ class Aggregation(BaseFunction):
                                f"functions but are missing in the data frame: {str(list(missing_col_names))}. "
                                f"Available columns in data frame: {str(list(df.columns))}")
 
+        # Circumvent issue with pandas' Grouper:
+        # Groupers with frequency 'W', 'MS' and 'AS'/'YS' do not take care about hours/minutes/seconds/microseconds
+        # /nanoseconds in the timestamps. They leave them unaffected. Therefore, we have to generate the group labels
+        # by ourselves and to replace the Groupers by the group labels. This makes any aggregator which deploys
+        # group_base on any other dataframe (= data frame with different index) as df fail.
+        trouble_makers = {'W-SUN', 'MS', 'AS-JAN'}
+        corrected_group_base = []
+        for item in group_base:
+            if isinstance(item, pd.Grouper):
+                freq_string = item.freq.freqstr
+                if freq_string in trouble_makers:
+                    freq_date_offset = pd.tseries.frequencies.to_offset(freq_string)
+                    time_reset = pd.DateOffset(hour=0, minute=0, second=0, microsecond=0, nanosecond=0)
+
+                    # Roll back timestamp to, for example, begin of week, set time to 00:00:00.000000000 (and subtract
+                    # offset of timezone) to get timestamp indicating the begin of aggregation interval
+                    if offset is not None:
+                        group_labels = df.index.get_level_values(item.level).to_series().transform(lambda x: freq_date_offset.rollback(x + offset) + time_reset - offset)
+                    else:
+                        group_labels = df.index.get_level_values(item.level).to_series().transform(lambda x: freq_date_offset.rollback(x) + time_reset)
+
+                    corrected_group_base.append(group_labels.to_numpy())
+
+                else:
+                    corrected_group_base.append(item)
+
+            else:
+                corrected_group_base.append(item)
+
+        group_base = corrected_group_base
+
         # Split data frame into groups
         groups = df.groupby(group_base)
 
