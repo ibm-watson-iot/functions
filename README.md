@@ -48,14 +48,16 @@ These instructions will get you up and running in your local environment or in W
     ```
 3. Install in your local environment from GitHub
    ```
-   pip install git+git://github.com/ibm-watson-iot/functions@production --upgrade 
+   pip install git+git://github.com/ibm-watson-iot/functions@XXX --upgrade 
    ```
-
+   Replace 'XXX' by the version of your IBM Watson IoT Platform Analytics installation like, for example, '8.10.x' or '8.11.x'
+      
 To install in IBM Watson Studio from another Jupyter notebook:
 
 ```~~~bash
-!pip install git+git://github.com/ibm-watson-iot/functions.git@production --upgrade
+!pip install git+git://github.com/ibm-watson-iot/functions.git@XXX --upgrade
 ```
+Replace 'XXX' by the version of your IBM Watson IoT Platform Analytics installation like, for example, '8.10.x' or '8.11.x'
 
 Test for successful install:
 
