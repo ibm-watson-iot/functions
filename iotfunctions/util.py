@@ -1348,7 +1348,7 @@ def complete_backtrack_setting(backtrack):
 
 def get_backtrack_from_frequency(frequency):
 
-    if frequency == 'AS':
+    if frequency == 'AS' or frequency == 'YS':
         backtrack = {'year': 1}
     elif frequency == 'MS':
         backtrack = {'month': 1}
@@ -1372,7 +1372,7 @@ def get_max_frequency(active_agg_frequencies):
 
     max_frequency = None
     if len(active_agg_frequencies) > 0:
-        if 'AS' in active_agg_frequencies:
+        if 'AS' in active_agg_frequencies or 'YS' in active_agg_frequencies:
             max_frequency = 'AS'
         elif 'MS' in active_agg_frequencies:
             max_frequency = 'MS'
