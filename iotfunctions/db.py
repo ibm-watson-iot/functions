@@ -1165,39 +1165,39 @@ class Database(object):
                               ' object_type (%s) is not supported by the'
                               ' python api') % (object_type, request))
 
-        logger.debug('URL: %s', url)
+        logger.warning('URL: %s', url)
         r = self.http.request(request, url, body=encoded_payload, headers=headers)
         response = r.data.decode('utf-8')
-        logger.debug('payload: %s', encoded_payload)
+        logger.warning('payload: %s', encoded_payload)
 
         if 200 <= r.status <= 299:
-            logger.debug(f'http request {url} successful. status {r.status}')
+            logger.warning(f'http request {url} successful. status {r.status}, r.data={r.data}')
         elif (request == 'POST' and object_type in ['kpiFunction', 'defaultConstants', 'constants'] and (
                 500 <= r.status <= 599)):
-            logger.debug('htpp POST failed. attempting PUT. status:%s', r.status)
+            logger.warning('htpp POST failed. attempting PUT. status:%s', r.status)
             response = self.http_request(object_type=object_type, object_name=object_name, request='PUT',
                                          payload=payload, object_name_2=object_name_2, raise_error=raise_error)
         elif 400 <= r.status <= 499:
-            logger.debug('Http request client error. status: %s', r.status)
-            logger.debug('url: %s', url)
-            logger.debug('payload: %s', encoded_payload)
-            logger.debug('http response: %s', r.data)
+            logger.warning('Http request client error. status: %s', r.status)
+            logger.warning('url: %s', url)
+            logger.warning('payload: %s', encoded_payload)
+            logger.warning('http response: %s', r.data)
             if raise_error:
-                raise urllib3.exceptions.HTTPError(r.data)
+                raise urllib3.exceptions.HTTPError(f"r.status={r.status}, r.data={r.data}")
         elif 500 <= r.status <= 599:
-            logger.debug('Http request server error. status: %s', r.status)
-            logger.debug('url: %s', url)
-            logger.debug('payload: %s', encoded_payload)
-            logger.debug('http response: %s', r.data)
+            logger.warning('Http request server error. status: %s', r.status)
+            logger.warning('url: %s', url)
+            logger.warning('payload: %s', encoded_payload)
+            logger.warning('http response: %s', r.data)
             if raise_error:
-                raise urllib3.exceptions.HTTPError(r.data)
+                raise urllib3.exceptions.HTTPError(f"r.status={r.status}, r.data={r.data}")
         else:
-            logger.debug('Http request unknown error. status: %s', r.status)
-            logger.debug('url: %s', url)
-            logger.debug('payload: %s', encoded_payload)
-            logger.debug('http response: %s', r.data)
+            logger.warning('Http request unknown error. status: %s', r.status)
+            logger.warning('url: %s', url)
+            logger.warning('payload: %s', encoded_payload)
+            logger.warning('http response: %s', r.data)
             if raise_error:
-                raise urllib3.exceptions.HTTPError(r.data)
+                raise urllib3.exceptions.HTTPError(f"r.status={r.status}, r.data={r.data}")
 
         return response
 
@@ -1280,7 +1280,9 @@ class Database(object):
 
         result = {}
 
-        fns = json.loads(self.http_request('catalogFunctions', object_name=None, request='GET', payload=None))
+        tmp1 = self.http_request('catalogFunctions', object_name=None, request='GET', payload=None, raise_error=True)
+        logger.debug(f"self.http_request = {tmp1}")
+        fns = json.loads(tmp1)
         logger.debug(f"result of load_catalog ({len(fns)}): {fns}")
 
         for fn in fns:
