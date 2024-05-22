@@ -1281,7 +1281,10 @@ class Database(object):
         result = {}
 
         fns = json.loads(self.http_request('catalogFunctions', object_name=None, request='GET', payload=None))
+        logger.debug(f"result of load_catalog ({len(fns)}): {fns}")
+
         for fn in fns:
+            logger.debug(f"result of load_catalog ({len(fn)}): {fn}")
             function_name = fn["name"]
             if (function_list is not None) and (function_name not in function_list):
                 # Catalog function is not used by any KPI function. Therefore skip it!
