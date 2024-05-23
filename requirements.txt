@@ -20,7 +20,7 @@ statsmodels==0.13.2
 stumpy==1.9.2
 numpy==1.23.1
 tabulate==0.8.10
-torch==1.13.1
+# torch==1.13.1 (torch is installed in Dockerfile to decrease memory footprint)
 urllib3==1.26.18
 
 #
