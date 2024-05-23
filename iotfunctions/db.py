@@ -1054,7 +1054,7 @@ class Database(object):
 
         return [column.key for column in table.columns]
 
-    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=False,
+    def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=True,
                      sample_entity_type=False):
         """
         Make an api call to AS.
@@ -1127,7 +1127,7 @@ class Database(object):
         # self.url[('engineInputByEntityId', 'GET')] = '/'.join(
         #     [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'engineInput', object_name])
 
-        if object_name is None:
+        if object_name is None or len(object_name) == 0:
             self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core', 'catalogFunctions'])
         else:
             self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
