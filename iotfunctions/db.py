@@ -1127,7 +1127,7 @@ class Database(object):
         # self.url[('engineInputByEntityId', 'GET')] = '/'.join(
         #     [base_kpi_url, 'kpi', 'v1', self.tenant_id, 'engineInput', object_name])
 
-        if object_name is None:
+        if object_name is None or len(object_name)==0:
             self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core', 'catalogFunctions'])
         else:
             self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
