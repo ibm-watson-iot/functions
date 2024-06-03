@@ -231,7 +231,7 @@ class AnomalyGeneratorExtremeValue(AnomalyGenerator):
         timeseries = df.reset_index()
         timeseries[self.output_item] = timeseries[self.input_item]
 
-        df_grpby = timeseries.groupby('id', group_keys=False)
+        df_grpby = timeseries.groupby('id')
         for grp in df_grpby.__iter__():
 
             entity_grp_id = grp[0]
@@ -311,7 +311,7 @@ class AnomalyGeneratorNoData(AnomalyGenerator):
         # mark Anomalies
         timeseries = df.reset_index()
         timeseries[self.output_item] = timeseries[self.input_item]
-        df_grpby = timeseries.groupby('id', group_keys=False)
+        df_grpby = timeseries.groupby('id')
         for grp in df_grpby.__iter__():
 
             entity_grp_id = grp[0]
@@ -389,7 +389,7 @@ class AnomalyGeneratorFlatline(AnomalyGenerator):
         # mark Anomalies
         timeseries = df.reset_index()
         timeseries[self.output_item] = timeseries[self.input_item]
-        df_grpby = timeseries.groupby('id', group_keys=False)
+        df_grpby = timeseries.groupby('id')
         for grp in df_grpby.__iter__():
 
             entity_grp_id = grp[0]

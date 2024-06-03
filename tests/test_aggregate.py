@@ -158,7 +158,7 @@ def test_aggregation():
 
     df_agg2= aggobjt.execute(df=df_i)
 
-    df_myagg = df_i.reset_index().groupby(pd.Grouper(key='timestamp', freq='D'), group_keys=False)['TEMP_AIR'].\
+    df_myagg = df_i.reset_index().groupby(pd.Grouper(key='timestamp', freq='D'))['TEMP_AIR'].\
                       agg([('count', lambda x: (x>20).sum())])
 
     print(df_myagg.columns)

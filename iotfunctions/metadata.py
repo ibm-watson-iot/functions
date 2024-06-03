@@ -1771,7 +1771,7 @@ class EntityType(object):
         df = df[cols]
         df['end_date'] = None
         if len(df.index) > 0:
-            df = df.groupby([self._entity_id], group_keys=False).apply(self._set_end_date)
+            df = df.groupby([self._entity_id]).apply(self._set_end_date)
             try:
                 self.db.truncate(table_name, schema=self._db_schema)
             except KeyError:

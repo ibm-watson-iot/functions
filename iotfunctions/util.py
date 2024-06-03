@@ -317,7 +317,7 @@ def resample(df, time_frequency, timestamp, dimensions=None, agg=None, default_a
     for d in dimensions:
         group_base.append(pd.Grouper(key=d))
 
-    df = df.groupby(group_base, group_keys=False).agg(agg)
+    df = df.groupby(group_base).agg(agg)
     df.reset_index(inplace=True)
 
     return df
