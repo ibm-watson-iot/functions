@@ -358,6 +358,10 @@ class StateTimePreparation(BaseTransformer):
 
         if not df_copy.empty:
             df_copy = df_copy.groupby(group_base).apply(self._calc)
+        else:
+            # Add output column to prevent subsequent KPI functions from failing because of missing columns in
+            # internal data frame
+            df_copy[self.name] = None
 
         logger.debug('StateTimePrep done')
         return df_copy
