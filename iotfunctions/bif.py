@@ -357,7 +357,7 @@ class StateTimePreparation(BaseTransformer):
         group_base = [pd.Grouper(axis=0, level=0)]
 
         if not df_copy.empty:
-            df_copy = df_copy.groupby(group_base).apply(self._calc)
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
         else:
             # Add output column to prevent subsequent KPI functions from failing because of missing columns in
             # internal data frame
@@ -3440,17 +3440,17 @@ class MsiFrequencyRate(BaseTransformer):
 
         # Determine availability per space
         if self.office_hour_start is not None and self.office_hour_end is not None:
-            df_per_space = df[[self.office_hour_start, self.office_hour_end]].groupby(df.index.names[0]).first()
+            df_per_space = df[[self.office_hour_start, self.office_hour_end]].groupby(df.index.names[0], group_keys=False).first()
             s_availability = pd.to_timedelta(df_per_space[self.office_hour_end].where(df_per_space[self.office_hour_end].notna(), "24:00") + ":00") - \
                              pd.to_timedelta(df_per_space[self.office_hour_start].where(df_per_space[self.office_hour_start].notna(), "00:00") + ":00")
 
         elif self.office_hour_start is not None and self.office_hour_end is None:
-            s_start_per_space = df[self.office_hour_start].groupby(df.index.names[0]).first()
+            s_start_per_space = df[self.office_hour_start].groupby(df.index.names[0], group_keys=False).first()
             s_availability = pd.to_timedelta("24:00:00") - \
                              pd.to_timedelta(s_start_per_space.where(s_start_per_space.notna(), "00:00") + ":00")
 
         elif self.office_hour_start is None and self.office_hour_end is not None:
-            s_end_per_space = df[self.office_hour_end].groupby(df.index.names[0]).first()
+            s_end_per_space = df[self.office_hour_end].groupby(df.index.names[0], group_keys=False).first()
             s_availability = pd.to_timedelta(s_end_per_space.where(s_end_per_space.notna(), "24:00") + ":00")
 
         else:

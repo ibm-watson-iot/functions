@@ -345,7 +345,7 @@ class BaseFunction(object):
                     group_base.append(pd.Grouper(axis=0, level=df.index.names.index(s)))
 
         if len(group_base) > 0:
-            df = df.groupby(group_base).apply(self._calc)
+            df = df.groupby(group_base, group_keys=False).apply(self._calc)
         else:
             df = self._calc(df)
 
@@ -1119,7 +1119,7 @@ class BaseFunction(object):
         """
         Partition dataframe into a dictionary keyed by _entity_id
         """
-        d = {x: table for x, table in df.groupby(self._entity_type._entity_id)}
+        d = {x: table for x, table in df.groupby(self._entity_type._entity_id, group_keys=False)}
         return d
 
     @classmethod
@@ -2486,7 +2486,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     group_base.append(pd.Grouper(axis=0, level=df.index.names.index(self.execute_by)))
 
             try:
-                group = df.groupby(group_base)
+                group = df.groupby(group_base, group_keys=False)
             except KeyError:
                 msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were ' \
                       'not found' % self.execute_by
@@ -2923,7 +2923,7 @@ class BaseSCDLookupWithDefault(BaseTransformer):
         df[self.output_item] = self.dim_default_value
 
         # Group df on entity_id (first level in MultiIndex) and apply fill-in function
-        groups = df.groupby(level=0, sort=False)
+        groups = df.groupby(level=0, sort=False, group_keys=False)
         df = groups.apply(func=self._fill_in, dim_df=dim_df, dim_col=self.df_dim_name, start_col=self.df_start_name,
                           output_col=self.output_item)
 

@@ -206,7 +206,7 @@ class Aggregation(BaseFunction):
         group_base = corrected_group_base
 
         # Split data frame into groups
-        groups = df.groupby(group_base)
+        groups = df.groupby(group_base, group_keys=False)
 
         all_dfs = []
 
@@ -902,7 +902,7 @@ class MsiOccupancyCount(DirectAggregator):
                 # Aggregate new column to get result metric. Result metric has name self.raw_output_name in data frame df_agg_result.
                 # Columns in group_base_names go into index of df_agg_result. We search for the last raw occupancy count
                 # in every aggregation interval.
-                df_agg_result = s_calc.groupby(group_base).agg(func=['max','last'])
+                df_agg_result = s_calc.groupby(group_base, group_keys=False).agg(func=['max','last'])
 
                 # Rename column 'max' in df_agg_result to self.output_name
                 df_agg_result.rename(columns={'max': self.output_name}, inplace=True)
@@ -919,7 +919,7 @@ class MsiOccupancyCount(DirectAggregator):
 
                 if s_start_result_values is not None:
                     # Add previous result(s) to first value(s) in df_agg_result when first value is np.nan
-                    df_agg_result['last'] = df_agg_result['last'].groupby(level=group_base_names[0], sort=False).transform(self.add_to_first, s_start_result_values)
+                    df_agg_result['last'] = df_agg_result['last'].groupby(level=group_base_names[0], sort=False, group_keys=False).transform(self.add_to_first, s_start_result_values)
 
                 # Use the last data event for the forward fill instead of maximum data event because the last count can
                 # substantially deviate from the maximum in the same aggregation interval
@@ -994,7 +994,7 @@ class MsiOccupancy(DirectAggregator):
             # Determine duration of (forward-directed) time gaps between each row for each aggregation interval. The
             # duration of last time gap is always np.nan for all aggregation intervals because of the missing successor.
             # Use output column name as temporary column name because we can be sure it is not used in data frame.
-            groupby = df_copy.groupby(group_base)
+            groupby = df_copy.groupby(group_base, group_keys=False)
             df_copy[self.output_name] = groupby[timestamp_col_name].diff(-1) * -1
 
             # Fill in duration of last time gap for each aggregation interval with the length of source granularity

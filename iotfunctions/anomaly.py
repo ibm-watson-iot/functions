@@ -596,7 +596,7 @@ class AnomalyScorer(BaseTransformer):
         group_base = [pd.Grouper(axis=0, level=0)]
 
         if not df_copy.empty:
-            df_copy = df_copy.groupby(group_base).apply(self._calc)
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy
@@ -1762,7 +1762,7 @@ class SupervisedLearningTransformer(BaseTransformer):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
 
@@ -1960,7 +1960,7 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy
@@ -2070,7 +2070,7 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy
@@ -2282,7 +2282,7 @@ class GBMRegressor(BaseEstimatorFunction):
         group_base = [pd.Grouper(axis=0, level=0)]
 
         # first round - training
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
 
         # strip off lagged features
@@ -2290,7 +2290,7 @@ class GBMRegressor(BaseEstimatorFunction):
             strip_features, df_copy = self.lag_features(df=df, Train=False)
 
             # second round - inferencing
-            df_copy = df_copy.groupby(group_base).apply(self._calc)
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
             logger.debug('Drop artificial features ' + str(strip_features))
             df_copy.drop(columns = strip_features, inplace=True)

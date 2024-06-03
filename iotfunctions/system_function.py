@@ -176,7 +176,7 @@ class DataAggregator(object):
     def execute(self, df=None):
 
         gfs = []
-        group = df.groupby(self.granularity.grouper)
+        group = df.groupby(self.granularity.grouper, group_keys=False)
 
         if not self._agg_dict is None and self._agg_dict:
             gf = group.agg(self._agg_dict)
