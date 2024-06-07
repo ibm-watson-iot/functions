@@ -733,9 +733,9 @@ class MsiOccupancyCount(DirectAggregator):
     def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None, offset=None):
 
         # If entities is None define list of entities by data frame. The list of entities can then be incomplete!
-        if entities is None:
+        if entities is None or len(entities) == 0:
             raise RuntimeError(f'The framework does not provide a list of entities to function {self.__class__.__name__} '
-                               f'for offset {offset}.')
+                               f'for offset {offset}: entities={entities}')
 
         if offset is None:
             raise RuntimeError(f'The framework does not provide an offset to function {self.__class__.__name__}.')
