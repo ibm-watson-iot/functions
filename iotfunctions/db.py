@@ -177,12 +177,6 @@ class Database(object):
             except KeyError:
                 pass
 
-        self.credentials['message_hub'] = credentials.get('messageHub', None)
-        if self.credentials['message_hub'] is None:
-            msg = ('Unable to locate message_hub credentials.'
-                   ' Database object created, but it will not be able interact'
-                   ' with message hub.')
-            logger.debug(msg)
         try:
             self.credentials['config'] = credentials['config']
         except (KeyError, TypeError):
