@@ -13,7 +13,7 @@ pyod==2.0.2
 certifi>=2023.7.22
 requests==2.31.0
 ruptures==1.1.9
-scikit-learn==1.1.1
+scikit-learn==1.2.2
 scikit-image==0.19.3
 scipy==1.11.1
 sqlalchemy==1.4.39
