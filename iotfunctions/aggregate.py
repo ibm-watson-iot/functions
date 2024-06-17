@@ -195,7 +195,7 @@ class Aggregation(BaseFunction):
                     else:
                         group_labels = df.index.get_level_values(item.level).to_series().transform(lambda x: freq_date_offset.rollback(x) + time_reset)
 
-                    corrected_group_base.append(group_labels.to_numpy())
+                    corrected_group_base.append(pd.DatetimeIndex(group_labels.array, name=group_labels.name))
 
                 else:
                     corrected_group_base.append(item)
@@ -942,7 +942,7 @@ class MsiOccupancyCount(DirectAggregator):
             pass
 
         if s_agg_result is None:
-            s_agg_result = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='int64')
+            s_agg_result = pd.Series([], index=pd.MultiIndex.from_arrays([[], pd.DatetimeIndex([])], names=group_base_names), name=self.output_name, dtype='int64')
 
         return s_agg_result.to_frame()
 
