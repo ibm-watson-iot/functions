@@ -1128,7 +1128,7 @@ class DataWriterSqlAlchemy(DataWriter):
         col_props = dict()
         grain_name = None
         first_loop_cycle = True
-        for col_name, col_type in df.dtypes.iteritems():
+        for col_name, col_type in df.dtypes.items():
             metadata = self.data_item_metadata.get(col_name)
             if metadata is not None and metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
                 if metadata.get(md.DATA_ITEM_TRANSIENT_KEY, False) is False:

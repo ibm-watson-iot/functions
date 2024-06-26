@@ -556,7 +556,7 @@ def log_data_frame(message=None, df=None, head_only=True):
 
 def exchange_boolean_by_string(df):
     if df is not None and not df.empty:
-        for col_name, col_type in df.dtypes.iteritems():
+        for col_name, col_type in df.dtypes.items():
             if col_type.name == 'object':
                 df[col_name] = df[col_name].mask(df[col_name] == 'True', 'true')
                 df[col_name] = df[col_name].mask(df[col_name] == 'False', 'false')
