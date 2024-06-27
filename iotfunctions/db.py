@@ -1166,6 +1166,7 @@ class Database(object):
                               ' python api') % (object_type, request))
 
         logger.debug('URL: %s', url)
+
         r = self.http.request(request, url, body=encoded_payload, headers=headers)
         response = r.data.decode('utf-8')
         logger.debug('payload: %s', encoded_payload)
@@ -2158,7 +2159,7 @@ class Database(object):
             if timestamp_col is None:
                 msg = 'No timestamp_col provided to query. Must provide a timestamp column if you have a date filter'
                 raise ValueError(msg)
-            query = query.filter(self.get_column_object(table, timestamp_col) <= end_ts)
+            query = query.filter(self.get_column_object(table, timestamp_col) < end_ts)
         if not entities is None:
             query = query.filter(table.c[deviceid_col].in_(entities))
 

@@ -2725,6 +2725,19 @@ class CalcPipeline:
                     # logger.debug('Data item %s is not part of the dataframe yet.' % item)
                     continue
 
+                #check if it is JSON:
+                if data_item['columnType'] == 'JSON':
+                    if not is_object_dtype(df_column.dtype):
+                        logger.info('Type is not consistent %s: df type is %s and data type is %s' % (
+                            item, df_column.dtype.name, data_item['columnType']))
+
+                        try:
+                            df[data_item['name']] = df_column.astype('json')
+                            logger.info('Convert Succesfully')
+                        except Exception:
+                            invalid_data_items.append((item, df_column.dtype.name, data_item['columnType']))
+                    continue
+
                 # check if it is Number
                 if data_item['columnType'] == 'NUMBER':
                     if not is_numeric_dtype(df_column.values) or is_bool_dtype(df_column.dtype):

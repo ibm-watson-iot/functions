@@ -119,7 +119,9 @@ class PersistColumns:
                 value_number = False
                 value_string = False
                 value_timestamp = False
+                value_json = False
 
+                
                 dtype = dtype.name.lower()
                 # if dtype.startswith('int') or dtype.startswith('float') or dtype.startswith('long') or dtype.startswith('complex'):
                 if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
@@ -130,10 +132,13 @@ class PersistColumns:
                 # elif dtype.startswith('datetime'):
                 elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
                     value_timestamp = True
+                # elif dtype.starswith('dict')
+                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_JSON:
+                    value_json = True
                 else:
                     value_string = True
 
-                table_metrics_to_persist[tableName][source] = [value_bool, value_number, value_string, value_timestamp]
+                table_metrics_to_persist[tableName][source] = [value_bool, value_number, value_string, value_timestamp, value_json]
 
             self.logger.debug('table_metrics_to_persist=%s' % str(table_metrics_to_persist))
 
@@ -204,6 +209,7 @@ class PersistColumns:
 
                             rowVals.append(str(derivedMetricVal) if metric_type[2] else None)
                             rowVals.append(derivedMetricVal if metric_type[3] else None)
+                            rowVals.append(json.dumps(derivedMetricVal) if metric_type[4] else None)
 
                             if metric_type[1] and float(derivedMetricVal) is np.nan or metric_type[2] and str(
                                     derivedMetricVal) == 'nan':
@@ -230,7 +236,7 @@ class PersistColumns:
                                 self.logger.debug('Records saved so far = %d' % total_saved)
                             except Exception as ex:
                                 raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
-                                    len(valueList), str(valueList))) from ex
+                                    len(valueList), str(valueList))) from ex                                
 
                             valueList = []
                             cnt = 0
@@ -279,12 +285,12 @@ class PersistColumns:
             sourceExtension += ', SOURCE.' + quoted_dimension
 
         return ("MERGE INTO %s.%s AS TARGET "
-                "USING (VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) "
+                "USING (VALUES (?%s, ?, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, VALUE_C, LAST_UPDATE) "
                 "ON TARGET.KEY = SOURCE.KEY%s "
                 "WHEN MATCHED THEN "
-                "UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
+                "UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.VALUE_C = SOURCE.VALUE_C, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
                 "WHEN NOT MATCHED THEN "
-                "INSERT (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) VALUES (SOURCE.KEY%s, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, CURRENT TIMESTAMP)") % (
+                "INSERT (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, VALUE_C, LAST_UPDATE) VALUES (SOURCE.KEY%s, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, SOURCE.VALUE_C, CURRENT TIMESTAMP)") % (
                    dbhelper.quotingSchemaName(check_sql_injection(self.schema)), dbhelper.quotingTableName(check_sql_injection(tableName)), parmExtension,
                    colExtension, joinExtension, colExtension, sourceExtension)
 
@@ -310,7 +316,7 @@ class PersistColumns:
             colExtension += ', ' + quoted_dimension
             parmExtension += ', %s'
 
-        sql = "insert into " + self.schema + "." + tableName + " (key " + colExtension + ",value_b,value_n,value_s,value_t,last_update) values (%s " + parmExtension + ", %s, %s, %s, %s, current_timestamp) on conflict on constraint uc_" + tableName + " do update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, value_t = EXCLUDED.value_t, last_update = EXCLUDED.last_update"
+        sql = "insert into " + self.schema + "." + tableName + " (key " + colExtension + ",value_b,value_n,value_s,value_t,value_c,last_update) values (%s " + parmExtension + ", %s, %s, %s, %s, %s, current_timestamp) on conflict on constraint uc_" + tableName + " do update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, value_t = EXCLUDED.value_t, value_c = EXCLUDED.value_c, last_update = EXCLUDED.last_update"
         return sql
 
 
@@ -933,6 +939,7 @@ class DataWriterSqlAlchemy(DataWriter):
     COLUMN_NAME_VALUE_STRING = 'value_s'
     COLUMN_NAME_VALUE_BOOLEAN = 'value_b'
     COLUMN_NAME_VALUE_TIMESTAMP = 'value_t'
+    COLUMN_NAME_VALUE_CLOB = 'value_c'
     COLUMN_NAME_TIMESTAMP = 'timestamp'
     COLUMN_NAME_TIMESTAMP_MIN = 'timestamp_min'
     COLUMN_NAME_TIMESTAMP_MAX = 'timestamp_max'
@@ -1128,7 +1135,7 @@ class DataWriterSqlAlchemy(DataWriter):
         col_props = dict()
         grain_name = None
         first_loop_cycle = True
-        for col_name, col_type in df.dtypes.iteritems():
+        for col_name, col_type in df.dtypes.items():
             metadata = self.data_item_metadata.get(col_name)
             if metadata is not None and metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
                 if metadata.get(md.DATA_ITEM_TRANSIENT_KEY, False) is False:
