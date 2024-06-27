@@ -31,10 +31,12 @@ from .util import (MemoryOptimizer, build_grouper, categorize_args, reset_df_ind
 
 logger = logging.getLogger(__name__)
 
+# TODO: add support to json
 DATA_ITEM_TYPE_BOOLEAN = 'BOOLEAN'
 DATA_ITEM_TYPE_NUMBER = 'NUMBER'
 DATA_ITEM_TYPE_LITERAL = 'LITERAL'
 DATA_ITEM_TYPE_TIMESTAMP = 'TIMESTAMP'
+DATA_ITEM_TYPE_JSON = 'JSON'
 
 DATA_ITEM_COLUMN_TYPE_KEY = 'columnType'
 DATA_ITEM_TRANSIENT_KEY = 'transient'
