@@ -1406,3 +1406,8 @@ def find_frequency_from_data_item(data_item, granularities):
         raise RuntimeError("Definition of granularity has no frequency")
 
     return agg_frequency
+
+def normalise_frequency(freq):
+
+    frequency_map = {'S': 's', 'T': 'min', 'H': 'h', 'AS': 'YS'}
+    return frequency_map.get(freq, freq)
