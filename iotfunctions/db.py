@@ -1166,12 +1166,7 @@ class Database(object):
                               ' python api') % (object_type, request))
 
         logger.debug('URL: %s', url)
-        #!!!!!!!!!!!!!!!!!!!!!!!
-        #kohlmann REMOVE!!!!!!!!!!
-        #!!!!!!!!!!!!!!!!!!!!!!!!!!
-        if url.startswith("https://http://"):
-            url = "https://main.api.monitor.monitortest.ibmmasmonitor.com/api/meta/v1/main/entityType"
-        #    !!!!!!!!!!!!!!!
+
         r = self.http.request(request, url, body=encoded_payload, headers=headers)
         response = r.data.decode('utf-8')
         logger.debug('payload: %s', encoded_payload)
