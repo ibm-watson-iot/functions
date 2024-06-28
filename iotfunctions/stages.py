@@ -73,6 +73,16 @@ class PersistColumns:
         return df
 
     def store_derived_metrics(self, dataFrame):
+
+        # When the pipeline contains a HierarchySummary function then the output table has an additional column
+        # "VALUE_C" which must be filled with the result of HierarchySummary
+        with_json = False
+        for kpi_func in self.dms.pipeline:
+            if kpi_func.get("catalogFunctionName") == 'InternalHierarchySummary':
+                with_json = True
+                break
+        logger.debug(f"Pipeline contains {'at least one' if with_json else 'no'} HierarchySummary.")
+
         if self.dms.production_mode:
             table_insert_stmt = {}
             table_metrics_to_persist = defaultdict(dict)
@@ -87,9 +97,6 @@ class PersistColumns:
                     self.logger.debug('skip persisting transient data_item=%s' % source)
                     continue
 
-                # if source not in (get_all_kpi_targets(self.get_pipeline()) & self.data_items.get_derived_metrics()):
-                #     continue
-
                 try:
                     tableName = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
                 except Exception:
@@ -102,11 +109,11 @@ class PersistColumns:
                     try:
 
                         if self.is_postgre_sql:
-                            sql = self.create_upsert_statement_postgres_sql(tableName, grain)
+                            sql = self.create_upsert_statement_postgres_sql(tableName, grain, with_json)
                             table_insert_stmt[tableName] = (sql, grain)
 
                         else:
-                            sql = self.create_upsert_statement(tableName, grain)
+                            sql = self.create_upsert_statement(tableName, grain, with_json)
                             stmt = ibm_db.prepare(self.db_connection, sql)
                             table_insert_stmt[tableName] = (stmt, grain)
 
@@ -209,7 +216,9 @@ class PersistColumns:
 
                             rowVals.append(str(derivedMetricVal) if metric_type[2] else None)
                             rowVals.append(derivedMetricVal if metric_type[3] else None)
-                            rowVals.append(json.dumps(derivedMetricVal) if metric_type[4] else None)
+
+                            if with_json:
+                                rowVals.append(json.dumps(derivedMetricVal) if metric_type[4] else None)
 
                             if metric_type[1] and float(derivedMetricVal) is np.nan or metric_type[2] and str(
                                     derivedMetricVal) == 'nan':
@@ -258,7 +267,7 @@ class PersistColumns:
 
                 self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
 
-    def create_upsert_statement(self, tableName, grain):
+    def create_upsert_statement(self, tableName, grain, with_json):
         dimensions = []
         if grain is None or len(grain) == 0:
             dimensions.append(KPI_ENTITY_ID_COLUMN)
@@ -284,17 +293,22 @@ class PersistColumns:
             joinExtension += ' AND TARGET.' + quoted_dimension + ' = SOURCE.' + quoted_dimension
             sourceExtension += ', SOURCE.' + quoted_dimension
 
-        return ("MERGE INTO %s.%s AS TARGET "
-                "USING (VALUES (?%s, ?, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, VALUE_C, LAST_UPDATE) "
-                "ON TARGET.KEY = SOURCE.KEY%s "
-                "WHEN MATCHED THEN "
-                "UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.VALUE_C = SOURCE.VALUE_C, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
-                "WHEN NOT MATCHED THEN "
-                "INSERT (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, VALUE_C, LAST_UPDATE) VALUES (SOURCE.KEY%s, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, SOURCE.VALUE_C, CURRENT TIMESTAMP)") % (
-                   dbhelper.quotingSchemaName(check_sql_injection(self.schema)), dbhelper.quotingTableName(check_sql_injection(tableName)), parmExtension,
-                   colExtension, joinExtension, colExtension, sourceExtension)
+        return (f"MERGE INTO "
+                f"{dbhelper.quotingSchemaName(check_sql_injection(self.schema))}.{dbhelper.quotingTableName(check_sql_injection(tableName))} "
+                f"AS TARGET "
+                f"USING (VALUES (?{parmExtension}, ?, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE "
+                f"(KEY{colExtension}, VALUE_B, VALUE_N, VALUE_S, VALUE_T, {'VALUE_C, ' if with_json else ''}LAST_UPDATE) "
+                f"ON TARGET.KEY = SOURCE.KEY{joinExtension} "
+                f"WHEN MATCHED THEN "
+                f"UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, "
+                f"TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T,"
+                f"{ 'TARGET.VALUE_C = SOURCE.VALUE_C,' if with_json else ''} TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
+                f"WHEN NOT MATCHED THEN "
+                f"INSERT (KEY{colExtension}, VALUE_B, VALUE_N, VALUE_S, VALUE_T, {'VALUE_C, ' if with_json else ''}LAST_UPDATE) "
+                f"VALUES (SOURCE.KEY{sourceExtension}, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, "
+                f"{'SOURCE.VALUE_C, ' if with_json else ''}CURRENT TIMESTAMP)")
 
-    def create_upsert_statement_postgres_sql(self, tableName, grain):
+    def create_upsert_statement_postgres_sql(self, tableName, grain, with_json):
         dimensions = []
         if grain is None or len(grain) == 0:
             dimensions.append(KPI_ENTITY_ID_COLUMN.lower())
@@ -316,7 +330,12 @@ class PersistColumns:
             colExtension += ', ' + quoted_dimension
             parmExtension += ', %s'
 
-        sql = "insert into " + self.schema + "." + tableName + " (key " + colExtension + ",value_b,value_n,value_s,value_t,value_c,last_update) values (%s " + parmExtension + ", %s, %s, %s, %s, %s, current_timestamp) on conflict on constraint uc_" + tableName + " do update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, value_t = EXCLUDED.value_t, value_c = EXCLUDED.value_c, last_update = EXCLUDED.last_update"
+        sql = f"insert into {self.schema}.{tableName} " \
+              f"(key {colExtension},value_b,value_n,value_s,value_t,{'value_c,' if with_json else ''}last_update) " \
+              f"values (%s {parmExtension}, %s, %s, %s, %s, %s, current_timestamp) " \
+              f"on conflict on constraint uc_{tableName} do " \
+              f"update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, " \
+              f"value_t = EXCLUDED.value_t, {'value_c = EXCLUDED.value_c, ' if with_json else ''}last_update = EXCLUDED.last_update"
         return sql
 
 
