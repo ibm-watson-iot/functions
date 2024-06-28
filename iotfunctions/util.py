@@ -1411,3 +1411,29 @@ def normalise_frequency(freq):
 
     frequency_map = {'S': 's', 'T': 'min', 'H': 'h', 'AS': 'YS'}
     return frequency_map.get(freq, freq)
+
+
+def compare_frequency(freq1, freq2):
+
+    known_frequencies = {None: 0, 's': 1, 'min': 2, 'h': 3, 'D': 4, 'W': 5, 'MS': 6, 'YS': 7}
+
+    # Normalise frequency strings
+    freq1 = normalise_frequency(freq1)
+    freq2 = normalise_frequency(freq2)
+
+    # Verify that we know the frequency string
+    for freq in [freq1, freq2]:
+        if known_frequencies.get(freq) is None:
+            raise RuntimeError(f"Frequency string {freq} is not supported. Only the following frequency strings "
+                               f"are supported: {known_frequencies.keys()}")
+
+    pos1 = known_frequencies[freq1]
+    pos2 = known_frequencies[freq2]
+    if pos1 == pos2:
+        rc = 0
+    elif pos1 > pos2:
+        rc = -1
+    else:
+        rc = 1
+
+    return rc
