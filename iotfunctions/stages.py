@@ -296,7 +296,7 @@ class PersistColumns:
         return (f"MERGE INTO "
                 f"{dbhelper.quotingSchemaName(check_sql_injection(self.schema))}.{dbhelper.quotingTableName(check_sql_injection(tableName))} "
                 f"AS TARGET "
-                f"USING (VALUES (?{parmExtension}, ?, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE "
+                f"USING (VALUES (?{parmExtension}, ?, ?, ?, ?, {'?, ' if with_json else ''}CURRENT TIMESTAMP)) AS SOURCE "
                 f"(KEY{colExtension}, VALUE_B, VALUE_N, VALUE_S, VALUE_T, {'VALUE_C, ' if with_json else ''}LAST_UPDATE) "
                 f"ON TARGET.KEY = SOURCE.KEY{joinExtension} "
                 f"WHEN MATCHED THEN "
