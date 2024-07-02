@@ -556,7 +556,7 @@ def log_data_frame(message=None, df=None, head_only=True):
 
 def exchange_boolean_by_string(df):
     if df is not None and not df.empty:
-        for col_name, col_type in df.dtypes.iteritems():
+        for col_name, col_type in df.dtypes.items():
             if col_type.name == 'object':
                 df[col_name] = df[col_name].mask(df[col_name] == 'True', 'true')
                 df[col_name] = df[col_name].mask(df[col_name] == 'False', 'false')
@@ -1406,3 +1406,34 @@ def find_frequency_from_data_item(data_item, granularities):
         raise RuntimeError("Definition of granularity has no frequency")
 
     return agg_frequency
+
+def normalise_frequency(freq):
+
+    frequency_map = {'S': 's', 'T': 'min', 'H': 'h', 'AS': 'YS'}
+    return frequency_map.get(freq, freq)
+
+
+def compare_frequency(freq1, freq2):
+
+    known_frequencies = {None: 0, 's': 1, 'min': 2, 'h': 3, 'D': 4, 'W': 5, 'MS': 6, 'YS': 7}
+
+    # Normalise frequency strings
+    freq1 = normalise_frequency(freq1)
+    freq2 = normalise_frequency(freq2)
+
+    # Verify that we know the frequency string
+    for freq in [freq1, freq2]:
+        if known_frequencies.get(freq) is None:
+            raise RuntimeError(f"Frequency string {freq} is not supported. Only the following frequency strings "
+                               f"are supported: {known_frequencies.keys()}")
+
+    pos1 = known_frequencies[freq1]
+    pos2 = known_frequencies[freq2]
+    if pos1 == pos2:
+        rc = 0
+    elif pos1 > pos2:
+        rc = -1
+    else:
+        rc = 1
+
+    return rc

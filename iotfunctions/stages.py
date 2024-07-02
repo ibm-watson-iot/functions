@@ -73,6 +73,16 @@ class PersistColumns:
         return df
 
     def store_derived_metrics(self, dataFrame):
+
+        # When the pipeline contains a HierarchySummary function then the output table has an additional column
+        # "VALUE_C" which must be filled with the result of HierarchySummary
+        with_json = False
+        for kpi_func in self.dms.pipeline:
+            if kpi_func.get("catalogFunctionName") == 'InternalHierarchySummary':
+                with_json = True
+                break
+        logger.debug(f"Pipeline contains {'at least one' if with_json else 'no'} HierarchySummary.")
+
         if self.dms.production_mode:
             table_insert_stmt = {}
             table_metrics_to_persist = defaultdict(dict)
@@ -87,9 +97,6 @@ class PersistColumns:
                     self.logger.debug('skip persisting transient data_item=%s' % source)
                     continue
 
-                # if source not in (get_all_kpi_targets(self.get_pipeline()) & self.data_items.get_derived_metrics()):
-                #     continue
-
                 try:
                     tableName = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
                 except Exception:
@@ -102,11 +109,11 @@ class PersistColumns:
                     try:
 
                         if self.is_postgre_sql:
-                            sql = self.create_upsert_statement_postgres_sql(tableName, grain)
+                            sql = self.create_upsert_statement_postgres_sql(tableName, grain, with_json)
                             table_insert_stmt[tableName] = (sql, grain)
 
                         else:
-                            sql = self.create_upsert_statement(tableName, grain)
+                            sql = self.create_upsert_statement(tableName, grain, with_json)
                             stmt = ibm_db.prepare(self.db_connection, sql)
                             table_insert_stmt[tableName] = (stmt, grain)
 
@@ -119,7 +126,9 @@ class PersistColumns:
                 value_number = False
                 value_string = False
                 value_timestamp = False
+                value_json = False
 
+                
                 dtype = dtype.name.lower()
                 # if dtype.startswith('int') or dtype.startswith('float') or dtype.startswith('long') or dtype.startswith('complex'):
                 if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
@@ -130,10 +139,13 @@ class PersistColumns:
                 # elif dtype.startswith('datetime'):
                 elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
                     value_timestamp = True
+                # elif dtype.starswith('dict')
+                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_JSON:
+                    value_json = True
                 else:
                     value_string = True
 
-                table_metrics_to_persist[tableName][source] = [value_bool, value_number, value_string, value_timestamp]
+                table_metrics_to_persist[tableName][source] = [value_bool, value_number, value_string, value_timestamp, value_json]
 
             self.logger.debug('table_metrics_to_persist=%s' % str(table_metrics_to_persist))
 
@@ -205,6 +217,9 @@ class PersistColumns:
                             rowVals.append(str(derivedMetricVal) if metric_type[2] else None)
                             rowVals.append(derivedMetricVal if metric_type[3] else None)
 
+                            if with_json:
+                                rowVals.append(json.dumps(derivedMetricVal) if metric_type[4] else None)
+
                             if metric_type[1] and float(derivedMetricVal) is np.nan or metric_type[2] and str(
                                     derivedMetricVal) == 'nan':
                                 self.logger.debug('!!! weird case, derivedMetricVal=%s' % derivedMetricVal)
@@ -230,7 +245,7 @@ class PersistColumns:
                                 self.logger.debug('Records saved so far = %d' % total_saved)
                             except Exception as ex:
                                 raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
-                                    len(valueList), str(valueList))) from ex
+                                    len(valueList), str(valueList))) from ex                                
 
                             valueList = []
                             cnt = 0
@@ -252,7 +267,7 @@ class PersistColumns:
 
                 self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
 
-    def create_upsert_statement(self, tableName, grain):
+    def create_upsert_statement(self, tableName, grain, with_json):
         dimensions = []
         if grain is None or len(grain) == 0:
             dimensions.append(KPI_ENTITY_ID_COLUMN)
@@ -278,17 +293,22 @@ class PersistColumns:
             joinExtension += ' AND TARGET.' + quoted_dimension + ' = SOURCE.' + quoted_dimension
             sourceExtension += ', SOURCE.' + quoted_dimension
 
-        return ("MERGE INTO %s.%s AS TARGET "
-                "USING (VALUES (?%s, ?, ?, ?, ?, CURRENT TIMESTAMP)) AS SOURCE (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) "
-                "ON TARGET.KEY = SOURCE.KEY%s "
-                "WHEN MATCHED THEN "
-                "UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T, TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
-                "WHEN NOT MATCHED THEN "
-                "INSERT (KEY%s, VALUE_B, VALUE_N, VALUE_S, VALUE_T, LAST_UPDATE) VALUES (SOURCE.KEY%s, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, CURRENT TIMESTAMP)") % (
-                   dbhelper.quotingSchemaName(check_sql_injection(self.schema)), dbhelper.quotingTableName(check_sql_injection(tableName)), parmExtension,
-                   colExtension, joinExtension, colExtension, sourceExtension)
+        return (f"MERGE INTO "
+                f"{dbhelper.quotingSchemaName(check_sql_injection(self.schema))}.{dbhelper.quotingTableName(check_sql_injection(tableName))} "
+                f"AS TARGET "
+                f"USING (VALUES (?{parmExtension}, ?, ?, ?, ?, {'?, ' if with_json else ''}CURRENT TIMESTAMP)) AS SOURCE "
+                f"(KEY{colExtension}, VALUE_B, VALUE_N, VALUE_S, VALUE_T, {'VALUE_C, ' if with_json else ''}LAST_UPDATE) "
+                f"ON TARGET.KEY = SOURCE.KEY{joinExtension} "
+                f"WHEN MATCHED THEN "
+                f"UPDATE SET TARGET.VALUE_B = SOURCE.VALUE_B, TARGET.VALUE_N = SOURCE.VALUE_N, "
+                f"TARGET.VALUE_S = SOURCE.VALUE_S, TARGET.VALUE_T = SOURCE.VALUE_T,"
+                f"{ 'TARGET.VALUE_C = SOURCE.VALUE_C,' if with_json else ''} TARGET.LAST_UPDATE = SOURCE.LAST_UPDATE "
+                f"WHEN NOT MATCHED THEN "
+                f"INSERT (KEY{colExtension}, VALUE_B, VALUE_N, VALUE_S, VALUE_T, {'VALUE_C, ' if with_json else ''}LAST_UPDATE) "
+                f"VALUES (SOURCE.KEY{sourceExtension}, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, "
+                f"{'SOURCE.VALUE_C, ' if with_json else ''}CURRENT TIMESTAMP)")
 
-    def create_upsert_statement_postgres_sql(self, tableName, grain):
+    def create_upsert_statement_postgres_sql(self, tableName, grain, with_json):
         dimensions = []
         if grain is None or len(grain) == 0:
             dimensions.append(KPI_ENTITY_ID_COLUMN.lower())
@@ -310,7 +330,12 @@ class PersistColumns:
             colExtension += ', ' + quoted_dimension
             parmExtension += ', %s'
 
-        sql = "insert into " + self.schema + "." + tableName + " (key " + colExtension + ",value_b,value_n,value_s,value_t,last_update) values (%s " + parmExtension + ", %s, %s, %s, %s, current_timestamp) on conflict on constraint uc_" + tableName + " do update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, value_t = EXCLUDED.value_t, last_update = EXCLUDED.last_update"
+        sql = f"insert into {self.schema}.{tableName} " \
+              f"(key {colExtension},value_b,value_n,value_s,value_t,{'value_c,' if with_json else ''}last_update) " \
+              f"values (%s {parmExtension}, %s, %s, %s, %s, %s, current_timestamp) " \
+              f"on conflict on constraint uc_{tableName} do " \
+              f"update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, " \
+              f"value_t = EXCLUDED.value_t, {'value_c = EXCLUDED.value_c, ' if with_json else ''}last_update = EXCLUDED.last_update"
         return sql
 
 
@@ -933,6 +958,7 @@ class DataWriterSqlAlchemy(DataWriter):
     COLUMN_NAME_VALUE_STRING = 'value_s'
     COLUMN_NAME_VALUE_BOOLEAN = 'value_b'
     COLUMN_NAME_VALUE_TIMESTAMP = 'value_t'
+    COLUMN_NAME_VALUE_CLOB = 'value_c'
     COLUMN_NAME_TIMESTAMP = 'timestamp'
     COLUMN_NAME_TIMESTAMP_MIN = 'timestamp_min'
     COLUMN_NAME_TIMESTAMP_MAX = 'timestamp_max'
@@ -1128,7 +1154,7 @@ class DataWriterSqlAlchemy(DataWriter):
         col_props = dict()
         grain_name = None
         first_loop_cycle = True
-        for col_name, col_type in df.dtypes.iteritems():
+        for col_name, col_type in df.dtypes.items():
             metadata = self.data_item_metadata.get(col_name)
             if metadata is not None and metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
                 if metadata.get(md.DATA_ITEM_TRANSIENT_KEY, False) is False:
