@@ -1328,8 +1328,6 @@ class DataWriterSqlAlchemy(DataWriter):
         return delete_object
 
     def get_table_object(self, table_name):
-        # kohlmann full_table_name ?????
-        full_table_name = '%s.%s' % (self.schema_name, table_name)
         table_object = Table(table_name.lower(), self.db_metadata, autoload=True, autoload_with=self.db_connection)
 
         return table_object
