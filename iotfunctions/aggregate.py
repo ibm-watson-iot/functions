@@ -902,7 +902,12 @@ class MsiOccupancyCount(DirectAggregator):
                 # Aggregate new column to get result metric. Result metric has name self.raw_output_name in data frame df_agg_result.
                 # Columns in group_base_names go into index of df_agg_result. We search for the last raw occupancy count
                 # in every aggregation interval.
-                df_agg_result = s_calc.groupby(group_base).agg(func=['max','last'])
+                # df_agg_result = s_calc.groupby(group_base).agg(func=['max','last'])
+                # Replace previous line by the following lines in an attempt to avoid internal bug in pandas
+                df_agg_result = s_calc.groupby(group_base).agg(func='max')
+                df_agg_result.name = 'max'
+                df_agg_result = df_agg_result.to_frame()
+                df_agg_result['last'] = s_calc.groupby(group_base).agg(func='last')
 
                 # Rename column 'max' in df_agg_result to self.output_name
                 df_agg_result.rename(columns={'max': self.output_name}, inplace=True)
