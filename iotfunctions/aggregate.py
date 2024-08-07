@@ -702,7 +702,7 @@ class AggregateWithCalculation(SimpleAggregator):
 
 class MsiOccupancyCount(DirectAggregator):
 
-    KPI_FUNCTION_NAME = "MSI_OccupancyCount"
+    KPI_FUNCTION_NAME = "OccupancyCount"
 
     BACKTRACK_IMPACTING_PARAMETER = "start_of_calculation"
 
@@ -960,7 +960,7 @@ class MsiOccupancyCount(DirectAggregator):
 
 class MsiOccupancy(DirectAggregator):
 
-    KPI_FUNCTION_NAME = "MSI_Occupancy"
+    KPI_FUNCTION_NAME = "OccupancyDuration"
 
     def __init__(self, occupancy_count, occupancy=None):
         super().__init__()
@@ -1027,3 +1027,57 @@ class MsiOccupancy(DirectAggregator):
             s_occupancy = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='float64')
 
         return s_occupancy.to_frame()
+
+
+class MsiOccupancyHeatMap(DirectAggregator):
+
+    KPI_FUNCTION_NAME = "OccupancyHeatMap"
+
+    def __init__(self, x_pos, y_pos, name=None):
+
+        super().__init__()
+        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
+
+        if x_pos is not None and len(x_pos) > 0:
+            self.x_pos = x_pos
+        else:
+            raise RuntimeError(f"Function {self.KPI_FUNCTION_NAME} requires the parameter x_pos "
+                               f"but parameter x_pos is empty: x_pos={x_pos}")
+
+        if y_pos is not None and len(y_pos) > 0:
+            self.y_pos = y_pos
+        else:
+            raise RuntimeError(f"Function {self.KPI_FUNCTION_NAME} requires the parameter y_pos "
+                               f"but parameter y_pos is empty: y_pos={y_pos}")
+
+        if name is not None and len(name) > 0:
+            self.output_name = name
+        else:
+            raise RuntimeError(f"No name was provided for the metric which is calculated by function "
+                               f"{self.KPI_FUNCTION_NAME}: name={name}")
+
+    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None, offset=None):
+
+        if df.shape[0] > 0:
+            df_clean = df[[self.x_pos, self.y_pos]].dropna(how='any')
+            count_col_name = f'count{UNIQUE_EXTENSION_LABEL}'
+            df_clean[count_col_name] = 1
+            s_json = df_clean.groupby(group_base).apply(self.calc_heatmap, self.x_pos, self.y_pos, count_col_name)
+        else:
+            # No rows in data frame
+            s_json = pd.Series(data=[], index=df.index)
+
+        s_json.name = self.output_name
+        if s_json.dtype != object:
+            s_json = s_json.astype(object)
+
+        return s_json.to_frame()
+
+    def calc_heatmap(self, df, x_pos, y_pos, count_col_name):
+        df_count = df.groupby([x_pos, y_pos])[count_col_name].count()
+        x_y_count = []
+        for (x, y), count in df_count.items():
+            x_y_count.append({"x": x, "y": y, "count": count})
+
+        first_index = df.index[0]
+        return {"floorid": first_index[0], "time": first_index[1], "positions": x_y_count}
