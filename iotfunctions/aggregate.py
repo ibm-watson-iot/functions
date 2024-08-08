@@ -1029,9 +1029,9 @@ class MsiOccupancy(DirectAggregator):
         return s_occupancy.to_frame()
 
 
-class MsiOccupancyHeatMap(DirectAggregator):
+class MsiOccupancyLocation(DirectAggregator):
 
-    KPI_FUNCTION_NAME = "OccupancyHeatMap"
+    KPI_FUNCTION_NAME = "OccupancyLocation"
 
     def __init__(self, x_pos, y_pos, name=None):
 
@@ -1062,7 +1062,7 @@ class MsiOccupancyHeatMap(DirectAggregator):
             df_clean = df[[self.x_pos, self.y_pos]].dropna(how='any')
             count_col_name = f'count{UNIQUE_EXTENSION_LABEL}'
             df_clean[count_col_name] = 1
-            s_json = df_clean.groupby(group_base).apply(self.calc_heatmap, self.x_pos, self.y_pos, count_col_name)
+            s_json = df_clean.groupby(group_base).apply(self.calc_locations, self.x_pos, self.y_pos, count_col_name)
         else:
             # No rows in data frame
             s_json = pd.Series(data=[], index=df.index)
@@ -1073,11 +1073,10 @@ class MsiOccupancyHeatMap(DirectAggregator):
 
         return s_json.to_frame()
 
-    def calc_heatmap(self, df, x_pos, y_pos, count_col_name):
-        df_count = df.groupby([x_pos, y_pos])[count_col_name].count()
+    def calc_locations(self, df, x_pos, y_pos, count_col_name):
+        s_count = df.groupby([x_pos, y_pos])[count_col_name].count()
         x_y_count = []
-        for (x, y), count in df_count.items():
+        for (x, y), count in s_count.items():
             x_y_count.append({"x": x, "y": y, "count": count})
 
-        first_index = df.index[0]
-        return {"floorid": first_index[0], "time": first_index[1], "positions": x_y_count}
+        return {"floorid": df.name[0], "time": df.name[1].isoformat(), "positions": x_y_count}
