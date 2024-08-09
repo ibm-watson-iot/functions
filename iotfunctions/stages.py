@@ -107,7 +107,7 @@ class PersistColumns:
                     value_bool = True
                 elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
                     value_timestamp = True
-                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_JSON:
+                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_JSON or source_metadata.get('kpiFunctionDto').get('catalogFunctionDto').get('category') == 'AGGREGATOR_CLOB':
                     value_json = True
                 else:
                     value_string = True
