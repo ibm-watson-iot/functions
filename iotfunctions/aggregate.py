@@ -1079,4 +1079,4 @@ class MsiOccupancyLocation(DirectAggregator):
         for (x, y), count in s_count.items():
             x_y_count.append({"x": x, "y": y, "count": count})
 
-        return {"floorid": df.name[0], "time": df.name[1].isoformat(), "positions": x_y_count}
+        return {"data": x_y_count}
