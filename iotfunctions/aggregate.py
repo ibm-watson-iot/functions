@@ -311,7 +311,7 @@ class Aggregation(BaseFunction):
         ###############################################################################
         # concat all results
         ###############################################################################
-        df = pd.concat(all_dfs, axis=1)
+        df = pd.concat(all_dfs, axis=1, sort=True)
 
         # Corrective action: pd.concat() removes name from Index when we only have one level. There is no issue for
         # MultiIndex which is used for two and more levels
@@ -744,8 +744,8 @@ class MsiOccupancyCount(DirectAggregator):
         sql_schema_name = check_sql_injection(self.dms.schema)
         sql_quoted_schema_name = dbhelper.quotingSchemaName(sql_schema_name, self.dms.is_postgre_sql)
 
-        sql_table_name = check_sql_injection(self.dms.entity_type_obj._data_items.get(self.output_name).get('sourceTableName'))
-        sql_quoted_table_name = dbhelper.quotingTableName(sql_table_name, self.dms.is_postgre_sql)
+        sql_output_table_name = check_sql_injection(self.dms.entity_type_obj._data_items.get(self.output_name).get('sourceTableName'))
+        sql_quoted_output_table_name = dbhelper.quotingTableName(sql_output_table_name, self.dms.is_postgre_sql)
 
         # Find data item representing the result of this KPI function
         result_data_item = self.dms.entity_type_obj._data_items.get(self.output_name)
@@ -816,7 +816,7 @@ class MsiOccupancyCount(DirectAggregator):
             s_missing_result_values = None
             if aligned_calc_start > aligned_cycle_start:
                 # Load missing OccupancyCount values from output table (this only happens in BackTrack mode)
-                sql_statement = f'SELECT "VALUE_N", "TIMESTAMP", "ENTITY_ID" FROM {sql_quoted_schema_name}.{sql_quoted_table_name} ' \
+                sql_statement = f'SELECT "VALUE_N", "TIMESTAMP", "ENTITY_ID" FROM {sql_quoted_schema_name}.{sql_quoted_output_table_name} ' \
                                 f'WHERE "KEY" = ? AND "TIMESTAMP" >= ? AND "TIMESTAMP" < ? AND ' \
                                 f'"ENTITY_ID" IN ({entities_placeholders}) ORDER BY "ENTITY_ID", "TIMESTAMP" ASC'
 
@@ -849,31 +849,60 @@ class MsiOccupancyCount(DirectAggregator):
 
             # Because we only get a data event when the raw metric changes, but we want to provide values for all time
             # units of the derived metric we have to fetch the latest available OccupancyCount values from
-            # output table to fill gaps at the beginning. This step is not required for cycles in which we do not
+            # input table to fill gaps at the beginning. This step is not required for cycles in which we do not
             # calculate any OccupancyCount values.
             if aligned_calc_start < aligned_cycle_end:
                 s_start_result_values = None
 
-                # Read just one result value per device right before aligned_calc_start.
-                sql_statement = f'WITH PREVIOUS_VALUES AS ' \
-                                    f'(SELECT "VALUE_N", "ENTITY_ID", ' \
-                                    f'ROW_NUMBER() OVER ( PARTITION BY "ENTITY_ID" ORDER BY "TIMESTAMP" DESC) ROW_NUM ' \
-                                    f'FROM {sql_quoted_schema_name}.{sql_quoted_table_name} ' \
-                                    f'WHERE "KEY" = ? AND "TIMESTAMP" < ? AND "ENTITY_ID" IN ({entities_placeholders})) ' \
-                                f'SELECT "VALUE_N", "ENTITY_ID" FROM PREVIOUS_VALUES WHERE ROW_NUM = 1'
+                # Read just one result value per device right before aligned_calc_start. Distinguish input data item
+                # between raw metric and derived metric:
+                input_data_item = self.dms.entity_type_obj._data_items.get(self.raw_occupancy_count)
+                if input_data_item.get('type') == 'METRIC':
+                    input_data_item_is_raw = True
+
+                    # Raw metric table as input source
+                    sql_quoted_input_table_name = dbhelper.quotingTableName(check_sql_injection(self.dms.eventTable),
+                                                                            self.dms.is_postgre_sql)
+                    sql_quoted_timestamp_col_name = dbhelper.quotingColumnName(check_sql_injection(self.dms.eventTimestampColumn), self.dms.is_postgre_sql)
+                    sql_quoted_device_id_col_name = dbhelper.quotingColumnName(check_sql_injection(self.dms.entityIdColumn), self.dms.is_postgre_sql)
+                    sql_quoted_input_data_item_col_name = dbhelper.quotingColumnName(check_sql_injection(input_data_item['columnName']), self.dms.is_postgre_sql)
+
+                    sql_statement = f'WITH PREVIOUS_VALUES AS ' \
+                                        f'(SELECT {sql_quoted_input_data_item_col_name}, {sql_quoted_device_id_col_name}, ' \
+                                        f'ROW_NUMBER() OVER ( PARTITION BY {sql_quoted_device_id_col_name} ORDER BY {sql_quoted_timestamp_col_name} DESC) ROW_NUM ' \
+                                        f'FROM {sql_quoted_schema_name}.{sql_quoted_input_table_name} ' \
+                                        f'WHERE {sql_quoted_timestamp_col_name} < ? AND {sql_quoted_device_id_col_name} IN ({entities_placeholders})) ' \
+                                    f'SELECT {sql_quoted_input_data_item_col_name}, {sql_quoted_device_id_col_name} FROM PREVIOUS_VALUES WHERE ROW_NUM = 1'
+                else:
+                    input_data_item_is_raw = False
+
+                    # Output table as input source
+                    sql_quoted_input_table_name = dbhelper.quotingTableName(check_sql_injection(input_data_item.get('sourceTableName')),
+                                                                            self.dms.is_postgre_sql)
+
+                    sql_statement = f'WITH PREVIOUS_VALUES AS ' \
+                                        f'(SELECT "VALUE_N", "ENTITY_ID", ' \
+                                        f'ROW_NUMBER() OVER ( PARTITION BY "ENTITY_ID" ORDER BY "TIMESTAMP" DESC) ROW_NUM ' \
+                                        f'FROM {sql_quoted_schema_name}.{sql_quoted_input_table_name} ' \
+                                        f'WHERE "KEY" = ? AND "TIMESTAMP" < ? AND "ENTITY_ID" IN ({entities_placeholders})) ' \
+                                    f'SELECT "VALUE_N", "ENTITY_ID" FROM PREVIOUS_VALUES WHERE ROW_NUM = 1'
 
                 stmt = ibm_db.prepare(self.dms.db_connection, sql_statement)
                 try:
-                    ibm_db.bind_param(stmt, 1, self.output_name)
-                    ibm_db.bind_param(stmt, 2, max(aligned_calc_start, aligned_cycle_start))
-                    for position, device in enumerate(entities, 3):
-                        ibm_db.bind_param(stmt, position, device)
+                    position = 1
+                    if input_data_item_is_raw is False:
+                        ibm_db.bind_param(stmt, position, self.raw_occupancy_count)
+                        position = position + 1
+                    ibm_db.bind_param(stmt, position, max(aligned_calc_start, aligned_cycle_start))
+                    position = position + 1
+                    for pos, device in enumerate(entities, position):
+                        ibm_db.bind_param(stmt, pos, device)
                     ibm_db.execute(stmt)
                     row = ibm_db.fetch_tuple(stmt)
                     result_data = []
                     result_index = []
                     while row is not False:
-                        result_data.append(row[0])
+                        result_data.append(row[0] if pd.notna(row[0]) and row[0] > 0 else 0.0)
                         result_index.append(row[1])
                         row = ibm_db.fetch_tuple(stmt)
                     if len(result_data) > 0:
