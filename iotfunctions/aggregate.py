@@ -1053,7 +1053,7 @@ class MsiOccupancy(DirectAggregator):
                 s_occupancy = s_occupancy.dt.total_seconds()
 
         else:
-            s_occupancy = pd.Series([], index=pd.MultiIndex.from_arrays([[], []], names=group_base_names), name=self.output_name, dtype='float64')
+            s_occupancy = pd.Series([], index=pd.MultiIndex.from_arrays([[], pd.DatetimeIndex([])], names=group_base_names), name=self.output_name, dtype='float64')
 
         return s_occupancy.to_frame()
 
