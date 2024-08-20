@@ -18,7 +18,7 @@ import re
 logger = logging.getLogger(__name__)
 SQL_PATTERN = re.compile('\w*')
 SQL_PATTERN_EXTENDED = re.compile('[\w-]*')
-SQL_PATTERN_EXTENDED2 = re.compile('^[\w][\w\-\;\,\/\s?]*')
+SQL_PATTERN_EXTENDED2 = re.compile('^[\w\-.][\w\-.\;\,\/\s?]*')
 
 # PostgreSQL Queries
 POSTGRE_SQL_INFORMATION_SCHEMA = " SELECT table_schema,table_name , column_name ,udt_name, character_maximum_length FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s ; "
@@ -178,8 +178,8 @@ def check_sql_injection_extended2(input_string):
         if SQL_PATTERN_EXTENDED2.fullmatch(input_string) is None:
             raise RuntimeError(f"The string {input_string} contains forbidden characters and cannot be inserted "
                                f"into a sql statement for security reason. Only letters, numbers, underscore, "
-                               f"semi-colon, colon, slash, hyphen, question mark and white spaces are allowed. The"
-                               f"first character must be either a letter, a number or an underscore.")
+                               f"semi-colon, colon, dot, slash, hyphen, question mark and white spaces are allowed. "
+                               f"The first character must be either a letter, a number, a hyphen, a dot or an underscore.")
     else:
         raise RuntimeError(f"A string is expected but the object {input_string} has type {type(input_string)}. "
                            f"It cannot be inserted into a sql statement for security reason.")
