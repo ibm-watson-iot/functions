@@ -178,7 +178,7 @@ def check_sql_injection_extended2(input_string):
         if SQL_PATTERN_EXTENDED2.fullmatch(input_string) is None:
             raise RuntimeError(f"The string {input_string} contains forbidden characters and cannot be inserted "
                                f"into a sql statement for security reason. Only letters, numbers, underscore, "
-                               f"semi-colon, colon, dot, slash, hyphen, question mark and white spaces are allowed. "
+                               f"semi-colon, comma, dot, slash, hyphen, question mark and white spaces are allowed. "
                                f"The first character must be either a letter, a number, a hyphen, a dot or an underscore.")
     else:
         raise RuntimeError(f"A string is expected but the object {input_string} has type {type(input_string)}. "
