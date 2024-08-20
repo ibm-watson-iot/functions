@@ -13,7 +13,7 @@ import logging
 import pandas as pd
 
 from iotfunctions import dbhelper, util
-from iotfunctions.dbhelper import check_sql_injection, check_sql_injection_extended
+from iotfunctions.dbhelper import check_sql_injection, check_sql_injection_extended, check_sql_injection_extended2
 
 
 class LoaderPipeline:
@@ -198,7 +198,7 @@ class LoadTableAndConcat(BaseLoader):
             else:
                 sql += ' AND '
             sql += "%s IN (%s)" % (dbhelper.quotingColumnName(check_sql_injection(self.id_col), self.dms.is_postgre_sql),
-                                   ', '.join([dbhelper.quotingSqlString(check_sql_injection_extended(ent)) for ent in entities]))
+                                   ', '.join([dbhelper.quotingSqlString(check_sql_injection_extended2(ent)) for ent in entities]))
 
         self.parse_dates.add(key_timestamp)
         requested_col_names = self.names + [key_id, key_timestamp]
