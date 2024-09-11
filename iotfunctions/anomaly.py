@@ -2022,7 +2022,7 @@ class RobustThreshold(BaseTransformer):
             iqr_min = row[0]
             iqr_max = row[4]
 
-        df[self.outlier] = np.where((feature >= iqr_min) & (feature <= iqr_max), 0, 1)
+        df[self.outlier] = np.where((feature >= iqr_min) & (feature <= iqr_max), False, True)
 
         # replace outliers with the median
         features_wo_outliers = np.where((feature >= iqr_min) & (feature <= iqr_max), feature, row[2])
@@ -2033,7 +2033,7 @@ class RobustThreshold(BaseTransformer):
         mad_max = np.median(features_wo_outliers) + 2*mad
 
         df[self.anomaly] = np.where((feature >= iqr_min) & (feature <= iqr_max) &
-                                    (feature >= mad_min) & (feature <= mad_max), 0, 1)
+                                    (feature >= mad_min) & (feature <= mad_max), False, True)
 
         logger.info('RobustThreshold: MAD min ' + str(mad_min) + ', MAD max ' + str(mad_max) +
                         ', IQR min ' + str(iqr_min) + ', IQR max ' + str(iqr_max))
