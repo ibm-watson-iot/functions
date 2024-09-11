@@ -1902,7 +1902,7 @@ class RobustThreshold(BaseTransformer):
     Outlier and anomaly scoring based on quantiles, interquartile range and median absolute deviation.
     '''
     def __init__(self, input_item, threshold, outlier, anomaly):
-        super().__init__(features=[input_item], targets=[outlier, anomaly])
+        super().__init__() #features=[input_item], targets=[outlier, anomaly])
 
         self.input_item = input_item
         self.threshold = threshold
