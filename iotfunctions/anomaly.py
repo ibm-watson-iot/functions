@@ -1897,7 +1897,7 @@ class RobustThresholdKDE(SupervisedLearningTransformer):
                                            description="Boolean outlier condition"))
         return (inputs, outputs)
 
-class RobustThreshold(SupervisedLearningTransformer):
+class RobustThreshold(BaseTransformer):
     '''
     Outlier and anomaly scoring based on quantiles, interquartile range and median absolute deviation.
     '''
