@@ -1929,10 +1929,10 @@ class RobustThreshold(BaseTransformer):
 
         # check data type
         #if df[self.input_item].dtype != np.float64:
-        for feature in self.features:
-            if not pd.api.types.is_numeric_dtype(df_copy[feature].dtype):
-                logger.error('Regression on non-numeric feature:' + str(feature))
-                return (df_copy)
+        #for feature in self.features:
+        #    if not pd.api.types.is_numeric_dtype(df_copy[feature].dtype):
+        #        logger.error('Regression on non-numeric feature:' + str(feature))
+        #        return (df_copy)
 
         # delegate to _calc
         logger.debug('Execute ' + self.whoami + ' enter per entity execution')
@@ -1944,7 +1944,6 @@ class RobustThreshold(BaseTransformer):
 
         logger.debug('Scoring done')
         return df_copy
-
 
 
     def _calc(self, df):
