@@ -1924,7 +1924,27 @@ class RobustThreshold(BaseTransformer):
         logger.debug('Called ' + self.whoami + ' with columns: ' + str(df.columns))
         df[self.outlier] = False
         df[self.anomaly] = False
-        return super().execute(df)
+        #return super().execute(df)
+        df_copy = df # no copy
+
+        # check data type
+        #if df[self.input_item].dtype != np.float64:
+        for feature in self.features:
+            if not pd.api.types.is_numeric_dtype(df_copy[feature].dtype):
+                logger.error('Regression on non-numeric feature:' + str(feature))
+                return (df_copy)
+
+        # delegate to _calc
+        logger.debug('Execute ' + self.whoami + ' enter per entity execution')
+
+        # group over entities
+        group_base = [pd.Grouper(axis=0, level=0)]
+
+        df_copy = df_copy.groupby(group_base).apply(self._calc)
+
+        logger.debug('Scoring done')
+        return df_copy
+
 
 
     def _calc(self, df):
