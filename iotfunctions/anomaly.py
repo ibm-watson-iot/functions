@@ -1053,7 +1053,7 @@ class SpectralAnomalyScore(AnomalyScorer):
             # Fourier transform:
             #   frequency, time, spectral density
             frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
-                temperature, fs=self.frame_rate, window='hanning', nperseg=self.windowsize,
+                temperature, fs=self.frame_rate, window='hann', nperseg=self.windowsize,
                 noverlap=self.windowoverlap, detrend='l', scaling='spectrum')
 
             # cut off freqencies too low to fit into the window
