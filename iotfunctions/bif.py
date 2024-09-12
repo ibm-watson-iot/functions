@@ -3411,7 +3411,7 @@ class MsiOccupancyRate(BaseTransformer):
 
 class MsiFrequencyRate(BaseTransformer):
 
-    KPI_FUNCTION_NAME = "MSI_FrequencyRate"
+    KPI_FUNCTION_NAME = "OccupancyFrequencyRate"
 
     def __init__(self, occupancy_per_day, office_hour_start=None, office_hour_end=None, frequency_rate=None):
         super().__init__()

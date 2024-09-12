@@ -2513,7 +2513,7 @@ class CalcPipeline:
             # Drop the merge index after merge has completed
             newdf = newdf.droplevel(MERGE_INDEX)
             logger.debug('Dataframe shape of original df after merging with scope df {}'.format(newdf.shape))
-        elif category == 'AGGREGATOR':
+        elif category in ['AGGREGATOR', 'AGGREGATOR_CLOB']:
             # TODO
             pass
         else:

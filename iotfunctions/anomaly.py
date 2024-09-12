@@ -66,6 +66,10 @@ from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleIt
 from .db import (Database, DatabaseFacade)
 from .dbtables import (FileModelStore, DBModelStore)
 
+from iotfunctions import metadata as md
+from sqlalchemy.sql import text, select, column, func
+
+
 # VAE
 import torch
 import torch.autograd
@@ -1049,7 +1053,7 @@ class SpectralAnomalyScore(AnomalyScorer):
             # Fourier transform:
             #   frequency, time, spectral density
             frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
-                temperature, fs=self.frame_rate, window='hanning', nperseg=self.windowsize,
+                temperature, fs=self.frame_rate, window='hann', nperseg=self.windowsize,
                 noverlap=self.windowoverlap, detrend='l', scaling='spectrum')
 
             # cut off freqencies too low to fit into the window
@@ -1825,7 +1829,7 @@ class KDEMaxMin:
     def predict(self, X, threshold=None):
         return (X >= self.Min) & (X <= self.Max)
 
-class RobustThreshold(SupervisedLearningTransformer):
+class RobustThresholdKDE(SupervisedLearningTransformer):
 
     def __init__(self, input_item, threshold, output_item):
         super().__init__(features=[input_item], targets=[output_item])
@@ -1896,6 +1900,163 @@ class RobustThreshold(SupervisedLearningTransformer):
         outputs.append(UIFunctionOutSingle(name="output_item", datatype=bool,
                                            description="Boolean outlier condition"))
         return (inputs, outputs)
+
+class RobustThreshold(BaseTransformer):
+    '''
+    Outlier and anomaly scoring based on quantiles, interquartile range and median absolute deviation.
+    '''
+    def __init__(self, input_item, threshold, outlier, anomaly):
+        super().__init__() #features=[input_item], targets=[outlier, anomaly])
+
+        self.input_item = input_item
+        self.threshold = threshold
+        self.outlier = outlier
+        self.anomaly = anomaly 
+
+        self.whoami = 'RobustThreshold'
+
+        logger.info(self.whoami + ' from ' + self.input_item + ' quantile threshold ' +  str(self.threshold) +
+                    ' outlier flag in ' + self.outlier + ', anomaly flag in ' + self.anomaly)
+
+
+    def execute(self, df):
+        # set output columns to zero
+        logger.debug('Called ' + self.whoami + ' with columns: ' + str(df.columns))
+        df[self.outlier] = False
+        df[self.anomaly] = False
+        #return super().execute(df)
+        df_copy = df # no copy
+
+        # check data type
+        #if df[self.input_item].dtype != np.float64:
+        #for feature in self.features:
+        #    if not pd.api.types.is_numeric_dtype(df_copy[feature].dtype):
+        #        logger.error('Regression on non-numeric feature:' + str(feature))
+        #        return (df_copy)
+
+        # delegate to _calc
+        logger.debug('Execute ' + self.whoami + ' enter per entity execution')
+
+        # group over entities
+        group_base = [pd.Grouper(axis=0, level=0)]
+
+        df_copy = df_copy.groupby(group_base).apply(self._calc)
+
+        logger.debug('Scoring done')
+        return df_copy
+
+
+    def _calc(self, df):
+        # per entity - copy for later inplace operations
+        entity_name = df.index[0][0]
+        logger.info('Robust threshold for ' + str(entity_name) + ' column ' + self.input_item)
+
+        # obtain db handler
+        db = self._entity_type.db
+        if db is None:
+            db = self._get_dms().db
+
+        feature = df[self.input_item].values
+
+        # make sure we have enough data to train the pipeline
+        # if not we have to retrieve data from the database
+        start_ts = 0
+
+        entity_type = self.get_entity_type()
+        source_metadata = self.dms.data_items.get(self.input_item)
+        input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+        schema = entity_type._db_schema
+
+        logger.info('Retrieving ' + str(self.input_item) + ' data from ' + str(input_metric_table_name))
+
+        # interquartile range vs KDE based quantiles
+        thresh = self.threshold
+        if thresh <= 0 or thresh >= 1: thresh = 0.99
+        row = [0,0,0,0,0]
+        try:
+            # make use of SQL alchemy
+            logger.info('DATA item type is ' + str(source_metadata.get(md.DATA_ITEM_TYPE_KEY)))
+            db.start_session()
+
+            table = db.get_table(input_metric_table_name, schema=schema) #, (db.tenant_id).upper() + "_MAM")
+
+            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+                query = select([
+                    func.percentile_cont(1-thresh).within_group(table.c[self.input_item]),
+                    func.percentile_cont(0.25).within_group(table.c[self.input_item]),
+                    func.percentile_cont(0.5).within_group(table.c[self.input_item]),
+                    func.percentile_cont(0.75).within_group(table.c[self.input_item]),
+                    func.percentile_cont(thresh).within_group(table.c[self.input_item])
+                    ]).filter(table.c.entity_id == entity_name)
+
+            else:   # 'METRIC'
+
+                query = select([
+                    func.percentile_cont(1-thresh).within_group(table.c.value_n),
+                    func.percentile_cont(0.25).within_group(table.c.value_n),
+                    func.percentile_cont(0.5).within_group(table.c.value_n),
+                    func.percentile_cont(0.75).within_group(table.c.value_n),
+                    func.percentile_cont(thresh).within_group(table.c.value_n)
+                    ]).filter(table.c.entity_id == entity_name).filter(table.c.KEY == self.input_item)
+
+            # Execute the query and print the result
+            row_ = db.connection.execute(query).fetchall()
+            row = np.array(row_[0])
+            print(row_, row)
+        except Exception as e:
+            # compute percentiles from current dataframe instead
+            logger.error('Failed to derived metrics data from DB2 for ' + str(entity_name) + ' Error ' + str(e))
+            row = np.percentile(feature, [100 - 100*thresh, 25, 50, 75, 100*thresh])
+
+        logger.info('RobustThreshold: ' + str(len(row)) + ', percentiles ' + ', '.join(map(str,row)))
+
+        # row = list of (percentile 0.01, Q1, median, Q3, percentile 0.99)
+        # IQR ?
+        #if row[0] == 0:
+        if self.threshold <= 0 or self.threshold >=1:
+            # Q1 - 1.5 * (Q3 - Q1)
+            iqr_min = 2.5 * row[1] - 1.5 * row[3]
+            # Q3 + 1.5 * (Q3 - Q1)
+            iqr_max = 2.5 * row[3] - 1.5 * row[1]
+        else: 
+            iqr_min = row[0]
+            iqr_max = row[4]
+
+        df[self.outlier] = np.where((feature >= iqr_min) & (feature <= iqr_max), False, True)
+
+        # replace outliers with the median
+        features_wo_outliers = np.where((feature >= iqr_min) & (feature <= iqr_max), feature, row[2])
+
+        mad = 1.4826 * np.median(np.absolute(features_wo_outliers - row[2]))
+
+        mad_min = np.median(features_wo_outliers) - 2*mad
+        mad_max = np.median(features_wo_outliers) + 2*mad
+
+        df[self.anomaly] = np.where((feature >= iqr_min) & (feature <= iqr_max) &
+                                    (feature >= mad_min) & (feature <= mad_max), False, True)
+
+        logger.info('RobustThreshold: MAD min ' + str(mad_min) + ', MAD max ' + str(mad_max) +
+                        ', IQR min ' + str(iqr_min) + ', IQR max ' + str(iqr_max))
+
+        return df.droplevel(0)
+
+    @classmethod
+    def build_ui(cls):
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name="input_item", datatype=float, description="Data item to analyze"))
+
+        inputs.append(UISingle(name="threshold", datatype=int,
+                               description="Threshold to determine outliers by quantile. Typically set to 0.95. If set to values outside of (0,1) we use the interquartile range formula to sort out outliers.", ))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name="outlier", datatype=bool,
+                                           description="Outlier flag based on interquartile range or quantiles"))
+        outputs.append(UIFunctionOutSingle(name="anomaly", datatype=bool,
+                                           description="Anomaly flag based on median absolute deviation"))
+        return (inputs, outputs)
+
 
 
 
