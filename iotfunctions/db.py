@@ -103,18 +103,27 @@ def get_dd_client():
 def get_children_from_dd(parent_dd_id, entry_type, depth):
     # Get list of children from Data Dictionary
     dd_client = get_dd_client()
-    # hierarchy_items = dd_client.getHierarchyIDs(id=parent_dd_id, entry_type=entry_type, status='ACTIVE',
-    #                                             loc_system=None, depth=depth)
-    build = dd_client.reasoner().search().location().filter_in("id", list([parent_dd_id])).hasPart().multi(1, depth).location().filter_equal("p/status", 'ACTIVE').v("l").build()
-    build._query['return'] = ['ALL']
-    results = build.list()
+
+    result_name = 'children'
+    if parent_dd_id.startswith('mx_L'):
+        build = dd_client.reasoner().search().location().filter_equal("id", parent_dd_id).hasPart().multi(1, depth).\
+            location().filter_equal("p/status", 'ACTIVE').v(result_name).build()
+        build._query['return'] = ['ALL']
+        results = build.list()
+    elif parent_dd_id.startswith('mx_A'):
+        build = dd_client.reasoner().search().asset().filter_equal("id", parent_dd_id).hasPart().multi(1, depth).\
+            asset().filter_equal("p/status", 'ACTIVE').v(result_name).build()
+        build._query['return'] = ['ALL']
+        results = build.list()
+    else:
+        results = []
 
     children = []
     for result in results:
         child = {}
-        location = result.get('l')
-        p = location.get('p')
-        child['dd_id'] = location.get('id')
+        resource = result.get(result_name)
+        p = resource.get('p')
+        child['dd_id'] = resource.get('id')
         child['uu_id'] = p.get('uuid')
         child['id'] = p.get('name')
         children.append(child)
