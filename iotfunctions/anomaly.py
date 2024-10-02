@@ -534,6 +534,10 @@ class AnomalyScorer(BaseTransformer):
 
         self.normalize = False
 
+        # load more data from database
+        self.window_too_small = False  # apparently there is not sufficient data for scoring
+        self.original_frame = None     # save the original frame to properly cut larger frame
+
         self.whoami = 'Anomaly'
 
     def _set_dms(self, dms):
@@ -561,6 +565,9 @@ class AnomalyScorer(BaseTransformer):
 
         logger.debug(self.whoami + ': prepare Data')
 
+        # drop duplicates
+        #dfEntity = dfEntity[~dfEntity.index.duplicated(keep='first')]
+
         # operate on simple timestamp index
         if len(dfEntity.index.names) > 1:
             index_names = dfEntity.index.names
@@ -579,6 +586,65 @@ class AnomalyScorer(BaseTransformer):
 
         return dfe, temperature
 
+    def expand_dataset(self, df_copy):
+
+        self.original_frame = df_copy
+
+        entity_type = self.get_entity_type()
+        source_metadata = self.dms.data_items.get(self.input_item)
+        input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+        schema = entity_type._db_schema
+        db = self._get_dms().db
+
+        print('HERE 0', db, schema, input_metric_table_name)
+
+        df_new = None
+        #entity_id_col = self._entity_type._df_index_entity_id
+        entity_id_col = df_copy.index.names[0]
+        print('HERE 0a', entity_id_col)
+
+        # get one day more of data
+        start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
+
+        print('HERE 0b', entity_type._timestamp)
+
+        try:
+            table = None
+            query = None
+
+            print('HERE 1')
+
+            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+                query, table = db.query(input_metric_table_name, schema, column_names=[entity_id_col, self.input_item, entity_type._timestamp])
+                query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
+
+            else:
+                query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
+                query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts,
+                        db.get_column_object(table, 'KEY') == self.input_item)
+            print('HERE 2')
+
+            df_new = db.read_sql_query(query.statement)
+
+            print('HERE 3')
+            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
+               df_new.drop(columns=['KEY'], inplace=True)
+               df_new.rename(columns={'entity_id': entity_id_col, 'value_n': self.input_item}, inplace=True)
+
+            print('HERE 4', df_new.columns, entity_id_col, entity_type._timestamp)
+            df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
+
+            print('HERE 4a')
+            df_new = df_new[~df_new.index.duplicated(keep='first')]  # do we need this ?
+
+        except Exception as e:
+            logger.info('Could not get more data for anomaly scoring. Error ' + str(e))
+            df_new = None
+            pass
+
+        return df_new
+
+
     def execute(self, df):
 
         logger.debug('Execute ' + self.whoami)
@@ -590,8 +656,13 @@ class AnomalyScorer(BaseTransformer):
             return df_copy
 
         # set output columns to zero
-        for output_item in self.output_items:
-            df_copy[output_item] = 0
+        #for output_item in self.output_items:
+        df_copy[[self.output_items]] = 0
+
+        # Do not load data to avoid the Window-Too-Small exception when started without analytics services (i.e. without database access)
+        if not hasattr(self, 'dms'): 
+            self.original_frame = True
+            print('NOOO!')
 
         # delegate to _calc
         logger.debug('Execute ' + self.whoami + ' enter per entity execution')
@@ -602,8 +673,20 @@ class AnomalyScorer(BaseTransformer):
         if not df_copy.empty:
             df_copy = df_copy.groupby(group_base).apply(self._calc)
 
+        if self.window_too_small and self.original_frame is None:
+            df_new = self.expand_dataset(df_copy)
+
+            # drive by-entity scoring with the expanded dataset
+            if df_new is not None:
+                group_base = [pd.Grouper(axis=0, level=0)]
+                df_new = df_new.groupby(group_base).apply(self._calc)
+
         logger.debug('Scoring done')
+
+        if self.original_frame is not None and isinstance(self.original_frame, pd.DataFrame):
+            return self.original_frame
         return df_copy
+
 
     def _calc(self, df):
 
@@ -638,6 +721,7 @@ class AnomalyScorer(BaseTransformer):
             logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
             for output_item in self.output_items:
                 dfe[output_item] = Error_SmallWindowsize
+            self.window_too_small = True
         else:
             logger.debug(str(temperature.size) + ", " + str(self.windowsize))
 
@@ -657,6 +741,8 @@ class AnomalyScorer(BaseTransformer):
                     # check for fast path, no interpolation required
                     diff = temperature.size - scores[i].size
 
+                    print('HERER 1', diff, temperature.size, scores[i].size)
+
                     # slow path - interpolate result score to stretch it to the size of the input data
                     if diff > 0:
                         dfe[output_item] = 0.0006
@@ -673,12 +759,23 @@ class AnomalyScorer(BaseTransformer):
                     else:
                         zScoreII = scores[i]
 
+                    print('HERER 2', zScoreII)
+
                     # make sure shape is correct
                     try:
                         df[output_item] = zScoreII
                     except Exception as e2:
                         df[output_item] = zScoreII.reshape(-1,1)
                         pass
+
+                    print('HERER 3', self.original_frame.columns, entity, output_item)
+
+                    if self.original_frame is not None:
+                        ln = len(self.original_frame.loc[entity, output_item])
+                        print('HERER 4', ln, entity, output_item)
+                        # copy the last ln elements into the frame
+                        self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
+                        print('HERER 5')
 
             except Exception as e:
                 logger.error(self.whoami + ' score integration failed with ' + str(e))
@@ -1973,6 +2070,9 @@ class RobustThreshold(BaseTransformer):
         thresh = self.threshold
         if thresh <= 0 or thresh >= 1: thresh = 0.99
         row = [0,0,0,0,0]
+
+        entity_id_col = self._entity_type._df_index_entity_id
+
         try:
             # make use of SQL alchemy
             logger.info('DATA item type is ' + str(source_metadata.get(md.DATA_ITEM_TYPE_KEY)))
@@ -1987,9 +2087,9 @@ class RobustThreshold(BaseTransformer):
                     func.percentile_cont(0.5).within_group(table.c[self.input_item]),
                     func.percentile_cont(0.75).within_group(table.c[self.input_item]),
                     func.percentile_cont(thresh).within_group(table.c[self.input_item])
-                    ]).filter(table.c.entity_id == entity_name)
+                    ]).filter(table.c[entity_id_col] == entity_name)
 
-            else:   # 'METRIC'
+            else:   # 'DERIVED METRIC'
 
                 query = select([
                     func.percentile_cont(1-thresh).within_group(table.c.value_n),
