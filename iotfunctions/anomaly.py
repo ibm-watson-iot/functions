@@ -760,12 +760,12 @@ class AnomalyScorer(BaseTransformer):
                         zScoreII = scores[i]
 
                     print('HERER 2', zScoreII)
-                    print('HERER 2a', df[output_item])
 
                     # make sure shape is correct
                     try:
                         df[output_item] = zScoreII
                     except Exception as e2:
+                        print("HERER 2e " + str(e2) + " " + type(df))
                         df[output_item] = zScoreII.reshape(-1,1)
                         pass
 
