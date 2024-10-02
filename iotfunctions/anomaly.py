@@ -759,7 +759,7 @@ class AnomalyScorer(BaseTransformer):
                     else:
                         zScoreII = scores[i]
 
-                    print('HERER 2', zScoreII)
+                    print('HERER 2', zScoreII, zScoreII.shape, type(df))
 
                     # make sure shape is correct
                     try:
