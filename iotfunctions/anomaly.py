@@ -760,6 +760,7 @@ class AnomalyScorer(BaseTransformer):
                         zScoreII = scores[i]
 
                     print('HERER 2', zScoreII)
+                    print('HERER 2a', df[output_item])
 
                     # make sure shape is correct
                     try:
