@@ -767,7 +767,7 @@ class AnomalyScorer(BaseTransformer):
                         df[output_item] = zScoreII
                     except Exception as e2:
                         print("HERER 2e " + str(e2) + " " + type(df))
-                        df[output_item] = zScoreII.reshape(-1,1)
+                        #df[output_item] = zScoreII.reshape(-1,1)
                         pass
 
                     print('HERER 3', self.original_frame.columns, entity, output_item)
