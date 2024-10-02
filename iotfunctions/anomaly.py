@@ -618,9 +618,9 @@ class AnomalyScorer(BaseTransformer):
                 print('HERE 1a', entity_id_col, self.input_item, entity_type._timestamp)
                 try:
                     query, table = db.query(input_metric_table_name, schema, column_names=[entity_id_col, self.input_item, entity_type._timestamp])
-                    query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
+                    #query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
                 except Exception as ee:
-                    print('HERE 1aa ', ee)
+                    print('HERE 1aa ', ee, input_metric_table_name, schema)
 
             else:
                 print('HERE 1b')
