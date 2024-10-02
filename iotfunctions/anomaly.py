@@ -612,13 +612,15 @@ class AnomalyScorer(BaseTransformer):
             table = None
             query = None
 
-            print('HERE 1')
+            print('HERE 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
 
             if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+                print('HERE 1a', entity_id_col, self.input_item, entity_type._timestamp)
                 query, table = db.query(input_metric_table_name, schema, column_names=[entity_id_col, self.input_item, entity_type._timestamp])
                 query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
 
             else:
+                print('HERE 1b')
                 query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
                 query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts,
                         db.get_column_object(table, 'KEY') == self.input_item)
