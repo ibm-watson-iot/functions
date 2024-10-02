@@ -766,13 +766,11 @@ class AnomalyScorer(BaseTransformer):
                     try:
                         df[output_item] = zScoreII
                     except Exception as e2:
-                        print("HERER 2e " + str(e2) + " " + type(df))
-                        #df[output_item] = zScoreII.reshape(-1,1)
+                        df[output_item] = zScoreII.reshape(-1,1)
                         pass
 
-                    print('HERER 3', self.original_frame.columns, entity, output_item)
-
                     if self.original_frame is not None:
+                        print('HERER 3', self.original_frame.columns, entity, output_item)
                         ln = len(self.original_frame.loc[entity, output_item])
                         print('HERER 4', ln, entity, output_item)
                         # copy the last ln elements into the frame
