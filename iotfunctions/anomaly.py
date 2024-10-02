@@ -741,7 +741,7 @@ class AnomalyScorer(BaseTransformer):
                     # check for fast path, no interpolation required
                     diff = temperature.size - scores[i].size
 
-                    print('HERER 1', diff, temperature.size, scores[i].size)
+                    print('HERER 1', output_item, diff, temperature.size, scores[i].size, df.columns)
 
                     # slow path - interpolate result score to stretch it to the size of the input data
                     if diff > 0:
