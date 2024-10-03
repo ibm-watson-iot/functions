@@ -599,7 +599,6 @@ class AnomalyScorer(BaseTransformer):
             #print(dir(entity_type))
             #print(dir(source_metadata))
             print(input_metric_table_name, entity_type.table, entity_type.name)
-            print(source_metadata['_metric_table_name'])
 
         schema = entity_type._db_schema
         db = self._get_dms().db
