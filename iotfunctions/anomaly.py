@@ -627,8 +627,8 @@ class AnomalyScorer(BaseTransformer):
 
         mindeltas = np.array(self.mindelta)
         mean = np.mean(mindeltas)
-        sd = 3 * np.std(mindeltas)
-        print('TIME DELTA', mean, sd)
+        #sd = 3 * np.std(mindeltas)
+        print('TIME DELTA', mean, mindeltas)
 
         try:
             table = None
