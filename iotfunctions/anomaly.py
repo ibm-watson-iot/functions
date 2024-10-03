@@ -153,6 +153,11 @@ def min_delta(df):
         logger.debug('Min Delta error: ' + str(e))
         mindelta = pd.Timedelta('5 seconds')
 
+    if mindelta < dt.timedelta(seconds=5):
+        print('YES', df2.index_to_series().diff())
+        mindelta = pd.Timedelta('5 seconds')
+        mindelta
+
     if mindelta == dt.timedelta(seconds=0) or pd.isnull(mindelta):
         mindelta = pd.Timedelta('5 seconds')
 
@@ -537,6 +542,7 @@ class AnomalyScorer(BaseTransformer):
         # load more data from database
         self.window_too_small = False  # apparently there is not sufficient data for scoring
         self.original_frame = None     # save the original frame to properly cut larger frame
+        self.mindelta = None           # find out how much data we need in terms of time delta
 
         self.whoami = 'Anomaly'
 
@@ -592,41 +598,49 @@ class AnomalyScorer(BaseTransformer):
 
         entity_type = self.get_entity_type()
         source_metadata = self.dms.data_items.get(self.input_item)
-        input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)   # is NONE for raw metrics
 
-        if input_metric_table_name is None:
-            input_metric_table_name = entity_type._metric_table_name
-            #print(dir(entity_type))
-            #print(dir(source_metadata))
-            print(input_metric_table_name, entity_type.table, entity_type.name)
-
+        # get schema and connection to db
         schema = entity_type._db_schema
         db = self._get_dms().db
 
-        print('HERE 0', db, schema, input_metric_table_name)
+        if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+            # get raw metrics table name
+            input_metric_table_name = entity_type._metric_table_name
+
+            # entity id column for raw metrics
+            entity_id_col = entity_type._entity_id
+        else:
+            # get derived metrics table name
+            input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+
+            # get entity id column for derived metrics from dataframe
+            entity_id_col = df_copy.index.names[0]
+
+        logger.info('expand dataframe from ' + str(schema) + '.' + str(input_metric_table_name))
 
         df_new = None
-        #entity_id_col = self._entity_type._df_index_entity_id
-        entity_id_col = df_copy.index.names[0]
-        print('HERE 0a', entity_id_col, entity_type._entity_id)
 
-        # get one day more of data
+        logger.info('expand dataframe: entity id column ' + str(entity_id_col) + ', timestamp' + str(entity_type._timestamp))
+
+        # we need ~600 events per entity
         start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
 
-        print('HERE 0b', entity_type._timestamp)
+        mindeltas = np.array(self.mindelta)
+        mean = np.mean(self.mindelta)
+        sd = 3 * np.std(self.mindelta)
+        print('TIME DELTA', mean, sd)
 
         try:
             table = None
             query = None
 
-            print('HERE 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
+            #print('HERE 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
 
             if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
-                entity_id_col = entity_type._entity_id
-                print('HERE 1a', entity_id_col, self.input_item, entity_type._timestamp)
+                #print('HERE 1a', entity_id_col, self.input_item, entity_type._timestamp)
                 try:
                     query, table = db.query(input_metric_table_name, schema, column_names=[entity_id_col, self.input_item, entity_type._timestamp])
-                    #query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
+                    query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
                 except Exception as ee:
                     print('HERE 1aa ', ee, input_metric_table_name, schema)
 
@@ -663,6 +677,8 @@ class AnomalyScorer(BaseTransformer):
 
         logger.debug('Execute ' + self.whoami)
         df_copy = df # no copy
+
+        self.mindelta = []
 
         # check data type
         if not pd.api.types.is_numeric_dtype(df_copy[self.input_item].dtype):
@@ -718,6 +734,8 @@ class AnomalyScorer(BaseTransformer):
 
         # minimal time delta for merging
         mindelta, dfe_orig = min_delta(dfe_orig)
+
+        self.mindelta.append(mindelta)
 
         logger.debug('Timedelta:' + str(mindelta) + ' Index: ' + str(dfe_orig.index))
 
