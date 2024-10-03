@@ -788,7 +788,6 @@ class AnomalyScorer(BaseTransformer):
                         try:
                             print('HERER 3', self.original_frame.columns, entity, output_item)
                             ln = len(self.original_frame.loc[entity, output_item])
-                            ln = 0
                             print('HERER 4', ln, entity, output_item)
                             # copy the last ln elements into the frame
                             self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
