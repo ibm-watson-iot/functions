@@ -628,6 +628,8 @@ class AnomalyScorer(BaseTransformer):
         # we need ~600 events per entity
         start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
 
+        '''
+        # TODO - need lots of rework - from window size and overlap estimate the amount of data needed
         mindeltas = pd.Series(pd.to_datetime(self.mindelta))
         qs = mindeltas.quantile([0.25, 0.5, 0.75])
         print('TIME DELTA', qs[0], qs[1], qs[2]) 
@@ -638,6 +640,7 @@ class AnomalyScorer(BaseTransformer):
         print('GO BACK', go_back_to)
 
         start_ts = pd.Timestamp.now() - go_back_to
+        '''
 
         try:
             table = None
@@ -893,6 +896,41 @@ class AnomalyScorer(BaseTransformer):
             return temp.reshape(temperature.shape)
 
         return temperature
+
+class Derivative(AnomalyScorer):
+    """
+    Computes the first derivative
+    """
+    def __init__(self, input_item, output_item):
+        super().__init__(input_item, 1, [output_item])
+        logger.debug(input_item)
+        self.whoami = 'Derivative'
+
+    def score(self, temperature):
+
+        #scores = np.zeros((len(self.output_items), ) + temperature.shape)
+        scores = []
+        for output_item in self.output_items:
+            scores.append(np.diff(temperature, prepend=temperature[0]))
+
+        return scores
+
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Data item to interpolate'))
+
+        inputs.append(
+            UISingle(name='windowsize', datatype=int, description='Minimal size of the window for interpolating data.'))
+        inputs.append(UISingle(name='missing', datatype=int, description='Data to be interpreted as not-a-number.'))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='Interpolated data'))
+        return (inputs, outputs)
 
 
 #####
