@@ -599,6 +599,7 @@ class AnomalyScorer(BaseTransformer):
             #print(dir(entity_type))
             #print(dir(source_metadata))
             print(input_metric_table_name, entity_type.table, entity_type.name)
+            print(source_metadata['_metric_table_name'])
 
         schema = entity_type._db_schema
         db = self._get_dms().db
@@ -608,7 +609,7 @@ class AnomalyScorer(BaseTransformer):
         df_new = None
         #entity_id_col = self._entity_type._df_index_entity_id
         entity_id_col = df_copy.index.names[0]
-        print('HERE 0a', entity_id_col)
+        print('HERE 0a', entity_id_col, entity_type._entity_id)
 
         # get one day more of data
         start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
@@ -622,6 +623,7 @@ class AnomalyScorer(BaseTransformer):
             print('HERE 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
 
             if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+                entity_id_col = entity_type._entity_id
                 print('HERE 1a', entity_id_col, self.input_item, entity_type._timestamp)
                 try:
                     query, table = db.query(input_metric_table_name, schema, column_names=[entity_id_col, self.input_item, entity_type._timestamp])
