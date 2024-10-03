@@ -626,8 +626,8 @@ class AnomalyScorer(BaseTransformer):
         start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
 
         mindeltas = np.array(self.mindelta)
-        mean = np.mean(self.mindelta)
-        sd = 3 * np.std(self.mindelta)
+        mean = np.mean(mindeltas)
+        sd = 3 * np.std(mindeltas)
         print('TIME DELTA', mean, sd)
 
         try:
