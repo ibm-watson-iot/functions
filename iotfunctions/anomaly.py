@@ -154,7 +154,8 @@ def min_delta(df):
         mindelta = pd.Timedelta('5 seconds')
 
     if mindelta < dt.timedelta(seconds=5):
-        print('YES', df2.index.to_series().diff())
+        my_diff = df2.index.to_series().diff()
+        print('YES', mindelta, np.argmin(my_diff[1:], str(my_diff))
         mindelta = pd.Timedelta('5 seconds')
         mindelta
 
