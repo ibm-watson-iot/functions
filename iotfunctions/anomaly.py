@@ -779,17 +779,21 @@ class AnomalyScorer(BaseTransformer):
                     try:
                         df[output_item] = zScoreII
                     except Exception as e2:
+                        print(e2)
                         df[output_item] = zScoreII.reshape(-1,1)
                         pass
 
                     if self.original_frame is not None:
-                        print('HERER 3', self.original_frame.columns, entity, output_item)
+                        try:
+                            print('HERER 3', self.original_frame.columns, entity, output_item)
                         #ln = len(self.original_frame.loc[entity, output_item])
-                        ln = 0
-                        print('HERER 4', ln, entity, output_item)
+                            ln = 0
+                            print('HERER 4', ln, entity, output_item)
                         # copy the last ln elements into the frame
                         #self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
-                        print('HERER 5')
+                            print('HERER 5')
+                        except Exception as e3:
+                            print(e3)
 
             except Exception as e:
                 logger.error(self.whoami + ' score integration failed with ' + str(e))
