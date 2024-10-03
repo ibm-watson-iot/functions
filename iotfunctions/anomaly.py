@@ -772,7 +772,7 @@ class AnomalyScorer(BaseTransformer):
                     else:
                         zScoreII = scores[i]
 
-                    print('HERER 2', zScoreII, zScoreII.shape, type(df))
+                    print('HERER 2', zScoreII[:5], zScoreII.shape, type(df))
                     print('HERER 2a', df[output_item].values.shape)
 
                     # make sure shape is correct
@@ -784,10 +784,11 @@ class AnomalyScorer(BaseTransformer):
 
                     if self.original_frame is not None:
                         print('HERER 3', self.original_frame.columns, entity, output_item)
-                        ln = len(self.original_frame.loc[entity, output_item])
+                        #ln = len(self.original_frame.loc[entity, output_item])
+                        ln = 0
                         print('HERER 4', ln, entity, output_item)
                         # copy the last ln elements into the frame
-                        self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
+                        #self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
                         print('HERER 5')
 
             except Exception as e:
