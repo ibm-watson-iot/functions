@@ -649,6 +649,7 @@ class AnomalyScorer(BaseTransformer):
 
             print('HERE 4a')
             df_new = df_new[~df_new.index.duplicated(keep='first')]  # do we need this ?
+            df_new[self.output_items] = 0
 
         except Exception as e:
             logger.info('Could not get more data for anomaly scoring. Error ' + str(e))
@@ -786,11 +787,11 @@ class AnomalyScorer(BaseTransformer):
                     if self.original_frame is not None:
                         try:
                             print('HERER 3', self.original_frame.columns, entity, output_item)
-                        #ln = len(self.original_frame.loc[entity, output_item])
+                            ln = len(self.original_frame.loc[entity, output_item])
                             ln = 0
                             print('HERER 4', ln, entity, output_item)
-                        # copy the last ln elements into the frame
-                        #self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
+                            # copy the last ln elements into the frame
+                            self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
                             print('HERER 5')
                         except Exception as e3:
                             print(e3)
