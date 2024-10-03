@@ -87,6 +87,8 @@ except (AttributeError, ImportError):
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 _IS_PREINSTALLED = True
 
+MinMotifsRequiredForAnomalies = 20
+
 Error_SmallWindowsize = 0.0001
 Error_Generic = 0.0002
 
@@ -156,7 +158,7 @@ def min_delta(df):
     if mindelta < dt.timedelta(seconds=5):
         my_diff = df2.index.to_series().diff()
         i = np.argmin(my_diff[1:])
-        print('YES', mindelta, df2.index.to_series()[i-3:i+3], str(my_diff))
+        #print('YES', mindelta, df2.index.to_series()[i-3:i+3], str(my_diff))
         mindelta = pd.Timedelta('5 seconds')
 
     if mindelta == dt.timedelta(seconds=0) or pd.isnull(mindelta):
@@ -626,10 +628,16 @@ class AnomalyScorer(BaseTransformer):
         # we need ~600 events per entity
         start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
 
-        mindeltas = np.array(self.mindelta)
-        mean = np.mean(mindeltas)
-        #sd = 3 * np.std(mindeltas)
-        print('TIME DELTA', mean, mindeltas)
+        mindeltas = pd.Series(pd.to_datetime(self.mindelta))
+        qs = mindeltas.quantile([0.25, 0.5, 0.75])
+        print('TIME DELTA', qs[0], qs[1], qs[2]) 
+
+        # 'max gap' times 'motifs needed for anomaly scoring' divided by the overlap
+        go_back_to = (qs[1] + 2 * (qs[2] - qs[0])) * (self.window_size + MinMotifsRequiredForAnomalies * self.windowoverlap)
+
+        print('GO BACK', go_back_to)
+
+        start_ts = pd.Timestamp.now() - go_back_to
 
         try:
             table = None
@@ -721,7 +729,6 @@ class AnomalyScorer(BaseTransformer):
 
     def _calc(self, df):
 
-        #entity = df.index.levels[0][0]
         entity = df.index[0][0]
 
         # get rid of entity id as part of the index
