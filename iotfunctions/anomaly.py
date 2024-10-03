@@ -595,8 +595,10 @@ class AnomalyScorer(BaseTransformer):
         input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)   # is NONE for raw metrics
 
         if input_metric_table_name is None:
-            print(dir(entity_type))
-            print(dir(source_metadata))
+            input_metric_table_name = entity_type['_metric_table_name']
+            #print(dir(entity_type))
+            #print(dir(source_metadata))
+            print(input_metric_table_name)
 
         schema = entity_type._db_schema
         db = self._get_dms().db
