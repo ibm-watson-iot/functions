@@ -544,8 +544,9 @@ class AnomalyScorer(BaseTransformer):
 
         # load more data from database
         self.window_too_small = False  # apparently there is not sufficient data for scoring
-        self.original_frame = None     # save the original frame to properly cut larger frame
-        self.mindelta = None           # find out how much data we need in terms of time delta
+        self.original_frame = True     # save the original frame to properly cut larger frame
+                                       # set to None in subclass to allow dataset expansion
+        self.mindelta = None           # find out how much data we need in terms of time delta, window size and overlap
 
         self.whoami = 'Anomaly'
 
@@ -597,6 +598,7 @@ class AnomalyScorer(BaseTransformer):
 
     def expand_dataset(self, df_copy):
 
+        # save original dataframe for later use
         self.original_frame = df_copy
 
         entity_type = self.get_entity_type()
@@ -703,8 +705,10 @@ class AnomalyScorer(BaseTransformer):
 
         # Do not load data to avoid the Window-Too-Small exception when started without analytics services (i.e. without database access)
         if not hasattr(self, 'dms'): 
+            # set original_frame to not None, but also no dataframe
+            # to indicate that we should not attempt to load more data
             self.original_frame = True
-            print('NOOO!')
+            logger.warning('Started without database access')
 
         # delegate to _calc
         logger.debug('Execute ' + self.whoami + ' enter per entity execution')
@@ -725,8 +729,10 @@ class AnomalyScorer(BaseTransformer):
 
         logger.debug('Scoring done')
 
+        # return the original frame if present and it's a pandas dataframe
         if self.original_frame is not None and isinstance(self.original_frame, pd.DataFrame):
             return self.original_frame
+
         return df_copy
 
 
@@ -784,7 +790,7 @@ class AnomalyScorer(BaseTransformer):
                     # check for fast path, no interpolation required
                     diff = temperature.size - scores[i].size
 
-                    print('HERER 1', output_item, diff, temperature.size, scores[i].size, df.columns)
+                    #print('SCORE 1', output_item, diff, temperature.size, scores[i].size, df.columns)
 
                     # slow path - interpolate result score to stretch it to the size of the input data
                     if diff > 0:
@@ -802,8 +808,7 @@ class AnomalyScorer(BaseTransformer):
                     else:
                         zScoreII = scores[i]
 
-                    print('HERER 2', zScoreII[:5], zScoreII.shape, type(df))
-                    print('HERER 2a', df[output_item].values.shape)
+                    #print('SCORE 2', zScoreII[:5], zScoreII.shape, type(df), df[output_item].values.shape)
 
                     # make sure shape is correct
                     try:
@@ -813,14 +818,13 @@ class AnomalyScorer(BaseTransformer):
                         df[output_item] = zScoreII.reshape(-1,1)
                         pass
 
-                    if self.original_frame is not None:
+                    # try to fit results into the original frame
+                    if self.original_frame is not None and isinstance(self.original_frame, pd.DataFrame):
                         try:
-                            print('HERER 3', self.original_frame.columns, entity, output_item)
                             ln = len(self.original_frame.loc[entity, output_item])
-                            print('HERER 4', ln, entity, output_item)
+                            #print('SCORE 3', self.original_frame.columns, entity, output_item, ln, entity, output_item)
                             # copy the last ln elements into the frame
                             self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
-                            print('HERER 5')
                         except Exception as e3:
                             print(e3)
 
