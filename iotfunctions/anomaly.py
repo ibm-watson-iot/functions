@@ -648,38 +648,38 @@ class AnomalyScorer(BaseTransformer):
             table = None
             query = None
 
-            print('HERE 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
+            #print('EXPAND 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
 
             if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
-                #print('HERE 1a', entity_id_col, self.input_item, entity_type._timestamp)
                 try:
                     query, table = db.query(input_metric_table_name, schema, column_names=[entity_id_col, self.input_item, entity_type._timestamp])
                     query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
                 except Exception as ee:
-                    print('HERE 1aa ', ee, input_metric_table_name, schema)
+                    logger.warning('Failed to get raw metric from ' + schema + '.' + input_metric_table_name + ', msg: ' + str(ee))
 
             else:
-                print('HERE 1b')
                 try:
                     #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
                     query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
                     query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts,
                              db.get_column_object(table, 'KEY') == self.input_item)
                 except Exception as ee:
-                    print('HERE 1bb ', ee, input_metric_table_name, schema)
-            print('HERE 2')
+                    logger.warning('Failed to get derived metric from ' + schema + '.' + input_metric_table_name + ', msg: ' + str(ee))
+            #print('EXPAND 2')
 
             df_new = db.read_sql_query(query.statement)
 
-            print('HERE 3')
+            #print('EXPAND 3')
+            logger.info('Retrieved columns ' + str(df_new.columns))
+
             if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
                df_new.drop(columns=['KEY'], inplace=True)
                df_new.rename(columns={'entity_id': entity_id_col, 'value_n': self.input_item, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
 
-            print('HERE 4', df_new.columns, entity_id_col, entity_type._timestamp)
+            logger.info('Set new index: ' + entity_id_col + entity_type._timestamp)
             df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
 
-            print('HERE 4a')
+            #print('EXPAND 4')
             df_new = df_new[~df_new.index.duplicated(keep='first')]  # do we need this ?
             df_new[self.output_items] = 0
 
