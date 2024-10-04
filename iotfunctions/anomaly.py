@@ -89,6 +89,7 @@ _IS_PREINSTALLED = True
 
 MinMotifsRequiredForAnomalies = 20
 
+Null_Float = 0.0
 Error_SmallWindowsize = 0.0001
 Error_Generic = 0.0002
 
@@ -681,7 +682,7 @@ class AnomalyScorer(BaseTransformer):
 
             #print('EXPAND 4')
             df_new = df_new[~df_new.index.duplicated(keep='first')]  # do we need this ?
-            df_new[self.output_items] = 0
+            df_new[self.output_items] = Null_Float
 
         except Exception as e:
             logger.info('Could not get more data for anomaly scoring. Error ' + str(e))
@@ -709,7 +710,7 @@ class AnomalyScorer(BaseTransformer):
 
         # set output columns to zero
         #for output_item in self.output_items:
-        df_copy[[self.output_items]] = 0
+        df_copy[[self.output_items]] = Null_Float
 
         # Do not load data to avoid the Window-Too-Small exception when started without analytics services (i.e. without database access)
         if not hasattr(self, 'dms'): 
@@ -1048,7 +1049,7 @@ class NoDataAnomalyScoreExt(AnomalyScorer):
             dfe[[self.input_item]] = temperature
         except Exception as pe:
             logger.info("NoData Gradient failed with " + str(pe))
-            dfe[[self.input_item]] = 0
+            dfe[[self.input_item]] = Null_Float
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
 
@@ -1542,7 +1543,7 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
             dfe[[self.input_item]] = temperature
         except Exception as pe:
             logger.info("NoData Gradient failed with " + str(pe))
-            dfe[[self.input_item]] = 0
+            dfe[[self.input_item]] = Null_Float
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
 
@@ -2043,7 +2044,7 @@ class RobustThresholdKDE(SupervisedLearningTransformer):
     def execute(self, df):
         # set output columns to zero
         logger.debug('Called ' + self.whoami + ' with columns: ' + str(df.columns))
-        df[self.output_item] = 0
+        df[self.output_item] = Null_Float
         return super().execute(df)
 
 
@@ -2074,7 +2075,7 @@ class RobustThresholdKDE(SupervisedLearningTransformer):
 
             df[self.output_item] = robust_model.predict(feature, self.threshold)
         else:
-            df[self.output_item] = 0
+            df[self.output_item] = Null_Float
 
         return df.droplevel(0)
 
@@ -2348,8 +2349,8 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         except Exception as e:
             logger.info('Bayesian Ridge regressor for entity ' + str(entity) + ' failed with: ' + str(e))
-            df[self.predictions] = 0
-            df[self.pred_stddev] = 0
+            df[self.predictions] = Null_Float
+            df[self.pred_stddev] = Null_Float
 
         return df
 
@@ -2460,8 +2461,8 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
 
         except Exception as e:
             logger.info('Bayesian Ridge regressor for entity ' + str(entity) + ' failed with: ' + str(e))
-            df[self.predictions] = 0
-            df[self.pred_stddev] = 0
+            df[self.predictions] = Null_Float
+            df[self.pred_stddev] = Null_Float
 
         return df
 
@@ -2687,7 +2688,7 @@ class GBMRegressor(BaseEstimatorFunction):
 
         except Exception as e:
             logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
-            df[self.predictions] = 0
+            df[self.predictions] = Null_Float
 
         return df
 
@@ -2761,7 +2762,7 @@ class SimpleRegressor(BaseEstimatorFunction):
 
             except Exception as e:
                 logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
-                df_copy.loc[entity, self.predictions] = 0
+                df_copy.loc[entity, self.predictions] = Null_Float
 
         return df_copy
 
@@ -2946,7 +2947,7 @@ class ARIMAForecaster(SupervisedLearningTransformer):
 
     def execute(self, df):
         # set output columns to zero
-        df[self.output_item] = 0
+        df[self.output_item] = Null_Float
 
         # check data type
         if df[self.input_item].dtype != np.float64:
@@ -3578,7 +3579,7 @@ class AutoRegScore(SupervisedLearningTransformer):
 
         if self.model is None:
             # go away if training failed (ignore failures to save the model)
-            df[self.targets[0]] = 0
+            df[self.targets[0]] = Null_Float
             return df
 
         # evaluate on a per entity basis
