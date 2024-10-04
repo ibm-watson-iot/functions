@@ -625,7 +625,7 @@ class AnomalyScorer(BaseTransformer):
 
         df_new = None
 
-        logger.info('expand dataframe: entity id column ' + str(entity_id_col) + ', timestamp' + str(entity_type._timestamp))
+        logger.info('expand dataframe: entity id column:' + str(entity_id_col) + ', timestamp:' + str(entity_type._timestamp))
 
         # we need ~600 events per entity
         start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
@@ -661,7 +661,8 @@ class AnomalyScorer(BaseTransformer):
             else:
                 print('HERE 1b')
                 try:
-                    query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
+                    #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
+                    query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
                     query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts,
                              db.get_column_object(table, 'KEY') == self.input_item)
                 except Exception as ee:
