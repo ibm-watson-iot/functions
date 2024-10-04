@@ -674,7 +674,7 @@ class AnomalyScorer(BaseTransformer):
             print('HERE 3')
             if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
                df_new.drop(columns=['KEY'], inplace=True)
-               df_new.rename(columns={'entity_id': entity_id_col, 'value_n': self.input_item, 'timestamp': entity_type._timestamp}, inplace=True)
+               df_new.rename(columns={'entity_id': entity_id_col, 'value_n': self.input_item, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
 
             print('HERE 4', df_new.columns, entity_id_col, entity_type._timestamp)
             df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
