@@ -939,10 +939,6 @@ class Derivative(AnomalyScorer):
         inputs = []
         inputs.append(UISingleItem(name='input_item', datatype=float, description='Data item to interpolate'))
 
-        inputs.append(
-            UISingle(name='windowsize', datatype=int, description='Minimal size of the window for interpolating data.'))
-        inputs.append(UISingle(name='missing', datatype=int, description='Data to be interpreted as not-a-number.'))
-
         # define arguments that behave as function outputs
         outputs = []
         outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='Interpolated data'))
