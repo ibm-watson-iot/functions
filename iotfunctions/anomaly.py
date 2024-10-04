@@ -1232,6 +1232,8 @@ class SpectralAnomalyScore(AnomalyScorer):
 
         logger.debug(input_item)
 
+        self.allowed_to_expand = True
+
         self.whoami = 'SpectralAnomalyScore'
 
     def score(self, temperature):
