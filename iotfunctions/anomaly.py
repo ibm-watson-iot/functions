@@ -544,8 +544,8 @@ class AnomalyScorer(BaseTransformer):
 
         # load more data from database
         self.window_too_small = False  # apparently there is not sufficient data for scoring
-        self.original_frame = True     # save the original frame to properly cut larger frame
-                                       # set to None in subclass to allow dataset expansion
+        self.allowed_to_expand = False # we are not allowed to expand the dataset by default, override in subclass
+        self.original_frame = None     # save the original frame to properly cut larger frame
         self.mindelta = None           # find out how much data we need in terms of time delta, window size and overlap
 
         self.whoami = 'Anomaly'
@@ -692,7 +692,11 @@ class AnomalyScorer(BaseTransformer):
         logger.debug('Execute ' + self.whoami)
         df_copy = df # no copy
 
+        # Reset book-keeping variables
         self.mindelta = []
+        self.window_too_small = False
+        self.original_frame = None
+        self.has_access_to_db = True  # to be tested later ..
 
         # check data type
         if not pd.api.types.is_numeric_dtype(df_copy[self.input_item].dtype):
@@ -705,9 +709,8 @@ class AnomalyScorer(BaseTransformer):
 
         # Do not load data to avoid the Window-Too-Small exception when started without analytics services (i.e. without database access)
         if not hasattr(self, 'dms'): 
-            # set original_frame to not None, but also no dataframe
-            # to indicate that we should not attempt to load more data
-            self.original_frame = True
+            # indicate that we must not attempt to load more data
+            self.has_access_to_db = False
             logger.warning('Started without database access')
 
         # delegate to _calc
@@ -719,18 +722,23 @@ class AnomalyScorer(BaseTransformer):
         if not df_copy.empty:
             df_copy = df_copy.groupby(group_base).apply(self._calc)
 
-        if self.window_too_small and self.original_frame is None:
+        # we don't have enough data, haven't loaded data yet and ..
+        # we have access to our database and are allowed to go to it
+        if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
             df_new = self.expand_dataset(df_copy)
 
             # drive by-entity scoring with the expanded dataset
             if df_new is not None:
                 group_base = [pd.Grouper(axis=0, level=0)]
                 df_new = df_new.groupby(group_base).apply(self._calc)
+        elif self.window_too_small:
+            logger.warning('Not enough data to score')
+
 
         logger.debug('Scoring done')
 
         # return the original frame if present and it's a pandas dataframe
-        if self.original_frame is not None and isinstance(self.original_frame, pd.DataFrame):
+        if self.original_frame is not None:
             return self.original_frame
 
         return df_copy
