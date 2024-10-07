@@ -87,6 +87,9 @@ except (AttributeError, ImportError):
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
 _IS_PREINSTALLED = True
 
+MinMotifsRequiredForAnomalies = 20
+
+Null_Float = 0.0
 Error_SmallWindowsize = 0.0001
 Error_Generic = 0.0002
 
@@ -151,6 +154,12 @@ def min_delta(df):
         mindelta = df2.index.to_series().diff().min()
     except Exception as e:
         logger.debug('Min Delta error: ' + str(e))
+        mindelta = pd.Timedelta('5 seconds')
+
+    if mindelta < dt.timedelta(seconds=5):
+        my_diff = df2.index.to_series().diff()
+        i = np.argmin(my_diff[1:])
+        #print('YES', mindelta, df2.index.to_series()[i-3:i+3], str(my_diff))
         mindelta = pd.Timedelta('5 seconds')
 
     if mindelta == dt.timedelta(seconds=0) or pd.isnull(mindelta):
@@ -534,6 +543,12 @@ class AnomalyScorer(BaseTransformer):
 
         self.normalize = False
 
+        # load more data from database
+        self.window_too_small = False  # apparently there is not sufficient data for scoring
+        self.allowed_to_expand = False # we are not allowed to expand the dataset by default, override in subclass
+        self.original_frame = None     # save the original frame to properly cut larger frame
+        self.mindelta = None           # find out how much data we need in terms of time delta, window size and overlap
+
         self.whoami = 'Anomaly'
 
     def _set_dms(self, dms):
@@ -561,6 +576,9 @@ class AnomalyScorer(BaseTransformer):
 
         logger.debug(self.whoami + ': prepare Data')
 
+        # drop duplicates
+        #dfEntity = dfEntity[~dfEntity.index.duplicated(keep='first')]
+
         # operate on simple timestamp index
         if len(dfEntity.index.names) > 1:
             index_names = dfEntity.index.names
@@ -579,10 +597,111 @@ class AnomalyScorer(BaseTransformer):
 
         return dfe, temperature
 
+    def expand_dataset(self, df_copy):
+
+        # save original dataframe for later use
+        self.original_frame = df_copy
+
+        entity_type = self.get_entity_type()
+        source_metadata = self.dms.data_items.get(self.input_item)
+
+        # get schema and connection to db
+        schema = entity_type._db_schema
+        db = self._get_dms().db
+
+        if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+            # get raw metrics table name
+            input_metric_table_name = entity_type._metric_table_name
+
+            # entity id column for raw metrics
+            entity_id_col = entity_type._entity_id
+        else:
+            # get derived metrics table name
+            input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+
+            # get entity id column for derived metrics from dataframe
+            entity_id_col = df_copy.index.names[0]
+
+        logger.info('expand dataframe from ' + str(schema) + '.' + str(input_metric_table_name))
+
+        df_new = None
+
+        logger.info('expand dataframe: entity id column:' + str(entity_id_col) + ', timestamp:' + str(entity_type._timestamp))
+
+        # we need ~600 events per entity
+        start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
+
+        '''
+        # TODO - need lots of rework - from window size and overlap estimate the amount of data needed
+        mindeltas = pd.Series(pd.to_datetime(self.mindelta))
+        qs = mindeltas.quantile([0.25, 0.5, 0.75])
+        print('TIME DELTA', qs[0], qs[1], qs[2]) 
+
+        # 'max gap' times 'motifs needed for anomaly scoring' divided by the overlap
+        go_back_to = (qs[1] + 2 * (qs[2] - qs[0])) * (self.window_size + MinMotifsRequiredForAnomalies * self.windowoverlap)
+
+        print('GO BACK', go_back_to)
+
+        start_ts = pd.Timestamp.now() - go_back_to
+        '''
+
+        try:
+            table = None
+            query = None
+
+            #print('EXPAND 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
+
+            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+                try:
+                    query, table = db.query(input_metric_table_name, schema, column_names=[entity_id_col, self.input_item, entity_type._timestamp])
+                    query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
+                except Exception as ee:
+                    logger.warning('Failed to get raw metric from ' + schema + '.' + input_metric_table_name + ', msg: ' + str(ee))
+
+            else:
+                try:
+                    #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
+                    query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
+                    query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts,
+                             db.get_column_object(table, 'KEY') == self.input_item)
+                except Exception as ee:
+                    logger.warning('Failed to get derived metric from ' + schema + '.' + input_metric_table_name + ', msg: ' + str(ee))
+            #print('EXPAND 2')
+
+            df_new = db.read_sql_query(query.statement)
+
+            #print('EXPAND 3')
+            logger.info('Retrieved columns ' + str(df_new.columns))
+
+            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
+               df_new.drop(columns=['KEY'], inplace=True)
+               df_new.rename(columns={'entity_id': entity_id_col, 'value_n': self.input_item, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
+
+            logger.info('Set new index: ' + entity_id_col + entity_type._timestamp)
+            df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
+
+            #print('EXPAND 4')
+            df_new = df_new[~df_new.index.duplicated(keep='first')]  # do we need this ?
+            df_new[self.output_items] = Null_Float
+
+        except Exception as e:
+            logger.info('Could not get more data for anomaly scoring. Error ' + str(e))
+            df_new = None
+            pass
+
+        return df_new
+
+
     def execute(self, df):
 
         logger.debug('Execute ' + self.whoami)
         df_copy = df # no copy
+
+        # Reset book-keeping variables
+        self.mindelta = []
+        self.window_too_small = False
+        self.original_frame = None
+        self.has_access_to_db = True  # to be tested later ..
 
         # check data type
         if not pd.api.types.is_numeric_dtype(df_copy[self.input_item].dtype):
@@ -590,8 +709,14 @@ class AnomalyScorer(BaseTransformer):
             return df_copy
 
         # set output columns to zero
-        for output_item in self.output_items:
-            df_copy[output_item] = 0
+        #for output_item in self.output_items:
+        df_copy[[self.output_items]] = Null_Float
+
+        # Do not load data to avoid the Window-Too-Small exception when started without analytics services (i.e. without database access)
+        if not hasattr(self, 'dms'): 
+            # indicate that we must not attempt to load more data
+            self.has_access_to_db = False
+            logger.warning('Started without database access')
 
         # delegate to _calc
         logger.debug('Execute ' + self.whoami + ' enter per entity execution')
@@ -602,12 +727,30 @@ class AnomalyScorer(BaseTransformer):
         if not df_copy.empty:
             df_copy = df_copy.groupby(group_base).apply(self._calc)
 
+        # we don't have enough data, haven't loaded data yet and ..
+        # we have access to our database and are allowed to go to it
+        if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
+            df_new = self.expand_dataset(df_copy)
+
+            # drive by-entity scoring with the expanded dataset
+            if df_new is not None:
+                group_base = [pd.Grouper(axis=0, level=0)]
+                df_new = df_new.groupby(group_base).apply(self._calc)
+        elif self.window_too_small:
+            logger.warning('Not enough data to score')
+
+
         logger.debug('Scoring done')
+
+        # return the original frame if present and it's a pandas dataframe
+        if self.original_frame is not None:
+            return self.original_frame
+
         return df_copy
+
 
     def _calc(self, df):
 
-        #entity = df.index.levels[0][0]
         entity = df.index[0][0]
 
         # get rid of entity id as part of the index
@@ -621,6 +764,8 @@ class AnomalyScorer(BaseTransformer):
 
         # minimal time delta for merging
         mindelta, dfe_orig = min_delta(dfe_orig)
+
+        self.mindelta.append(mindelta)
 
         logger.debug('Timedelta:' + str(mindelta) + ' Index: ' + str(dfe_orig.index))
 
@@ -638,6 +783,7 @@ class AnomalyScorer(BaseTransformer):
             logger.debug(str(temperature.size) + ' <= ' + str(self.windowsize))
             for output_item in self.output_items:
                 dfe[output_item] = Error_SmallWindowsize
+            self.window_too_small = True
         else:
             logger.debug(str(temperature.size) + ", " + str(self.windowsize))
 
@@ -657,6 +803,8 @@ class AnomalyScorer(BaseTransformer):
                     # check for fast path, no interpolation required
                     diff = temperature.size - scores[i].size
 
+                    #print('SCORE 1', output_item, diff, temperature.size, scores[i].size, df.columns)
+
                     # slow path - interpolate result score to stretch it to the size of the input data
                     if diff > 0:
                         dfe[output_item] = 0.0006
@@ -673,12 +821,25 @@ class AnomalyScorer(BaseTransformer):
                     else:
                         zScoreII = scores[i]
 
+                    #print('SCORE 2', zScoreII[:5], zScoreII.shape, type(df), df[output_item].values.shape)
+
                     # make sure shape is correct
                     try:
                         df[output_item] = zScoreII
                     except Exception as e2:
+                        print(e2)
                         df[output_item] = zScoreII.reshape(-1,1)
                         pass
+
+                    # try to fit results into the original frame
+                    if self.original_frame is not None and isinstance(self.original_frame, pd.DataFrame):
+                        try:
+                            ln = len(self.original_frame.loc[entity, output_item])
+                            #print('SCORE 3', self.original_frame.columns, entity, output_item, ln, entity, output_item)
+                            # copy the last ln elements into the frame
+                            self.original_frame.loc[entity, output_item] = df[output_item].values[-ln:]
+                        except Exception as e3:
+                            print(e3)
 
             except Exception as e:
                 logger.error(self.whoami + ' score integration failed with ' + str(e))
@@ -752,6 +913,37 @@ class AnomalyScorer(BaseTransformer):
             return temp.reshape(temperature.shape)
 
         return temperature
+
+class Derivative(AnomalyScorer):
+    """
+    Computes the first derivative
+    """
+    def __init__(self, input_item, output_item):
+        super().__init__(input_item, 1, [output_item])
+        logger.debug(input_item)
+        self.whoami = 'Derivative'
+
+    def score(self, temperature):
+
+        #scores = np.zeros((len(self.output_items), ) + temperature.shape)
+        scores = []
+        for output_item in self.output_items:
+            scores.append(np.diff(temperature, prepend=temperature[0]))
+
+        return scores
+
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+        inputs.append(UISingleItem(name='input_item', datatype=float, description='Data item to interpolate'))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        outputs.append(UIFunctionOutSingle(name='output_item', datatype=float, description='Interpolated data'))
+        return (inputs, outputs)
 
 
 #####
@@ -857,7 +1049,7 @@ class NoDataAnomalyScoreExt(AnomalyScorer):
             dfe[[self.input_item]] = temperature
         except Exception as pe:
             logger.info("NoData Gradient failed with " + str(pe))
-            dfe[[self.input_item]] = 0
+            dfe[[self.input_item]] = Null_Float
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
 
@@ -1040,6 +1232,8 @@ class SpectralAnomalyScore(AnomalyScorer):
             super().__init__(input_item, windowsize, [output_item])
 
         logger.debug(input_item)
+
+        self.allowed_to_expand = True
 
         self.whoami = 'SpectralAnomalyScore'
 
@@ -1349,7 +1543,7 @@ class NoDataAnomalyScore(GeneralizedAnomalyScore):
             dfe[[self.input_item]] = temperature
         except Exception as pe:
             logger.info("NoData Gradient failed with " + str(pe))
-            dfe[[self.input_item]] = 0
+            dfe[[self.input_item]] = Null_Float
             temperature = dfe[[self.input_item]].values
             temperature[0] = 10 ** 10
 
@@ -1850,7 +2044,7 @@ class RobustThresholdKDE(SupervisedLearningTransformer):
     def execute(self, df):
         # set output columns to zero
         logger.debug('Called ' + self.whoami + ' with columns: ' + str(df.columns))
-        df[self.output_item] = 0
+        df[self.output_item] = Null_Float
         return super().execute(df)
 
 
@@ -1881,7 +2075,7 @@ class RobustThresholdKDE(SupervisedLearningTransformer):
 
             df[self.output_item] = robust_model.predict(feature, self.threshold)
         else:
-            df[self.output_item] = 0
+            df[self.output_item] = Null_Float
 
         return df.droplevel(0)
 
@@ -1973,6 +2167,9 @@ class RobustThreshold(BaseTransformer):
         thresh = self.threshold
         if thresh <= 0 or thresh >= 1: thresh = 0.99
         row = [0,0,0,0,0]
+
+        entity_id_col = self._entity_type._df_index_entity_id
+
         try:
             # make use of SQL alchemy
             logger.info('DATA item type is ' + str(source_metadata.get(md.DATA_ITEM_TYPE_KEY)))
@@ -1987,9 +2184,9 @@ class RobustThreshold(BaseTransformer):
                     func.percentile_cont(0.5).within_group(table.c[self.input_item]),
                     func.percentile_cont(0.75).within_group(table.c[self.input_item]),
                     func.percentile_cont(thresh).within_group(table.c[self.input_item])
-                    ]).filter(table.c.entity_id == entity_name)
+                    ]).filter(table.c[entity_id_col] == entity_name)
 
-            else:   # 'METRIC'
+            else:   # 'DERIVED METRIC'
 
                 query = select([
                     func.percentile_cont(1-thresh).within_group(table.c.value_n),
@@ -2152,8 +2349,8 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
 
         except Exception as e:
             logger.info('Bayesian Ridge regressor for entity ' + str(entity) + ' failed with: ' + str(e))
-            df[self.predictions] = 0
-            df[self.pred_stddev] = 0
+            df[self.predictions] = Null_Float
+            df[self.pred_stddev] = Null_Float
 
         return df
 
@@ -2264,8 +2461,8 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
 
         except Exception as e:
             logger.info('Bayesian Ridge regressor for entity ' + str(entity) + ' failed with: ' + str(e))
-            df[self.predictions] = 0
-            df[self.pred_stddev] = 0
+            df[self.predictions] = Null_Float
+            df[self.pred_stddev] = Null_Float
 
         return df
 
@@ -2491,7 +2688,7 @@ class GBMRegressor(BaseEstimatorFunction):
 
         except Exception as e:
             logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
-            df[self.predictions] = 0
+            df[self.predictions] = Null_Float
 
         return df
 
@@ -2565,7 +2762,7 @@ class SimpleRegressor(BaseEstimatorFunction):
 
             except Exception as e:
                 logger.info('GBMRegressor for entity ' + str(entity) + ' failed with: ' + str(e))
-                df_copy.loc[entity, self.predictions] = 0
+                df_copy.loc[entity, self.predictions] = Null_Float
 
         return df_copy
 
@@ -2750,7 +2947,7 @@ class ARIMAForecaster(SupervisedLearningTransformer):
 
     def execute(self, df):
         # set output columns to zero
-        df[self.output_item] = 0
+        df[self.output_item] = Null_Float
 
         # check data type
         if df[self.input_item].dtype != np.float64:
@@ -3382,7 +3579,7 @@ class AutoRegScore(SupervisedLearningTransformer):
 
         if self.model is None:
             # go away if training failed (ignore failures to save the model)
-            df[self.targets[0]] = 0
+            df[self.targets[0]] = Null_Float
             return df
 
         # evaluate on a per entity basis
