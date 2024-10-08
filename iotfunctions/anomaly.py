@@ -521,81 +521,22 @@ class MinMax_Scaler(BaseEstimatorFunction):
 # Anomaly Scorers
 #######################################################################################
 
-class AnomalyScorer(BaseTransformer):
+class DataExpanderTransformer(BaseTransformer):
     """
     Superclass of all unsupervised anomaly detection functions.
     """
-    def __init__(self, input_item, windowsize, output_items):
+    def __init__(self, input_items):
         super().__init__()
         logger.debug(input_item)
-        self.input_item = input_item
+        self.input_items = input_items
 
-        # use 12 by default
-        self.windowsize, self.windowoverlap = set_window_size_and_overlap(windowsize)
-
-        # assume 1 per sec for now
-        self.frame_rate = 1
-
-        # step
-        self.step = self.windowsize - self.windowoverlap
-
-        self.output_items = output_items
-
-        self.normalize = False
-
-        # load more data from database
+        # load more data from database ?
         self.window_too_small = False  # apparently there is not sufficient data for scoring
         self.allowed_to_expand = False # we are not allowed to expand the dataset by default, override in subclass
         self.original_frame = None     # save the original frame to properly cut larger frame
         self.mindelta = None           # find out how much data we need in terms of time delta, window size and overlap
 
-        self.whoami = 'Anomaly'
-
-    def _set_dms(self, dms):
-        self.dms = dms
-
-    def _get_dms(self):
-        return self.dms
-
-    def get_model_name(self, prefix='model', suffix=None):
-
-        name = []
-        if prefix is not None:
-            name.append(prefix)
-
-        name.extend([self._entity_type.name, self.whoami])
-        name.append(self.output_items[0])
-        if suffix is not None:
-            name.append(suffix)
-        name = '.'.join(name)
-
-        return name
-
-    # make sure data is evenly spaced
-    def prepare_data(self, dfEntity):
-
-        logger.debug(self.whoami + ': prepare Data')
-
-        # drop duplicates
-        #dfEntity = dfEntity[~dfEntity.index.duplicated(keep='first')]
-
-        # operate on simple timestamp index
-        if len(dfEntity.index.names) > 1:
-            index_names = dfEntity.index.names
-            dfe = dfEntity.reset_index(index_names[1:])
-        else:
-            dfe = dfEntity
-
-        # interpolate gaps - data imputation
-        try:
-            dfe = dfe.interpolate(method="time")
-        except Exception as e:
-            logger.error('Prepare data error: ' + str(e))
-
-        # one dimensional time series - named temperature for catchyness
-        temperature = dfe[self.input_item].fillna(0).to_numpy(dtype=np.float64)
-
-        return dfe, temperature
+        self.whoami = 'DataExpander'
 
     def expand_dataset(self, df_copy):
 
@@ -690,6 +631,77 @@ class AnomalyScorer(BaseTransformer):
             pass
 
         return df_new
+
+
+class AnomalyScorer(DataExpanderTransformer):
+    """
+    Superclass of all unsupervised anomaly detection functions.
+    """
+    def __init__(self, input_item, windowsize, output_items):
+        super().__init__()
+        logger.debug(input_item)
+        self.input_item = input_item
+
+        # use 12 by default
+        self.windowsize, self.windowoverlap = set_window_size_and_overlap(windowsize)
+
+        # assume 1 per sec for now
+        self.frame_rate = 1
+
+        # step
+        self.step = self.windowsize - self.windowoverlap
+
+        self.output_items = output_items
+
+        self.normalize = False
+
+        self.whoami = 'Anomaly'
+
+    def _set_dms(self, dms):
+        self.dms = dms
+
+    def _get_dms(self):
+        return self.dms
+
+    def get_model_name(self, prefix='model', suffix=None):
+
+        name = []
+        if prefix is not None:
+            name.append(prefix)
+
+        name.extend([self._entity_type.name, self.whoami])
+        name.append(self.output_items[0])
+        if suffix is not None:
+            name.append(suffix)
+        name = '.'.join(name)
+
+        return name
+
+    # make sure data is evenly spaced
+    def prepare_data(self, dfEntity):
+
+        logger.debug(self.whoami + ': prepare Data')
+
+        # drop duplicates
+        #dfEntity = dfEntity[~dfEntity.index.duplicated(keep='first')]
+
+        # operate on simple timestamp index
+        if len(dfEntity.index.names) > 1:
+            index_names = dfEntity.index.names
+            dfe = dfEntity.reset_index(index_names[1:])
+        else:
+            dfe = dfEntity
+
+        # interpolate gaps - data imputation
+        try:
+            dfe = dfe.interpolate(method="time")
+        except Exception as e:
+            logger.error('Prepare data error: ' + str(e))
+
+        # one dimensional time series - named temperature for catchyness
+        temperature = dfe[self.input_item].fillna(0).to_numpy(dtype=np.float64)
+
+        return dfe, temperature
 
 
     def execute(self, df):
