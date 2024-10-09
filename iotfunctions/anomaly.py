@@ -527,7 +527,7 @@ class DataExpanderTransformer(BaseTransformer):
     """
     def __init__(self, input_items):
         super().__init__()
-        logger.debug(input_item)
+        logger.debug(input_items)
         self.input_items = input_items
 
         # load more data from database ?
@@ -544,30 +544,42 @@ class DataExpanderTransformer(BaseTransformer):
         self.original_frame = df_copy
 
         entity_type = self.get_entity_type()
-        source_metadata = self.dms.data_items.get(self.input_item)
 
         # get schema and connection to db
         schema = entity_type._db_schema
         db = self._get_dms().db
 
-        if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
-            # get raw metrics table name
-            input_metric_table_name = entity_type._metric_table_name
+        # need two lists from input_items for raw and derived metrics
+        raw_input_items = []
+        derived_input_items = []
 
-            # entity id column for raw metrics
-            entity_id_col = entity_type._entity_id
-        else:
-            # get derived metrics table name
-            input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+        # get raw metrics table name
+        raw_input_metric_table_name = entity_type._metric_table_name
 
-            # get entity id column for derived metrics from dataframe
-            entity_id_col = df_copy.index.names[0]
+        entity_id_col = None
 
-        logger.info('expand dataframe from ' + str(schema) + '.' + str(input_metric_table_name))
+        # get derived metrics table name
+        derived_input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
 
-        df_new = None
+        for input_item in self.input_items:
+            source_metadata = self.dms.data_items.get(input_item)
+            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+                raw_input_items.append(input_item)
+                if entity_id_col is None: 
+                    entity_id_col = entity_type._entity_id
+            else:
+                derived_input_items.append(input_item)
+                # get entity id column for derived metrics from dataframe
+                if entity_id_col is None: 
+                    entity_id_col = df_copy.index_names[0]
 
-        logger.info('expand dataframe: entity id column:' + str(entity_id_col) + ', timestamp:' + str(entity_type._timestamp))
+
+        logger.info('expand dataframe from ' + str(schema) + '.' + str(raw_input_metric_table_name) +
+                        ' and ' + str(derived_input_metric_table_name))
+        logger.info(' using ' + str(entity_id_col) + ' as entity id column and ' + str(entity_type._timestamp) + ' as timestamp')
+
+        df_new_raw = None
+        df_new_dm = None
 
         # we need ~600 events per entity
         start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
@@ -587,36 +599,57 @@ class DataExpanderTransformer(BaseTransformer):
         '''
 
         try:
-            table = None
-            query = None
+            table_raw = None
+            table_dm = None
+            query_raw = None
+            query_dm = None
 
             #print('EXPAND 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
 
-            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
+            if raw_input_items:   # list is not empty
                 try:
-                    query, table = db.query(input_metric_table_name, schema, column_names=[entity_id_col, self.input_item, entity_type._timestamp])
-                    query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts)
+                    query_raw, table_raw = db.query(input_metric_table_name, schema, column_names=[entity_id_col, entity_type._timestamp] + raw_input_items)
+                    query_raw = query_raw.filter(db.get_column_object(table_raw, entity_type._timestamp) >= start_ts)
                 except Exception as ee:
-                    logger.warning('Failed to get raw metric from ' + schema + '.' + input_metric_table_name + ', msg: ' + str(ee))
+                    logger.warning('Failed to get raw metric from ' + schema + '.' + raw_input_metric_table_name + ', msg: ' + str(ee))
 
-            else:
+                df_new_raw = db.read_sql_query(query_raw.statement)
+
+                logger.info('Retrieved columns  raw: ' + str(df_new_raw.columns))
+
+            if derived_input_items:  # list is not empty
                 try:
                     #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
-                    query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
-                    query = query.filter(db.get_column_object(table, entity_type._timestamp) >= start_ts,
-                             db.get_column_object(table, 'KEY') == self.input_item)
+                    query_dm, table_dm = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
+                    query_dm = query.filter(db.get_column_object(table_dm, entity_type._timestamp) >= start_ts,
+                             db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
+                             #db.get_column_object(table_dm, 'KEY') == self.input_item)
+
                 except Exception as ee:
-                    logger.warning('Failed to get derived metric from ' + schema + '.' + input_metric_table_name + ', msg: ' + str(ee))
-            #print('EXPAND 2')
+                    logger.warning('Failed to get derived metric from ' + schema + '.' + derived_input_metric_table_name + ', msg: ' + str(ee))
+                df_new_dm = db.read_sql_query(query_dm.statement)
 
-            df_new = db.read_sql_query(query.statement)
+                logger.info('Retrieved columns  derived: ' + str(df_new_dm.columns))
 
-            #print('EXPAND 3')
-            logger.info('Retrieved columns ' + str(df_new.columns))
+                #df_new.drop(columns=['KEY'], inplace=True)
 
-            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() == 'DERIVED_METRIC':
-               df_new.drop(columns=['KEY'], inplace=True)
-               df_new.rename(columns={'entity_id': entity_id_col, 'value_n': self.input_item, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
+                # TODO rename 'value_n' to KEY row by row
+                if len(derived_input_items) == 1:
+                    df_new.rename(columns={'entity_id': entity_id_col, 'value_n': derived_input_item[0], 'TIMESTAMP': entity_type._timestamp}, inplace=True)
+                else:
+                    print('Not supported yet')
+                    df_new_dm.rename(columns={'entity_id': entity_id_col, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
+                    
+
+
+            print('EXPAND 3')
+            # TODO merge df_new_raw with df_new_dm to df_new
+            if df_new_raw is None:
+                df_new = df_new_dm
+            elif df_new_dm is None:
+                df_new = df_new_raw
+            else:
+                df_new = df_new_raw.merge(df_new_dm)
 
             logger.info('Set new index: ' + entity_id_col + entity_type._timestamp)
             df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
@@ -638,7 +671,7 @@ class AnomalyScorer(DataExpanderTransformer):
     Superclass of all unsupervised anomaly detection functions.
     """
     def __init__(self, input_item, windowsize, output_items):
-        super().__init__()
+        super().__init__([input_item])
         logger.debug(input_item)
         self.input_item = input_item
 
