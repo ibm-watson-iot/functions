@@ -614,7 +614,7 @@ class DataExpanderTransformer(BaseTransformer):
 
             if raw_input_items:   # list is not empty
                 try:
-                    query_raw, table_raw = db.query(input_metric_table_name, schema, column_names=[entity_type._entity_id, entity_type._timestamp] + raw_input_items)
+                    query_raw, table_raw = db.query(raw_input_metric_table_name, schema, column_names=[entity_type._entity_id, entity_type._timestamp] + raw_input_items)
                     query_raw = query_raw.filter(db.get_column_object(table_raw, entity_type._timestamp) >= start_ts)
                 except Exception as ee:
                     logger.warning('Failed to get raw metric from ' + schema + '.' + raw_input_metric_table_name + ', msg: ' + str(ee))
@@ -626,7 +626,7 @@ class DataExpanderTransformer(BaseTransformer):
             if derived_input_items:  # list is not empty
                 try:
                     #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
-                    query_dm, table_dm = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
+                    query_dm, table_dm = db.query(derived_input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
                     query_dm = query.filter(db.get_column_object(table_dm, entity_type._timestamp) >= start_ts,
                              db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
                              #db.get_column_object(table_dm, 'KEY') == self.input_item)
