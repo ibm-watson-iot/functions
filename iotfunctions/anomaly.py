@@ -642,7 +642,7 @@ class DataExpanderTransformer(BaseTransformer):
 
                 # TODO rename 'value_n' to KEY row by row
                 if len(derived_input_items) == 1:
-                    df_new_dm.rename(columns={'entity_id': entity_id_col, 'value_n': derived_input_item[0], 'TIMESTAMP': entity_type._timestamp}, inplace=True)
+                    df_new_dm.rename(columns={'entity_id': entity_id_col, 'value_n': derived_input_items[0], 'TIMESTAMP': entity_type._timestamp}, inplace=True)
                 else:
                     print('Not supported yet')
                     df_new_dm.rename(columns={'entity_id': entity_id_col, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
