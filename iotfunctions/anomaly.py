@@ -627,9 +627,13 @@ class DataExpanderTransformer(BaseTransformer):
                 try:
                     #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
                     query_dm, table_dm = db.query(derived_input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
-                    query_dm = query_dm.filter(db.get_column_object(table_dm, entity_type._timestamp) >= start_ts,
-                             db.get_column_object(table_dm, 'KEY').in_(tuple(derived_input_items)))
-                             #db.get_column_object(table_dm, 'KEY') == self.input_item)
+                    query_dm = query_dm.filter(db.get_column_object(table_dm, entity_type._timestamp) >= start_ts)
+
+                    try:
+                        query_dm = query_dm.filter(db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
+                    except Exception as eee:
+                        print('Filtering failed ', derived_input_items, eee)
+                        #db.get_column_object(table_dm, 'KEY') == self.input_item)
 
                 except Exception as ee:
                     logger.warning('Failed to get derived metric from ' + schema + '.' + derived_input_metric_table_name + ', msg: ' + str(ee))
