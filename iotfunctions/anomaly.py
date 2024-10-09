@@ -573,7 +573,7 @@ class DataExpanderTransformer(BaseTransformer):
                 derived_input_items.append(input_item)
                 # get entity id column for derived metrics from dataframe
                 if entity_id_col is None: 
-                    entity_id_col = df_copy.index_names[0]
+                    entity_id_col = df_copy.index.names[0]
 
         # no derived metric
         if entity_id_col is None: 
