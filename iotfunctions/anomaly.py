@@ -626,21 +626,11 @@ class DataExpanderTransformer(BaseTransformer):
             if derived_input_items:  # list is not empty
                 try:
                     #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
-                    print('HERE 1')
                     query_dm, table_dm = db.query(derived_input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
-                    print('HERE 2')
-                    query_dm = query_dm.filter(db.get_column_object(table_dm, 'TIMESTAMP') >= start_ts)
+                    query_dm = query_dm.filter(db.get_column_object(table_dm, 'TIMESTAMP') >= start_ts,
+                                db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
 
-                    print('QUERY FOR', derived_input_items, 'with', query_dm.statement)
-
-                    try:
-                        query_dm = query_dm.filter(db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
-                    except Exception as eee:
-                        print('Filtering failed ', derived_input_items, eee)
-                        pass
-                        #db.get_column_object(table_dm, 'KEY') == self.input_item)
-
-                    print("QUERY", query_dm, query_dm.statement)
+                    print("QUERY", query_dm.statement)
 
                 except Exception as ee:
                     logger.warning('Failed to get derived metric from ' + schema + '.' + derived_input_metric_table_name + ', msg: ' + str(ee))
@@ -652,13 +642,11 @@ class DataExpanderTransformer(BaseTransformer):
 
                 # TODO rename 'value_n' to KEY row by row
                 if len(derived_input_items) == 1:
-                    df_new.rename(columns={'entity_id': entity_id_col, 'value_n': derived_input_item[0], 'TIMESTAMP': entity_type._timestamp}, inplace=True)
+                    df_new_dm.rename(columns={'entity_id': entity_id_col, 'value_n': derived_input_item[0], 'TIMESTAMP': entity_type._timestamp}, inplace=True)
                 else:
                     print('Not supported yet')
                     df_new_dm.rename(columns={'entity_id': entity_id_col, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
                     
-
-
             print('EXPAND 3')
             # TODO merge df_new_raw with df_new_dm to df_new
             if df_new_raw is None:
