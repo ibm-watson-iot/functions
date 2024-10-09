@@ -628,7 +628,7 @@ class DataExpanderTransformer(BaseTransformer):
                     #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
                     query_dm, table_dm = db.query(derived_input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
                     query_dm = query_dm.filter(db.get_column_object(table_dm, entity_type._timestamp) >= start_ts,
-                             db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
+                             db.get_column_object(table_dm, 'KEY').in_(tuple(derived_input_items)))
                              #db.get_column_object(table_dm, 'KEY') == self.input_item)
 
                 except Exception as ee:
