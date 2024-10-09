@@ -558,20 +558,26 @@ class DataExpanderTransformer(BaseTransformer):
 
         entity_id_col = None
 
-        # get derived metrics table name
-        derived_input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+        # get derived metrics table name - tbd from the first derived metric we encounter
+        derived_input_metric_table_name = None
 
         for input_item in self.input_items:
             source_metadata = self.dms.data_items.get(input_item)
+
             if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
                 raw_input_items.append(input_item)
-                if entity_id_col is None: 
-                    entity_id_col = entity_type._entity_id
             else:
+                if derived_input_metric_table_name is None:
+                    derived_input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+
                 derived_input_items.append(input_item)
                 # get entity id column for derived metrics from dataframe
                 if entity_id_col is None: 
                     entity_id_col = df_copy.index_names[0]
+
+        # no derived metric
+        if entity_id_col is None: 
+            entity_id_col = entity_type._entity_id
 
 
         logger.info('expand dataframe from ' + str(schema) + '.' + str(raw_input_metric_table_name) +
@@ -608,7 +614,7 @@ class DataExpanderTransformer(BaseTransformer):
 
             if raw_input_items:   # list is not empty
                 try:
-                    query_raw, table_raw = db.query(input_metric_table_name, schema, column_names=[entity_id_col, entity_type._timestamp] + raw_input_items)
+                    query_raw, table_raw = db.query(input_metric_table_name, schema, column_names=[entity_type._entity_id, entity_type._timestamp] + raw_input_items)
                     query_raw = query_raw.filter(db.get_column_object(table_raw, entity_type._timestamp) >= start_ts)
                 except Exception as ee:
                     logger.warning('Failed to get raw metric from ' + schema + '.' + raw_input_metric_table_name + ', msg: ' + str(ee))
