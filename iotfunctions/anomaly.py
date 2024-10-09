@@ -626,15 +626,18 @@ class DataExpanderTransformer(BaseTransformer):
             if derived_input_items:  # list is not empty
                 try:
                     #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
+                    print('HERE 1')
                     query_dm, table_dm = db.query(derived_input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
-                    query_dm = query_dm.filter(db.get_column_object(table_dm, entity_type._timestamp) >= start_ts)
+                    print('HERE 2')
+                    query_dm = query_dm.filter(db.get_column_object(table_dm, 'TIMESTAMP') >= start_ts)
 
-                    print('QUERY FOR', derived_input_items)
+                    print('QUERY FOR', derived_input_items, 'with', query_dm.statement)
 
                     try:
                         query_dm = query_dm.filter(db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
                     except Exception as eee:
                         print('Filtering failed ', derived_input_items, eee)
+                        pass
                         #db.get_column_object(table_dm, 'KEY') == self.input_item)
 
                     print("QUERY", query_dm, query_dm.statement)
