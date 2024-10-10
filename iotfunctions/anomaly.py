@@ -678,8 +678,7 @@ class AnomalyScorer(DataExpanderTransformer):
     def __init__(self, input_item, windowsize, output_items):
         logger.debug(input_item)
 
-        self.input_item = None
-
+        self.input_item = input_item
         super().__init__([input_item, 'work_performed'])  # TEST
         
         '''
