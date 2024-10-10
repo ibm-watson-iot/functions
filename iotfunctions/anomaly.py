@@ -693,7 +693,7 @@ class AnomalyScorer(DataExpanderTransformer):
         logger.debug(input_item)
 
         self.input_item = input_item
-        super().__init__([input_item, 'work_performed'])  # TEST
+        super().__init__([input_item, 'speed'])  # TEST
         
         '''
         if input_item isinstance(list):
