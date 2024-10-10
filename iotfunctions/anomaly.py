@@ -630,7 +630,7 @@ class DataExpanderTransformer(BaseTransformer):
                     query_dm = query_dm.filter(db.get_column_object(table_dm, 'TIMESTAMP') >= start_ts,
                                 db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
 
-                    print("QUERY", query_dm.statement)
+                    logger.debug("expand - query derived metric:" + str(query_dm.statement))
 
                 except Exception as ee:
                     logger.warning('Failed to get derived metric from ' + schema + '.' + derived_input_metric_table_name + ', msg: ' + str(ee))
@@ -644,7 +644,7 @@ class DataExpanderTransformer(BaseTransformer):
                 if len(derived_input_items) == 1:
                     df_new_dm.rename(columns={'entity_id': entity_id_col, 'value_n': derived_input_items[0], 'TIMESTAMP': entity_type._timestamp}, inplace=True)
                 else:
-                    print('Not supported yet')
+                    logger.debug("expand - extract derived metrics")
                     dfs = []
                     df_new_dm.rename(columns={'entity_id': entity_id_col, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
 
@@ -657,7 +657,7 @@ class DataExpanderTransformer(BaseTransformer):
                         else:
                             df_new_dm = df_new_dm.merge(df_iter, how='outer', on=[entity_id_col, entity_type._timestamp])
 
-                    print('MERGE', df_new_dm.describe())
+                    logger.debug("expand - expanded derived metrics " + str(df_new_dm.describe()))
                     
             print('EXPAND 3')
             # TODO merge df_new_raw with df_new_dm to df_new
@@ -670,6 +670,8 @@ class DataExpanderTransformer(BaseTransformer):
 
             logger.info('Set new index: ' + entity_id_col + entity_type._timestamp)
             df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
+
+            logger.debug('expanded data set ' + str(df_new.describe()))
 
             #print('EXPAND 4')
             df_new = df_new[~df_new.index.duplicated(keep='first')]  # do we need this ?
