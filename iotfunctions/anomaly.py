@@ -659,7 +659,7 @@ class DataExpanderTransformer(BaseTransformer):
 
                     logger.debug("expand - expanded derived metrics " + str(df_new_dm.describe()))
                     
-            print('EXPAND 3')
+
             # TODO merge df_new_raw with df_new_dm to df_new
             if df_new_raw is None:
                 df_new = df_new_dm
@@ -668,7 +668,7 @@ class DataExpanderTransformer(BaseTransformer):
             else:
                 df_new = df_new_raw.merge(df_new_dm, on=[entity_id_col, entity_type._timestamp], how='outer')
 
-            logger.info('Set new index: ' + entity_id_col + entity_type._timestamp)
+            logger.info('Merged raw and derived metrics, now set new index: ' + entity_id_col + entity_type._timestamp)
             df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
 
             logger.debug('expanded data set ' + str(df_new.describe()))
@@ -693,7 +693,7 @@ class AnomalyScorer(DataExpanderTransformer):
         logger.debug(input_item)
 
         self.input_item = input_item
-        super().__init__([input_item, 'speed'])  # TEST
+        super().__init__([input_item])  # TEST
         
         '''
         if input_item isinstance(list):
