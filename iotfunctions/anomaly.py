@@ -676,9 +676,20 @@ class AnomalyScorer(DataExpanderTransformer):
     Superclass of all unsupervised anomaly detection functions.
     """
     def __init__(self, input_item, windowsize, output_items):
-        super().__init__([input_item])
         logger.debug(input_item)
-        self.input_item = input_item
+
+        self.input_item = None
+
+        super().__init__([input_item, 'work_performed'])  # TEST
+        
+        '''
+        if input_item isinstance(list):
+            super().__init__(input_item)
+            self.input_item = input_item[0]
+        else:
+            super().__init__([input_item])
+            self.input_item = input_item
+        '''
 
         # use 12 by default
         self.windowsize, self.windowoverlap = set_window_size_and_overlap(windowsize)
