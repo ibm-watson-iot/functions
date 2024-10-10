@@ -645,7 +645,17 @@ class DataExpanderTransformer(BaseTransformer):
                     df_new_dm.rename(columns={'entity_id': entity_id_col, 'value_n': derived_input_items[0], 'TIMESTAMP': entity_type._timestamp}, inplace=True)
                 else:
                     print('Not supported yet')
+                    dfs = []
                     df_new_dm.rename(columns={'entity_id': entity_id_col, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
+
+                    for input_item in derived_input_items:
+                        dfs.append(df_new_dm[df_new_dm['KEY'] == input_item].drop(columns='KEY'))
+
+                    df_new_dm = None
+                    for df_iter in dfs:
+                        if df_new_dm is None: df_new_dm = df_iter
+                        else:
+                            df_new_dm = df_new_dm.merge(df_iter, how='outer', on=[entity_id_col, entity_type._timestamp])
                     
             print('EXPAND 3')
             # TODO merge df_new_raw with df_new_dm to df_new
@@ -654,7 +664,7 @@ class DataExpanderTransformer(BaseTransformer):
             elif df_new_dm is None:
                 df_new = df_new_raw
             else:
-                df_new = df_new_raw.merge(df_new_dm)
+                df_new = df_new_raw.merge(df_new_dm, on=[entity_id_col, entity_type._timestamp], how='outer')
 
             logger.info('Set new index: ' + entity_id_col + entity_type._timestamp)
             df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
