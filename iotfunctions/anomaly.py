@@ -656,6 +656,8 @@ class DataExpanderTransformer(BaseTransformer):
                         if df_new_dm is None: df_new_dm = df_iter
                         else:
                             df_new_dm = df_new_dm.merge(df_iter, how='outer', on=[entity_id_col, entity_type._timestamp])
+
+                    print('MERGE', df_new_dm.describe())
                     
             print('EXPAND 3')
             # TODO merge df_new_raw with df_new_dm to df_new
