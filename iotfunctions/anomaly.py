@@ -621,7 +621,7 @@ class DataExpanderTransformer(BaseTransformer):
 
                 df_new_raw = db.read_sql_query(query_raw.statement)
 
-                logger.info('Retrieved columns  raw: ' + str(df_new_raw.columns))
+                logger.info('Retrieved raw data: ' + str(df_new_raw.describe()))
 
             if derived_input_items:  # list is not empty
                 try:
