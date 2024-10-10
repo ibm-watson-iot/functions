@@ -649,7 +649,7 @@ class DataExpanderTransformer(BaseTransformer):
                     df_new_dm.rename(columns={'entity_id': entity_id_col, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
 
                     for input_item in derived_input_items:
-                        dfs.append(df_new_dm[df_new_dm['KEY'] == input_item].drop(columns='KEY'))
+                        dfs.append(df_new_dm[df_new_dm['KEY'] == input_item].drop(columns='KEY').rename(columns={'value_n':input_item}))
 
                     df_new_dm = None
                     for df_iter in dfs:
