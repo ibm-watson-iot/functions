@@ -538,7 +538,7 @@ class DataExpanderTransformer(BaseTransformer):
 
         self.whoami = 'DataExpander'
 
-    def expand_dataset(self, df_copy):
+    def expand_dataset(self, df_copy, limit=200):
 
         # save original dataframe for later use
         self.original_frame = df_copy
@@ -587,11 +587,13 @@ class DataExpanderTransformer(BaseTransformer):
         df_new_raw = None
         df_new_dm = None
 
-        # we need ~600 events per entity
-        start_ts = pd.Timestamp.now() - pd.Timedelta(days=1)
+        # we need 'limit' events by time and number
+        start_ts = pd.Timestamp.now() - pd.Timedelta(days=7)   # not more than a week of data
 
         '''
         # TODO - need lots of rework - from window size and overlap estimate the amount of data needed
+        #  lookback per entity is parametrized 
+        # 
         mindeltas = pd.Series(pd.to_datetime(self.mindelta))
         qs = mindeltas.quantile([0.25, 0.5, 0.75])
         print('TIME DELTA', qs[0], qs[1], qs[2]) 
@@ -615,7 +617,7 @@ class DataExpanderTransformer(BaseTransformer):
             if raw_input_items:   # list is not empty
                 try:
                     query_raw, table_raw = db.query(raw_input_metric_table_name, schema, column_names=[entity_type._entity_id, entity_type._timestamp] + raw_input_items)
-                    query_raw = query_raw.filter(db.get_column_object(table_raw, entity_type._timestamp) >= start_ts)
+                    query_raw = query_raw.filter(db.get_column_object(table_raw, entity_type._timestamp) >= start_ts).limit(limit)
                 except Exception as ee:
                     logger.warning('Failed to get raw metric from ' + schema + '.' + raw_input_metric_table_name + ', msg: ' + str(ee))
 
@@ -628,7 +630,7 @@ class DataExpanderTransformer(BaseTransformer):
                     #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
                     query_dm, table_dm = db.query(derived_input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
                     query_dm = query_dm.filter(db.get_column_object(table_dm, 'TIMESTAMP') >= start_ts,
-                                db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
+                                db.get_column_object(table_dm, 'KEY').in_(derived_input_items)).limit(limit)
 
                     logger.debug("expand - query derived metric:" + str(query_dm.statement))
 
@@ -684,6 +686,37 @@ class DataExpanderTransformer(BaseTransformer):
 
         return df_new
 
+class TSFMZeroShotScorer(DataExpanderTransformer):
+    """
+    Call time series foundation model
+    """
+    def __init__(self, input_items, output_items, context, horizon):
+        logger.debug(str(input_items) + ', ' + str(output_items))
+
+        super().__init__(input_items)
+
+        self.input_items = input_items
+        self.output_items = output_items
+        self.context = context
+        self.horizon = horizon
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+
+        inputs.append(UIMultiItem(name='input_items', datatype=float, required=True, output_item='output_items',
+                                  is_output_datatype_derived=True))
+        inputs.append(
+            UISingle(name='context', datatype=int, required=False, description='Context - past data'))
+        inputs.append(
+            UISingle(name='horizon', datatype=int, required=False, description='Forecasting horizon'))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        return inputs, outputs
+
 
 class AnomalyScorer(DataExpanderTransformer):
     """
@@ -693,7 +726,7 @@ class AnomalyScorer(DataExpanderTransformer):
         logger.debug(input_item)
 
         self.input_item = input_item
-        super().__init__([input_item])  # TEST
+        super().__init__([input_item])
         
         '''
         if input_item isinstance(list):
@@ -804,7 +837,8 @@ class AnomalyScorer(DataExpanderTransformer):
         # we don't have enough data, haven't loaded data yet and ..
         # we have access to our database and are allowed to go to it
         if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
-            df_new = self.expand_dataset(df_copy)
+            # TODO compute the lookback parameter based on window size and overlap
+            df_new = self.expand_dataset(df_copy, np.unique(df_copy.index.levels[0].values) * 200)
 
             # drive by-entity scoring with the expanded dataset
             if df_new is not None:
@@ -1005,7 +1039,6 @@ class Derivative(AnomalyScorer):
             scores.append(np.diff(temperature, prepend=temperature[0]))
 
         return scores
-
 
     @classmethod
     def build_ui(cls):
