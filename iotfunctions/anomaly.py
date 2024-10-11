@@ -583,6 +583,7 @@ class DataExpanderTransformer(BaseTransformer):
         logger.info('expand dataframe from ' + str(schema) + '.' + str(raw_input_metric_table_name) +
                         ' and ' + str(derived_input_metric_table_name))
         logger.info(' using ' + str(entity_id_col) + ' as entity id column and ' + str(entity_type._timestamp) + ' as timestamp')
+        logger.info(' with limit  ' + str(limit))
 
         df_new_raw = None
         df_new_dm = None
