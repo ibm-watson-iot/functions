@@ -839,7 +839,7 @@ class AnomalyScorer(DataExpanderTransformer):
         # we have access to our database and are allowed to go to it
         if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
             # TODO compute the lookback parameter based on window size and overlap
-            df_new = self.expand_dataset(df_copy, np.unique(df_copy.index.get_level_values(0).values).shape[0] * 200)
+            df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * 200)
 
             # drive by-entity scoring with the expanded dataset
             if df_new is not None:
