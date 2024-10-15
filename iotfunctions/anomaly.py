@@ -60,7 +60,7 @@ from statsmodels.tsa.arima.model import ARIMA
 # EXCLUDED until we upgrade to statsmodels 0.12
 #from statsmodels.tsa.forecasting.stl import STLForecast
 
-from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
+from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator, DataExpanderTransformer)
 from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 from .db import (Database, DatabaseFacade)
@@ -521,172 +521,6 @@ class MinMax_Scaler(BaseEstimatorFunction):
 # Anomaly Scorers
 #######################################################################################
 
-class DataExpanderTransformer(BaseTransformer):
-    """
-    Superclass of all unsupervised anomaly detection functions.
-    """
-    def __init__(self, input_items):
-        super().__init__()
-        logger.debug(input_items)
-        self.input_items = input_items
-
-        # load more data from database ?
-        self.window_too_small = False  # apparently there is not sufficient data for scoring
-        self.allowed_to_expand = False # we are not allowed to expand the dataset by default, override in subclass
-        self.original_frame = None     # save the original frame to properly cut larger frame
-        self.mindelta = None           # find out how much data we need in terms of time delta, window size and overlap
-
-        self.whoami = 'DataExpander'
-
-    def expand_dataset(self, df_copy, limit=200):
-
-        # save original dataframe for later use
-        self.original_frame = df_copy
-
-        entity_type = self.get_entity_type()
-
-        # get schema and connection to db
-        schema = entity_type._db_schema
-        db = self._get_dms().db
-
-        # need two lists from input_items for raw and derived metrics
-        raw_input_items = []
-        derived_input_items = []
-
-        # get raw metrics table name
-        raw_input_metric_table_name = entity_type._metric_table_name
-
-        entity_id_col = None
-
-        # get derived metrics table name - tbd from the first derived metric we encounter
-        derived_input_metric_table_name = None
-
-        for input_item in self.input_items:
-            source_metadata = self.dms.data_items.get(input_item)
-
-            if source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper() != 'DERIVED_METRIC':
-                raw_input_items.append(input_item)
-            else:
-                if derived_input_metric_table_name is None:
-                    derived_input_metric_table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
-
-                derived_input_items.append(input_item)
-                # get entity id column for derived metrics from dataframe
-                if entity_id_col is None: 
-                    entity_id_col = df_copy.index.names[0]
-
-        # no derived metric
-        if entity_id_col is None: 
-            entity_id_col = entity_type._entity_id
-
-
-        logger.info('expand dataframe from ' + str(schema) + '.' + str(raw_input_metric_table_name) +
-                        ' and ' + str(derived_input_metric_table_name))
-        logger.info(' using ' + str(entity_id_col) + ' as entity id column and ' + str(entity_type._timestamp) + ' as timestamp')
-        logger.info(' with limit  ' + str(limit))
-
-        df_new_raw = None
-        df_new_dm = None
-
-        # we need 'limit' events by time and number
-        start_ts = pd.Timestamp.now() - pd.Timedelta(days=7)   # not more than a week of data
-
-        '''
-        # TODO - need lots of rework - from window size and overlap estimate the amount of data needed
-        #  lookback per entity is parametrized 
-        # 
-        mindeltas = pd.Series(pd.to_datetime(self.mindelta))
-        qs = mindeltas.quantile([0.25, 0.5, 0.75])
-        print('TIME DELTA', qs[0], qs[1], qs[2]) 
-
-        # 'max gap' times 'motifs needed for anomaly scoring' divided by the overlap
-        go_back_to = (qs[1] + 2 * (qs[2] - qs[0])) * (self.window_size + MinMotifsRequiredForAnomalies * self.windowoverlap)
-
-        print('GO BACK', go_back_to)
-
-        start_ts = pd.Timestamp.now() - go_back_to
-        '''
-
-        try:
-            table_raw = None
-            table_dm = None
-            query_raw = None
-            query_dm = None
-
-            #print('EXPAND 1', source_metadata.get(md.DATA_ITEM_TYPE_KEY).upper())
-
-            if raw_input_items:   # list is not empty
-                try:
-                    query_raw, table_raw = db.query(raw_input_metric_table_name, schema, column_names=[entity_type._entity_id, entity_type._timestamp] + raw_input_items)
-                    query_raw = query_raw.filter(db.get_column_object(table_raw, entity_type._timestamp) >= start_ts).limit(limit)
-                except Exception as ee:
-                    logger.warning('Failed to get raw metric from ' + schema + '.' + raw_input_metric_table_name + ', msg: ' + str(ee))
-
-                df_new_raw = db.read_sql_query(query_raw.statement)
-
-                logger.info('Retrieved raw data: ' + str(df_new_raw.describe()))
-
-            if derived_input_items:  # list is not empty
-                try:
-                    #query, table = db.query(input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', entity_type._timestamp])
-                    query_dm, table_dm = db.query(derived_input_metric_table_name, schema, column_names=['ENTITY_ID', 'KEY', 'VALUE_N', 'TIMESTAMP'])
-                    query_dm = query_dm.filter(db.get_column_object(table_dm, 'TIMESTAMP') >= start_ts,
-                                db.get_column_object(table_dm, 'KEY').in_(derived_input_items)).limit(limit)
-
-                    logger.debug("expand - query derived metric:" + str(query_dm.statement))
-
-                except Exception as ee:
-                    logger.warning('Failed to get derived metric from ' + schema + '.' + derived_input_metric_table_name + ', msg: ' + str(ee))
-                df_new_dm = db.read_sql_query(query_dm.statement)
-
-                logger.info('Retrieved columns  derived: ' + str(df_new_dm.columns))
-
-                #df_new.drop(columns=['KEY'], inplace=True)
-
-                # TODO rename 'value_n' to KEY row by row
-                if len(derived_input_items) == 1:
-                    df_new_dm.rename(columns={'entity_id': entity_id_col, 'value_n': derived_input_items[0], 'TIMESTAMP': entity_type._timestamp}, inplace=True)
-                else:
-                    logger.debug("expand - extract derived metrics")
-                    dfs = []
-                    df_new_dm.rename(columns={'entity_id': entity_id_col, 'TIMESTAMP': entity_type._timestamp}, inplace=True)
-
-                    for input_item in derived_input_items:
-                        dfs.append(df_new_dm[df_new_dm['KEY'] == input_item].drop(columns='KEY').rename(columns={'value_n':input_item}))
-
-                    df_new_dm = None
-                    for df_iter in dfs:
-                        if df_new_dm is None: df_new_dm = df_iter
-                        else:
-                            df_new_dm = df_new_dm.merge(df_iter, how='outer', on=[entity_id_col, entity_type._timestamp])
-
-                    logger.debug("expand - expanded derived metrics " + str(df_new_dm.describe()))
-                    
-
-            # TODO merge df_new_raw with df_new_dm to df_new
-            if df_new_raw is None:
-                df_new = df_new_dm
-            elif df_new_dm is None:
-                df_new = df_new_raw
-            else:
-                df_new = df_new_raw.merge(df_new_dm, on=[entity_id_col, entity_type._timestamp], how='outer')
-
-            logger.info('Merged raw and derived metrics, now set new index: ' + entity_id_col + entity_type._timestamp)
-            df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
-
-            logger.debug('expanded data set ' + str(df_new.describe()))
-
-            #print('EXPAND 4')
-            df_new = df_new[~df_new.index.duplicated(keep='first')]  # do we need this ?
-            df_new[self.output_items] = Null_Float
-
-        except Exception as e:
-            logger.info('Could not get more data for anomaly scoring. Error ' + str(e))
-            df_new = None
-            pass
-
-        return df_new
-
 class TSFMZeroShotScorer(DataExpanderTransformer):
     """
     Call time series foundation model
@@ -713,6 +547,8 @@ class TSFMZeroShotScorer(DataExpanderTransformer):
             UISingle(name='context', datatype=int, required=False, description='Context - past data'))
         inputs.append(
             UISingle(name='horizon', datatype=int, required=False, description='Forecasting horizon'))
+        inputs.append(UISingle(name='watsonx_auth', datatype=str,
+                               description='Endpoint to the WatsonX service where model is hosted', tags=['TEXT'], required=True))
 
         # define arguments that behave as function outputs
         outputs = []

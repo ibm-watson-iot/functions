@@ -2,22 +2,23 @@ dill==0.3.6
 ibm_db==3.1.4
 ibm_db_sa==0.3.9
 ibm-watson-machine-learning==1.0.333
+ibm_watsonx_ai==1.1.14
 lxml==4.9.2
-lightgbm==3.3.5
+lightgbm==4.5.0
 nose2==0.6.0
 pandas==1.5.3
 psycopg2-binary==2.9.5
 pyarrow==14.0.1
-pyod==1.0.0
+pyod==2.0.2
 certifi>=2023.7.22
 requests==2.31.0
-ruptures==1.1.5
+ruptures==1.1.9
 scikit-learn==1.1.1
 scikit-image==0.19.3
 scipy==1.11.1
 sqlalchemy==1.4.39
 statsmodels==0.13.5
-stumpy==1.9.2
+stumpy==1.13.0
 numpy==1.23.5
 tabulate==0.8.10
 # torch==2.2.0 : installation moved to Dockerfile
