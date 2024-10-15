@@ -60,7 +60,11 @@ from statsmodels.tsa.arima.model import ARIMA
 # EXCLUDED until we upgrade to statsmodels 0.12
 #from statsmodels.tsa.forecasting.stl import STLForecast
 
-from iotfunctions.base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator, DataExpanderTransformer)
+import importlib
+importlib.reload(iotfunctions.base)
+from iotfunctions.base import DataExpanderTransformer
+
+from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
 from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 from .db import (Database, DatabaseFacade)
@@ -68,6 +72,7 @@ from .dbtables import (FileModelStore, DBModelStore)
 
 from iotfunctions import metadata as md
 from sqlalchemy.sql import text, select, column, func
+
 
 
 # VAE
