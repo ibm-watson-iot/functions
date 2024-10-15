@@ -60,7 +60,7 @@ from statsmodels.tsa.arima.model import ARIMA
 # EXCLUDED until we upgrade to statsmodels 0.12
 #from statsmodels.tsa.forecasting.stl import STLForecast
 
-from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator, DataExpanderTransformer)
+from iotfunctions.base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator, DataExpanderTransformer)
 from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 from .db import (Database, DatabaseFacade)
