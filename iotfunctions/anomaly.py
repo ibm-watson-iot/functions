@@ -3299,6 +3299,7 @@ class VI(nn.Module):
         log_var = self.q_log_var(x)
         return self.reparameterize(mu, log_var), mu, log_var,  mu + self.adjust_mean
 
+    #
     # see 2.3 in https://arxiv.org/pdf/1312.6114.pdf - *the* Kingma-Welling article
     #
     def elbo(self, y_pred, y, mu, log_var):
@@ -3324,7 +3325,7 @@ class VI(nn.Module):
                         ' loglikelihood: ' + str(log_qzCx.shape) + ' KL value: ' +
                         str((log_pz - log_pxCz).mean()))
 
-        # by taking the mean we approximate the expectation according to the law of large numbers
+        # by taking the mean we approximate the expectation according to the law of large numbers a la Monte Carlo
         return (log_qzCx + self.beta * (log_pz - log_pxCz)).mean()
 
 
@@ -3496,6 +3497,10 @@ class VIAnomalyScore(SupervisedLearningTransformer):
         if vi_model is None and self.auto_train:
 
             # equip prior with a 'plausible' deviation
+            #  according to "Don't blame the ELBO. A Linear VAE Perspective on Posterior Collapse"
+            #     https://arxiv.org/pdf/1911.02469
+            #  selecting a suitable sigma is (almost) equivalent to selecting a sufficiently small beta
+            #  to reduce 'undue' influence of the prior (aka avoid posterior collapse)
             self.prior_sigma = targets.std()
 
             vi_model = VI(scaler, prior_mu=self.prior_mu, prior_sigma=self.prior_sigma,
