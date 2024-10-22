@@ -31,8 +31,8 @@ from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
 from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL
-from ibm_watson_machine_learning import APIClient
-#from ibm_watsonx_ai import APIClient, Credentials
+#from ibm_watson_machine_learning import APIClient
+from ibm_watsonx_ai import APIClient, Credentials
 #from ibm_watson_studio_lib import access_project_or_space
 
 
@@ -3173,7 +3173,7 @@ class InvokeWMLModel(DataExpanderTransformer):
     This name is passed to InvokeWMLModel in wml_auth.
     '''
     def __init__(self, input_items, wml_auth, output_items):
-        super().__init__()
+        super().__init__(input_items)
 
         logger.debug(input_items)
 
@@ -3230,16 +3230,15 @@ class InvokeWMLModel(DataExpanderTransformer):
         if self.logged_on:
             return
 
-        # check if empty
-        if not wml_auth:
-            self.init_local_model = init_local_model(self)
-
         # retrieve WML credentials as constant
         #    {"apikey": api_key, "url": 'https://' + location + '.ml.cloud.ibm.com'}
         c = None
         if isinstance(self.wml_auth, dict):
             wml_credentials = self.wml_auth
         elif self.wml_auth is not None:
+            # check if exists, but empty
+            if not self.wml_auth:
+                self.init_local_model = init_local_model(self)
             try:
                 c = self._entity_type.get_attributes_dict()
             except Exception:
@@ -3260,22 +3259,24 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         # get client and check credentials
         url = None
-        token = None
+        api_key = None
         space = None
         project = None
         deployment_id = None
-        for key in wml_credentials.keys()
+        for key in wml_credentials.keys():
             if key == 'url': url = wml_credentials[key]
-            if key == 'token' or key == 'apikey': token = wml_credentials[key]
-            if key == 'space_id': space = wml_credentials[key]
-            if key == 'project': space = wml_credentials[key]
+            if key == 'token' or key == 'apikey': api_key = wml_credentials[key]
+            if key == 'space_id': space_id = wml_credentials[key]
+            if key == 'project_id': project_id = wml_credentials[key]  # for later usage
             if key == 'deployment_id': deployment_id = wml_credentials[key]
         
-        #credentials = Credentials(url=url, token=token)
-        print(url, token, space_id, project, deployment_id)
+        credentials = Credentials(url=url, api_key=api_key)
+        print(url, api_key, space_id, project, deployment_id)
 
-        self.client = APIClient(wml_credentials)
-        self.client.set.default_space(wml_credentials['space_id'])
+        #self.client = APIClient(wml_credentials)
+        self.client = APIClient(credentials, space_id=space_id)
+        #self.client.set.default_space(wml_credentials['space_id'])
+        self.client.set.default_space(space_id)
         '''
         self.client = APIClient(credentials, space=space)
 

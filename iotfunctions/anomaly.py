@@ -61,7 +61,7 @@ from statsmodels.tsa.arima.model import ARIMA
 #from statsmodels.tsa.forecasting.stl import STLForecast
 
 from .base import (BaseTransformer, BaseRegressor, BaseEstimatorFunction, BaseSimpleAggregator)
-from .bif import (AlertHighValue)
+#from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 from .db import (Database, DatabaseFacade)
 from .dbtables import (FileModelStore, DBModelStore)
@@ -2907,7 +2907,7 @@ class SimpleAnomaly(BaseRegressor):
             for i, t in enumerate(self.targets):
                 prediction = self.predictions[i]
                 df['_diff_'] = (df[t] - df[prediction]).abs()
-                alert = AlertHighValue(input_item='_diff_', upper_threshold=self.threshold, alert_name=self.alerts[i])
+                #alert = AlertHighValue(input_item='_diff_', upper_threshold=self.threshold, alert_name=self.alerts[i])
                 alert.set_entity_type(self.get_entity_type())
                 df = alert.execute(df)
         except Exception as e:
