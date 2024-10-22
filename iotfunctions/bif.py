@@ -3396,7 +3396,6 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         # define arguments that behave as function outputs
         outputs=[]
-        outputs.append(UISingle(name='output_items', datatype=float))
         return (inputs, outputs)
 
 
@@ -3404,10 +3403,10 @@ class TSFMZeroShotScorer(InvokeWMLModel):
     """
     Call time series foundation model
     """
-    def __init__(self, input_items, context, horizon, wml_auth, output_items):
+    def __init__(self, input_items, output_items=None, context=512, horizon=96, watsonx_auth=None):
         logger.debug(str(input_items) + ', ' + str(output_items))
 
-        super().__init__(input_items, wml_auth, output_items)
+        super().__init__(input_items, watsonx_auth, output_items)
 
         self.context = context
         self.horizon = horizon
@@ -3446,7 +3445,8 @@ class TSFMZeroShotScorer(InvokeWMLModel):
                                description='Endpoint to the WatsonX service where model is hosted', tags=['TEXT'], required=True))
 
         # define arguments that behave as function outputs
-        outputs = []
+        outputs=[]
+        #outputs.append(UISingle(name='output_items', datatype=float))
         return inputs, outputs
 
 
