@@ -317,6 +317,8 @@ class DataExpanderTransformer(BaseTransformer):
         self.allowed_to_expand = False # we are not allowed to expand the dataset by default, override in subclass
         self.original_frame = None     # save the original frame to properly cut larger frame
         self.mindelta = None           # find out how much data we need in terms of time delta, window size and overlap
+        self.has_access_to_db = False  # to be tested later ..
+        
 
         self.whoami = 'DataExpander'
 
@@ -678,40 +680,6 @@ class MinMax_Scaler(BaseEstimatorFunction):
 #######################################################################################
 # Anomaly Scorers
 #######################################################################################
-
-class TSFMZeroShotScorer(DataExpanderTransformer):
-    """
-    Call time series foundation model
-    """
-    def __init__(self, input_items, output_items, context, horizon):
-        logger.debug(str(input_items) + ', ' + str(output_items))
-
-        super().__init__(input_items)
-
-        self.input_items = input_items
-        self.output_items = output_items
-        self.context = context
-        self.horizon = horizon
-
-    @classmethod
-    def build_ui(cls):
-
-        # define arguments that behave as function inputs
-        inputs = []
-
-        inputs.append(UIMultiItem(name='input_items', datatype=float, required=True, output_item='output_items',
-                                  is_output_datatype_derived=True))
-        inputs.append(
-            UISingle(name='context', datatype=int, required=False, description='Context - past data'))
-        inputs.append(
-            UISingle(name='horizon', datatype=int, required=False, description='Forecasting horizon'))
-        inputs.append(UISingle(name='watsonx_auth', datatype=str,
-                               description='Endpoint to the WatsonX service where model is hosted', tags=['TEXT'], required=True))
-
-        # define arguments that behave as function outputs
-        outputs = []
-        return inputs, outputs
-
 
 class AnomalyScorer(DataExpanderTransformer):
     """

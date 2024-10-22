@@ -3197,7 +3197,7 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         self.logged_on = False
         self.init_local_model = False
-
+        self.has_access_to_db = True
 
     def __str__(self):
         out = self.__class__.__name__
@@ -3295,20 +3295,47 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         self.logged_on = True
 
+    # subclasses are supposed to implement a condition here
+    def check_size(self, size_df):
+        return False
 
     def execute(self, df):
 
         logger.info('InvokeWML exec')
 
+        sizebyentity = df.groupby(level=[0]).size()
+
+        self.window_too_small = self.check_size(sizebyentity)
+
         # Create missing columns before doing group-apply
-        df = df.copy().fillna('')
-        missing_cols = [x for x in (self.output_items) if x not in df.columns]
+        df_copy = df.copy().fillna('')
+        missing_cols = [x for x in (self.output_items) if x not in df_copy.columns]
         for m in missing_cols:
-            df[m] = None
+            df_copy[m] = None
+
+        if not hasattr(self, 'dms'): 
+            # indicate that we must not attempt to load more data
+            self.has_access_to_db = False
+            logger.warning('Started without database access')
+
+        # we don't have enough data, haven't loaded data yet and ..
+        # we have access to our database and are allowed to go to it
+        if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
+            # TODO compute the lookback parameter based on window size and overlap
+            df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * 200)
+
+            # drive by-entity scoring with the expanded dataset
+            if df_new is not None:
+                group_base = [pd.Grouper(axis=0, level=0)]
+                df_new = df_new.groupby(group_base).apply(self._calc)
+        # do not execute if we do not have enough data
+        elif self.window_too_small:
+            logger.warning('Not enough data to score')
+            return df_copy
 
         self.login()
 
-        return super().execute(df)
+        return super().execute(df_copy)
 
 
     def _calc(self, df):
@@ -3371,6 +3398,57 @@ class InvokeWMLModel(DataExpanderTransformer):
         outputs=[]
         outputs.append(UISingle(name='output_items', datatype=float))
         return (inputs, outputs)
+
+
+class TSFMZeroShotScorer(InvokeWMLModel):
+    """
+    Call time series foundation model
+    """
+    def __init__(self, input_items, context, horizon, wml_auth, output_items):
+        logger.debug(str(input_items) + ', ' + str(output_items))
+
+        super().__init__(input_items, wml_auth, output_items)
+
+        self.context = context
+        self.horizon = horizon
+        self.whoami = 'TSFMZeroShot'
+
+        # allow for expansion of the dataframe
+        self.allowed_to_expand = True
+
+    # ask for more data if we do not have enough data for context and horizon
+    def check_size(self, size_df):
+        return min(size_df) < self.context + self.horizon
+
+    # TODO implement local model lookup and initialization later
+    # initialize local model is a NoOp for superclass
+    def initialize_local_model(self):
+        return False
+
+    # inference on local model is a NoOp for superclass
+    def call_local_model(self, df):
+       return df
+
+
+    @classmethod
+    def build_ui(cls):
+
+        # define arguments that behave as function inputs
+        inputs = []
+
+        inputs.append(UIMultiItem(name='input_items', datatype=float, required=True, output_item='output_items',
+                                  is_output_datatype_derived=True))
+        inputs.append(
+            UISingle(name='context', datatype=int, required=False, description='Context - past data'))
+        inputs.append(
+            UISingle(name='horizon', datatype=int, required=False, description='Forecasting horizon'))
+        inputs.append(UISingle(name='watsonx_auth', datatype=str,
+                               description='Endpoint to the WatsonX service where model is hosted', tags=['TEXT'], required=True))
+
+        # define arguments that behave as function outputs
+        outputs = []
+        return inputs, outputs
+
 
 
 class InvokeWMLClassifier(InvokeWMLModel):
