@@ -17,6 +17,7 @@ import logging
 import re
 import time
 import warnings
+import ast 
 from collections import OrderedDict
 
 import numpy as np
@@ -3233,6 +3234,14 @@ class InvokeWMLModel(DataExpanderTransformer):
         # retrieve WML credentials as constant
         #    {"apikey": api_key, "url": 'https://' + location + '.ml.cloud.ibm.com'}
         c = None
+        if isinstance(self.wml_auth, str):
+            try:
+                wml_auth = ast.literal_eval(self.wml_auth) # no full eval due to security
+                self.wml_auth = wml_auth
+            except Exception as le:
+                logger.info("Converting WatsonX credentials to a dict failed")
+                pass
+
         if isinstance(self.wml_auth, dict):
             wml_credentials = self.wml_auth
         elif self.wml_auth is not None:

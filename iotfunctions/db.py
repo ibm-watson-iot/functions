@@ -61,6 +61,13 @@ except ImportError:
     DB2_DOUBLE = None
 
 
+def log_version():
+    try:
+        from .__init__ import __version__
+        logger.info("Initializing iotfunctions version: " + str(__version__))
+    except Exception as ee:
+        pass
+
 def get_dd_client():
     # Load url and credentials for Data Dictionary
     dd_url = os.environ.get("DD_URL")
@@ -167,6 +174,8 @@ class Database(object):
         self.db_type = None
         application_name = os.environ.get('AS_APPLICATION_NAME')
         self.application_name = "" if application_name is None else application_name
+
+        log_version()
 
         if credentials is None:
             credentials = {}
