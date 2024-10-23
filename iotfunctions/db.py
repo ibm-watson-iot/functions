@@ -36,6 +36,7 @@ from sqlalchemy.orm.session import sessionmaker
 from sqlalchemy.sql import select
 from sqlalchemy.sql.sqltypes import FLOAT, INTEGER, TIMESTAMP, VARCHAR, BOOLEAN, NullType
 
+import iotfunctions
 from . import dbtables
 from . import metadata as md
 from . import pipeline as pp
@@ -60,13 +61,6 @@ try:
 except ImportError:
     DB2_DOUBLE = None
 
-
-def log_version():
-    try:
-        from .__init__ import __version__
-        logger.info("Initializing iotfunctions version: " + str(__version__))
-    except Exception as ee:
-        pass
 
 def get_dd_client():
     # Load url and credentials for Data Dictionary
@@ -175,7 +169,7 @@ class Database(object):
         application_name = os.environ.get('AS_APPLICATION_NAME')
         self.application_name = "" if application_name is None else application_name
 
-        log_version()
+        logger.info('Initializing database instance using iotfunctions %s', iotfunctions.__version__)
 
         if credentials is None:
             credentials = {}
