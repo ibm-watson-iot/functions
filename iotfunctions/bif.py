@@ -3331,7 +3331,7 @@ class InvokeWMLModel(DataExpanderTransformer):
         # we have access to our database and are allowed to go to it
         if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
             # TODO compute the lookback parameter based on window size and overlap
-            df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * 200)
+            df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * (self.context + self.horizon))
 
             # drive by-entity scoring with the expanded dataset
             if df_new is not None:
@@ -3358,14 +3358,23 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         if len(self.input_items) >= 1:
             index_nans = df[df[self.input_items].isna().any(axis=1)].index
-            rows = df.loc[~df.index.isin(index_nans), self.input_items]
+            rows = df.loc[~df.index.isin(index_nans), self.input_items].values
+
+            logger.debug("Payload shape: " + str(rows.shape))
+
+            if rows.shape[0] > 0 and not np.issubdtype(rows.dtype, np.number):
+                try:
+                    rows = rows.astype(np.float64)
+                except Exception as numerr:
+                    logger.warn("Non numeric input to InvokeWML " + str(rows.dtype))
+                    pass
 
             if rows.shape[0] > 0:
-                rows = rows.values.tolist()
+                Rows = rows.tolist()
                 scoring_payload = {
                     'input_data': [{
                         'fields': self.input_items,
-                        'values': rows}]
+                        'values': Rows}]
                 }
             else:
                 logging.info("Empty data frame, WML Model is not invoked.")
