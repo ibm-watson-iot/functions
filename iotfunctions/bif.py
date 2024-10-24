@@ -3330,10 +3330,13 @@ class InvokeWMLModel(DataExpanderTransformer):
         # we don't have enough data, haven't loaded data yet and ..
         # we have access to our database and are allowed to go to it
         if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
+
+            self.login()
+
             # TODO compute the lookback parameter based on window size and overlap
             df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * (self.context + self.horizon))
 
-            # drive by-entity scoring with the expanded dataset
+            # drive by-entity scoring with the expanded dataset - TODO check size again
             if df_new is not None:
                 group_base = [pd.Grouper(axis=0, level=0)]
                 df_new = df_new.groupby(group_base).apply(self._calc)
