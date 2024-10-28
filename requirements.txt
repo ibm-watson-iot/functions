@@ -5,7 +5,7 @@ ibm-watson-machine-learning==1.0.333
 ibm_watsonx_ai==1.1.14
 lxml==4.9.2
 lightgbm==4.5.0
-nose2==0.6.0
+nose2==0.15.1
 pandas==1.5.3
 psycopg2-binary==2.9.5
 pyarrow==14.0.1
