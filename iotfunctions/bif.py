@@ -3317,7 +3317,7 @@ class InvokeWMLModel(DataExpanderTransformer):
         self.window_too_small = self.check_size(sizebyentity)
 
         # Create missing columns before doing group-apply
-        df_copy = df.copy().fillna('')
+        df_copy = df.copy().fillna(0)
         missing_cols = [x for x in (self.output_items) if x not in df_copy.columns]
         for m in missing_cols:
             df_copy[m] = None
@@ -3330,7 +3330,7 @@ class InvokeWMLModel(DataExpanderTransformer):
         # we don't have enough data, haven't loaded data yet and ..
         # we have access to our database and are allowed to go to it
         if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
-
+            logger.info('Expand dataset')
             self.login()
 
             # TODO compute the lookback parameter based on window size and overlap
@@ -3370,6 +3370,7 @@ class InvokeWMLModel(DataExpanderTransformer):
                     rows = rows.astype(np.float64)
                 except Exception as numerr:
                     logger.warn("Non numeric input to InvokeWML " + str(rows.dtype))
+                    logger.info("Payload example: " + str(rows[0:5]))
                     pass
 
             if rows.shape[0] > 0:
