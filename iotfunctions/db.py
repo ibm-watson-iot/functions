@@ -29,7 +29,7 @@ import urllib3
 import urllib.parse
 from pandas.api.types import is_string_dtype, is_bool_dtype
 from sqlalchemy import Table, Column, MetaData, Integer, SmallInteger, String, DateTime, Boolean, Float, create_engine, \
-    func, and_, or_
+    func, and_, or_, text
 from sqlalchemy import __version__ as sqlalchemy_version_string
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy.orm.session import sessionmaker
@@ -1482,7 +1482,7 @@ class Database(object):
     def set_isolation_level(self, conn):
         if self.db_type == 'db2':
             with conn.connect() as con:
-                con.execute('SET ISOLATION TO DIRTY READ;')  # specific for DB2; dirty read does not exist for postgres
+                con.execute(text('SET ISOLATION TO DIRTY READ;'))  # specific for DB2; dirty read does not exist for postgres
 
     def start_session(self):
         """
