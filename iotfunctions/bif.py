@@ -3317,7 +3317,8 @@ class InvokeWMLModel(DataExpanderTransformer):
         self.window_too_small = self.check_size(sizebyentity)
 
         # Create missing columns before doing group-apply
-        df_copy = df.copy().fillna(0)
+        df_copy = df.copy() #.fillna(0)
+        df_copy[self.input_items] = df_copy[self.input_items].fillna(0)
         missing_cols = [x for x in (self.output_items) if x not in df_copy.columns]
         for m in missing_cols:
             df_copy[m] = None
@@ -3336,10 +3337,17 @@ class InvokeWMLModel(DataExpanderTransformer):
             # TODO compute the lookback parameter based on window size and overlap
             df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * (self.context + self.horizon))
 
+            # drop NaN for input items and create output items
+            df_new[self.input_items] = df_new[self.input_items].fillna(0)
+            missing_cols = [x for x in (self.output_items) if x not in df_new.columns]
+            for m in missing_cols:
+                df_new[m] = None
+
             # drive by-entity scoring with the expanded dataset - TODO check size again
             if df_new is not None:
                 group_base = [pd.Grouper(axis=0, level=0)]
                 df_new = df_new.groupby(group_base).apply(self._calc)
+
         # do not execute if we do not have enough data
         elif self.window_too_small:
             logger.warning('Not enough data to score')
@@ -3350,6 +3358,7 @@ class InvokeWMLModel(DataExpanderTransformer):
         df_new = super().execute(df_copy)
 
         logger.debug("InvokeWML results: " + str(df_new.describe()))
+        logger.debug("InvokeWML columns " + str(df_new.columns) + ", index " + str(df_new.index.names))
 
         return df_new
 
