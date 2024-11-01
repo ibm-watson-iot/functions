@@ -3347,10 +3347,19 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         self.login()
 
-        return super().execute(df_copy)
+        df_new = super().execute(df_copy)
+
+        logger.debug("InvokeWML results: " + str(df_new.describe()))
+
+        return df_new
 
 
     def _calc(self, df):
+
+        #entity = df.index[0][0]
+
+        # get rid of entity id as part of the index
+        #df = df.droplevel(0)
 
         # if we could not log on *and* support a local replacement model
         #  do inference with the local model
