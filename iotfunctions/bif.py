@@ -26,8 +26,8 @@ import pandas as pd
 from sqlalchemy import String
 
 from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithDefault, BaseMetadataProvider,
-                   BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator)
-from .anomaly import DataExpanderTransformer
+                   BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator,
+                   DataExpanderTransformer)
 from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
