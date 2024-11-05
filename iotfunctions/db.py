@@ -1273,8 +1273,9 @@ class Database(object):
             logger.warning(('Request to install package %s was ignored. This package'
                             ' is pre-installed.'), url)
         else:
+            # --process-dependency-links is gone with pip19 
             try:
-                completedProcess = subprocess.run(['pip', 'install', '--process-dependency-links', '--upgrade', url],
+                completedProcess = subprocess.run(['pip', 'install', '-U', '--break-system-packages', url],
                                                   stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
                                                   universal_newlines=True)
             except Exception as e:

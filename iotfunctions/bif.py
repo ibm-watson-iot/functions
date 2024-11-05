@@ -3231,6 +3231,11 @@ class InvokeWMLModel(DataExpanderTransformer):
         if self.logged_on:
             return
 
+        self.logged_on = self.initialize_local_model()
+        if self.logged_on:
+            logger.info('using local model')
+            return
+
         # retrieve WML credentials as constant
         #    {"apikey": api_key, "url": 'https://' + location + '.ml.cloud.ibm.com'}
         c = None
@@ -3247,7 +3252,7 @@ class InvokeWMLModel(DataExpanderTransformer):
         elif self.wml_auth is not None:
             # check if exists, but empty
             if not self.wml_auth:
-                self.init_local_model = init_local_model(self)
+                self.logged_on = self.initialize_local_model()
             try:
                 c = self._entity_type.get_attributes_dict()
             except Exception:
@@ -3365,7 +3370,7 @@ class InvokeWMLModel(DataExpanderTransformer):
 
     def _calc(self, df):
 
-        #entity = df.index[0][0]
+        entity = df.index[0][0]
 
         # get rid of entity id as part of the index
         #df = df.droplevel(0)
@@ -3374,7 +3379,7 @@ class InvokeWMLModel(DataExpanderTransformer):
         #  do inference with the local model
         if self.init_local_model:
             logging.info("Calling local model")
-            return call_local_model(df)
+            return self.call_local_model(df)
             
 
         if len(self.input_items) >= 1:
@@ -3437,58 +3442,6 @@ class InvokeWMLModel(DataExpanderTransformer):
         # define arguments that behave as function outputs
         outputs=[]
         return (inputs, outputs)
-
-
-class TSFMZeroShotScorer(InvokeWMLModel):
-    """
-    Call time series foundation model
-    """
-    def __init__(self, input_items, output_items=None, context=512, horizon=96, watsonx_auth=None):
-        logger.debug(str(input_items) + ', ' + str(output_items))
-
-        super().__init__(input_items, watsonx_auth, output_items)
-
-        self.context = context
-        self.horizon = horizon
-        self.whoami = 'TSFMZeroShot'
-
-        # allow for expansion of the dataframe
-        self.allowed_to_expand = True
-
-    # ask for more data if we do not have enough data for context and horizon
-    def check_size(self, size_df):
-        return min(size_df) < self.context + self.horizon
-
-    # TODO implement local model lookup and initialization later
-    # initialize local model is a NoOp for superclass
-    def initialize_local_model(self):
-        return False
-
-    # inference on local model is a NoOp for superclass
-    def call_local_model(self, df):
-       return df
-
-
-    @classmethod
-    def build_ui(cls):
-
-        # define arguments that behave as function inputs
-        inputs = []
-
-        inputs.append(UIMultiItem(name='input_items', datatype=float, required=True, output_item='output_items',
-                                  is_output_datatype_derived=True))
-        inputs.append(
-            UISingle(name='context', datatype=int, required=False, description='Context - past data'))
-        inputs.append(
-            UISingle(name='horizon', datatype=int, required=False, description='Forecasting horizon'))
-        inputs.append(UISingle(name='watsonx_auth', datatype=str,
-                               description='Endpoint to the WatsonX service where model is hosted', tags=['TEXT'], required=True))
-
-        # define arguments that behave as function outputs
-        outputs=[]
-        #outputs.append(UISingle(name='output_items', datatype=float))
-        return inputs, outputs
-
 
 
 class InvokeWMLClassifier(InvokeWMLModel):
