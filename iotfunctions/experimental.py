@@ -53,6 +53,7 @@ def install_and_activate_granite_tsfm():
     #db.install_package("git+https://github.com/sedgewickmm18/granite-tsfm")
     #db.import_target("tsfm_public.models","tinytimemixer", "TinyTimeMixerForPrediction")
 
+    '''
     url = "git+https://github.com/sedgewickmm18/granite-tsfm"
     try:
         sequence = ['pip', 'install', '--no-cache-dir', '--upgrade', url]
@@ -64,6 +65,8 @@ def install_and_activate_granite_tsfm():
         return False
 
     if completedProcess.returncode == 0:
+    '''
+    if True:
         importlib.invalidate_caches()
         logger.debug('pip install for url %s was successful: \n %s', url, completedProcess.stdout)
 

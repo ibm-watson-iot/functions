@@ -21,6 +21,7 @@ statsmodels==0.13.5
 stumpy==1.13.0
 numpy==1.23.5
 tabulate==0.8.10
+tsfm_public @ git+https://github.com/sedgewickmm18/granite-tsfm
 # torch==2.2.0 : installation moved to Dockerfile
 transformers==4.46.1
 urllib3==1.26.18
