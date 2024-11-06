@@ -578,7 +578,7 @@ class Database(object):
             self.session = self.Session()
         else:
             self.session = None
-        self.metadata = MetaData(self.connection)
+        self.metadata = MetaData()
         logger.info('Database connection via SqlAlchemy established.')
 
         # Establish native database connection (for DB2 and PostgreSQL only)
@@ -849,7 +849,7 @@ class Database(object):
         Create database tables for logical tables defined in the database metadata
         """
 
-        self.metadata.create_all(tables=tables, checkfirst=checkfirst)
+        self.metadata.create_all(bind=self.connection, tables=tables, checkfirst=checkfirst)
 
     def cos_create_bucket(self, bucket=None):
         """
@@ -898,7 +898,7 @@ class Database(object):
         else:
             if table is not None:
                 self.start_session()
-                self.metadata.drop_all(tables=[table], checkfirst=True)
+                self.metadata.drop_all(bind=self.connection, tables=[table], checkfirst=True)
                 self.metadata.remove(table)
                 msg = 'Dropped table name %s' % table.name
                 self.session.commit()
