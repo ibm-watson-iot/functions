@@ -55,7 +55,7 @@ def install_and_activate_granite_tsfm():
 
     url = "git+https://github.com/sedgewickmm18/granite-tsfm"
     try:
-        completedProcess = subprocess.run(['pip', 'install', '-U', '--break-system-packages', url],
+        completedProcess = subprocess.run(['pip', 'install', '--no-cache-dir', '--break-system-packages', url],
                                                   stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
                                                   universal_newlines=True)
     except Exception as e:
