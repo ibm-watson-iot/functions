@@ -55,8 +55,8 @@ def install_and_activate_granite_tsfm():
 
     url = "git+https://github.com/sedgewickmm18/granite-tsfm"
     try:
-        completedProcess = subprocess.run(['pip', 'install', '--no-cache-dir', '--break-system-packages', url],
-                                                  stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
+        sequence = ['pip', 'install', '--no-cache-dir', '--upgrade', url]
+        completedProcess = subprocess.run(sequence, stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
                                                   universal_newlines=True)
     except Exception as e:
         #raise ImportError('pip install for url %s failed: \n%s', url, str(e))
@@ -68,8 +68,8 @@ def install_and_activate_granite_tsfm():
         logger.debug('pip install for url %s was successful: \n %s', url, completedProcess.stdout)
 
     else:
-        raise ImportError('pip install for url %s failed: \n %s.', url, completedProcess.stdout)
-        logger.error('Could not install ' + url)
+        #raise ImportError('pip install for url %s failed: \n %s.', url, completedProcess.stdout)
+        logger.error('Could not install ' + url + ', ' + str(completedProcess.stdout))
         return False
     
     try:
