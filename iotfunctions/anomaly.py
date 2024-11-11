@@ -2004,6 +2004,9 @@ class RobustThresholdKDE(SupervisedLearningTransformer):
                                            description="Boolean outlier condition"))
         return (inputs, outputs)
 
+#
+# Based on "Outlier detection: how to threshold outlier scores?", https://doi.org/10.1145/3371425.3371427
+#
 class RobustThreshold(BaseTransformer):
     '''
     Outlier and anomaly scoring based on quantiles, interquartile range and median absolute deviation.
