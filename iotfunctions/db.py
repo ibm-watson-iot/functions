@@ -565,13 +565,13 @@ class Database(object):
         # Establish database connection via sqlalchemy
         logger.info('Establishing database connection via SqlAlchemy.')
         sqlalchemy_connection_kwargs = {**sqlalchemy_dialect_kwargs, **sqlalchemy_connection_kwargs}
-        self.connection = create_engine(sqlalchemy_connection_string, echo=echo, **sqlalchemy_connection_kwargs)
+        self.engine = create_engine(sqlalchemy_connection_string, echo=echo, **sqlalchemy_connection_kwargs)
 
-        self.Session = sessionmaker(bind=self.connection)
+        self.Session = sessionmaker(bind=self.engine)
 
         # this method should be invoked before the get Metadata()
         logger.debug('Set isolation')
-        self.set_isolation_level(self.connection)
+        self.set_isolation_level(self.engine)
         logger.debug('Isolation level set')
 
         if start_session:
@@ -849,7 +849,7 @@ class Database(object):
         Create database tables for logical tables defined in the database metadata
         """
 
-        self.metadata.create_all(bind=self.connection, tables=tables, checkfirst=checkfirst)
+        self.metadata.create_all(bind=self.engine, tables=tables, checkfirst=checkfirst)
 
     def cos_create_bucket(self, bucket=None):
         """
@@ -876,18 +876,18 @@ class Database(object):
             msg = 'No table %s in schema %s' % (table_name, schema)
             raise KeyError(msg)
 
-        self.start_session()
-        if older_than_days is None:
-            result = self.connection.execute(table.delete())
-            msg = 'deleted all data from table %s' % table_name
-            logger.debug(msg)
-        else:
-            until_date = dt.datetime.utcnow() - dt.timedelta(days=older_than_days)
-            result = self.connection.execute(
-                table.delete().where(self.get_column_object(table, timestamp) < until_date))
-            msg = 'deleted data from table %s older than %s' % (table_name, until_date)
-            logger.debug(msg)
-        self.commit()
+        with self.engine.connect() as conn:
+            if older_than_days is None:
+                result = conn.execute(table.delete())
+                msg = 'deleted all data from table %s' % table_name
+                logger.debug(msg)
+            else:
+                until_date = dt.datetime.utcnow() - dt.timedelta(days=older_than_days)
+                result = conn.execute(
+                    table.delete().where(self.get_column_object(table, timestamp) < until_date))
+                msg = 'deleted data from table %s older than %s' % (table_name, until_date)
+                logger.debug(msg)
+            self.commit()
 
     def drop_table(self, table_name, schema=None, recreate=False):
 
@@ -898,7 +898,7 @@ class Database(object):
         else:
             if table is not None:
                 self.start_session()
-                self.metadata.drop_all(bind=self.connection, tables=[table], checkfirst=True)
+                self.metadata.drop_all(bind=self.engine, tables=[table], checkfirst=True)
                 self.metadata.remove(table)
                 msg = 'Dropped table name %s' % table.name
                 self.session.commit()
@@ -1011,17 +1011,17 @@ class Database(object):
                 kwargs = {'schema': schema}
                 try:
                     logger.debug('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
-                    table = Table(table_name, self.connection, autoload=True, autoload_with=self.connection, **kwargs)
+                    table = Table(table_name, self.metadata, autoload=True, autoload_with=self.engine, **kwargs)
                     table.indexes = set()
                 except NoSuchTableError:
                     try:
-                        table = Table(table_name.upper(), self.connection, autoload=True, autoload_with=self.connection,
+                        table = Table(table_name.upper(), self.metadata, autoload=True, autoload_with=self.engine,
                                       **kwargs)
                         table.indexes = set()
                     except NoSuchTableError:
                         try:
-                            table = Table(table_name.lower(), self.connection, autoload=True,
-                                          autoload_with=self.connection, **kwargs)
+                            table = Table(table_name.lower(), self.metadata, autoload=True,
+                                          autoload_with=self.engine, **kwargs)
                             table.indexes = set()
                         except NoSuchTableError:
                             raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
@@ -1479,9 +1479,9 @@ class Database(object):
 
         return result_query
 
-    def set_isolation_level(self, conn):
+    def set_isolation_level(self, engine):
         if self.db_type == 'db2':
-            with conn.connect() as con:
+            with engine.connect() as con:
                 con.execute(text('SET ISOLATION TO DIRTY READ;'))  # specific for DB2; dirty read does not exist for postgres
 
     def start_session(self):
@@ -1499,9 +1499,9 @@ class Database(object):
             msg = 'Table %s doesnt exist in the the database' % table_name
             raise KeyError(msg)
         else:
-            self.start_session()
-            table.delete()
-            self.commit()
+            with self.engine.connect() as conn:
+                conn.execute(table.delete())
+                self.commit()
             msg = 'Truncated table name %s' % table_name
         logger.debug(msg)
 
@@ -1572,8 +1572,9 @@ class Database(object):
             # 'object' even if they are listed in parse_dates. This is the case when the data frame is empty or when there
             # are None values only in the column. Therefore explicitly cast columns listed in parse_dates to type Timestamp
             # to avoid type mismatches later on
-            df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
-
+            with self.engine.connect() as conn:
+                df = pd.read_sql_query(sql=sql, con=conn, **kwargs)
+                conn.commit()
         except Exception as ex:
             raise RuntimeError(f"The execution of the following sql statement failed: {sql}") from ex
         else:
@@ -2989,9 +2990,10 @@ class Database(object):
                     raise KeyError('Dataframe does not have required columns %s' % cols)
         self.start_session()
         try:
-
-            df.to_sql(name=table_name, con=self.connection, schema=schema, if_exists=if_exists, index=False,
-                      chunksize=chunksize, dtype=dtypes)
+            with self.engine.connect() as conn:
+                df.to_sql(name=table_name, con=conn, schema=schema, if_exists=if_exists, index=False,
+                          chunksize=chunksize, dtype=dtypes)
+                conn.commit()
         except:
             self.session.rollback()
             logger.debug('Attempted write of %s data to table %s ' % (cols, table_name))
@@ -3003,13 +3005,13 @@ class Database(object):
 
     def release_resource(self):
         self.commit()
-        if self.connection is not None:
+        if self.engine is not None:
             try:
-                self.connection.dispose()
+                self.engine.dispose()
             except Exception:
                 logger.warning('Error while closing sqlalchemy database connection.', exc_info=True)
             finally:
-                self.connection = None
+                self.engine = None
                 logger.debug('SQLAlchemy database connection successfully closed.')
 
         if self.native_connection is not None:

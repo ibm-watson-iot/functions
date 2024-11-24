@@ -1711,7 +1711,9 @@ class BaseDatabaseLookup(BaseTransformer):
             """
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
-            df = pd.read_sql_query(self.sql, con=self.db, index_col=lup_keys, parse_dates=date_cols)
+            with self.db.engine.connect() as conn:
+                df = pd.read_sql_query(self.sql, con=conn, index_col=lup_keys, parse_dates=date_cols)
+                conn.commit()
 
             df.columns = [x.lower() for x in list(df.columns)]
             return (list(df.columns))
