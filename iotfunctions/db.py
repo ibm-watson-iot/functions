@@ -1011,16 +1011,16 @@ class Database(object):
                 kwargs = {'schema': schema}
                 try:
                     logger.debug('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
-                    table = Table(table_name, self.metadata, autoload=True, autoload_with=self.engine, **kwargs)
+                    table = Table(table_name, self.metadata, autoload_with=self.engine, **kwargs)
                     table.indexes = set()
                 except NoSuchTableError:
                     try:
-                        table = Table(table_name.upper(), self.metadata, autoload=True, autoload_with=self.engine,
+                        table = Table(table_name.upper(), self.metadata, autoload_with=self.engine,
                                       **kwargs)
                         table.indexes = set()
                     except NoSuchTableError:
                         try:
-                            table = Table(table_name.lower(), self.metadata, autoload=True,
+                            table = Table(table_name.lower(), self.metadata,
                                           autoload_with=self.engine, **kwargs)
                             table.indexes = set()
                         except NoSuchTableError:

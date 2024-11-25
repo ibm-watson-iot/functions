@@ -1277,6 +1277,6 @@ class DataWriterSqlAlchemy(DataWriter):
         return delete_object
 
     def get_table_object(self, table_name):
-        table_object = Table(table_name.lower(), self.db_metadata, autoload=True, autoload_with=self.db_connection)
+        table_object = Table(table_name.lower(), self.db_metadata, autoload_with=self.db_connection)
 
         return table_object
