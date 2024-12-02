@@ -14,6 +14,7 @@ import pandas as pd
 
 from iotfunctions import dbhelper, util
 from iotfunctions.dbhelper import check_sql_injection, check_sql_injection_extended, check_sql_injection_extended2
+from iotfunctions.util import remove_malicious_content
 
 
 class LoaderPipeline:
@@ -206,7 +207,7 @@ class LoadTableAndConcat(BaseLoader):
                                                    requested_col_names=requested_col_names)
         df_sql = df_sql.astype(dtype={key_id: str}, errors='ignore')
 
-        self.logger.debug('loaded_df=\n%s' % df_sql.head())
+        self.logger.debug('loaded_df=\n%s' % remove_malicious_content(df_sql.head()))
 
         # reset and rename event df index to the same special column names
         original_event_index_names = df.index.names
@@ -218,6 +219,6 @@ class LoadTableAndConcat(BaseLoader):
         df = df.set_index(keys=[key_id, key_timestamp])
         df = df.rename_axis(original_event_index_names)
 
-        self.logger.debug('concatenated_df=\n%s' % df.head())
+        self.logger.debug('concatenated_df=\n%s' % remove_malicious_content(df.head()))
 
         return df
