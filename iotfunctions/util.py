@@ -33,7 +33,7 @@ import requests
 from lxml import etree
 from tabulate import tabulate
 
-logger= logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 try:
     from confluent_kafka import Producer
@@ -500,7 +500,7 @@ def log_df_info(df, msg, include_data=False):
                 for key, value in list(cols.items()):
                     msg = msg + '%s : %s, ' % (key, value)
             except AttributeError:
-                msg = msg + str(df.head(1))
+                msg = msg + str(remove_malicious_content(df.head(1)))
         else:
             msg = msg + ' ; columns: { %s }' % (' , '.join(list(df.columns)))
         logger.debug(msg)
@@ -517,29 +517,71 @@ def log_data_frame(message=None, df=None, head_only=True):
         if message is not None:
             log_message = message
         if df is not None:
+            # tabulate cannot handle Series: Turn any series into data frame
+            if type(df) == pd.Series:
+                df = pd.DataFrame(df)
+
             if head_only is True:
-                df_copy = df.head().copy()
+                row_count = df.shape[0]
+                if row_count > 10:
+                    df_copy = df.head(5).copy()
+                    df_copy2 = df.tail(5).copy()
+                else:
+                    df_copy = df.head(10).copy()
+                    df_copy2 = None
             else:
                 df_copy = df.copy()
+                df_copy2 = None
 
-            if not df_copy.empty:
-                # Replace all True/False values in columns of type 'object' by 'true'/false' respectively because
-                # of a bug in tabulate that tries to handle 'object' columns as 'float' columns whenever possible.
-                # Unfortunately, 'True'/'False' is considered a numeric value ( bool('True') = 1) although the conversion
-                # to float (float('True')) fails with 'ValueError: could not convert string to float: 'True''
-                for col_name, col_type in df_copy.dtypes.iteritems():
-                    if col_type.name == 'object':
-                        df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'True', 'true')
-                        df_copy[col_name] = df_copy[col_name].mask(df_copy[col_name] == 'False', 'false')
+            # Replace all True/False values in columns of type 'object' by 'true'/false' respectively because
+            # of a bug in tabulate that tries to handle 'object' columns as 'float' columns whenever possible.
+            # Unfortunately, 'True'/'False' is considered a numeric value ( bool('True') = 1) although the conversion
+            # to float (float('True')) fails with 'ValueError: could not convert string to float: 'True''
+            exchange_boolean_by_string(df_copy)
+            exchange_boolean_by_string(df_copy2)
+
+            # Protect output against log forging by removing carriage returns/line feeds from data frame
+            df_copy = remove_malicious_content(df_copy)
+            df_copy2 = remove_malicious_content(df_copy2)
+
             log_message = f"{log_message} = {str(df.shape)} \n" \
-                          f"{tabulate(df_copy, headers='keys', tablefmt='psql')} \n" \
                           f"Data types of index: {df_copy.index.to_frame(index=False).dtypes.to_dict()} \n" \
-                          f"Data types of columns: {df_copy.dtypes.sort_index().to_dict()}"
+                          f"Data types of columns: {df_copy.dtypes.sort_index().to_dict()} \n" \
+                          f"{tabulate(df_copy, headers='keys', tablefmt='psql')}"
+            if df_copy2 is not None and not df_copy2.empty:
+                log_message = f"{log_message}\n" \
+                              f"{tabulate(df_copy2, headers='keys', tablefmt='psql')}"
+
         logger.debug(log_message)
     except Exception as ex:
         logger.debug("Error while pretty printing the dataframe.", ex)
-        log_message = message + ' = %s \n%s' % (str(df.shape), df.head())
+        log_message = message + ' = %s \n%s' % (str(df.shape), remove_malicious_content(df.head()))
         logger.debug(log_message)
+
+
+def exchange_boolean_by_string(df):
+    if df is not None and not df.empty:
+        for col_name, col_type in df.dtypes.items():
+            if col_type.name == 'object':
+                df[col_name] = df[col_name].mask(df[col_name] == 'True', 'true')
+                df[col_name] = df[col_name].mask(df[col_name] == 'False', 'false')
+
+
+def remove_malicious_content(df):
+    if df is not None:
+        df = df.copy()
+        if not df.empty:
+            for col_name, col_type in df.dtypes.items():
+                if col_type.name == 'object':
+                    df[col_name] = df[col_name].transform(remove_line_feeds)
+    return df
+
+
+def remove_line_feeds(x):
+    if type(x) == str:
+        return x.replace('\n', '').replace('\r', '')
+    else:
+        return x
 
 
 def asList(x):
