@@ -499,7 +499,7 @@ def log_df_info(df, msg, include_data=False):
                 for key, value in list(cols.items()):
                     msg = msg + '%s : %s, ' % (key, value)
             except AttributeError:
-                msg = msg + str(df.head(1))
+                msg = msg + str(remove_malicious_content(df.head(1)))
         else:
             msg = msg + ' ; columns: { %s }' % (' , '.join(list(df.columns)))
         logger.debug(msg)
@@ -539,6 +539,10 @@ def log_data_frame(message=None, df=None, head_only=True):
             exchange_boolean_by_string(df_copy)
             exchange_boolean_by_string(df_copy2)
 
+            # Protect output against log forging by removing carriage returns/line feeds from data frame
+            df_copy = remove_malicious_content(df_copy)
+            df_copy2 = remove_malicious_content(df_copy2)
+
             log_message = f"{log_message} = {str(df.shape)} \n" \
                           f"Data types of index: {df_copy.index.to_frame(index=False).dtypes.to_dict()} \n" \
                           f"Data types of columns: {df_copy.dtypes.sort_index().to_dict()} \n" \
@@ -550,7 +554,7 @@ def log_data_frame(message=None, df=None, head_only=True):
         logger.debug(log_message)
     except Exception as ex:
         logger.debug("Error while pretty printing the dataframe.", ex)
-        log_message = message + ' = %s \n%s' % (str(df.shape), df.head())
+        log_message = message + ' = %s \n%s' % (str(df.shape), remove_malicious_content(df.head()))
         logger.debug(log_message)
 
 
@@ -560,6 +564,23 @@ def exchange_boolean_by_string(df):
             if col_type.name == 'object':
                 df[col_name] = df[col_name].mask(df[col_name] == 'True', 'true')
                 df[col_name] = df[col_name].mask(df[col_name] == 'False', 'false')
+
+
+def remove_malicious_content(df):
+    if df is not None:
+        df = df.copy()
+        if not df.empty:
+            for col_name, col_type in df.dtypes.items():
+                if col_type.name == 'object':
+                    df[col_name] = df[col_name].transform(remove_line_feeds)
+    return df
+
+
+def remove_line_feeds(x):
+    if type(x) == str:
+        return x.replace('\n', '').replace('\r', '')
+    else:
+        return x
 
 
 def asList(x):
