@@ -46,7 +46,7 @@ from iotfunctions.ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingl
                  UIText, UIParameters)
 from iotfunctions.util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL
 
-from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
+#from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
@@ -131,7 +131,9 @@ def tildeq_loss(outputs, targets, alpha = .5, gamma = .0, beta = .5):
     assert loss == loss, "Loss Nan!"
     return loss, l_ashift, l_amp, l_phase   #, torch.nn.MSELoss(output, targets)
 
+# to be reenabled when we have a TTM as pip installable module
 
+'''
 def install_and_activate_granite_tsfm():
     return True
 
@@ -238,6 +240,7 @@ class TSFMZeroShotScorer(InvokeWMLModel):
         outputs=[]
         #outputs.append(UISingle(name='output_items', datatype=float))
         return inputs, outputs
+'''
 
 
 class ProphetForecaster(DataExpanderTransformer):
