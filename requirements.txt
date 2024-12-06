@@ -1,6 +1,6 @@
 dill==0.3.7
 ibm_db==3.2.3
-ibm_db_sa==0.4.0
+ibm_db_sa==0.4.1
 ibm-watson-machine-learning==1.0.356
 ibm_watsonx_ai==1.1.14
 lxml==4.9.3
@@ -12,17 +12,17 @@ psycopg2-binary==2.9.9
 pyarrow==15.0.1
 pyod==2.0.2
 certifi>=2024.7.04
-requests==2.32.2
+requests==2.32.3
 ruptures==1.1.9
 scikit-learn==1.5.0
 scikit-image==0.22.0
 scipy==1.11.4
-sqlalchemy==2.0.25
+sqlalchemy==2.0.36
 statsmodels==0.14.0
 stumpy==1.13.0
 numpy==1.26.4
 tabulate==0.8.10
 # torch==2.2.0 : installation moved to Dockerfile
 transformers==4.46.3
-urllib3==1.26.19
+urllib3==2.2.3
 protobuf==4.21.12
