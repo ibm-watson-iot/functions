@@ -21,7 +21,7 @@ from sqlalchemy import (MetaData, Table)
 from . import dbhelper
 from .dbhelper import check_sql_injection
 from .exceptions import StageException, DataWriterException
-from .util import MessageHub, asList
+from .util import asList
 from . import metadata as md
 
 try:
@@ -370,14 +370,10 @@ class ProduceAlerts(object):
         self.quoted_table_name = dbhelper.quotingTableName(check_sql_injection(self.ALERT_TABLE_NAME), self.dms.is_postgre_sql)
         self.alert_to_kpi_input_dict = dict()
 
-        # Requirement: alerts_to_msg_hub must be a subset of alerts_to_db because the alerts in data base are exploited
-        # to avoid duplicated messages to Message Hub
         if alerts is not None:
             self.alerts_to_db = alerts
-            self.alerts_to_msg_hub = alerts
         elif data_item_names is not None:
             self.alerts_to_db = []
-            self.alerts_to_msg_hub = []
             alert_catalogs = dms.catalog.get_alerts()
             for data_item_name in asList(data_item_names):
                 metadata = dms.data_items.get(data_item_name)
@@ -388,15 +384,10 @@ class ProduceAlerts(object):
                     if alert_catalog is not None:
                         self.alerts_to_db.append(data_item_name)
                         self.alert_to_kpi_input_dict[data_item_name] = kpi_func_dto.get('input')
-                        if md.DATA_ITEM_TAG_ALERT in metadata.get(md.DATA_ITEM_TAGS_KEY, []):
-                            self.alerts_to_msg_hub.append(data_item_name)
         else:
             raise RuntimeError("Invalid combination of parameters: Either alerts or data_item_names must be provided.")
 
         logger.info('alerts going to database = %s ' % str(self.alerts_to_db))
-        logger.info('alerts going to message hub = %s ' % str(self.alerts_to_msg_hub))
-
-        self.message_hub = MessageHub()
 
         # Column names in database
         self.timestamp_col_name = 'timestamp'
@@ -492,10 +483,6 @@ class ProduceAlerts(object):
 
                 # Push new alert events to Data Dictionary
                 self._push_alert_events_to_dd(all_new_alert_events, index_has_entity_id)
-
-                # Push new alerts events to message hub if required
-                if len(self.alerts_to_msg_hub) > 0:
-                    self._push_alert_events_to_msg_hub(new_alert_events)
 
             else:
                 logger.info("No alerts have been defined for current grain.")
@@ -800,44 +787,6 @@ class ProduceAlerts(object):
                                f"failed.") from ex
 
         return row_count
-
-    def _push_alert_events_to_msg_hub(self, new_alert_events):
-
-        key_and_msg = []
-
-        for alert_name in self.alerts_to_msg_hub:
-            alert_events = new_alert_events[alert_name]
-            for df_row in alert_events.itertuples(index=True, name=None):
-                # publish alert format
-                # key: <tenant-id>|<entity-type-name>|<alert-name>
-                # value: json document containing all metrics at the same time / same device / same grain
-                key = f"{self.dms.tenant_id}|{self.entity_type_name}|{alert_name}"
-                msg = self._get_json_values(alert_events.index.names, alert_events.columns, df_row)
-                key_and_msg.append((key, msg))
-
-        logger.info(f"Pushing {len(key_and_msg)} alert events to Message Hub.")
-
-        self.message_hub.produce_batch_alert_to_default_topic(key_and_msg=key_and_msg)
-
-    def _get_json_values(self, index_names, col_names, row):
-
-        # Create a json string with a list of index names and column names with their corresponding values
-
-        index_json = {}
-        if len(index_names) == 1:
-            index_json[index_names[0]] = row[0]
-        else:
-            for index_name, index_value in zip(index_names, row[0]):
-                index_json[index_name] = index_value
-
-        values = {}
-        for col_name, value in zip(col_names, row[1:]):
-            values[col_name] = value
-        values["index"] = index_json
-
-        # Timestamp is not serialized by default by json.dumps(). Therefore timestamps must be explicitly
-        # converted to string by _serialize_converter()
-        return json.dumps(values, default=self._serialize_converter)
 
     @staticmethod
     def _serialize_converter(obj):
@@ -1328,6 +1277,6 @@ class DataWriterSqlAlchemy(DataWriter):
         return delete_object
 
     def get_table_object(self, table_name):
-        table_object = Table(table_name.lower(), self.db_metadata, autoload=True, autoload_with=self.db_connection)
+        table_object = Table(table_name.lower(), self.db_metadata, autoload_with=self.db_connection)
 
         return table_object
