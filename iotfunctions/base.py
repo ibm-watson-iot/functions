@@ -3142,6 +3142,9 @@ class DataExpanderTransformer(BaseTransformer):
                 logger.debug("expand - query derived metric:" + str(query_raw.statement))
                 df_new_raw = db.read_sql_query(query_raw.statement)
 
+                # lower case to whatever case for timestamp index
+                df_new_raw.rename(columns={entity_type._timestamp.lower():  entity_type._timestamp}, inplace=True)
+
                 logger.info('Retrieved raw data: ' + str(df_new_raw.describe()))
 
             if derived_input_items:  # list is not empty
@@ -3192,6 +3195,7 @@ class DataExpanderTransformer(BaseTransformer):
                 df_new = df_new_raw.merge(df_new_dm, on=[entity_id_col, entity_type._timestamp], how='outer')
 
             logger.info('Merged raw and derived metrics, now set new index: ' + entity_id_col + entity_type._timestamp)
+
             df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
 
             logger.debug('expanded data set ' + str(df_new.describe()))
