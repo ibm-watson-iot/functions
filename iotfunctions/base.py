@@ -3142,13 +3142,14 @@ class DataExpanderTransformer(BaseTransformer):
                 logger.debug("expand - query derived metric:" + str(query_raw.statement))
                 df_new_raw = db.read_sql_query(query_raw.statement)
 
+
                 # lower case to whatever case for timestamp index and the raw data columns
                 col_list = raw_input_items + [entity_type._timestamp]
                 col_dict = {}
                 for col in col_list:
                     col_dict[col.lower()] = col
+                col_dict[entity_type._entity_id] = entity_id_col
 
-                #df_new_raw.rename(columns={entity_type._timestamp.lower():  entity_type._timestamp}, inplace=True)
                 df_new_raw.rename(columns=col_dict, inplace=True)
 
                 logger.info('Retrieved raw data: ' + str(df_new_raw.describe()))
