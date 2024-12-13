@@ -3370,7 +3370,12 @@ class InvokeWMLModel(DataExpanderTransformer):
 
     def _calc(self, df):
 
-        entity = df.index[0][0]
+        entity = None
+        try:
+            entity = df.index[0][0]
+        except Exception as e:
+            logger.warning('empty sub frame in InvokeWML: ' + str(e))
+            return df
 
         # get rid of entity id as part of the index
         #df = df.droplevel(0)
