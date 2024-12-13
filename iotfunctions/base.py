@@ -3143,7 +3143,7 @@ class DataExpanderTransformer(BaseTransformer):
                 df_new_raw = db.read_sql_query(query_raw.statement)
 
                 # lower case to whatever case for timestamp index and the raw data columns
-                col_list = raw_list + [entity_type._timestamp]
+                col_list = raw_input_items + [entity_type._timestamp]
                 col_dict = {}
                 for col in col_list:
                     col_dict[col.lower()] = col
