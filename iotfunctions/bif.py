@@ -3352,8 +3352,9 @@ class InvokeWMLModel(DataExpanderTransformer):
 
             # drive by-entity scoring with the expanded dataset - TODO check size again
             if df_new is not None:
-                group_base = [pd.Grouper(axis=0, level=0)]
-                df_new = df_new.groupby(group_base).apply(self._calc)
+                df_new = super().execute(df_new)
+                #group_base = [pd.Grouper(axis=0, level=0)]
+                #df_new = df_new.groupby(group_base).apply(self._calc)
 
         # do not execute if we do not have enough data
         elif self.window_too_small:
@@ -3386,7 +3387,7 @@ class InvokeWMLModel(DataExpanderTransformer):
         # if we could not log on *and* support a local replacement model
         #  do inference with the local model
         if self.init_local_model:
-            logging.info("Calling local model")
+            logging.info("Calling local model for entity " + entity)
             return self.call_local_model(df)
             
 
