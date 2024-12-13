@@ -3319,6 +3319,8 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         sizebyentity = df.groupby(level=[0]).size()
 
+        df_new = None
+
         self.window_too_small = self.check_size(sizebyentity)
 
         # Create missing columns before doing group-apply
@@ -3360,7 +3362,8 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         self.login()
 
-        df_new = super().execute(df_copy)
+        if df_new is None:
+            df_new = super().execute(df_copy)
 
         logger.debug("InvokeWML results: " + str(df_new.describe()))
         logger.debug("InvokeWML columns " + str(df_new.columns) + ", index " + str(df_new.index.names))
