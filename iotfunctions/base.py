@@ -3117,9 +3117,8 @@ class DataExpanderTransformer(BaseTransformer):
 
         expects_entity_id = entity_type._entity_id
         if df_copy is not None and len(df_copy.index.names) > 1:
-            expects_entity_id = df.index.names[0]
-            expects_timestamp = df.index.names[1]
-
+            expects_entity_id = df_copy.index.names[0]
+            expects_timestamp = df_copy.index.names[1]
 
         logger.info('expand dataframe from ' + str(schema) + '.' + str(raw_input_metric_table_name) +
                         ' and ' + str(derived_input_metric_table_name))
