@@ -3346,13 +3346,13 @@ class InvokeWMLModel(DataExpanderTransformer):
             df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * (self.context + self.horizon))
 
             # drop NaN for input items and create output items
-            df_new[self.input_items] = df_new[self.input_items].fillna(0)
-            missing_cols = [x for x in (self.output_items) if x not in df_new.columns]
-            for m in missing_cols:
-                df_new[m] = None
-
-            # drive by-entity scoring with the expanded dataset - TODO check size again
             if df_new is not None:
+                df_new[self.input_items] = df_new[self.input_items].fillna(0)
+                missing_cols = [x for x in (self.output_items) if x not in df_new.columns]
+                for m in missing_cols:
+                    df_new[m] = None
+
+                # drive by-entity scoring with the expanded dataset - TODO check size again
                 df_new = super().execute(df_new)
                 #group_base = [pd.Grouper(axis=0, level=0)]
                 #df_new = df_new.groupby(group_base).apply(self._calc)

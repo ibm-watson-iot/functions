@@ -3071,6 +3071,8 @@ class DataExpanderTransformer(BaseTransformer):
     # needs to be called by the subclass
     def expand_dataset(self, df_copy, limit=200): 
 
+        logger.info('expand_dataset')
+
         # save original dataframe for later use
         self.original_frame = df_copy
 
@@ -3088,6 +3090,9 @@ class DataExpanderTransformer(BaseTransformer):
         raw_input_metric_table_name = entity_type._metric_table_name
 
         entity_id_col = None
+        time_col = entity_type._timestamp
+        if len(df_copy.index.names) > 1:
+            time_col = df_copy.index.names[1]
 
         # get derived metrics table name - tbd from the first derived metric we encounter
         derived_input_metric_table_name = None
@@ -3109,6 +3114,11 @@ class DataExpanderTransformer(BaseTransformer):
         # no derived metric
         if entity_id_col is None:
             entity_id_col = entity_type._entity_id
+
+        expects_entity_id = entity_type._entity_id
+        if df_copy is not None and len(df_copy.index.names) > 1:
+            expects_entity_id = df.index.names[0]
+            expects_timestamp = df.index.names[1]
 
 
         logger.info('expand dataframe from ' + str(schema) + '.' + str(raw_input_metric_table_name) +
@@ -3134,12 +3144,12 @@ class DataExpanderTransformer(BaseTransformer):
                 try:
                     query_raw, table_raw = db.query(raw_input_metric_table_name, schema, column_names=[entity_type._entity_id, entity_type._timestamp] + raw_input_items)
                     #query_raw = query_raw.filter(db.get_column_object(table_raw, entity_type._timestamp) >= start_ts).limit(limit)
-                    query_raw = query_raw.order_by(db.get_column_object(table_raw, entity_type._timestamp).desc()).limit(limit)
+                    query_raw = query_raw.order_by(db.get_column_object(table_raw, entity_type._timestamp).desc()).limit(limit).all()
                     #query_raw = query_raw.order_by(db.get_column_object(table_dm, entity_type._timestamp)
                 except Exception as ee:
                     logger.warning('Failed to get raw metric from ' + schema + '.' + raw_input_metric_table_name + ', msg: ' + str(ee))
 
-                logger.debug("expand - query derived metric:" + str(query_raw.statement))
+                logger.info("expand - query raw metrics:" + str(query_raw.statement))
                 df_new_raw = db.read_sql_query(query_raw.statement)
 
 
@@ -3162,7 +3172,7 @@ class DataExpanderTransformer(BaseTransformer):
                     #query_dm = query_dm.filter(db.get_column_object(table_dm, 'TIMESTAMP') >= start_ts,
                     #            db.get_column_object(table_dm, 'KEY').in_(derived_input_items)).limit(limit)
                     query_dm = query_dm.filter(db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
-                    query_dm = query_dm.order_by(db.get_column_object(table_dm, entity_type._timestamp).desc()).limit(limit)
+                    query_dm = query_dm.order_by(db.get_column_object(table_dm, entity_type._timestamp).desc()).limit(limit).all()
 
                     logger.debug("expand - query derived metric:" + str(query_dm.statement))
 
@@ -3203,9 +3213,10 @@ class DataExpanderTransformer(BaseTransformer):
 
             logger.info('Merged raw and derived metrics, now set new index: ' + entity_id_col + entity_type._timestamp)
 
-            df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
+            #df_new.set_index([entity_id_col, entity_type._timestamp], inplace=True)
+            df_new.set_index([entity_id_col, time_col], inplace=True)
 
-            logger.debug('expanded data set ' + str(df_new.describe()))
+            logger.info('expanded data set ' + str(df_new.describe()))
 
             #print('EXPAND 4')
             df_new = df_new[~df_new.index.duplicated(keep='first')]  # do we need this ?
