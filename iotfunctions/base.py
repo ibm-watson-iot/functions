@@ -3143,7 +3143,7 @@ class DataExpanderTransformer(BaseTransformer):
                 try:
                     query_raw, table_raw = db.query(raw_input_metric_table_name, schema, column_names=[entity_type._entity_id, entity_type._timestamp] + raw_input_items)
                     #query_raw = query_raw.filter(db.get_column_object(table_raw, entity_type._timestamp) >= start_ts).limit(limit)
-                    query_raw = query_raw.order_by(db.get_column_object(table_raw, entity_type._timestamp).desc()).limit(limit).all()
+                    query_raw = query_raw.order_by(db.get_column_object(table_raw, entity_type._timestamp).desc()).limit(limit)
                     #query_raw = query_raw.order_by(db.get_column_object(table_dm, entity_type._timestamp)
                 except Exception as ee:
                     logger.warning('Failed to get raw metric from ' + schema + '.' + raw_input_metric_table_name + ', msg: ' + str(ee))
@@ -3171,7 +3171,7 @@ class DataExpanderTransformer(BaseTransformer):
                     #query_dm = query_dm.filter(db.get_column_object(table_dm, 'TIMESTAMP') >= start_ts,
                     #            db.get_column_object(table_dm, 'KEY').in_(derived_input_items)).limit(limit)
                     query_dm = query_dm.filter(db.get_column_object(table_dm, 'KEY').in_(derived_input_items))
-                    query_dm = query_dm.order_by(db.get_column_object(table_dm, entity_type._timestamp).desc()).limit(limit).all()
+                    query_dm = query_dm.order_by(db.get_column_object(table_dm, entity_type._timestamp).desc()).limit(limit)
 
                     logger.debug("expand - query derived metric:" + str(query_dm.statement))
 
