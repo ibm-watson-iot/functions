@@ -3218,6 +3218,20 @@ class DataExpanderTransformer(BaseTransformer):
 
         return df_new
 
+    def merge_expanded_frame_by_entity(self, df, entity):
+        if self.original_frame is None:
+            logger.debug('Nothing to merge')
+            return df
+
+        # write the last 'sizebyentity' elements to original frame defining the length
+        sizebyentity = self.original_frame.loc[[entity]].shape[0] 
+        self.original_frame.loc[[entity]][[self.output_items]] = df[-sizebyentity:][[self.output_items]]
+
+        logger.debug("DataExpander merge results: " + str(self.original_frame.describe()))
+        logger.debug("DataExpander merge columns " + str(self.original_frame.columns) + ", index " + str(self.original_frame.index.names))
+
+        return
+
 #######################################################################################
 # BaseEstimatorFunction
 #######################################################################################

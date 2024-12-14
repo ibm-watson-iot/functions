@@ -3315,7 +3315,8 @@ class InvokeWMLModel(DataExpanderTransformer):
 
     def execute(self, df):
 
-        logger.info('InvokeWML exec')
+        logger.info('InvokeWML exec' + str(df.describe()))
+        logger.debug("InvokeWML exec columns " + str(df.columns) + ", index " + str(df.index.names))
 
         sizebyentity = df.groupby(level=[0]).size()
 
@@ -3365,6 +3366,8 @@ class InvokeWMLModel(DataExpanderTransformer):
 
         if df_new is None:
             df_new = super().execute(df_copy)
+        else:
+            df_new = self.original_frame
 
         logger.debug("InvokeWML results: " + str(df_new.describe()))
         logger.debug("InvokeWML columns " + str(df_new.columns) + ", index " + str(df_new.index.names))
@@ -3388,8 +3391,8 @@ class InvokeWMLModel(DataExpanderTransformer):
         #  do inference with the local model
         if self.init_local_model:
             logging.info("Calling local model for entity " + entity)
-            return self.call_local_model(df)
-            
+            df = self.call_local_model(df)
+            self.merge_expanded_frame_by_entity(df.droplevel(0), entity)
 
         if len(self.input_items) >= 1:
             index_nans = df[df[self.input_items].isna().any(axis=1)].index
