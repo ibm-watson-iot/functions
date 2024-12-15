@@ -3074,7 +3074,7 @@ class DataExpanderTransformer(BaseTransformer):
         logger.info('expand_dataset')
 
         # save original dataframe for later use
-        self.original_frame = df_copy
+        self.original_frame = df_copy.copy()
 
         entity_type = self.get_entity_type()
 
@@ -3233,9 +3233,16 @@ class DataExpanderTransformer(BaseTransformer):
             logger.debug('Nothing to merge')
             return df
 
+        df_orig = self.original_frame
+        logger.info('merge expanded frame by entity ' + str(df_orig.index) + ', ' + str(df_orig.columns) + ', ' + str(df_orig.describe()))
+
         # write the last 'sizebyentity' elements to original frame defining the length
-        sizebyentity = self.original_frame.loc[[entity]].shape[0] 
-        self.original_frame.loc[[entity]][[self.output_items]] = df[-sizebyentity:][[self.output_items]]
+        try:
+            sizebyentity = self.original_frame.loc[[entity]].shape[0] 
+            self.original_frame.loc[[entity]][[self.output_items]] = df[-sizebyentity:][[self.output_items]]
+        except Exception as e:
+            logger.info('merging failed with ' + str(e))
+            pass
 
         logger.debug("DataExpander merge results: " + str(self.original_frame.describe()))
         logger.debug("DataExpander merge columns " + str(self.original_frame.columns) + ", index " + str(self.original_frame.index.names))
