@@ -3342,8 +3342,10 @@ class InvokeWMLModel(DataExpanderTransformer):
             logger.info('Expand dataset')
             self.login()
 
-            # TODO compute the lookback parameter based on window size and overlap
-            df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * (self.context + self.horizon))
+            # only expand if there is some new data but just not enough, otherwise df_new is left None
+            if not sizebyentity.empty:
+                # TODO compute the lookback parameter based on window size and overlap
+                df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * (self.context + self.horizon))
 
             # drop NaN for input items and create output items
             if df_new is not None:
