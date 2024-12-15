@@ -3392,7 +3392,8 @@ class InvokeWMLModel(DataExpanderTransformer):
         if self.init_local_model:
             logging.info("Calling local model for entity " + entity)
             df = self.call_local_model(df)
-            self.merge_expanded_frame_by_entity(df.droplevel(0), entity)
+            df = self.merge_expanded_frame_by_entity(df.droplevel(0), entity)
+            return df
 
         if len(self.input_items) >= 1:
             index_nans = df[df[self.input_items].isna().any(axis=1)].index
