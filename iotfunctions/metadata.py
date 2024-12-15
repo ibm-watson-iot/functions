@@ -1948,7 +1948,7 @@ class EntityType(object):
                     logger.debug(response)
 
     def populate_entity_list_table(self):
-        entity_list_table_name = 'dm_wiot_entity_list'
+        entity_list_table_name = 'device_list'
         try:
             if self.db.db_type == 'db2':
                 entity_list_table_name = entity_list_table_name.upper()
@@ -1958,7 +1958,7 @@ class EntityType(object):
             entities = [str(self._start_entity_id + x) for x in list(range(self._auto_entity_count))]
 
             self.db.start_session()
-            table = self.db.get_table(entity_list_table_name, self._db_schema)
+            table = self.db.get_table(entity_list_table_name, "IOTANALYTICS")
             for entity_id in entities:
                 stmt = table.insert().values({'entity_type_id': self._entity_type_id, 'entity_id': entity_id})
                 self.db.connection.execute(stmt)
@@ -1966,7 +1966,7 @@ class EntityType(object):
 
         except Exception as e:
             logger.exception(e)
-            logger.debug('Error populating dm_wiot_entity_list table.')
+            logger.debug('Error populating device_list table.')
 
     def register(self, publish_kpis=False, raise_error=False, sample_entity_type=False):
         """
