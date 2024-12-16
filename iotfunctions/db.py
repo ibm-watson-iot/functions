@@ -607,19 +607,19 @@ class Database(object):
 
         if entity_metadata is None:
 
-            if entity_type_id is not None:
-                metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
-                                             object_name_2='')
-                if metadata is not None:
-                    try:
-                        metadata = json.loads(metadata)
-                        if metadata is None:
-                            msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
-                            logger.warning(msg)
-                        for m in metadata:
-                            self.entity_type_metadata[m['entityTypeId']] = m
-                    except Exception:
-                        pass
+            # Load **all** entity types. This is required by Predict even when entity_type_id is None
+            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
+                                         object_name_2='')
+            if metadata is not None:
+                try:
+                    metadata = json.loads(metadata)
+                    if metadata is None:
+                        msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
+                        logger.warning(msg)
+                    for m in metadata:
+                        self.entity_type_metadata[m['entityTypeId']] = m
+                except Exception:
+                    pass
         else:
             metadata = entity_metadata
             if metadata.get('entityTypeId') is not None:
