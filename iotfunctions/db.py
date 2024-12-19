@@ -1578,7 +1578,7 @@ class Database(object):
             df = pd.read_sql_query(sql=sql, con=self.connection, **kwargs)
 
         except Exception as ex:
-            raise RuntimeError(f"The execution of the following sql statement failed: {sql}") from ex
+            raise RuntimeError(f"The execution of the following sql statement failed: {sql}. Error: {str(ex)} ") from ex
         else:
             execution_time = (pd.Timestamp.utcnow() - start_time).total_seconds()
             if log_message is None:
