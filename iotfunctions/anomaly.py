@@ -50,7 +50,6 @@ from sklearn.preprocessing import (StandardScaler, RobustScaler, MinMaxScaler,
                                    minmax_scale, PolynomialFeatures)
 from sklearn.utils import check_array
 
-
 # for Matrix Profile
 import stumpy
 
@@ -66,6 +65,10 @@ from .bif import (AlertHighValue)
 from .ui import (UISingle, UIMulti, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti)
 from .db import (Database, DatabaseFacade)
 from .dbtables import (FileModelStore, DBModelStore)
+
+from iotfunctions import metadata as md
+from sqlalchemy.sql import text, select, column, func
+
 
 # VAE
 import torch
@@ -96,6 +99,10 @@ Spectral_normalizer = 100 / 2.8
 FFT_normalizer = 1
 Saliency_normalizer = 1
 Generalized_normalizer = 1 / 300
+
+# Do away with numba logs
+numba_logger = logging.getLogger('numba')
+numba_logger.setLevel(logging.INFO)
 
 # from
 # https://stackoverflow.com/questions/44790072/sliding-window-on-time-series-data
@@ -593,7 +600,21 @@ class AnomalyScorer(BaseTransformer):
         group_base = [pd.Grouper(axis=0, level=0)]
 
         if not df_copy.empty:
-            df_copy = df_copy.groupby(group_base).apply(self._calc)
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
+
+        # we don't have enough data, haven't loaded data yet and ..
+        # we have access to our database and are allowed to go to it
+        if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
+            # TODO compute the lookback parameter based on window size and overlap
+            df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * 200)
+
+            # drive by-entity scoring with the expanded dataset
+            if df_new is not None:
+                group_base = [pd.Grouper(axis=0, level=0)]
+                df_new = df_new.groupby(group_base, group_keys=False).apply(self._calc)
+        elif self.window_too_small:
+            logger.warning('Not enough data to score')
+
 
         logger.debug('Scoring done')
         return df_copy
@@ -669,7 +690,7 @@ class AnomalyScorer(BaseTransformer):
                     # make sure shape is correct
                     try:
                         df[output_item] = zScoreII
-                    except Exception as e2:                    
+                    except Exception as e2:
                         df[output_item] = zScoreII.reshape(-1,1)
                         pass
 
@@ -1046,7 +1067,7 @@ class SpectralAnomalyScore(AnomalyScorer):
             # Fourier transform:
             #   frequency, time, spectral density
             frequency_temperature, time_series_temperature, spectral_density_temperature = signal.spectrogram(
-                temperature, fs=self.frame_rate, window='hanning', nperseg=self.windowsize,
+                temperature, fs=self.frame_rate, window='hann', nperseg=self.windowsize,
                 noverlap=self.windowoverlap, detrend='l', scaling='spectrum')
 
             # cut off freqencies too low to fit into the window
@@ -1759,7 +1780,7 @@ class SupervisedLearningTransformer(BaseTransformer):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
 
@@ -1957,7 +1978,7 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy
@@ -2067,7 +2088,7 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy
@@ -2279,7 +2300,7 @@ class GBMRegressor(BaseEstimatorFunction):
         group_base = [pd.Grouper(axis=0, level=0)]
 
         # first round - training
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
 
         # strip off lagged features
@@ -2287,7 +2308,7 @@ class GBMRegressor(BaseEstimatorFunction):
             strip_features, df_copy = self.lag_features(df=df, Train=False)
 
             # second round - inferencing
-            df_copy = df_copy.groupby(group_base).apply(self._calc)
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
             logger.debug('Drop artificial features ' + str(strip_features))
             df_copy.drop(columns = strip_features, inplace=True)
