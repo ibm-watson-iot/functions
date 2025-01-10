@@ -663,11 +663,8 @@ class AnomalyScorer(DataExpanderTransformer):
 
         entity = df.index[0][0]
 
-        # get rid of entity id as part of the index
-        df = df.droplevel(0)
-
-        # Get new data frame with sorted index
-        dfe_orig = df.sort_index()
+        # Get new data frame with sorted index and entity id remved from index
+        dfe_orig = df.droplevel(0).sort_index()
 
         # remove all rows with only null entries
         dfe = dfe_orig.dropna(how='all')
@@ -1986,7 +1983,7 @@ class RobustThresholdKDE(SupervisedLearningTransformer):
         else:
             df[self.output_item] = Null_Float
 
-        return df.droplevel(0)
+        return df
 
 
     @classmethod
