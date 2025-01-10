@@ -3603,7 +3603,7 @@ class BaseRegressor(BaseEstimatorFunction):
     def set_estimators(self):
         # gradient_boosted
         params = {'n_estimators': [100, 250, 500, 1000], 'max_depth': [2, 4, 10], 'min_samples_split': [2, 5, 9],
-                  'learning_rate': [0.01, 0.02, 0.05], 'loss': ['ls']}
+                  'learning_rate': [0.01, 0.02, 0.05], 'loss': ['squared_error']}
         self.estimators['gradient_boosted_regressor'] = (ensemble.GradientBoostingRegressor, params)
         # sgd
         params = {'max_iter': [250, 1000, 5000, 10000], 'tol': [0.001, 0.002, 0.005]}
