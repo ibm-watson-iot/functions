@@ -342,12 +342,12 @@ class ProphetForecaster(DataExpanderTransformer):
             # drive by-entity training with the expanded dataset
             if df_new is not None:
                 group_base = [pd.Grouper(axis=0, level=0)]
-                df_new = df_new.groupby(group_base).apply(self._train)
+                df_new = df_new.groupby(group_base, group_keys=False).apply(self._train)
 
         # now we're in a position to score
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
 
@@ -359,9 +359,6 @@ class ProphetForecaster(DataExpanderTransformer):
 
         # obtain db handler
         db = self.get_db()
-
-        # get rid of entity id as part of the index
-        df = df.droplevel(0)
 
         # get model
         model_name = self.generate_model_name([], self.y_hat, prefix='Prophet', suffix=entity)
@@ -397,9 +394,6 @@ class ProphetForecaster(DataExpanderTransformer):
 
         # obtain db handler
         db = self.get_db()
-
-        # get rid of entity id as part of the index
-        df = df.droplevel(0)
 
         # get model
         model_name = self.generate_model_name([], self.y_hat, prefix='Prophet', suffix=entity)
@@ -441,7 +435,7 @@ class ProphetForecaster(DataExpanderTransformer):
 
         # for now just take the number of rows - assume daily frequency for now
         # future_dates column name 'ds' as Prophet expects it
-        future_dates = pd.date_range(start=df.tail(1).index[0], periods=df.shape[0], freq='D').to_frame(index=False, name='ds')
+        future_dates = pd.date_range(start=df.tail(1).index[0][1], periods=df.shape[0], freq='D').to_frame(index=False, name='ds')
         #logger.debug('Future values start/end/length ' + str(future_dates[0]) + ', ' + str(future_dates[-1]) + ', ' + str(future_dates.shape[0]))
         logger.debug('Future values ' + str(future_dates.describe))
 
@@ -476,9 +470,9 @@ class ProphetForecaster(DataExpanderTransformer):
         db = self.get_db()
 
         daysforTraining = round(len(df)*0.95)  # take always everything
-        time_var = df.index.names[0]
-        df_train = df.iloc[:daysforTraining].reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
-        df_test = df.iloc[daysforTraining:].reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
+        time_var = df.index.names[1]
+        df_train = df.iloc[:daysforTraining].droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
+        df_test = df.iloc[daysforTraining:].droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
 
         prophet_model = None
         holiday = None
