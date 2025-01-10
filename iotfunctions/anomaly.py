@@ -2380,7 +2380,7 @@ class GBMRegressor(BaseEstimatorFunction):
                 new_features.append(lagged_feature + '_' + str(lag))
 
         # find out proper timescale
-        mindelta, df_copy = min_delta(df)
+        mindelta, df_copy = min_delta(df.droplevel(0))
 
         # add day of week and month of year as two feature pairs for at least hourly timescales
         include_day_of_week = False
