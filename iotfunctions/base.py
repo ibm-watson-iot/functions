@@ -2486,7 +2486,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     group_base.append(pd.Grouper(axis=0, level=df.index.names.index(self.execute_by)))
 
             try:
-                group = df.groupby(group_base)
+                group = df.groupby(group_base, group_keys=False)
             except KeyError:
                 msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were ' \
                       'not found' % self.execute_by
@@ -2923,7 +2923,7 @@ class BaseSCDLookupWithDefault(BaseTransformer):
         df[self.output_item] = self.dim_default_value
 
         # Group df on entity_id (first level in MultiIndex) and apply fill-in function
-        groups = df.groupby(level=0, sort=False)
+        groups = df.groupby(level=0, sort=False, group_keys=False)
         df = groups.apply(func=self._fill_in, dim_df=dim_df, dim_col=self.df_dim_name, start_col=self.df_start_name,
                           output_col=self.output_item)
 
