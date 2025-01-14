@@ -2492,7 +2492,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     group_base.append(pd.Grouper(axis=0, level=df.index.names.index(self.execute_by)))
 
             try:
-                group = df.groupby(group_base)
+                group = df.groupby(group_base, group_keys=False)
             except KeyError:
                 msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were ' \
                       'not found' % self.execute_by
@@ -2929,7 +2929,7 @@ class BaseSCDLookupWithDefault(BaseTransformer):
         df[self.output_item] = self.dim_default_value
 
         # Group df on entity_id (first level in MultiIndex) and apply fill-in function
-        groups = df.groupby(level=0, sort=False)
+        groups = df.groupby(level=0, sort=False, group_keys=False)
         df = groups.apply(func=self._fill_in, dim_df=dim_df, dim_col=self.df_dim_name, start_col=self.df_start_name,
                           output_col=self.output_item)
 
@@ -3811,7 +3811,7 @@ class BaseRegressor(BaseEstimatorFunction):
     def set_estimators(self):
         # gradient_boosted
         params = {'n_estimators': [100, 250, 500, 1000], 'max_depth': [2, 4, 10], 'min_samples_split': [2, 5, 9],
-                  'learning_rate': [0.01, 0.02, 0.05], 'loss': ['ls']}
+                  'learning_rate': [0.01, 0.02, 0.05], 'loss': ['squared_error']}
         self.estimators['gradient_boosted_regressor'] = (ensemble.GradientBoostingRegressor, params)
         # sgd
         params = {'max_iter': [250, 1000, 5000, 10000], 'tol': [0.001, 0.002, 0.005]}
