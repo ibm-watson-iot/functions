@@ -16,6 +16,7 @@ import time
 import warnings
 from collections import OrderedDict
 
+import ibm_db
 import numpy as np
 import pandas as pd
 from sqlalchemy import Column, Integer, String, DateTime, Float
@@ -1948,25 +1949,30 @@ class EntityType(object):
                     logger.debug(response)
 
     def populate_entity_list_table(self):
-        entity_list_table_name = 'device_list'
+
         try:
+            insert_tuples = tuple(
+                (self._entity_type_id, str(self._start_entity_id + x)) for x in range(self._auto_entity_count)
+            )
+
             if self.db.db_type == 'db2':
-                entity_list_table_name = entity_list_table_name.upper()
+
+                sql_statement = f'INSERT INTO "IOTANALYTICS"."DEVICE_LIST" ' \
+                                f'("ID", "ENTITY_TYPE_ID", "ENTITY_ID") ' \
+                                f'VALUES (NEXT VALUE FOR "IOTANALYTICS"."DEVICE_LIST_SEQ", ?, ?)'
+
+                stmt = ibm_db.prepare(self.db.native_connection, sql_statement)
+
+                try:
+                    ibm_db.execute_many(stmt, insert_tuples)
+                finally:
+                    ibm_db.free_result(stmt)
+
             else:
-                entity_list_table_name = entity_list_table_name.lower()
-
-            entities = [str(self._start_entity_id + x) for x in list(range(self._auto_entity_count))]
-
-            self.db.start_session()
-            table = self.db.get_table(entity_list_table_name, "IOTANALYTICS")
-            for entity_id in entities:
-                stmt = table.insert().values({'entity_type_id': self._entity_type_id, 'entity_id': entity_id})
-                self.db.connection.execute(stmt)
-            self.db.commit()
+                raise Exception("Databases other than DB2 are not supported.")
 
         except Exception as e:
-            logger.exception(e)
-            logger.debug('Error populating device_list table.')
+            logger.error('Error populating device_list table.', e)
 
     def register(self, publish_kpis=False, raise_error=False, sample_entity_type=False):
         """
