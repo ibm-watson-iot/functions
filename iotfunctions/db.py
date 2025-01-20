@@ -2988,7 +2988,9 @@ class Database(object):
                 try:
                     df = df[cols]
                 except KeyError:
-                    raise KeyError('Dataframe does not have required columns %s' % cols)
+                    raise KeyError(f'Dataframe does not have required columns {set(cols)-set(df.columns)}. '
+                                   f'Available columns in df: {set(df.columns)}. '
+                                   f'Required columns for table: {set(cols)}')
         self.start_session()
         try:
             with self.engine.connect() as conn:
