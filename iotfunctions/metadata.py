@@ -1578,6 +1578,10 @@ class EntityType(object):
             df['devicetype'] = self.logical_name
             df['format'] = ''
             df['updated_utc'] = dt.datetime.utcnow()
+            if 'device_uid' not in df.columns:
+                df['device_uid'] = -1
+            if 'rcv_timestamp_utc' not in df.columns:
+                df['rcv_timestamp_utc'] = df[self._timestamp]
             self.db.write_frame(table_name=self._metric_table_name, df=df, schema=self._db_schema,
                                 timestamp_col=self._timestamp)
 
@@ -1923,6 +1927,8 @@ class EntityType(object):
     def create_sample_data(self, drop_existing, generate_days, generate_entities=None,
                            populate_dm_wiot_entity_list=False):
         if generate_days > 0:
+            if populate_dm_wiot_entity_list:
+                self.populate_entity_list_table()
             # classify stages is adds entity metdata to the stages
             # need to run it before executing any stage
             self.classify_stages()
@@ -1934,8 +1940,6 @@ class EntityType(object):
                 g.execute(df=None, start_ts=start, entities=generate_entities)
 
             if populate_dm_wiot_entity_list:
-                self.populate_entity_list_table()
-
                 # KITT integration: write dimension data after populating the entity list
                 if self._generated_dimension_payload:
                     logger.debug(self._generated_dimension_payload)
