@@ -25,6 +25,7 @@ import ibm_db
 import ibm_db_dbi
 import pandas as pd
 import psycopg2
+import sqlalchemy
 import urllib3
 import urllib.parse
 from pandas.api.types import is_string_dtype, is_bool_dtype
@@ -1012,22 +1013,21 @@ class Database(object):
 
             if isinstance(table_name, str):
                 kwargs = {'schema': schema}
-                try:
-                    logger.debug('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
-                    table = Table(table_name, self.metadata, autoload=True, autoload_with=self.connection, **kwargs)
+                inspector = sqlalchemy.inspect(self.engine)
+                logger.debug('Table name = %s , self.metadata = %s  ' % (table_name, self.metadata))
+
+                if inspector.has_table(table_name=table_name, schema=schema):
+                    table = Table(table_name, self.metadata, autoload_with=self.engine, **kwargs)
                     table.indexes = set()
-                except NoSuchTableError:
-                    try:
-                        table = Table(table_name.upper(), self.metadata, autoload=True, autoload_with=self.connection,
-                                      **kwargs)
-                        table.indexes = set()
-                    except NoSuchTableError:
-                        try:
-                            table = Table(table_name.lower(), self.metadata, autoload=True,
-                                          autoload_with=self.connection, **kwargs)
-                            table.indexes = set()
-                        except NoSuchTableError:
-                            raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
+                elif inspector.has_table(table_name=table_name.upper(), schema=schema):
+                    table = Table(table_name.upper, self.metadata, autoload_with=self.engine, **kwargs)
+                    table.indexes = set()
+                elif inspector.has_table(table_name=table_name.lower(), schema=schema):
+                    table = Table(table_name.lower, self.metadata, autoload_with=self.engine, **kwargs)
+                    table.indexes = set()
+                else:
+                    raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
+
             elif issubclass(table_name.__class__, BaseTable):
                 table = table_name.table
             elif isinstance(table_name, Table):
@@ -3114,7 +3114,7 @@ class BaseTable(object):
             raise KeyError(msg)
         self.database.start_session()
         try:
-            df.to_sql(name=self.name, con=self.database.connection, schema=self.schema, if_exists='append', index=False,
+            df.to_sql(name=self.name, con=self.database.engine, schema=self.schema, if_exists='append', index=False,
                       chunksize=chunksize, dtype=dtypes)
         except:
             self.database.session.rollback()
