@@ -3027,8 +3027,8 @@ class BaseTable(object):
         self.id_col = Column(self._entity_id.lower(), String(
             50))  # Should be created using the create method available -> self.db.create()  # self.table.create(checkfirst=True)
 
-    def create(self):
-        self.table.create(checkfirst=True)
+    def create(self, engine):
+        self.table.create(bind=engine, checkfirst=True)
 
     def get_column_names(self):
         """
