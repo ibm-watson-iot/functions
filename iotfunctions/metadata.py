@@ -394,7 +394,7 @@ class EntityType(object):
         try:
             sqltable = self.db.get_table(name, self._db_schema)
         except KeyError:
-            table.create()
+            table.create(self.db.engine)
         self.activity_tables[name] = table
 
     def add_slowly_changing_dimension(self, property_name, datatype, **kwargs):
@@ -430,7 +430,7 @@ class EntityType(object):
         try:
             self.db.get_table(name, self._db_schema)
         except KeyError:
-            table.create()
+            table.create(self.db.engine)
         self.scd[property_name] = table
 
     def _add_scd_pipeline_stage(self, scd_lookup):
@@ -2160,7 +2160,7 @@ class EntityType(object):
             table = self.db.get_table(self._dimension_table_name, self._db_schema)
             for i in new_ids:
                 stmt = table.insert().values({self._entity_id: i})
-                self.db.connection.execute(stmt)
+                self.db.engine.execute(stmt)
             self.db.commit()
             return new_ids
 
