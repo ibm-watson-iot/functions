@@ -44,13 +44,6 @@ from . import pipeline as pp
 from .enginelog import EngineLogging
 from .util import CosClient, resample, reset_df_index, log_data_frame
 
-try:
-    from MAS_Data_Dictionary.MAM_API import MAM_API
-    from MAS_Data_Dictionary.MAS_Core_Types import EntryType
-except ImportError:
-    MAM_API = None
-    EntryType = None
-
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
@@ -61,67 +54,6 @@ try:
     from ibm_db_sa.base import DOUBLE as DB2_DOUBLE
 except ImportError:
     DB2_DOUBLE = None
-
-
-def get_dd_client():
-    # Load url and credentials for Data Dictionary
-    dd_url = os.environ.get("DD_URL")
-    dd_user = os.environ.get("DD_USER_NAME")
-    dd_password = os.environ.get("DD_PASSWORD")
-    dd_space_id = os.environ.get("DD_SPACE_ID")
-
-    dd_client = None
-    if MAM_API is not None:
-        if dd_url is not None and dd_user is not None and dd_password is not None and dd_space_id is not None:
-
-            connected = False
-            retry_count = -1
-            while connected is False and retry_count < Database.KITT_MAX_CONNECTION_RETRY_COUNT:
-
-                retry_count = retry_count + 1
-
-                dd_client = MAM_API.tenant_connect(url=dd_url, usr=dd_user, pwd=dd_password, tenant_id=dd_space_id)
-
-                if dd_client is not None and dd_client.connected() is True:
-                    connected = True
-                    logger.info(
-                        f"Connection to Data Dictionary has been established successfully: Retry count={retry_count} url='{dd_url}', space_id='{dd_space_id}'")
-                else:
-                    logger.warning(
-                        f"Connection attempt to Data Dictionary failed. Retry count={retry_count} url='{dd_url}', space_id='{dd_space_id}'")
-                    time.sleep(2 ** retry_count)
-
-            if connected is False:
-                raise ConnectionError(
-                    f"Connection to Data Dictionary could not be established after {retry_count} retries: url='{dd_url}', space_id='{dd_space_id}'")
-        else:
-            logger.info(f"No connection to Data Dictionary has been defined.")
-    else:
-        logger.info(f"Data Dictionary is not available.")
-
-    return dd_client
-
-
-def get_children_from_dd(parent_dd_id, entry_type, depth):
-    # Get list of children from Data Dictionary
-    dd_client = get_dd_client()
-    # hierarchy_items = dd_client.getHierarchyIDs(id=parent_dd_id, entry_type=entry_type, status='ACTIVE',
-    #                                             loc_system=None, depth=depth)
-    build = dd_client.reasoner().search().location().filter_in("id", list([parent_dd_id])).hasPart().multi(1, depth).location().filter_equal("p/status", 'ACTIVE').v("l").build()
-    build._query['return'] = ['ALL']
-    results = build.list()
-
-    children = []
-    for result in results:
-        child = {}
-        location = result.get('l')
-        p = location.get('p')
-        child['dd_id'] = location.get('id')
-        child['uu_id'] = p.get('uuid')
-        child['id'] = p.get('name')
-        children.append(child)
-
-    return children
 
 
 class DatabaseFacade:
@@ -638,9 +570,6 @@ class Database(object):
         # Create DBModelStore if it was not handed in
         if entity_type_id is not None:
             self.init_model_store(self.schema)
-
-        # Load url and credentials for Data Dictionary
-        self.dd_client = get_dd_client()
 
     def set_entity_type(self, entity_type, entity_type_id):
 

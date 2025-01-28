@@ -24,16 +24,6 @@ from .exceptions import StageException, DataWriterException
 from .util import asList
 from . import metadata as md
 
-try:
-    from MAS_Data_Dictionary.MAM_API import MAM_API
-except ImportError:
-    MAM_API = None
-
-try:
-    from MAS_Data_Dictionary.MAS_Core_Types import EntryType
-except ImportError:
-    EntryType = None
-
 logger = logging.getLogger(__name__)
 
 DATALAKE_BATCH_UPDATE_ROWS = 5000
@@ -475,15 +465,6 @@ class ProduceAlerts(object):
                 # Push new alert events to database
                 self._push_alert_events_to_db(new_alert_events, index_has_entity_id)
 
-                # Retrieve alert ids of alert events from database (the only way to obtain them because alert id is
-                # supplied by database. Return the alert events of all alerts in one data frame with index (alert name/
-                # entity id/ timestamp) and additional columns for alert id and creation timestamp.
-                all_new_alert_events = self._attach_alert_ids(alert_events=new_alert_events,
-                                                              index_has_entity_id=index_has_entity_id)
-
-                # Push new alert events to Data Dictionary
-                self._push_alert_events_to_dd(all_new_alert_events, index_has_entity_id)
-
             else:
                 logger.info("No alerts have been defined for current grain.")
 
@@ -541,50 +522,6 @@ class ProduceAlerts(object):
 
         return result_df
 
-    def _get_alert_ids_from_db(self, index_has_entity_id, start_ts=None, end_ts=None):
-
-        # Important: Explicitly set lower-case alias for timestamp column. Otherwise the column name in data frame
-        # will be in uppercase for DB2 because sqlalchemy attempts to avoid name clashes with the possibly reserved
-        # keyword TIMESTAMP by quoting
-        select_alert_name = f'{self.alert_col_name} as "{self.alert_col_name}"'
-        index_col_names = [self.alert_col_name]
-        requested_col_names = [self.alert_df_name]
-
-        if index_has_entity_id is True:
-            select_entity_id = f', {self.entity_id_col_name} as "{self.entity_id_col_name}"'
-            index_col_names.append(self.entity_id_col_name)
-            requested_col_names.append(self.entity_id_df_name)
-        else:
-            select_entity_id = ''
-
-        select_timestamp = f', {self.timestamp_col_name} as "{self.timestamp_col_name}"'
-        index_col_names.append(self.timestamp_col_name)
-        requested_col_names.append(self.timestamp_df_name)
-
-        select_alert_id = f', {self.alert_id_col_name} as "{self.alert_id_col_name}"'
-        requested_col_names.append(self.alert_id_df_name)
-
-        select_created_ts = f', {self.created_ts_col_name} as "{self.created_ts_col_name}"'
-        requested_col_names.append(self.created_ts_df_name)
-
-        sql_statement = f"SELECT {select_alert_name}{select_entity_id}{select_timestamp}{select_alert_id}" \
-                        f"{select_created_ts} FROM {self.quoted_schema}.{self.quoted_table_name} " \
-                        f"WHERE entity_type_id = {self.dms.entity_type_id}"
-
-        if start_ts is not None:
-            sql_statement += f" AND {self.updated_ts_col_name} >= '{str(start_ts)}'"
-        if end_ts is not None:
-            sql_statement += f" AND {self.updated_ts_col_name} <= '{str(end_ts)}'"
-
-        result_df = self.dms.db.read_sql_query(sql_statement, parse_dates=[self.timestamp_col_name],
-                                               index_col=index_col_names,
-                                               requested_col_names=requested_col_names,
-                                               log_message=f"Sql statement for alert id")
-
-        logger.debug(f"Alert ids of {result_df.shape[0]} alert events have been read from database.")
-
-        return result_df
-
     def _push_alert_events_to_db(self, alert_events, index_has_entity_id):
 
         total_count = 0
@@ -627,120 +564,6 @@ class ProduceAlerts(object):
 
         logger.info(f"A total of {total_count} alert events have been written to alert table in "
                     f"{(dt.datetime.now() - start_time).total_seconds()} seconds.")
-
-    def _attach_alert_ids(self, alert_events, index_has_entity_id):
-
-        # Concatenate calculated alert events of all alerts and add alert_name to index (at first position)
-        all_alert_events = pd.concat(alert_events.values(), keys=alert_events.keys(), names=[self.alert_df_name])
-
-        if all_alert_events.shape[0] > 0:
-            # Retrieve alert ids from database. Return a data frame with index (alert name/ entity id/ timestamp ) and
-            # one column with alert id
-            df_alert_id = self._get_alert_ids_from_db(index_has_entity_id=index_has_entity_id,
-                                                      start_ts=self.dms.launch_date, end_ts=None)
-
-            # Merge df_alert_id to all_alert_events
-            all_alert_events = all_alert_events.join(df_alert_id, how='left')
-
-        else:
-            # Add additional column for alert id and creation date for consistency
-            all_alert_events[self.alert_id_df_name] = None
-            all_alert_events[self.created_ts_df_name] = np.nan
-        return all_alert_events
-
-    def _push_alert_events_to_dd(self, all_alert_events, index_has_entity_id):
-
-        if self.dms.db.dd_client is not None:
-
-            # Loop over all alert events
-            total_count = 0
-            builder = self.dms.db.dd_client.graph_set(MAM_API.MAS_ALERTS_GRAPH).builder()
-            start_time = dt.datetime.now()
-            attribute_cache = {}
-            for event_row in all_alert_events[[self.alert_id_df_name, self.created_ts_df_name]].itertuples(index=True,
-                                                                                                           name=None):
-                total_count += 1
-
-                # Get alert name , entity id and timestamp from index
-                index = event_row[0]
-                alert_name = index[0]
-                # Distinguish with/without entity id
-                if index_has_entity_id is True:
-                    tmp_entity_id = index[1]
-                    tmp_timestamp = index[2]
-                else:
-                    tmp_entity_id = None
-                    tmp_timestamp = index[1]
-
-                timestamp_in_nano_seconds = int(tmp_timestamp.to_datetime64())
-                timestamp_in_milli_seconds = timestamp_in_nano_seconds // 1000000
-                created_ts_in_nano_seconds = int(event_row[2].to_datetime64())
-                created_ts_in_milli_seconds = created_ts_in_nano_seconds // 1000000
-
-                if tmp_entity_id is not None and self.dms.entity_type_type == "DEVICE_TYPE":
-                    alert_filter = f"{self.dms.entity_type_dd_id}|{tmp_entity_id}"
-                    device_dto = {"name": tmp_entity_id}
-                    alert_dd_id = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, self.dms.entity_type_id,
-                                                            alert_name, timestamp_in_nano_seconds, tmp_entity_id)
-                else:
-                    alert_filter = self.dms.entity_type_dd_id
-                    device_dto = None
-                    alert_dd_id = EntryType.compute_mas_key(EntryType.Alert.mas_key_prefix, self.dms.entity_type_id,
-                                                            alert_name, timestamp_in_nano_seconds)
-
-                # Get values for severity, priority, status
-                cached_values = attribute_cache.get(alert_name)
-                if cached_values is None:
-                    # Get attributes linked to this alert
-                    kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
-                    cached_values = (kpi_input.get('Severity'), kpi_input.get('Priority'), kpi_input.get('Status'))
-                    attribute_cache[alert_name] = cached_values
-
-                # Setup alert event for Data Dictionary
-                alert_attributes = {"alertId": event_row[1],
-                                    "name": alert_name,
-                                    "timestamp": timestamp_in_milli_seconds,
-                                    "resourceId": self.dms.entity_type_id,
-                                    "createdTs": created_ts_in_milli_seconds,
-                                    "updatedTs": created_ts_in_milli_seconds,
-                                    "alertFilter": alert_filter}
-                if device_dto is not None:
-                    alert_attributes["deviceDto"] = device_dto
-                if cached_values[0] is not None:
-                    alert_attributes["severity"] = cached_values[0]
-                if cached_values[1] is not None:
-                    alert_attributes["priority"] = cached_values[1]
-                if cached_values[2] is not None:
-                    alert_attributes["status"] = cached_values[2]
-
-                builder = builder.alert(alert_dd_id).name(alert_name).set_p(alert_attributes)
-
-                if total_count % DATALAKE_BATCH_UPDATE_ROWS == 0:
-                    # Push alert events in builder to Data Dictionary
-                    result = builder.send()
-                    if result is True:
-                        logger.info(f"{total_count} alert events have been written to Data Dictionary so far.")
-                    else:
-                        self._raise_exception_with_dd_response()
-                    builder = self.dms.db.dd_client.builder()
-
-            if total_count % DATALAKE_BATCH_UPDATE_ROWS > 0:
-                # Push all remaining alert events in builder to Data Dictionary
-                result = builder.send()
-                if result is not True:
-                    self._raise_exception_with_dd_response()
-
-            logger.info(f"A total of {total_count} alert events have been written to Data Dictionary "
-                        f"in {(dt.datetime.now() - start_time).total_seconds()} seconds.")
-        else:
-            logger.info(f"Alert events are not written to Data Dictionary because no Data Dictionary client has been "
-                        f"configured.")
-
-    def _raise_exception_with_dd_response(self):
-        last_response = self.dms.db.dd_client.get_last_response()
-        raise RuntimeError(
-            f"Adding alerts to Data Dictionary failed: Status code={last_response.status_code}, "
-            f"reason={last_response.reason}")
 
     def _get_sql_statement(self):
 
