@@ -70,14 +70,6 @@ credentials = {
     "apiKey": "xxxxxxxxx",
     "apiToken": "xxxxxxxxx"
   },
-  "messageHub": {
-    "brokers": [
-      "xxxxxxxxx",
-      "xxxxxxxxx"
-    ],
-    "username": "xxxxxxxxx",
-    "password": "xxxxxxxxx"
-  },
   "objectStorage": {
     "region": "global",
     "url": "xxxxxxxxx",
