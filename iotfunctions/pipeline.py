@@ -58,8 +58,7 @@ class JobLog(object):
                                 ' connection'))
         kw = {'schema': self.job.get_payload_param('_db_schema', None)}
 
-        self.metadata = MetaData(self.db.connection)
-        self.table = Table(self.table_name.lower(), self.metadata, Column('object_type', String(255), nullable=False),
+        self.table = Table(self.table_name.lower(), self.db.connection, Column('object_type', String(255), nullable=False),
                            Column('object_name', String(255), nullable=False),
                            Column('schedule', String(255), nullable=False),
                            Column('execution_date', DateTime, nullable=False),
@@ -68,7 +67,7 @@ class JobLog(object):
                                   server_default=func.now()), Column('previous_execution_date', DateTime),
                            Column('next_execution_date', DateTime), Column('startup_log', String(255)),
                            Column('execution_log', String(255)), Column('trace', String(2000)), **kw)
-        self.metadata.create_all()
+        self.table.create(bind=self.db.connection)
 
     def clear_old_running(self, name, schedule):
 
