@@ -2707,9 +2707,9 @@ class BaseDBActivityMerge(BaseDataSource):
 
         logger.debug('Merge of dates: Elapsed time: %f' % (pd.Timestamp.utcnow() - timer_start).total_seconds())
 
-        # Move start date from index to column and give the remaining (integer-)index a name
+        # Move start date from index to column and add deviceid to index
         result_df.reset_index(inplace=True)
-        result_df.index.name = self.auto_index_name
+        result_df.set_index(pd.Index([entity for i in range(result_df.index.size)], name=self.execute_by), inplace=True)
 
         # Add column for end_date: Because we have all dates in index the end date is the next start date
         result_df[self._end_date] = result_df[self._start_date].shift(-1)
@@ -2718,7 +2718,7 @@ class BaseDBActivityMerge(BaseDataSource):
         # remove gaps
         result_df = result_df[result_df[self._activity] != gap_indicator]
 
-        # result_df has start_date, end_date and activity
+        # result_df has start_date, end_date and activity; index is the group key
 
         return result_df
 
