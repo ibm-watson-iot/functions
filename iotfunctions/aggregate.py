@@ -112,10 +112,12 @@ class Aggregation(BaseFunction):
 
     def execute(self, df, start_ts=None, end_ts=None, entities=None, offset=None):
 
-        # The index has been moved to the columns and the index levels ('id', event timestamp, dimensions) can now be
-        # used as a starting point of an aggregation. Provide index level 'id' - if it exists - as 'entity_id' as well.
-        if 'id' in df.columns:
-            df['entity_id'] = df['id']
+        # Make index of dataframe available as columns
+        for index_name in df.index.names:
+            if index_name == 'id':
+                df['entity_id'] = df.index.get_level_values('id')
+            else:
+                df[index_name] = df.index.get_level_values(index_name)
 
         # Gather columns which are used to determine the groups
         group_base = []
