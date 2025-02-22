@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -600,7 +600,21 @@ class AnomalyScorer(BaseTransformer):
         group_base = [pd.Grouper(axis=0, level=0)]
 
         if not df_copy.empty:
-            df_copy = df_copy.groupby(group_base).apply(self._calc)
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
+
+        # we don't have enough data, haven't loaded data yet and ..
+        # we have access to our database and are allowed to go to it
+        if self.window_too_small and self.original_frame is None and self.has_access_to_db and self.allowed_to_expand:
+            # TODO compute the lookback parameter based on window size and overlap
+            df_new = self.expand_dataset(df_copy, (np.unique(df_copy.index.get_level_values(0).values).shape[0] + 1) * 200)
+
+            # drive by-entity scoring with the expanded dataset
+            if df_new is not None:
+                group_base = [pd.Grouper(axis=0, level=0)]
+                df_new = df_new.groupby(group_base, group_keys=False).apply(self._calc)
+        elif self.window_too_small:
+            logger.warning('Not enough data to score')
+
 
         logger.debug('Scoring done')
         return df_copy
@@ -610,11 +624,8 @@ class AnomalyScorer(BaseTransformer):
         #entity = df.index.levels[0][0]
         entity = df.index[0][0]
 
-        # get rid of entity id as part of the index
-        df = df.droplevel(0)
-
-        # Get new data frame with sorted index
-        dfe_orig = df.sort_index()
+        # Get new data frame with sorted index and entity id remved from index
+        dfe_orig = df.droplevel(0).sort_index()
 
         # remove all rows with only null entries
         dfe = dfe_orig.dropna(how='all')
@@ -1766,7 +1777,7 @@ class SupervisedLearningTransformer(BaseTransformer):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
 
@@ -1883,7 +1894,7 @@ class RobustThresholdKDE(SupervisedLearningTransformer):
         else:
             df[self.output_item] = 0
 
-        return df.droplevel(0)
+        return df
 
 
     @classmethod
@@ -1940,7 +1951,7 @@ class RobustThreshold(BaseTransformer):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy
@@ -2000,7 +2011,7 @@ class RobustThreshold(BaseTransformer):
                     ]).filter(table.c.entity_id == entity_name).filter(table.c.KEY == self.input_item)
 
             # Execute the query and print the result
-            row_ = db.connection.execute(query).fetchall()
+            row_ = db.engine.execute(query).fetchall()
             row = np.array(row_[0])
             print(row_, row)
         except Exception as e:
@@ -2038,7 +2049,7 @@ class RobustThreshold(BaseTransformer):
         logger.info('RobustThreshold: MAD min ' + str(mad_min) + ', MAD max ' + str(mad_max) +
                         ', IQR min ' + str(iqr_min) + ', IQR max ' + str(iqr_max))
 
-        return df.droplevel(0)
+        return df
 
     @classmethod
     def build_ui(cls):
@@ -2121,7 +2132,7 @@ class BayesRidgeRegressor(BaseEstimatorFunction):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy
@@ -2231,7 +2242,7 @@ class BayesRidgeRegressorExt(BaseEstimatorFunction):
         # group over entities
         group_base = [pd.Grouper(axis=0, level=0)]
 
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
         logger.debug('Scoring done')
         return df_copy
@@ -2369,7 +2380,7 @@ class GBMRegressor(BaseEstimatorFunction):
                 new_features.append(lagged_feature + '_' + str(lag))
 
         # find out proper timescale
-        mindelta, df_copy = min_delta(df)
+        mindelta, df_copy = min_delta(df.droplevel(0))
 
         # add day of week and month of year as two feature pairs for at least hourly timescales
         include_day_of_week = False
@@ -2443,7 +2454,7 @@ class GBMRegressor(BaseEstimatorFunction):
         group_base = [pd.Grouper(axis=0, level=0)]
 
         # first round - training
-        df_copy = df_copy.groupby(group_base).apply(self._calc)
+        df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
 
         # strip off lagged features
@@ -2451,7 +2462,7 @@ class GBMRegressor(BaseEstimatorFunction):
             strip_features, df_copy = self.lag_features(df=df, Train=False)
 
             # second round - inferencing
-            df_copy = df_copy.groupby(group_base).apply(self._calc)
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
 
             logger.debug('Drop artificial features ' + str(strip_features))
             df_copy.drop(columns = strip_features, inplace=True)
@@ -2535,7 +2546,7 @@ class SimpleRegressor(BaseEstimatorFunction):
     def set_estimators(self):
         # gradient_boosted
         params = {'n_estimators': [100, 250, 500, 1000], 'max_depth': [2, 4, 10], 'min_samples_split': [2, 5, 9],
-                  'learning_rate': [0.01, 0.02, 0.05], 'loss': ['ls']}
+                  'learning_rate': [0.01, 0.02, 0.05], 'loss': ['squared_error']}
         self.estimators['gradient_boosted_regressor'] = (ensemble.GradientBoostingRegressor, params)
         logger.info('SimpleRegressor start searching for best model')
 

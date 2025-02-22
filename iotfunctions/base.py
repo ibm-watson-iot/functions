@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -1711,7 +1711,9 @@ class BaseDatabaseLookup(BaseTransformer):
             """
             lup_keys = [x.upper() for x in self.lookup_keys]
             date_cols = [x.upper() for x in self.parse_dates]
-            df = pd.read_sql_query(self.sql, con=self.db, index_col=lup_keys, parse_dates=date_cols)
+            with self.db.engine.connect() as conn:
+                df = pd.read_sql_query(self.sql, con=conn, index_col=lup_keys, parse_dates=date_cols)
+                conn.commit()
 
             df.columns = [x.lower() for x in list(df.columns)]
             return (list(df.columns))
@@ -2486,7 +2488,7 @@ class BaseDBActivityMerge(BaseDataSource):
                     group_base.append(pd.Grouper(axis=0, level=df.index.names.index(self.execute_by)))
 
             try:
-                group = df.groupby(group_base)
+                group = df.groupby(group_base, group_keys=False)
             except KeyError:
                 msg = 'Attempt to execute unique_start_date by %s. One or more group-by columns were ' \
                       'not found' % self.execute_by
@@ -2705,9 +2707,9 @@ class BaseDBActivityMerge(BaseDataSource):
 
         logger.debug('Merge of dates: Elapsed time: %f' % (pd.Timestamp.utcnow() - timer_start).total_seconds())
 
-        # Move start date from index to column and give the remaining (integer-)index a name
+        # Move start date from index to column and add deviceid to index
         result_df.reset_index(inplace=True)
-        result_df.index.name = self.auto_index_name
+        result_df.set_index(pd.Index([entity for i in range(result_df.index.size)], name=self.execute_by), inplace=True)
 
         # Add column for end_date: Because we have all dates in index the end date is the next start date
         result_df[self._end_date] = result_df[self._start_date].shift(-1)
@@ -2716,7 +2718,7 @@ class BaseDBActivityMerge(BaseDataSource):
         # remove gaps
         result_df = result_df[result_df[self._activity] != gap_indicator]
 
-        # result_df has start_date, end_date and activity
+        # result_df has start_date, end_date and activity; index is the group key
 
         return result_df
 
@@ -2923,7 +2925,7 @@ class BaseSCDLookupWithDefault(BaseTransformer):
         df[self.output_item] = self.dim_default_value
 
         # Group df on entity_id (first level in MultiIndex) and apply fill-in function
-        groups = df.groupby(level=0, sort=False)
+        groups = df.groupby(level=0, sort=False, group_keys=False)
         df = groups.apply(func=self._fill_in, dim_df=dim_df, dim_col=self.df_dim_name, start_col=self.df_start_name,
                           output_col=self.output_item)
 
@@ -3603,7 +3605,7 @@ class BaseRegressor(BaseEstimatorFunction):
     def set_estimators(self):
         # gradient_boosted
         params = {'n_estimators': [100, 250, 500, 1000], 'max_depth': [2, 4, 10], 'min_samples_split': [2, 5, 9],
-                  'learning_rate': [0.01, 0.02, 0.05], 'loss': ['ls']}
+                  'learning_rate': [0.01, 0.02, 0.05], 'loss': ['squared_error']}
         self.estimators['gradient_boosted_regressor'] = (ensemble.GradientBoostingRegressor, params)
         # sgd
         params = {'max_iter': [250, 1000, 5000, 10000], 'tol': [0.001, 0.002, 0.005]}

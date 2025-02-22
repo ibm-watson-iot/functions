@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -720,7 +720,7 @@ class SamplePreLoad(BasePreload):
         data = {'status': True, SystemLogTable._timestamp: dt.datetime.utcnow()}
         df = pd.DataFrame(data=data, index=[0])
         table = SystemLogTable(self.table_name, self._entity_type.db, Column('status', String(50)))
-        table.create()
+        table.create(self._entity_type.db.engine)
         table.insert(df)
         return True
 
