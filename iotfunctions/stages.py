@@ -212,8 +212,14 @@ class PersistColumns:
                                 rowVals.append(None)
 
                             if metric_type[1]:
-                                myFloat = float(derivedMetricVal)
-                                rowVals.append(myFloat if np.isfinite(myFloat) else None)
+                                float_value = float(derivedMetricVal)
+                                if np.isfinite(float_value):
+                                    rowVals.append(float_value)
+                                else:
+                                    # Metric is infinite (np.inf). This can happen after a division by zero in the
+                                    # calculation. We handle infinite values as None. Consequently, nothing to write to
+                                    # db2.
+                                    continue
                             else:
                                 rowVals.append(None)
 
