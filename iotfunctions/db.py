@@ -89,8 +89,6 @@ class Database(object):
     OS_API_CERTIFICATE_FILE = 'API_CERTIFICATE_FILE'
     OS_DB_CERTIFICATE_FILE = 'DB_CERTIFICATE_FILE'
 
-    KITT_MAX_CONNECTION_RETRY_COUNT = 5
-
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
                  entity_type_id=None, model_store=None):
 

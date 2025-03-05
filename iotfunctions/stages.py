@@ -20,9 +20,9 @@ import pandas as pd
 from sqlalchemy import (MetaData, Table)
 
 from . import dbhelper
-from .dbhelper import check_sql_injection
+from .dbhelper import check_sql_injection, check_sql_injection_extended
 from .exceptions import StageException, DataWriterException
-from .util import asList
+from .util import asList, UNIQUE_EXTENSION_LABEL, log_data_frame
 from . import metadata as md
 
 logger = logging.getLogger(__name__)
@@ -30,12 +30,19 @@ logger = logging.getLogger(__name__)
 DATALAKE_BATCH_UPDATE_ROWS = 5000
 KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
 
+
 class MetricType(Enum):
-    BOOLEAN: auto()
-    STRING: auto()
-    NUMBER: auto()
-    TIMESTAMP: auto()
-    JSON: auto()
+    BOOLEAN = auto()
+    STRING = auto()
+    NUMBER = auto()
+    TIMESTAMP = auto()
+    JSON = auto()
+
+METRICTYPE_TO_COLNAME = {MetricType.NUMBER: "VALUE_N",
+                         MetricType.STRING: "VALUE_S",
+                         MetricType.BOOLEAN: "VALUE_B",
+                         MetricType.TIMESTAMP: "VALUE_T",
+                         MetricType.JSON: "VALUE_C"}
 
 
 class PersistColumns:
@@ -58,7 +65,7 @@ class PersistColumns:
         self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
         if self.dms.production_mode:
             t1 = dt.datetime.now()
-            self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
+            self.store_derived_metrics_2(df[list(set(self.sources) & set(df.columns))])
             t2 = dt.datetime.now()
             self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
             if self.checkpoint is True:
@@ -144,7 +151,6 @@ class PersistColumns:
 
                 self.logger.debug(f'SQL upsert statement derived_metrics_upsert_sql = {sql}')
 
-
             # Determine position of metric in dataframe. Position starts at 1.
             metric_name_to_position = {}
             for pos, metric_name in enumerate(dataFrame.columns, 1):
@@ -156,6 +162,26 @@ class PersistColumns:
             for table_name, metric_name_to_metric_type in table_name_to_metrics.items():
                 stmt, grain = table_name_to_insert_stmt[table_name]
                 table_has_clob = table_name_to_has_clob[table_name]
+
+                # Kohlmann TODO
+                existing_result_df = self.get_existing_result(table_name, grain, metric_name_to_metric_type, dataFrame)
+                if existing_result_df is not None:
+                    if not existing_result_df.empty:
+                        joined_df = dataFrame.join(other=existing_result_df, how='left', rsuffix=UNIQUE_EXTENSION_LABEL)
+                        filter_name_create = "filter_create" + UNIQUE_EXTENSION_LABEL
+                        filter_name_delete = "filter_delete" + UNIQUE_EXTENSION_LABEL
+                        joined_df[filter_name_create] = False
+                        for metric_name in dataFrame.columns:
+                            joined_df[filter_name_create].mask( joined_df[metric_name] != joined_df[metric_name + UNIQUE_EXTENSION_LABEL], True, inplace=True)
+
+                        log_data_frame(f'Full result to update: ', joined_df)
+                        joined_df = joined_df[joined_df[filter_name_create]][dataFrame.columns]
+                        log_data_frame(f'Remaining result to update: ', joined_df)
+                        dataFrame = joined_df
+                    else:
+                        logger.debug("No existing result")
+                else:
+                    logger.debug("Existing result was not retrieved.")
 
                 # Loop over rows of data frame
                 # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
@@ -201,15 +227,21 @@ class PersistColumns:
                             if metric_type == MetricType.BOOLEAN:
                                 if self.dms.is_postgre_sql:
                                     row_values.append(
-                                        False if (metric_value == False or metric_value == 0) else True)
+                                        False if (metric_value is False or metric_value == 0) else True)
                                 else:
-                                    row_values.append(0 if (metric_value == False or metric_value == 0) else 1)
+                                    row_values.append(0 if (metric_value is False or metric_value == 0) else 1)
                             else:
                                 row_values.append(None)
 
                             if metric_type == MetricType.NUMBER:
-                                myFloat = float(metric_value)
-                                row_values.append(myFloat if np.isfinite(myFloat) else None)
+                                float_value = float(metric_value)
+                                if np.isfinite(float_value):
+                                    row_values.append(float_value)
+                                else:
+                                    # Metric is infinite (np.inf). This can happen after a division by zero in the
+                                    # calculation. We handle infinite values as None. Consequently, nothing to write to
+                                    # db2.
+                                    continue
                             else:
                                 row_values.append(None)
 
@@ -529,6 +561,102 @@ class PersistColumns:
               f"update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, " \
               f"value_t = EXCLUDED.value_t, {'value_c = EXCLUDED.value_c, ' if with_clob_column else ''}last_update = EXCLUDED.last_update"
         return sql
+
+    def get_existing_result(self, table_name, grain, metric_name_to_metric_type, df):
+
+        # Only retrieve any existing results when we have a timestamp-level in the index of the dataframe
+        if grain is None or grain[0] is not None:
+            # Determine the required columns to build index of dataframe
+            index_names = []
+            index_column_names = []
+            if grain is None or len(grain) == 0:
+                index_column_names.append(KPI_ENTITY_ID_COLUMN)
+                index_column_names.append('TIMESTAMP')
+                index_names.append('id')
+                index_names.append(self.dms.eventTimestampName)
+
+            else:
+                if grain[2]:
+                    index_column_names.append(KPI_ENTITY_ID_COLUMN)
+                    index_names.append('id')
+                if grain[0] is not None:
+                    index_column_names.append('TIMESTAMP')
+                    index_names.append(self.dms.eventTimestampName)
+                if grain[1] is not None:
+                    # Map dimension names to dimension column names
+                    for dimension_name in grain[1]:
+                        index_column_names.append(self.dms.data_items.get(dimension_name)["columnName"])
+                        index_names.append(dimension_name)
+
+            quoted_index_column_names = []
+            for column_name in index_column_names:
+                quoted_index_column_names.append(dbhelper.quotingColumnName(check_sql_injection(column_name)))
+            quoted_index_column_names_string = ", ".join(quoted_index_column_names)
+
+            # Retrieve existing data per type
+            tmp_time_index = df.index.get_level_values(self.dms.eventTimestampName)
+            timestamp_min = tmp_time_index.min()
+            timestamp_max = tmp_time_index.max()
+            existing_result_dfs = []
+            for value_column_type, value_column_name in METRICTYPE_TO_COLNAME.items():
+
+                # Setup sql statement
+                metric_names = []
+                quoted_metric_names = []
+                for metric_name, metric_type in metric_name_to_metric_type.items():
+                    if metric_type == value_column_type:
+                        metric_names.append(metric_name)
+                        quoted_metric_names.append(dbhelper.quotingSqlString(check_sql_injection_extended(metric_name)))
+
+                if len(metric_names) > 0:
+                    sql_statement = f'SELECT  {quoted_index_column_names_string}, "KEY", "{value_column_name}" FROM ' \
+                                    f'{dbhelper.quotingSchemaName(check_sql_injection(self.schema))}.{dbhelper.quotingTableName(check_sql_injection(table_name))} ' \
+                                    f'WHERE KEY IN ({", ".join(quoted_metric_names)}) AND ' \
+                                    f'TIMESTAMP >= \'{timestamp_min}\' AND TIMESTAMP <= \'{timestamp_max}\''
+                    logger.debug(f"Sql statement to retrieve existing results of type {metric_type.name}: {sql_statement}")
+
+                    # Execute sql statement and get result as list of tuples
+                    existing_result = []
+                    try:
+                        result_handle = ibm_db.exec_immediate(self.db_connection, sql_statement)
+
+                        try:
+                            row = ibm_db.fetch_tuple(result_handle)
+                            while row is not False:
+                                existing_result.append(row)
+                                row = ibm_db.fetch_tuple(result_handle)
+                        except Exception as ex:
+                            raise RuntimeError(f"Collecting the result of sql statement to retrieve existing results of type "
+                                               f"{metric_type.name} failed: {ex.message}") from ex
+                        finally:
+                            ibm_db.free_result(result_handle)
+
+                    except Exception as ex:
+                        raise RuntimeError(f"Execution of sql statement to retrieve existing results of type "
+                                           f"{metric_type.name} failed: {ex.message}")
+
+                    # Convert existing_result to dataframe with metrics arranged as columns
+                    if len(existing_result) > 0:
+                        tmp_df = pd.DataFrame.from_records(data=existing_result, columns=[*index_names, "KEY", value_column_name])
+                        existing_result_dfs.append(tmp_df.pivot(index=index_names, columns="KEY", values=value_column_name))
+                        tmp_df = None
+                        existing_result = None
+
+            # Join existing-result data frames to one data frame
+            if len(existing_result_dfs) > 0:
+                # Take first data frame
+                existing_result_df = existing_result_dfs[0]
+                if len(existing_result_dfs) > 1:
+                    # Join remaining dataframes to first dataframe
+                    existing_result_df = existing_result_df.join(other=existing_result_dfs[1:], how='outer')
+            else:
+                existing_result_df = None
+
+            existing_result_df.sort_index(inplace=True)
+        else:
+            existing_result_df = None
+
+        return existing_result_df
 
 
 def _timestamp_as_string(timestamp):
