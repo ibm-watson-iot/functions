@@ -163,25 +163,30 @@ class PersistColumns:
                 stmt, grain = table_name_to_insert_stmt[table_name]
                 table_has_clob = table_name_to_has_clob[table_name]
 
-                # Kohlmann TODO
                 existing_result_df = self.get_existing_result(table_name, grain, metric_name_to_metric_type, dataFrame)
-                if existing_result_df is not None:
-                    if not existing_result_df.empty:
-                        joined_df = dataFrame.join(other=existing_result_df, how='left', rsuffix=UNIQUE_EXTENSION_LABEL)
-                        filter_name_create = "filter_create" + UNIQUE_EXTENSION_LABEL
-                        filter_name_delete = "filter_delete" + UNIQUE_EXTENSION_LABEL
-                        joined_df[filter_name_create] = False
-                        for metric_name in dataFrame.columns:
-                            joined_df[filter_name_create].mask( joined_df[metric_name] != joined_df[metric_name + UNIQUE_EXTENSION_LABEL], True, inplace=True)
+                result_name_to_metric_name = {}
+                metric_name_to_result_position = {}
+                if existing_result_df is not None and not existing_result_df.empty:
+                    for metric_name in dataFrame.columns:
+                        if metric_name in existing_result_df.columns:
+                            result_name_to_metric_name[metric_name + UNIQUE_EXTENSION_LABEL] = metric_name
 
-                        log_data_frame(f'Full result to update: ', joined_df)
-                        joined_df = joined_df[joined_df[filter_name_create]][dataFrame.columns]
-                        log_data_frame(f'Remaining result to update: ', joined_df)
-                        dataFrame = joined_df
-                    else:
-                        logger.debug("No existing result")
+                    dataFrame = dataFrame.join(other=existing_result_df, how='left', rsuffix=UNIQUE_EXTENSION_LABEL)
+
+                    # Determine position of result columns in dataframe. Position starts at 1.
+                    number_of_metrics = len(metric_name_to_position)
+                    for pos, col_name in enumerate(dataFrame.columns, 1):
+                        if pos <= number_of_metrics:
+                            continue
+                        else:
+                            metric_name = result_name_to_metric_name.get(col_name)
+                            if metric_name is not None:
+                                metric_name_to_result_position[metric_name] = pos
                 else:
-                    logger.debug("Existing result was not retrieved.")
+                    logger.debug("No existing data was retrieved.")
+
+                log_data_frame(f'Dataframe before loop to push data to DB2: ', dataFrame)
+                logger.debug(f'Existing data available for the following metrics: {metric_name_to_result_position.keys()}')
 
                 # Loop over rows of data frame
                 # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
@@ -190,15 +195,26 @@ class PersistColumns:
                 # by index. Position starts at 1 because 0 is reserved for the row index.
                 value_list = []
                 cnt = 0
+                cnt_total = 0
                 total_saved = 0
+                precision_factor = 10 ** (9 - self.dms.db.precision_fractional_seconds)
 
                 for df_row in dataFrame.itertuples(index=True, name=None):
                     ix = df_row[0]
                     for metric_name, metric_type in metric_name_to_metric_type.items():
+
                         metric_value = df_row[metric_name_to_position[metric_name]]
 
-                        # Skip missing values
+                        result_position = metric_name_to_result_position.get(metric_name)
+                        if result_position is not None:
+                            result_value = df_row[result_position]
+                        else:
+                            result_value = None
+
+                        # Skip missing values and values which already exist in DB2
                         if pd.notna(metric_value):
+                            cnt_total += 1
+
                             row_values = list()
                             row_values.append(metric_name)
 
@@ -224,32 +240,79 @@ class PersistColumns:
                                     for dimension in grain[1]:
                                         row_values.append(ix[index_name_to_position[dimension]])
 
+                            # MetricType.BOOLEAN
                             if metric_type == MetricType.BOOLEAN:
-                                if self.dms.is_postgre_sql:
-                                    row_values.append(
-                                        False if (metric_value is False or metric_value == 0) else True)
+                                if metric_value is False or metric_value == 0:
+                                    metric_value = False
                                 else:
-                                    row_values.append(0 if (metric_value is False or metric_value == 0) else 1)
-                            else:
-                                row_values.append(None)
-
-                            if metric_type == MetricType.NUMBER:
-                                float_value = float(metric_value)
-                                if np.isfinite(float_value):
-                                    row_values.append(float_value)
+                                    metric_value = True
+                                if metric_value != result_value:
+                                    if self.dms.is_postgre_sql:
+                                        row_values.append(metric_value)
+                                    else:
+                                        row_values.append(0 if metric_value is False else 1)
                                 else:
-                                    # Metric is infinite (np.inf). This can happen after a division by zero in the
-                                    # calculation. We handle infinite values as None. Consequently, nothing to write to
-                                    # db2.
+                                    # Calculated and existing value are identical. No need to update in DB2
                                     continue
                             else:
                                 row_values.append(None)
 
-                            row_values.append(str(metric_value) if metric_type == MetricType.STRING else None)
-                            row_values.append(metric_value if metric_type == MetricType.TIMESTAMP else None)
+                            # MetricType.NUMBER
+                            if metric_type == MetricType.NUMBER:
+                                float_value = float(metric_value)
+                                if not np.isfinite(float_value):
+                                    # Metric is infinite (np.inf). This can happen after a division by zero in the
+                                    # calculation. We handle infinite values as None and we do not update any
+                                    # existing result in DB2
+                                    continue
+                                if float_value != result_value:
+                                    row_values.append(float_value)
+                                else:
+                                    # Calculated and existing value are identical. No need to update in DB2
+                                    continue
+                            else:
+                                row_values.append(None)
 
+                            # MetricType.STRING
+                            if metric_type == MetricType.STRING:
+                                metric_value = str(metric_value)
+                                if metric_value != result_value:
+                                    row_values.append(metric_value)
+                                else:
+                                    # Calculated and existing value are identical. No need to update in DB2
+                                    continue
+                            else:
+                                row_values.append(None)
+
+                            # MetricType.TIMESTAMP
+                            if metric_type == MetricType.TIMESTAMP:
+                                # Reduce precision of current metric value (it can be upto nanoseconds depending how
+                                # the metric value is calculated) to the precision of result value from DB2 before
+                                # comparing both. Otherwise the comparison metric_value != result_value returns True
+                                # all the time.
+                                nano_seconds = metric_value.microsecond * 1000 + metric_value.nanosecond
+                                metric_value = metric_value - \
+                                               pd.Timedelta(nano_seconds -
+                                                            (nano_seconds // precision_factor * precision_factor))
+                                if metric_value != result_value:
+                                    row_values.append(metric_value)
+                                else:
+                                    # Calculated and existing value are identical. No need to update in DB2
+                                    continue
+                            else:
+                                row_values.append(None)
+
+                            # MetricType.JSON
                             if table_has_clob is True:
-                                row_values.append(json.dumps(metric_value) if metric_type == MetricType.JSON else None)
+                                if metric_type == MetricType.JSON:
+                                    json_str = json.dumps(metric_value)
+                                    if json_str != result_value:
+                                        row_values.append(json_str)
+                                    else:
+                                        # Calculated and existing value are identical. No need to update in DB2
+                                        continue
+                                else:
+                                    row_values.append(None)
 
                             value_list.append(tuple(row_values))
                             cnt += 1
@@ -291,7 +354,7 @@ class PersistColumns:
                         raise Exception('Error persisting derived metrics, batch size = %s, value_list=%s' % (
                             len(value_list), str(value_list))) from ex
 
-                self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
+                self.logger.debug(f'derived_metrics_persisted: {total_saved} values out of {cnt_total} non-null values saved. ')
 
     def store_derived_metrics(self, dataFrame):
 
@@ -565,7 +628,9 @@ class PersistColumns:
     def get_existing_result(self, table_name, grain, metric_name_to_metric_type, df):
 
         # Only retrieve any existing results when we have a timestamp-level in the index of the dataframe
-        if grain is None or grain[0] is not None:
+        # and when the dataframe is not empty (both is required to determine the upper and lower boundary for the
+        # timestamp in sql statement)
+        if (grain is None or grain[0]) and df.empty is not None:
             # Determine the required columns to build index of dataframe
             index_names = []
             index_column_names = []
@@ -593,7 +658,7 @@ class PersistColumns:
                 quoted_index_column_names.append(dbhelper.quotingColumnName(check_sql_injection(column_name)))
             quoted_index_column_names_string = ", ".join(quoted_index_column_names)
 
-            # Retrieve existing data per type
+            # Retrieve existing metric data per metric type. Limit the result by timestamp.
             tmp_time_index = df.index.get_level_values(self.dms.eventTimestampName)
             timestamp_min = tmp_time_index.min()
             timestamp_max = tmp_time_index.max()
@@ -637,10 +702,17 @@ class PersistColumns:
 
                     # Convert existing_result to dataframe with metrics arranged as columns
                     if len(existing_result) > 0:
-                        tmp_df = pd.DataFrame.from_records(data=existing_result, columns=[*index_names, "KEY", value_column_name])
-                        existing_result_dfs.append(tmp_df.pivot(index=index_names, columns="KEY", values=value_column_name))
+                        tmp_df = pd.DataFrame.from_records(data=existing_result,
+                                                           columns=[*index_names, "KEY", value_column_name])
+                        existing_result_dfs.append(tmp_df.pivot(index=index_names, columns="KEY",
+                                                                values=value_column_name))
                         tmp_df = None
                         existing_result = None
+                        logger.debug(f"Existing data for metrics {metric_names} of metric type {metric_type.name} "
+                                     f"retrieved.")
+                    else:
+                        logger.debug(f"No existing data available for metrics {metric_names} of "
+                                     f"metric type {metric_type.name}")
 
             # Join existing-result data frames to one data frame
             if len(existing_result_dfs) > 0:
@@ -655,6 +727,8 @@ class PersistColumns:
             existing_result_df.sort_index(inplace=True)
         else:
             existing_result_df = None
+            logger.debug("Existing result was not retrieved because data frame is empty or because no timestamp "
+                         "column available.")
 
         return existing_result_df
 
