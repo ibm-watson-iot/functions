@@ -13,6 +13,7 @@ import logging
 from collections import defaultdict
 
 import pandas as pd
+from pandas.api.types import is_string_dtype, is_numeric_dtype, is_bool_dtype, is_datetime64_ns_dtype, is_object_dtype
 import numpy as np
 
 import iotfunctions.metadata as md
@@ -182,10 +183,65 @@ class Aggregation(BaseFunction):
         self.logger.info(f"input/output relationship for simple aggregators: {str(log_messages)}")
 
         # Aggregate
-        agg_df_simple = groups.agg(**named_aggregations)
-        log_data_frame('Data frame after application of simple aggregators', agg_df_simple)
+        if len(named_aggregations) > 0:
+            agg_df_simple = groups.agg(**named_aggregations)
+            if agg_df_simple.empty:
+                # Corrective action for unexpected behaviour of pandas: The user-defined (from the pandas perspective)
+                # aggregation functions like our 'Count' function are never called when the corresponding dataframe is
+                # empty. Although this behaviour (which was introduced in pandas 1.5.x) helps to avoid exceptions for
+                # aggregation functions which are not designed to handle empty dataframes properly it causes issues
+                # for function like 'Count':
+                # The Count function returns a result of type 'int64' independent of the input type. This exchange of
+                # type does not happen when our count function is never called. Therefore, pandas returns a (empty)
+                # result column with the type of the input instead of type 'int64'. By the way, pandas build-in count()
+                # function does not show this issue!
+                # We take corrective action for all simple aggregators by enforcing the correct result type in case of
+                # an empty dataframe
 
-        all_dfs.append(agg_df_simple)
+                # Determine the output metrics whose type must be changed. Then assign to the corresponding columns in
+                # dataframe a dummy value of the expected type to enforce the conversion of type. This approach is much
+                # simpler in case of an empty dataframe than using dataframe.astype() which throws an exception,
+                # for example, when a datetime64[ns] is converted to a float64.
+                for output_metric_name in agg_df_simple.columns:
+                    output_metric = self.dms.data_items.get(output_metric_name)
+                    if output_metric is not None:
+                        output_metric_type = output_metric.get('columnType')
+                        column_type = agg_df_simple[output_metric_name].dtype
+                        new_type = None
+                        if output_metric_type == "BOOLEAN":
+                            if not is_bool_dtype(column_type):
+                                new_type = 'boolean'
+                                agg_df_simple[output_metric_name] = True
+                        elif output_metric_type == "NUMBER":
+                            if not is_numeric_dtype(column_type):
+                                new_type = 'float64'
+                                agg_df_simple[output_metric_name] = 1.0
+                        elif output_metric_type == "LITERAL":
+                            if not is_string_dtype(column_type):
+                                new_type = 'str'
+                                agg_df_simple[output_metric_name] = ""
+                        elif output_metric_type == "TIMESTAMP":
+                            if not is_datetime64_ns_dtype(column_type):
+                                new_type = 'datetime64[ns]'
+                                agg_df_simple[output_metric_name] = pd.TIMESTAMP(0)
+                        elif output_metric_type == "JSON":
+                            if not is_object_dtype(column_type):
+                                new_type = 'object'
+                                agg_df_simple[output_metric_name] = ""
+                        else:
+                            self.logger.warning(f"The output type could not be enforced for metric {output_metric_name} "
+                                                f"because it has an unexpected type {output_metric_type}.")
+
+                        if new_type is not None:
+                            self.logger.debug(f"Type was changed from {column_type} to {new_type} for "
+                                              f"output metric {output_metric_name}")
+                    else:
+                        self.logger.warning(f"The output type could not be enforced for metric {output_metric_name} "
+                                            f"because it was not found in the list of defined metrics.")
+
+            log_data_frame('Data frame after application of simple aggregators', agg_df_simple)
+
+            all_dfs.append(agg_df_simple)
 
         ###############################################################################
         # complex aggregators
