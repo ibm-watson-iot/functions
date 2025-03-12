@@ -1,8 +1,8 @@
 dill==0.3.7
 ibm-db==3.2.3
 ibm-db-sa==0.4.1
-ibm-watson-machine-learning==1.0.356
-ibm-watsonx-ai==1.1.14
+ibm-watson-machine-learning==1.0.366
+ibm-watsonx-ai==1.1.23
 lxml==4.9.3
 lightgbm==4.5.0
 nose2==0.15.1
@@ -11,7 +11,7 @@ prophet==1.1.6
 psycopg2-binary==2.9.9
 pyarrow==15.0.1
 pyod==2.0.2
-certifi>=2024.7.04
+certifi>=2024.8.30
 requests==2.32.2
 ruptures==1.1.9
 scikit-learn==1.5.0
