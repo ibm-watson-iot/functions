@@ -186,7 +186,8 @@ class PersistColumns:
                     logger.debug("No existing data was retrieved.")
 
                 log_data_frame(f'Dataframe before loop to push data to DB2: ', dataFrame)
-                logger.debug(f'Existing data available for the following metrics: {metric_name_to_result_position.keys()}')
+                logger.debug(f'Existing data available for the following metrics: '
+                             f'{list(metric_name_to_result_position.keys())}')
 
                 # Loop over rows of data frame
                 # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
@@ -678,7 +679,7 @@ class PersistColumns:
                                     f'{dbhelper.quotingSchemaName(check_sql_injection(self.schema))}.{dbhelper.quotingTableName(check_sql_injection(table_name))} ' \
                                     f'WHERE KEY IN ({", ".join(quoted_metric_names)}) AND ' \
                                     f'TIMESTAMP >= \'{timestamp_min}\' AND TIMESTAMP <= \'{timestamp_max}\''
-                    logger.debug(f"Sql statement to retrieve existing results of type {metric_type.name}: {sql_statement}")
+                    logger.debug(f"Sql statement to retrieve existing results of type {value_column_type.name}: {sql_statement}")
 
                     # Execute sql statement and get result as list of tuples
                     existing_result = []
@@ -692,13 +693,13 @@ class PersistColumns:
                                 row = ibm_db.fetch_tuple(result_handle)
                         except Exception as ex:
                             raise RuntimeError(f"Collecting the result of sql statement to retrieve existing results of type "
-                                               f"{metric_type.name} failed: {ex.message}") from ex
+                                               f"{value_column_type.name} failed: {ex.message}") from ex
                         finally:
                             ibm_db.free_result(result_handle)
 
                     except Exception as ex:
                         raise RuntimeError(f"Execution of sql statement to retrieve existing results of type "
-                                           f"{metric_type.name} failed: {ex.message}")
+                                           f"{value_column_type.name} failed: {ex.message}")
 
                     # Convert existing_result to dataframe with metrics arranged as columns
                     if len(existing_result) > 0:
@@ -708,23 +709,25 @@ class PersistColumns:
                                                                 values=value_column_name))
                         tmp_df = None
                         existing_result = None
-                        logger.debug(f"Existing data for metrics {metric_names} of metric type {metric_type.name} "
+                        logger.debug(f"Existing data for metrics {metric_names} of metric type {value_column_type.name} "
                                      f"retrieved.")
                     else:
                         logger.debug(f"No existing data available for metrics {metric_names} of "
-                                     f"metric type {metric_type.name}")
+                                     f"metric type {value_column_type.name}")
 
             # Join existing-result data frames to one data frame
             if len(existing_result_dfs) > 0:
                 # Take first data frame
                 existing_result_df = existing_result_dfs[0]
                 if len(existing_result_dfs) > 1:
-                    # Join remaining dataframes to first dataframe
-                    existing_result_df = existing_result_df.join(other=existing_result_dfs[1:], how='outer')
+                    # Join remaining dataframes to first dataframe and sort index
+                    existing_result_df = existing_result_df.join(other=existing_result_dfs[1:], how='outer', sort=True)
+                else:
+                    # Sort index
+                    existing_result_df.sort_index(inplace=True)
             else:
                 existing_result_df = None
 
-            existing_result_df.sort_index(inplace=True)
         else:
             existing_result_df = None
             logger.debug("Existing result was not retrieved because data frame is empty or because no timestamp "
