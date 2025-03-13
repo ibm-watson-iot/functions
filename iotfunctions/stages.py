@@ -643,7 +643,7 @@ class PersistColumns:
         # Only retrieve any existing results when we have a timestamp-level in the index of the dataframe
         # and when the dataframe is not empty (both is required to determine the upper and lower boundary for the
         # timestamp in sql statement)
-        if (grain is None or grain[0]) and df.empty is not None:
+        if ((grain is None or len(grain) == 0) or grain[0] is not None) and df.empty is not None:
             # Determine the required columns to build index of dataframe
             index_names = []
             index_column_names = []
