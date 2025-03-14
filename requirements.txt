@@ -4,7 +4,7 @@ ibm_db_sa==0.4.1
 ibm-watson-machine-learning==1.0.356
 ibm_watsonx_ai==1.1.14
 lxml==4.9.3
-lightgbm==4.5.0
+lightgbm==4.6.0
 nose2==0.15.1
 pandas==2.1.4
 prophet==1.1.6
