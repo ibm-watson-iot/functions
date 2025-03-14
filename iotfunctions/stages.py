@@ -649,7 +649,7 @@ class PersistColumns:
         # Only retrieve any existing results when we have a timestamp-level in the index of the dataframe
         # and when the dataframe is not empty (both is required to determine the upper and lower boundary for the
         # timestamp in sql statement)
-        if ((grain is None or len(grain) == 0) or grain[0] is not None) and df.empty is not None:
+        if ((grain is None or len(grain) == 0) or grain[0] is not None) and df.empty is False:
             # Determine the required columns to build index of dataframe
             index_names = []
             index_column_names = []
@@ -710,14 +710,14 @@ class PersistColumns:
                                 existing_result.append(row)
                                 row = ibm_db.fetch_tuple(result_handle)
                         except Exception as ex:
-                            raise RuntimeError(f"Collecting the result of sql statement to retrieve existing results of type "
-                                               f"{value_column_type.name} failed: {ex.message}") from ex
+                            raise RuntimeError(f"Collecting the result of sql statement to retrieve existing results "
+                                               f"of type {value_column_type.name} failed: {ex}") from ex
                         finally:
                             ibm_db.free_result(result_handle)
 
                     except Exception as ex:
                         raise RuntimeError(f"Execution of sql statement to retrieve existing results of type "
-                                           f"{value_column_type.name} failed: {ex.message}")
+                                           f"{value_column_type.name} failed: {ex}") from ex
 
                     # Convert existing_result to dataframe with metrics arranged as columns
                     if len(existing_result) > 0:
