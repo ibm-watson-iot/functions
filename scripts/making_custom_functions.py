@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -69,14 +69,6 @@ credentials = {
     "asHost": "xxxxxxxxx",
     "apiKey": "xxxxxxxxx",
     "apiToken": "xxxxxxxxx"
-  },
-  "messageHub": {
-    "brokers": [
-      "xxxxxxxxx",
-      "xxxxxxxxx"
-    ],
-    "username": "xxxxxxxxx",
-    "password": "xxxxxxxxx"
   },
   "objectStorage": {
     "region": "global",

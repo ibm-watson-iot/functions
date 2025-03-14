@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -394,7 +394,7 @@ class EntityType(object):
         try:
             sqltable = self.db.get_table(name, self._db_schema)
         except KeyError:
-            table.create()
+            table.create(self.db.engine)
         self.activity_tables[name] = table
 
     def add_slowly_changing_dimension(self, property_name, datatype, **kwargs):
@@ -430,7 +430,7 @@ class EntityType(object):
         try:
             self.db.get_table(name, self._db_schema)
         except KeyError:
-            table.create()
+            table.create(self.db.engine)
         self.scd[property_name] = table
 
     def _add_scd_pipeline_stage(self, scd_lookup):
@@ -1579,6 +1579,10 @@ class EntityType(object):
             df['devicetype'] = self.logical_name
             df['format'] = ''
             df['updated_utc'] = dt.datetime.utcnow()
+            if 'device_uid' not in df.columns:
+                df['device_uid'] = -1
+            if 'rcv_timestamp_utc' not in df.columns:
+                df['rcv_timestamp_utc'] = df[self._timestamp]
             self.db.write_frame(table_name=self._metric_table_name, df=df, schema=self._db_schema,
                                 timestamp_col=self._timestamp)
 
@@ -1772,7 +1776,7 @@ class EntityType(object):
         df = df[cols]
         df['end_date'] = None
         if len(df.index) > 0:
-            df = df.groupby([self._entity_id]).apply(self._set_end_date)
+            df = df.groupby([self._entity_id],group_keys=False).apply(self._set_end_date)
             try:
                 self.db.truncate(table_name, schema=self._db_schema)
             except KeyError:
@@ -1924,6 +1928,8 @@ class EntityType(object):
     def create_sample_data(self, drop_existing, generate_days, generate_entities=None,
                            populate_dm_wiot_entity_list=False):
         if generate_days > 0:
+            if populate_dm_wiot_entity_list:
+                self.populate_entity_list_table()
             # classify stages is adds entity metdata to the stages
             # need to run it before executing any stage
             self.classify_stages()
@@ -1935,8 +1941,6 @@ class EntityType(object):
                 g.execute(df=None, start_ts=start, entities=generate_entities)
 
             if populate_dm_wiot_entity_list:
-                self.populate_entity_list_table()
-
                 # KITT integration: write dimension data after populating the entity list
                 if self._generated_dimension_payload:
                     logger.debug(self._generated_dimension_payload)
@@ -2156,7 +2160,7 @@ class EntityType(object):
             table = self.db.get_table(self._dimension_table_name, self._db_schema)
             for i in new_ids:
                 stmt = table.insert().values({self._entity_id: i})
-                self.db.connection.execute(stmt)
+                self.db.engine.execute(stmt)
             self.db.commit()
             return new_ids
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -40,6 +40,5 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.6',
-    install_requires=requirements,
-    extras_require={'kafka': ['confluent-kafka==1.9.2']}
+    install_requires=requirements
 )
