@@ -1171,6 +1171,8 @@ class Database(object):
         self.url['dimensions', 'PUT'] = '/'.join(
             [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
 
+        self.url['devices', 'POST'] = '/'.join([core_url, 'v2', 'deviceTypes', object_name, object_type])
+
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
                    'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache",
