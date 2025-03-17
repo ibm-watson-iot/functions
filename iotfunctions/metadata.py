@@ -1954,29 +1954,15 @@ class EntityType(object):
 
     def populate_entity_list_table(self):
 
+        payload_new_devices = []
+        for i in range(self._auto_entity_count):
+            payload_new_devices.append({"name": self._start_entity_id + i})
+
         try:
-            insert_tuples = tuple(
-                (self._entity_type_id, str(self._start_entity_id + x)) for x in range(self._auto_entity_count)
-            )
-
-            if self.db.db_type == 'db2':
-
-                sql_statement = f'INSERT INTO "IOTANALYTICS"."DEVICE_LIST" ' \
-                                f'("ID", "ENTITY_TYPE_ID", "ENTITY_ID") ' \
-                                f'VALUES (NEXT VALUE FOR "IOTANALYTICS"."DEVICE_LIST_SEQ", ?, ?)'
-
-                stmt = ibm_db.prepare(self.db.native_connection, sql_statement)
-
-                try:
-                    ibm_db.execute_many(stmt, insert_tuples)
-                finally:
-                    ibm_db.free_result(stmt)
-
-            else:
-                raise Exception("Databases other than DB2 are not supported.")
-
-        except Exception as e:
-            logger.error('Error populating device_list table.', e)
+            response = self.db.http_request(object_type='devices', object_name=self._entity_type_uuid, request='POST',
+                                            payload=payload_new_devices, raise_error=True)
+        except Exception as ex:
+            raise RuntimeError("Devices could not be created in configuration.") from ex
 
     def register(self, publish_kpis=False, raise_error=False, sample_entity_type=False):
         """
