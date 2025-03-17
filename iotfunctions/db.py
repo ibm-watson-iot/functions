@@ -89,8 +89,6 @@ class Database(object):
     OS_API_CERTIFICATE_FILE = 'API_CERTIFICATE_FILE'
     OS_DB_CERTIFICATE_FILE = 'DB_CERTIFICATE_FILE'
 
-    KITT_MAX_CONNECTION_RETRY_COUNT = 5
-
     def __init__(self, credentials=None, start_session=False, echo=False, tenant_id=None, entity_metadata=None,
                  entity_type_id=None, model_store=None):
 
@@ -570,6 +568,54 @@ class Database(object):
         # Create DBModelStore if it was not handed in
         if entity_type_id is not None:
             self.init_model_store(self.schema)
+
+        # Determine the precision of fractional seconds for timestamps in database
+        self.precision_fractional_seconds = self.get_precision_fractional_seconds()
+
+    def get_precision_fractional_seconds(self):
+
+        if self.db_type == 'db2':
+            sql_statement = f'SELECT CAST(TIMESTAMP(\'1970-01-01-00.00.00.123456789\') AS CHAR(31)) ' \
+                            f'FROM "IOTANALYTICS"."KPI_FUNCTION"'
+            logger.debug(f"Sql statement to determine the precision of fractional seconds for timestamps in DB2: "
+                         f"{sql_statement}")
+
+            # Execute sql statement and get the single result of select statement
+            timestamp_str = None
+            try:
+                result_handle = ibm_db.exec_immediate(self.native_connection, sql_statement)
+
+                try:
+                    row = ibm_db.fetch_tuple(result_handle)
+                    if row is not False:
+                        timestamp_str = str(row[0]).strip()
+                except Exception as ex:
+                    raise RuntimeError(f"The retrieval of the result of sql statement to determine the precision of "
+                                       f"fractional seconds in DB2 failed.") from ex
+                finally:
+                    ibm_db.free_result(result_handle)
+
+            except Exception as ex:
+                raise RuntimeError(f"The sql statement to determine the precision of fractional seconds in DB2 "
+                                   f"failed.") from ex
+
+            # Timestamp is supposed to look like this: 1970-01-01-00.00.00.123456
+            if timestamp_str is not None and len(timestamp_str) > 18:
+                if len(timestamp_str) > 20:
+                    fractional_str = timestamp_str[20:]
+                    precision = len(fractional_str)
+                else:
+                    precision = 0
+            else:
+                precision = 6
+                logger.warning(f"Unexpected format of timestamp string '{timestamp_str}'. Precision of fractional "
+                               f"seconds for timestamps set to default of 6")
+        else:
+            precision = 6
+
+        logger.debug(f"Precision of fractional seconds for timestamps in DB2: {precision}")
+
+        return precision
 
     def set_entity_type(self, entity_type, entity_type_id):
 

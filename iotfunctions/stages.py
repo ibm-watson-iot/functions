@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import logging
 from collections import defaultdict
+from enum import Enum, auto
 
 import ibm_db
 import numpy as np
@@ -19,15 +20,29 @@ import pandas as pd
 from sqlalchemy import (MetaData, Table)
 
 from . import dbhelper
-from .dbhelper import check_sql_injection
+from .dbhelper import check_sql_injection, check_sql_injection_extended
 from .exceptions import StageException, DataWriterException
-from .util import asList
+from .util import asList, UNIQUE_EXTENSION_LABEL, log_data_frame
 from . import metadata as md
 
 logger = logging.getLogger(__name__)
 
 DATALAKE_BATCH_UPDATE_ROWS = 5000
 KPI_ENTITY_ID_COLUMN = 'ENTITY_ID'
+
+
+class MetricType(Enum):
+    BOOLEAN = auto()
+    STRING = auto()
+    NUMBER = auto()
+    TIMESTAMP = auto()
+    JSON = auto()
+
+METRICTYPE_TO_COLNAME = {MetricType.NUMBER: "VALUE_N",
+                         MetricType.STRING: "VALUE_S",
+                         MetricType.BOOLEAN: "VALUE_B",
+                         MetricType.TIMESTAMP: "VALUE_T",
+                         MetricType.JSON: "VALUE_C"}
 
 
 class PersistColumns:
@@ -50,7 +65,7 @@ class PersistColumns:
         self.logger.debug('columns_to_persist=%s, df_columns=%s' % (str(self.sources), str(df.dtypes.to_dict())))
         if self.dms.production_mode:
             t1 = dt.datetime.now()
-            self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
+            self.store_derived_metrics_2(df[list(set(self.sources) & set(df.columns))])
             t2 = dt.datetime.now()
             self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
             if self.checkpoint is True:
@@ -62,169 +77,245 @@ class PersistColumns:
 
         return df
 
-    def store_derived_metrics(self, dataFrame):
+    def store_derived_metrics_2(self, dataFrame):
 
         if self.dms.production_mode:
 
-            # Determine for each metric the boolean mask for upsert statement
-            table_metrics_to_persist = defaultdict(dict)
-            for source, dtype in dataFrame.dtypes.to_dict().items():
-                source_metadata = self.dms.data_items.get(source)
-                if source_metadata is None:
+            # Determine the metrics per table which must be persisted. Collect metric_table_name, metric_name and metric_type
+            table_name_to_metrics = defaultdict(dict)
+            for metric_name, dtype in dataFrame.dtypes.to_dict().items():
+                metric_metadata = self.dms.data_items.get(metric_name)
+                if metric_metadata is None:
                     continue
 
                 # skip transient data items
-                if source_metadata.get(md.DATA_ITEM_TRANSIENT_KEY) is True:
-                    self.logger.debug('skip persisting transient data_item=%s' % source)
+                if metric_metadata.get(md.DATA_ITEM_TRANSIENT_KEY) is True:
+                    self.logger.debug('skip persisting transient data_item=%s' % metric_name)
                     continue
 
                 # Determine table name of current source
                 try:
-                    table_name = source_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
+                    metric_table_name = metric_metadata.get(md.DATA_ITEM_SOURCETABLE_KEY)
                 except Exception:
-                    self.logger.warning('sourceTableName invalid for derived_metric=%s' % source, exc_info=True)
+                    self.logger.warning('sourceTableName invalid for derived_metric=%s' % metric_name, exc_info=True)
                     continue
 
-                value_bool = False
-                value_number = False
-                value_string = False
-                value_timestamp = False
-                value_json = False
-
-                if source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
-                    value_number = True
-                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
-                    value_bool = True
-                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
-                    value_timestamp = True
-                elif source_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_JSON:
-                    value_json = True
+                if metric_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_NUMBER:
+                    metric_type = MetricType.NUMBER
+                elif metric_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_BOOLEAN:
+                    metric_type = MetricType.BOOLEAN
+                elif metric_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_TIMESTAMP:
+                    metric_type = MetricType.TIMESTAMP
+                elif metric_metadata.get(md.DATA_ITEM_COLUMN_TYPE_KEY) == md.DATA_ITEM_TYPE_JSON:
+                    metric_type = MetricType.JSON
                 else:
-                    value_string = True
+                    metric_type = MetricType.STRING
 
-                table_metrics_to_persist[table_name][source] = [value_bool, value_number, value_string, value_timestamp, value_json]
+                table_name_to_metrics[metric_table_name][metric_name] = metric_type
 
-            self.logger.debug('table_metrics_to_persist=%s' % str(table_metrics_to_persist))
+            self.logger.debug('table_name_to_metrics=%s' % str(table_name_to_metrics))
 
-            # Determine if a table has a json column and create sql statements for each table
-            table_has_clob = {}
-            table_insert_stmt = {}
-            for table_name, source_to_values in table_metrics_to_persist.items():
+            # Create sql statements for each table
+            table_name_to_has_clob = {}
+            table_name_to_insert_stmt = {}
+            for table_name, metric_name_to_metric_type in table_name_to_metrics.items():
 
                 # Determine if this table has a column VALUE_C (CLOB containing json)
                 has_clob_column = False
-                for source, values in source_to_values.items():
-                    if values[4] is True:
+                for metric_name, metric_type in metric_name_to_metric_type.items():
+                    if metric_type == MetricType.JSON:
                         has_clob_column = True
                         break
-                table_has_clob[table_name] = has_clob_column
+                table_name_to_has_clob[table_name] = has_clob_column
+
+                # Determine grain for this table
+                first_metric_name = None
+                for metric_name in metric_name_to_metric_type.keys():
+                    first_metric_name = metric_name
+                    break
+                grain = self.dms.target_grains[first_metric_name]
 
                 # Create upsert statements for this table
-                first_source = None
-                for source in source_to_values.keys():
-                    first_source = source
-                    break
-                grain = self.dms.target_grains[first_source]
                 sql = None
-                try:
+                if self.is_postgre_sql:
+                    sql = self.create_upsert_statement_postgres_sql(table_name, grain, has_clob_column)
+                    table_name_to_insert_stmt[table_name] = (sql, grain)
 
-                    if self.is_postgre_sql:
-                        sql = self.create_upsert_statement_postgres_sql(table_name, grain, has_clob_column)
-                        table_insert_stmt[table_name] = (sql, grain)
-
-                    else:
-                        sql = self.create_upsert_statement(table_name, grain, has_clob_column)
+                else:
+                    sql = self.create_upsert_statement(table_name, grain, has_clob_column)
+                    try:
                         stmt = ibm_db.prepare(self.db_connection, sql)
-                        table_insert_stmt[table_name] = (stmt, grain)
+                    except Exception:
+                        raise RuntimeError('Error creating DB2 upsert statement for sql = %s' % sql, exc_info=True)
+                    table_name_to_insert_stmt[table_name] = (stmt, grain)
 
-                    self.logger.debug('derived_metrics_upsert_sql = %s' % sql)
-                except Exception:
-                    self.logger.warning('Error creating db upsert statement for sql = %s' % sql, exc_info=True)
-                    continue
+                self.logger.debug(f'SQL upsert statement derived_metrics_upsert_sql = {sql}')
 
-            # Remember position of column in dataframe. Index starts at 1.
-            col_position = {}
-            for pos, col_name in enumerate(dataFrame.columns, 1):
-                col_position[col_name] = pos
+            # Determine position of metric in dataframe. Position starts at 1.
+            metric_name_to_position = {}
+            for pos, metric_name in enumerate(dataFrame.columns, 1):
+                metric_name_to_position[metric_name] = pos
 
-            index_name_pos = {name: idx for idx, name in enumerate(dataFrame.index.names)}
-            for table_name, metric_and_type in table_metrics_to_persist.items():
-                stmt, grain = table_insert_stmt[table_name]
+            # Determine position of index levels in dataframe's index. Position starts at 0.
+            index_name_to_position = {index_name: position for position, index_name in enumerate(dataFrame.index.names)}
+
+            for table_name, metric_name_to_metric_type in table_name_to_metrics.items():
+                stmt, grain = table_name_to_insert_stmt[table_name]
+                table_has_clob = table_name_to_has_clob[table_name]
+
+                existing_result_df = self.get_existing_result(table_name, grain, metric_name_to_metric_type, dataFrame)
+                result_name_to_metric_name = {}
+                metric_name_to_result_position = {}
+                if existing_result_df is not None and not existing_result_df.empty:
+                    for metric_name in dataFrame.columns:
+                        if metric_name in existing_result_df.columns:
+                            result_name_to_metric_name[metric_name + UNIQUE_EXTENSION_LABEL] = metric_name
+
+                    dataFrame = dataFrame.join(other=existing_result_df, how='left', rsuffix=UNIQUE_EXTENSION_LABEL)
+
+                    # Determine position of result columns in dataframe. Position starts at 1.
+                    number_of_metrics = len(metric_name_to_position)
+                    for pos, col_name in enumerate(dataFrame.columns, 1):
+                        if pos <= number_of_metrics:
+                            continue
+                        else:
+                            metric_name = result_name_to_metric_name.get(col_name)
+                            if metric_name is not None:
+                                metric_name_to_result_position[metric_name] = pos
+                else:
+                    logger.debug("No existing data was retrieved.")
+
+                log_data_frame(f'Dataframe before loop to push data to DB2: ', dataFrame)
+                logger.debug(f'Existing data available for the following metrics: '
+                             f'{list(metric_name_to_result_position.keys())}')
 
                 # Loop over rows of data frame
                 # We do not use namedtuples in intertuples() (name=None) because of clashes of column names with python
                 # keywords and column names starting with underscore; both lead to renaming of column names in df_rows.
                 # Additionally, namedtuples are limited to 255 columns in itertuples(). We access the columns in df_row
                 # by index. Position starts at 1 because 0 is reserved for the row index.
-                valueList = []
+                value_list = []
                 cnt = 0
+                cnt_total = 0
                 total_saved = 0
+                precision_factor = 10 ** (9 - self.dms.db.precision_fractional_seconds)
 
                 for df_row in dataFrame.itertuples(index=True, name=None):
                     ix = df_row[0]
-                    for metric, metric_type in metric_and_type.items():
-                        derivedMetricVal = df_row[col_position[metric]]
+                    for metric_name, metric_type in metric_name_to_metric_type.items():
 
-                        # Skip missing values
-                        if pd.notna(derivedMetricVal):
-                            rowVals = list()
-                            rowVals.append(metric)
+                        metric_value = df_row[metric_name_to_position[metric_name]]
+
+                        result_position = metric_name_to_result_position.get(metric_name)
+                        if result_position is not None:
+                            result_value = df_row[result_position]
+                        else:
+                            result_value = None
+
+                        # Skip missing values and values which already exist in DB2
+                        if pd.notna(metric_value):
+                            cnt_total += 1
+
+                            row_values = list()
+                            row_values.append(metric_name)
 
                             if grain is None or len(grain) == 0:
                                 # no grain, the index must be an array of (id, timestamp)
-                                rowVals.append(ix[0])
-                                rowVals.append(ix[1])
+                                row_values.append(ix[0])
+                                row_values.append(ix[1])
                             elif not isinstance(ix, list) and not isinstance(ix, tuple):
                                 # only one element in the grain, ix is not an array, just append it anyway
-                                rowVals.append(ix)
+                                row_values.append(ix)
                             else:
                                 if grain[2]:
                                     # entity_first, the first level index must be the entity id
-                                    rowVals.append(ix[0])
+                                    row_values.append(ix[0])
                                 if grain[0] is not None:
                                     if grain[2]:
                                         # if both id and time are included in the grain, time must be at pos 1
-                                        rowVals.append(ix[1])
+                                        row_values.append(ix[1])
                                     else:
                                         # if only time is included, time must be at pos 0
-                                        rowVals.append(ix[0])
+                                        row_values.append(ix[0])
                                 if grain[1] is not None:
                                     for dimension in grain[1]:
-                                        rowVals.append(ix[index_name_pos[dimension]])
+                                        row_values.append(ix[index_name_to_position[dimension]])
 
-                            if metric_type[0]:
-                                if self.dms.is_postgre_sql:
-                                    rowVals.append(
-                                        False if (derivedMetricVal == False or derivedMetricVal == 0) else True)
+                            # MetricType.BOOLEAN
+                            if metric_type == MetricType.BOOLEAN:
+                                if metric_value is False or metric_value == 0:
+                                    metric_value = False
                                 else:
-                                    rowVals.append(0 if (derivedMetricVal == False or derivedMetricVal == 0) else 1)
-                            else:
-                                rowVals.append(None)
-
-                            if metric_type[1]:
-                                float_value = float(derivedMetricVal)
-                                if np.isfinite(float_value):
-                                    rowVals.append(float_value)
+                                    metric_value = True
+                                if metric_value != result_value:
+                                    if self.dms.is_postgre_sql:
+                                        row_values.append(metric_value)
+                                    else:
+                                        row_values.append(0 if metric_value is False else 1)
                                 else:
-                                    # Metric is infinite (np.inf). This can happen after a division by zero in the
-                                    # calculation. We handle infinite values as None. Consequently, nothing to write to
-                                    # db2.
+                                    # Calculated and existing value are identical. No need to update in DB2
                                     continue
                             else:
-                                rowVals.append(None)
+                                row_values.append(None)
 
-                            rowVals.append(str(derivedMetricVal) if metric_type[2] else None)
-                            rowVals.append(derivedMetricVal if metric_type[3] else None)
+                            # MetricType.NUMBER
+                            if metric_type == MetricType.NUMBER:
+                                float_value = float(metric_value)
+                                if not np.isfinite(float_value):
+                                    # Metric is infinite (np.inf). This can happen after a division by zero in the
+                                    # calculation. We handle infinite values as None and we do not update any
+                                    # existing result in DB2
+                                    continue
+                                if float_value != result_value:
+                                    row_values.append(float_value)
+                                else:
+                                    # Calculated and existing value are identical. No need to update in DB2
+                                    continue
+                            else:
+                                row_values.append(None)
 
-                            if table_has_clob[table_name] is True:
-                                rowVals.append(json.dumps(derivedMetricVal) if metric_type[4] else None)
+                            # MetricType.STRING
+                            if metric_type == MetricType.STRING:
+                                metric_value = str(metric_value)
+                                if metric_value != result_value:
+                                    row_values.append(metric_value)
+                                else:
+                                    # Calculated and existing value are identical. No need to update in DB2
+                                    continue
+                            else:
+                                row_values.append(None)
 
-                            if metric_type[1] and float(derivedMetricVal) is np.nan or metric_type[2] and str(
-                                    derivedMetricVal) == 'nan':
-                                self.logger.debug('!!! weird case, derivedMetricVal=%s' % derivedMetricVal)
-                                continue
+                            # MetricType.TIMESTAMP
+                            if metric_type == MetricType.TIMESTAMP:
+                                # Reduce precision of current metric value (it can be upto nanoseconds depending how
+                                # the metric value is calculated) to the precision of result value from DB2 before
+                                # comparing both. Otherwise the comparison metric_value != result_value returns True
+                                # all the time.
+                                nano_seconds = metric_value.microsecond * 1000 + metric_value.nanosecond
+                                metric_value = metric_value - \
+                                               pd.Timedelta(nano_seconds -
+                                                            (nano_seconds // precision_factor * precision_factor))
+                                if metric_value != result_value:
+                                    row_values.append(metric_value)
+                                else:
+                                    # Calculated and existing value are identical. No need to update in DB2
+                                    continue
+                            else:
+                                row_values.append(None)
 
-                            valueList.append(tuple(rowVals))
+                            # MetricType.JSON
+                            if table_has_clob is True:
+                                if metric_type == MetricType.JSON:
+                                    json_str = json.dumps(metric_value)
+                                    if json_str != result_value:
+                                        row_values.append(json_str)
+                                    else:
+                                        # Calculated and existing value are identical. No need to update in DB2
+                                        continue
+                                else:
+                                    row_values.append(None)
+
+                            value_list.append(tuple(row_values))
                             cnt += 1
 
                         if cnt >= DATALAKE_BATCH_UPDATE_ROWS:
@@ -232,39 +323,39 @@ class PersistColumns:
                                 # Bulk insert
 
                                 if self.is_postgre_sql:
-                                    dbhelper.execute_batch(self.db_connection, stmt, valueList,
+                                    dbhelper.execute_batch(self.db_connection, stmt, value_list,
                                                            DATALAKE_BATCH_UPDATE_ROWS)
                                     saved = cnt  # Work around because we don't receive row count from batch query.
 
                                 else:
-                                    res = ibm_db.execute_many(stmt, tuple(valueList))
+                                    res = ibm_db.execute_many(stmt, tuple(value_list))
                                     saved = res if res is not None else ibm_db.num_rows(stmt)
 
                                 total_saved += saved
                                 self.logger.debug('Records saved so far = %d' % total_saved)
                             except Exception as ex:
-                                raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
-                                    len(valueList), str(valueList))) from ex                                
+                                raise Exception('Error persisting derived metrics, batch size = %s, value_list=%s' % (
+                                    len(value_list), str(value_list))) from ex
 
-                            valueList = []
+                            value_list = []
                             cnt = 0
 
-                if len(valueList) > 0:
+                if len(value_list) > 0:
                     try:
                         # Bulk insert
                         if self.is_postgre_sql:
-                            dbhelper.execute_batch(self.db_connection, stmt, valueList, DATALAKE_BATCH_UPDATE_ROWS)
+                            dbhelper.execute_batch(self.db_connection, stmt, value_list, DATALAKE_BATCH_UPDATE_ROWS)
                             saved = cnt  # Work around because we don't receive row count from batch query.
                         else:
-                            res = ibm_db.execute_many(stmt, tuple(valueList))
+                            res = ibm_db.execute_many(stmt, tuple(value_list))
                             saved = res if res is not None else ibm_db.num_rows(stmt)
 
                         total_saved += saved
                     except Exception as ex:
-                        raise Exception('Error persisting derived metrics, batch size = %s, valueList=%s' % (
-                            len(valueList), str(valueList))) from ex
+                        raise Exception('Error persisting derived metrics, batch size = %s, value_list=%s' % (
+                            len(value_list), str(value_list))) from ex
 
-                self.logger.debug('derived_metrics_persisted = %s' % str(total_saved))
+                self.logger.debug(f'derived_metrics_persisted: {total_saved} values out of {cnt_total} non-null values saved. ')
 
     def create_upsert_statement(self, tableName, grain, with_clob_column):
         dimensions = []
@@ -336,6 +427,115 @@ class PersistColumns:
               f"update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, " \
               f"value_t = EXCLUDED.value_t, {'value_c = EXCLUDED.value_c, ' if with_clob_column else ''}last_update = EXCLUDED.last_update"
         return sql
+
+    def get_existing_result(self, table_name, grain, metric_name_to_metric_type, df):
+
+        # Only retrieve any existing results when we have a timestamp-level in the index of the dataframe
+        # and when the dataframe is not empty (both is required to determine the upper and lower boundary for the
+        # timestamp in sql statement)
+        if ((grain is None or len(grain) == 0) or grain[0] is not None) and df.empty is False:
+            # Determine the required columns to build index of dataframe
+            index_names = []
+            index_column_names = []
+            if grain is None or len(grain) == 0:
+                index_column_names.append(KPI_ENTITY_ID_COLUMN)
+                index_column_names.append('TIMESTAMP')
+                index_names.append('id')
+                index_names.append(self.dms.eventTimestampName)
+
+            else:
+                if grain[2]:
+                    index_column_names.append(KPI_ENTITY_ID_COLUMN)
+                    index_names.append('id')
+                if grain[0] is not None:
+                    index_column_names.append('TIMESTAMP')
+                    index_names.append(self.dms.eventTimestampName)
+                if grain[1] is not None:
+                    # Map dimension names to dimension column names
+                    for dimension_name in grain[1]:
+                        index_column_names.append(self.dms.data_items.get(dimension_name)["columnName"])
+                        index_names.append(dimension_name)
+
+            quoted_index_column_names = []
+            for column_name in index_column_names:
+                quoted_index_column_names.append(dbhelper.quotingColumnName(check_sql_injection(column_name)))
+            quoted_index_column_names_string = ", ".join(quoted_index_column_names)
+
+            # Retrieve existing metric data per metric type. Limit the result by timestamp.
+            tmp_time_index = df.index.get_level_values(self.dms.eventTimestampName)
+            timestamp_min = tmp_time_index.min()
+            timestamp_max = tmp_time_index.max()
+            existing_result_dfs = []
+            for value_column_type, value_column_name in METRICTYPE_TO_COLNAME.items():
+
+                # Setup sql statement
+                metric_names = []
+                quoted_metric_names = []
+                for metric_name, metric_type in metric_name_to_metric_type.items():
+                    if metric_type == value_column_type:
+                        metric_names.append(metric_name)
+                        quoted_metric_names.append(dbhelper.quotingSqlString(check_sql_injection_extended(metric_name)))
+
+                if len(metric_names) > 0:
+                    sql_statement = f'SELECT  {quoted_index_column_names_string}, "KEY", "{value_column_name}" FROM ' \
+                                    f'{dbhelper.quotingSchemaName(check_sql_injection(self.schema))}.{dbhelper.quotingTableName(check_sql_injection(table_name))} ' \
+                                    f'WHERE KEY IN ({", ".join(quoted_metric_names)}) AND ' \
+                                    f'TIMESTAMP >= \'{timestamp_min}\' AND TIMESTAMP <= \'{timestamp_max}\''
+                    logger.debug(f"Sql statement to retrieve existing results of type {value_column_type.name}: {sql_statement}")
+
+                    # Execute sql statement and get result as list of tuples
+                    existing_result = []
+                    try:
+                        result_handle = ibm_db.exec_immediate(self.db_connection, sql_statement)
+
+                        try:
+                            row = ibm_db.fetch_tuple(result_handle)
+                            while row is not False:
+                                existing_result.append(row)
+                                row = ibm_db.fetch_tuple(result_handle)
+                        except Exception as ex:
+                            raise RuntimeError(f"Collecting the result of sql statement to retrieve existing results "
+                                               f"of type {value_column_type.name} failed: {ex}") from ex
+                        finally:
+                            ibm_db.free_result(result_handle)
+
+                    except Exception as ex:
+                        raise RuntimeError(f"Execution of sql statement to retrieve existing results of type "
+                                           f"{value_column_type.name} failed: {ex}") from ex
+
+                    # Convert existing_result to dataframe with metrics arranged as columns
+                    if len(existing_result) > 0:
+                        tmp_df = pd.DataFrame.from_records(data=existing_result,
+                                                           columns=[*index_names, "KEY", value_column_name])
+                        existing_result_dfs.append(tmp_df.pivot(index=index_names, columns="KEY",
+                                                                values=value_column_name))
+                        tmp_df = None
+                        existing_result = None
+                        logger.debug(f"Existing data for metrics {metric_names} of metric type {value_column_type.name} "
+                                     f"retrieved.")
+                    else:
+                        logger.debug(f"No existing data available for metrics {metric_names} of "
+                                     f"metric type {value_column_type.name}")
+
+            # Join existing-result data frames to one data frame
+            if len(existing_result_dfs) > 0:
+                # Take first data frame
+                existing_result_df = existing_result_dfs[0]
+                if len(existing_result_dfs) > 1:
+                    # Join remaining dataframes to first dataframe and sort index
+                    existing_result_df = existing_result_df.join(other=existing_result_dfs[1:], how='outer', sort=True)
+                else:
+                    # Sort index
+                    existing_result_df.sort_index(inplace=True)
+            else:
+                existing_result_df = None
+
+        else:
+            existing_result_df = None
+            logger.debug("Existing result was not retrieved because data frame is empty or because no timestamp "
+                         "column available.")
+
+        return existing_result_df
 
 
 def _timestamp_as_string(timestamp):
