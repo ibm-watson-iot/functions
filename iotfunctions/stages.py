@@ -68,18 +68,6 @@ class PersistColumns:
             self.store_derived_metrics_2(df[list(set(self.sources) & set(df.columns))])
             t2 = dt.datetime.now()
             self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
-
-
-
-            # Kohlmann DO NOT MERGE !!!!!
-            t1 = dt.datetime.now()
-            self.store_derived_metrics(df[list(set(self.sources) & set(df.columns))])
-            t2 = dt.datetime.now()
-            self.logger.info("persist_data_time_seconds=%s" % (t2 - t1).total_seconds())
-
-
-
-
             if self.checkpoint is True:
                 self.dms.create_checkpoint_entries(df)
                 t3 = dt.datetime.now()
