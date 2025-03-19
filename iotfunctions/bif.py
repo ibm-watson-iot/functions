@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -357,7 +357,7 @@ class StateTimePreparation(BaseTransformer):
         group_base = [pd.Grouper(axis=0, level=0)]
 
         if not df_copy.empty:
-            df_copy = df_copy.groupby(group_base).apply(self._calc)
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
         else:
             # Add output column to prevent subsequent KPI functions from failing because of missing columns in
             # internal data frame
