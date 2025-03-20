@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -29,7 +29,7 @@ from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithD
 from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
-from .util import adjust_probabilities, reset_df_index, asList
+from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL
 from ibm_watson_machine_learning import APIClient
 
 
@@ -345,29 +345,53 @@ class StateTimePreparation(BaseTransformer):
 
         return (inputs, outputs)
 
+    def execute(self, df):
+
+        logger.debug('Execute StateTimePrep')
+        df_copy = df # no copy
+
+        # set output columns to zero
+        df_copy[self.state_name] = 0
+
+        # group over entities
+        group_base = [pd.Grouper(axis=0, level=0)]
+
+        if not df_copy.empty:
+            df_copy = df_copy.groupby(group_base, group_keys=False).apply(self._calc)
+        else:
+            # Add output column to prevent subsequent KPI functions from failing because of missing columns in
+            # internal data frame
+            df_copy[self.name] = None
+
+        logger.debug('StateTimePrep done')
+        return df_copy
+
     def _calc(self, df):
         logger.info('Execute StateTimePrep per entity')
 
         index_names = df.index.names
         ts_name = df.index.names[1]  # TODO: deal with non-standard dataframes (no timestamp)
 
-        logger.info('Source: ' + self.source +  ', state_name ' +  self.state_name +  ', Name: ' + self.name +
+        logger.info('Source: ' + self.source +  ', ts_name ' + ts_name + ', state_name ' +  self.state_name +  ', Name: ' + self.name +
                     ', Entity: ' + df.index[0][0])
 
         df_copy = df.reset_index()
 
         # pair of +- seconds and regular timestamp
         vstate = eval("df_copy[self.source] " + self.state_name).astype(int).values.astype(int)
-        vchange = eval("df_copy[self.source] " + self.state_name).astype(int).diff().values.astype(int)
+        #vchange = eval("df_copy[self.source] " + self.state_name).astype(int).diff().values.astype(int)
+        vchange = np.diff(vstate, prepend=2)
 
-        logger.info(str(vstate))
-        logger.info(str(vchange))
+        logger.info("vstate: " + str(vstate))
+        logger.info("vchange: " + str(vchange))
 
         #v1 = np.roll(v1_, -1)  # push the first element, NaN, to the end
         # v1[-1] = 0
 
         # first value is a NaN, replace it with special value for Aggregator
         vchange[0] = 2
+
+        logger.info(df_copy[ts_name].astype(int));
 
         #logger.debug('HERE: ' + str(v1[0:600]))
 
