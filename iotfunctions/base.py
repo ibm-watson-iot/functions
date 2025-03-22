@@ -20,7 +20,7 @@ import os
 import re
 import warnings
 from collections import OrderedDict
-from inspect import getargspec, signature
+from inspect import getfullargspec, signature
 import hashlib # encode feature names
 
 import numpy as np
