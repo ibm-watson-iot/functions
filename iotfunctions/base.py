@@ -400,7 +400,7 @@ class BaseFunction(object):
         """
 
         metadata = {}
-        args = (getargspec(self.__init__))[0][1:]
+        args = (getfullargspec(self.__init__))[0][1:]
         for a in args:
             try:
                 metadata[a] = self.__dict__[a]
@@ -667,7 +667,7 @@ class BaseFunction(object):
         array_inputs = []
 
         # introspect function to get a list of argumnents
-        args = (getargspec(self.__init__))[0][1:]
+        args = (getfullargspec(self.__init__))[0][1:]
         for a in args:
             if a is None:
                 msg = 'Cannot infer metadata for argument %s as it was initialized with a value of None. \
