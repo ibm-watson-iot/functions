@@ -1965,7 +1965,7 @@ class EntityType(object):
             table = self.db.get_table(entity_list_table_name, self._db_schema)
             for entity_id in entities:
                 stmt = table.insert().values({'entity_type_id': self._entity_type_id, 'entity_id': entity_id})
-                self.db.connection.execute(stmt)
+                self.db.engine.execute(stmt)
             self.db.commit()
 
         except Exception as e:
