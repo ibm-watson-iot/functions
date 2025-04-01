@@ -3325,8 +3325,7 @@ class InvokeWMLModel(DataExpanderTransformer):
         self.window_too_small = self.check_size(sizebyentity)
 
         # Create missing columns before doing group-apply
-        df_copy = df.copy() #.fillna(0)
-        df_copy[self.input_items] = df_copy[self.input_items].fillna(0)
+        df_copy = df.copy()
         missing_cols = [x for x in (self.output_items) if x not in df_copy.columns]
         for m in missing_cols:
             df_copy[m] = None
@@ -3398,8 +3397,7 @@ class InvokeWMLModel(DataExpanderTransformer):
             return df
 
         if len(self.input_items) >= 1:
-            index_nans = df[df[self.input_items].isna().any(axis=1)].index
-            rows = df.loc[~df.index.isin(index_nans), self.input_items].values
+            rows = df[self.input_items].fillna(0).values
 
             logger.debug("Payload shape: " + str(rows.shape))
 
@@ -3430,14 +3428,14 @@ class InvokeWMLModel(DataExpanderTransformer):
         if results:
             # Regression
             if len(self.output_items) == 1:
-                df.loc[~df.index.isin(index_nans), self.output_items] = \
+                df.loc[:, self.output_items] = \
                     np.array(results['predictions'][0]['values']).flatten()
             # Classification
             else:
                 arr = np.array(results['predictions'][0]['values'])
-                df.loc[~df.index.isin(index_nans), self.output_items[0]] = arr[:,0].astype(int)
+                df.loc[:, self.output_items[0]] = arr[:,0].astype(int)
                 arr2 = np.array(arr[:,1].tolist())
-                df.loc[~df.index.isin(index_nans), self.output_items[1]] = arr2.T[0]
+                df.loc[:, self.output_items[1]] = arr2.T[0]
 
         else:
             logging.error('error invoking external model')

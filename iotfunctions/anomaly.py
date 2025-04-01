@@ -612,14 +612,17 @@ class AnomalyScorer(DataExpanderTransformer):
         self.original_frame = None
         self.has_access_to_db = True  # to be tested later ..
 
+        # set output columns to zero
+        # for output_item in self.output_items:
+        df_copy[[self.output_items]] = Null_Float
+
+        if df_copy.empty:
+            return df_copy
+
         # check data type
         if not pd.api.types.is_numeric_dtype(df_copy[self.input_item].dtype):
             logger.error('Anomaly scoring on non-numeric feature:' + str(self.input_item))
             return df_copy
-
-        # set output columns to zero
-        #for output_item in self.output_items:
-        df_copy[[self.output_items]] = Null_Float
 
         # Do not load data to avoid the Window-Too-Small exception when started without analytics services (i.e. without database access)
         if not hasattr(self, 'dms'): 
