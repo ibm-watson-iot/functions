@@ -3280,7 +3280,7 @@ class InvokeWMLModel(BaseTransformer):
             rows = df[self.input_items].fillna(0).values
 
             if rows.shape[0] > 0:
-                rows = rows.values.tolist()
+                rows = rows.tolist()
                 scoring_payload = {
                     'input_data': [{
                         'fields': self.input_items,
