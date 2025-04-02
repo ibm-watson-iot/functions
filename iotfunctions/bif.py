@@ -3265,8 +3265,7 @@ class InvokeWMLModel(BaseTransformer):
         logger.info('InvokeWML exec')
 
         # Create missing columns before doing group-apply
-        df_copy = df.copy()
-        missing_cols = [x for x in (self.output_items) if x not in df_copy.columns]
+        missing_cols = [x for x in (self.output_items) if x not in df.columns]
         for m in missing_cols:
             df[m] = None
 
