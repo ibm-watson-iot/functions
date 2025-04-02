@@ -584,14 +584,17 @@ class AnomalyScorer(BaseTransformer):
         logger.debug('Execute ' + self.whoami)
         df_copy = df # no copy
 
+        # set output columns to zero
+        # for output_item in self.output_items:
+        df_copy[[self.output_items]] = 0.0
+
+        if df_copy.empty:
+            return df_copy
+
         # check data type
         if not pd.api.types.is_numeric_dtype(df_copy[self.input_item].dtype):
             logger.error('Anomaly scoring on non-numeric feature:' + str(self.input_item))
             return df_copy
-
-        # set output columns to zero
-        for output_item in self.output_items:
-            df_copy[output_item] = 0
 
         # delegate to _calc
         logger.debug('Execute ' + self.whoami + ' enter per entity execution')
