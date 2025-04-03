@@ -992,10 +992,10 @@ class Database(object):
                     table = Table(table_name, self.metadata, autoload_with=self.engine, **kwargs)
                     table.indexes = set()
                 elif inspector.has_table(table_name=table_name.upper(), schema=schema):
-                    table = Table(table_name.upper, self.metadata, autoload_with=self.engine, **kwargs)
+                    table = Table(table_name.upper(), self.metadata, autoload_with=self.engine, **kwargs)
                     table.indexes = set()
                 elif inspector.has_table(table_name=table_name.lower(), schema=schema):
-                    table = Table(table_name.lower, self.metadata, autoload_with=self.engine, **kwargs)
+                    table = Table(table_name.lower(), self.metadata, autoload_with=self.engine, **kwargs)
                     table.indexes = set()
                 else:
                     raise KeyError('Table %s does not exist in the schema %s ' % (table_name, schema))
