@@ -2017,7 +2017,7 @@ class EntityType(object):
                 data_type = str(data_type)
                 logger.warning('Unknown datatype %s for column %s' % (data_type, column_name))
             columns.append({'name': column_name, 'type': col_type, 'columnName': column_name, 'columnType': data_type,
-                            'tags': None, 'transient': False})
+                            'tags': None, 'isTransient': False, 'eventName': 'event_1'})
         table['dataItemDto'] = columns
         if self._db_schema is not None:
             table['schemaName'] = self._db_schema
