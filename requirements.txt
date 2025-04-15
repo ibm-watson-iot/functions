@@ -4,7 +4,7 @@ ibm-db-sa==0.4.1
 ibm-watson-machine-learning==1.0.366
 ibm-watsonx-ai==1.1.23
 lxml==4.9.3
-lightgbm==4.5.0
+lightgbm==4.6.0
 nose2==0.15.1
 pandas==2.1.4
 prophet==1.1.6
@@ -23,6 +23,6 @@ stumpy==1.13.0
 numpy==1.26.4
 tabulate==0.8.10
 # torch==2.2.0 : installation moved to Dockerfile
-transformers==4.46.3
+transformers==4.48.0
 urllib3==2.2.3
 protobuf==4.21.12
