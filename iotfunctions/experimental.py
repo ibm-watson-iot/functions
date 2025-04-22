@@ -133,7 +133,6 @@ def tildeq_loss(outputs, targets, alpha = .5, gamma = .0, beta = .5):
 
 # to be reenabled when we have a TTM as pip installable module
 
-'''
 def install_and_activate_granite_tsfm():
     return True
 
@@ -240,7 +239,6 @@ class TSFMZeroShotScorer(InvokeWMLModel):
         outputs=[]
         #outputs.append(UISingle(name='output_items', datatype=float))
         return inputs, outputs
-'''
 
 
 class ProphetForecaster(DataExpanderTransformer):
@@ -303,6 +301,7 @@ class ProphetForecaster(DataExpanderTransformer):
         # check whether we have models available or need to train first
         entities = np.unique(df_copy.index.get_level_values(0).to_numpy())
         must_train = False
+        logger.debug('Do we need data expansion for training ?')
         for entity in entities:
             model_name = self.generate_model_name([], self.y_hat, prefix='Prophet', suffix=entity)
             try:
@@ -391,6 +390,7 @@ class ProphetForecaster(DataExpanderTransformer):
     def _calc(self, df):
         logger.info('_calc')
         entity = df.index[0][0]
+        time_var = df.index.names[1]
 
         # obtain db handler
         db = self.get_db()
@@ -405,7 +405,7 @@ class ProphetForecaster(DataExpanderTransformer):
             prophet_model_json = prophet_model_bytes.decode('utf-8')
             logger.debug('load model %s' % str(prophet_model_json)[0:40])
         except Exception as e:
-            logger.debug('could not load model %s' % str(model_name))
+            logger.info('could not load model %s' % str(model_name))
             # ToDo exception handling
             #logger.error('Model retrieval for %s failed with %s', model_name, str(e))
             #return df
@@ -424,10 +424,12 @@ class ProphetForecaster(DataExpanderTransformer):
 
         holiday_mean = 0
         holiday_std = 0
+        holiday_days = 0
         try:
             model_js = json.loads(prophet_model_json)
             holiday_mean = model_js['holiday_mean']
             holiday_std = model_js['holiday_std']
+            holiday_days = model_js['holiday_days']
         except Exception as e:
             pass
 
@@ -435,10 +437,12 @@ class ProphetForecaster(DataExpanderTransformer):
 
         # for now just take the number of rows - assume daily frequency for now
         # future_dates column name 'ds' as Prophet expects it
-        future_dates = pd.date_range(start=df.tail(1).index[0][1], periods=df.shape[0], freq='D').to_frame(index=False, name='ds')
+        #future_dates = pd.date_range(start=df.tail(1).index[0][1], periods=df.shape[0], freq='D').to_frame(index=False, name='ds')
+        future_dates = df.reset_index()[[time_var]]
         #logger.debug('Future values start/end/length ' + str(future_dates[0]) + ', ' + str(future_dates[-1]) + ', ' + str(future_dates.shape[0]))
-        logger.debug('Future values ' + str(future_dates.describe))
+        logger.debug('Future values ' + str(future_dates.describe()))
 
+        future_dates = df.droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
         prediction=prophet_model.predict(future_dates)
 
         # Take holidays into account
@@ -452,14 +456,18 @@ class ProphetForecaster(DataExpanderTransformer):
             # replace holiday forecasts with the mean
             holiday_index = future_dates['ds'].isin(holiday['ds']).values
 
-            prediction[holiday_index]['yhat'] = holiday_mean
-            prediction[holiday_index]['yhat_lower'] = holiday_mean - 3*holiday_std
-            prediction[holiday_index]['yhat_upper'] = holiday_mean + 3*holiday_std
+            # adjust holiday mean
+            #holiday_mean = (holiday_mean * holiday_days + future_dates[holiday_index]['y'].sum())/(holiday_days + len(holiday_index))
+            yhat = np.where(holiday_index, holiday_mean, prediction['yhat'].values)
+            yhat_lower = np.where(holiday_index, holiday_mean - 3*holiday_std, prediction['yhat_lower'].values)
+            yhat_upper = np.where(holiday_index, holiday_mean + 3*holiday_std, prediction['yhat_upper'].values)
 
-        df[self.y_hat] = prediction['yhat'].values
-        df[self.yhat_lower] = prediction['yhat_lower'].values
-        df[self.yhat_upper] = prediction['yhat_upper'].values
-        df[self.y_date] = future_dates.values
+        #df[self.y_hat] = prediction['yhat'].values
+        df[self.y_hat] = yhat
+        df[self.yhat_lower] = yhat_lower
+        df[self.yhat_upper] = yhat_upper
+        df[self.y_date] = None #future_dates.values
+
         return df
 
     def train_model(self, df, model_name):
@@ -469,18 +477,21 @@ class ProphetForecaster(DataExpanderTransformer):
         # obtain db handler
         db = self.get_db()
 
-        daysforTraining = round(len(df)*0.95)  # take always everything
+        #daysforTraining = round(len(df)*0.95)  # take always everything
+        daysforTraining = len(df)               # take always everything
         time_var = df.index.names[1]
         df_train = df.iloc[:daysforTraining].droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
-        df_test = df.iloc[daysforTraining:].droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
+        #df_test = df.iloc[daysforTraining:].droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
 
         prophet_model = None
         holiday = None
         holiday_mean = 0
         holiday_std = 0
+        holiday_days = 0
 
         # Take holidays into account
         if self.country_code is not None:    
+            logger.debug('Train with holidays from ' + str(self.country_code))
             holiday = pd.DataFrame([])
 
             for date, name in sorted(holidays.country_holidays(self.country_code, years=[2023,2024,2025]).items()):
@@ -499,7 +510,7 @@ class ProphetForecaster(DataExpanderTransformer):
             holiday_mean = df_train[holiday_index]['y'].mean()
             holiday_std = df_train[holiday_index]['y'].std()
 
-        forecast_holidays = prophet_model.predict(df_test)  # sanity test
+        forecast_holidays = prophet_model.predict(df_train)  # sanity test
 
         # serialize model
         model_json = model_to_json(prophet_model)
@@ -509,6 +520,7 @@ class ProphetForecaster(DataExpanderTransformer):
         model_js = json.loads(model_json)
         model_js['holiday_mean'] = holiday_mean
         model_js['holiday_std'] = holiday_std
+        model_js['holiday_days'] = len(holiday_index)
         model_json = json.dumps(model_js)
 
         model_bytes = model_json.encode('utf-8')
