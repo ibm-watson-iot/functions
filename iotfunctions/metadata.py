@@ -1620,7 +1620,7 @@ class EntityType(object):
         metrics.append('duration')
         categoricals.append('activity')
         ts = TimeSeriesGenerator(metrics=metrics, dates=dates, categoricals=categoricals, ids=entities, days=days,
-                                 seconds=seconds, freq=self._activity_frequency)
+                                 seconds=seconds, freq=self._activity_frequency, timestamp=self._timestamp)
         ts.set_domain('activity', activities)
         df = ts.execute()
         df['start_date'] = df[self._timestamp]
@@ -1764,7 +1764,7 @@ class EntityType(object):
         msg = msg + ' with metrics %s, dates %s, categorials %s and others %s' % (metrics, dates, categoricals, others)
         logger.debug(msg)
         ts = TimeSeriesGenerator(metrics=metrics, dates=dates, categoricals=categoricals, ids=entities, days=days,
-                                 seconds=seconds, freq=freq, domains=domains)
+                                 seconds=seconds, freq=freq, domains=domains, timestamp=self._timestamp)
 
         df = ts.execute()
         df['start_date'] = df[self._timestamp]
@@ -1997,9 +1997,11 @@ class EntityType(object):
         columns = []
         metric_column_names = []
         table = {}
+        event_name = 'event_1'
         table['name'] = self.logical_name
         table['metricTableName'] = None
         table['metricTimestampColumn'] = self._timestamp_col
+        table['eventDto'] = [{'name': event_name, 'metricTimestamp': self._timestamp_col}]
         table['description'] = self.description
         table['origin'] = 'AS_SAMPLE'
         for c in self.db.get_column_names(self.table, schema=self._db_schema):
@@ -2028,7 +2030,7 @@ class EntityType(object):
                 data_type = str(data_type)
                 logger.warning('Unknown datatype %s for column %s' % (data_type, column_name))
             columns.append({'name': column_name, 'type': col_type, 'columnName': column_name, 'columnType': data_type,
-                            'tags': None, 'transient': False})
+                            'tags': None, 'isTransient': False, 'eventName': event_name})
         table['dataItemDto'] = columns
         if self._db_schema is not None:
             table['schemaName'] = self._db_schema
