@@ -3434,6 +3434,7 @@ class ProphetForecaster(BaseTransformer):
     def _calc(self, df):
         logger.info('_calc')
         entity = df.index[0][0]
+        time_var = df.index.names[1]
 
         # obtain db handler
         db = self.get_db()
@@ -3474,13 +3475,11 @@ class ProphetForecaster(BaseTransformer):
         except Exception as e:
             pass
 
-        # pass input features - only needed for inline training
+        # input features only needed for inline training
+        #  forecasts only depend on dates
 
-        # for now just take the number of rows - assume daily frequency for now
-        # future_dates column name 'ds' as Prophet expects it
-        future_dates = pd.date_range(start=df.tail(1).index[0][1], periods=df.shape[0], freq='D').to_frame(index=False, name='ds')
-        #logger.debug('Future values start/end/length ' + str(future_dates[0]) + ', ' + str(future_dates[-1]) + ', ' + str(future_dates.shape[0]))
-        logger.debug('Future values ' + str(future_dates.describe))
+        future_dates = df.droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
+        logger.debug('Future values ' + str(future_dates.describe()))
 
         prediction=prophet_model.predict(future_dates)
 
@@ -3495,14 +3494,15 @@ class ProphetForecaster(BaseTransformer):
             # replace holiday forecasts with the mean
             holiday_index = future_dates['ds'].isin(holiday['ds']).values
 
-            prediction[holiday_index]['yhat'] = holiday_mean
-            prediction[holiday_index]['yhat_lower'] = holiday_mean - 3*holiday_std
-            prediction[holiday_index]['yhat_upper'] = holiday_mean + 3*holiday_std
+            yhat = np.where(holiday_index, holiday_mean, prediction['yhat'].values)
+            yhat_lower = np.where(holiday_index, holiday_mean - 3*holiday_std, prediction['yhat_lower'].values)
+            yhat_upper = np.where(holiday_index, holiday_mean + 3*holiday_std, prediction['yhat_upper'].values)
 
-        df[self.y_hat] = prediction['yhat'].values
-        df[self.yhat_lower] = prediction['yhat_lower'].values
-        df[self.yhat_upper] = prediction['yhat_upper'].values
-        df[self.y_date] = future_dates.values
+        df[self.y_hat] = yhat
+        df[self.yhat_lower] = yhat_lower
+        df[self.yhat_upper] = yhat_upper
+        df[self.y_date] = None #future_dates.values
+
         return df
 
     def train_model(self, df, model_name):
@@ -3512,10 +3512,10 @@ class ProphetForecaster(BaseTransformer):
         # obtain db handler
         db = self.get_db()
 
-        daysforTraining = round(len(df)*0.95)  # take always everything
+        daysforTraining = len(df)
         time_var = df.index.names[1]
         df_train = df.iloc[:daysforTraining].droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
-        df_test = df.iloc[daysforTraining:].droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
+        #df_test = df.iloc[daysforTraining:].droplevel(0).reset_index().rename(columns={time_var: "ds", self.input_items[0]: "y"})
 
         prophet_model = None
         holiday = None
@@ -3524,6 +3524,7 @@ class ProphetForecaster(BaseTransformer):
 
         # Take holidays into account
         if self.country_code is not None:    
+            logger.debug('Train with holidays from ' + str(self.country_code))
             holiday = pd.DataFrame([])
 
             for date, name in sorted(holidays.country_holidays(self.country_code, years=[2023,2024,2025]).items()):
@@ -3542,7 +3543,7 @@ class ProphetForecaster(BaseTransformer):
             holiday_mean = df_train[holiday_index]['y'].mean()
             holiday_std = df_train[holiday_index]['y'].std()
 
-        forecast_holidays = prophet_model.predict(df_test)  # sanity test
+        forecast_holidays = prophet_model.predict(df_train)  # sanity test
 
         # serialize model
         model_json = model_to_json(prophet_model)
