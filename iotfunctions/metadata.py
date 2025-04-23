@@ -55,7 +55,7 @@ def retrieve_entity_type_metadata(raise_error=True, **kwargs):
     """
     db = kwargs['_db']
     # get kpi functions metadata
-    meta = db.http_request(object_type='input', object_name=kwargs['resourceUuId'], request='GET',
+    meta = db.http_request(object_type='input', object_name=kwargs['resourceId'], request='GET',
                            raise_error=raise_error)
     try:
         meta = json.loads(meta)
@@ -1894,7 +1894,7 @@ class EntityType(object):
                 'output': output_item_name
             }
             export.append(kpi_function_metadata)
-            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id,
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_uuid,
                                             request='POST',
                                             payload=kpi_function_metadata, raise_error=raise_error)
 
@@ -1945,7 +1945,7 @@ class EntityType(object):
                 # Write dimension data to the entity list
                 if self._generated_dimension_payload:
                     logger.debug(self._generated_dimension_payload)
-                    response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_id,
+                    response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
                                                     request='PUT',
                                                     payload=self._generated_dimension_payload, raise_error=True)
     
@@ -1959,7 +1959,7 @@ class EntityType(object):
             payload_new_devices.append({"name": self._start_entity_id + i})
 
         try:
-            response = self.db.http_request(object_type='devices', object_name=self._entity_type_id, request='POST',
+            response = self.db.http_request(object_type='devices', object_name=self._entity_type_uuid, request='POST',
                                             payload=payload_new_devices, raise_error=True)
         except Exception as ex:
             raise RuntimeError("Devices could not be created in configuration.") from ex
@@ -2076,7 +2076,7 @@ class EntityType(object):
             logger.debug(msg)
             return {}
 
-        meta = self.db.http_request(object_type='constants', object_name=self._entity_type_id, request='GET')
+        meta = self.db.http_request(object_type='constants', object_name=self._entity_type_uuid, request='GET')
         try:
             meta = json.loads(meta)
         except (TypeError, json.JSONDecodeError):
@@ -2167,7 +2167,6 @@ class ServerEntityType(EntityType):
     def __init__(self, resource_id, db, db_schema):
 
         self.db = db
-        self.resource_id = resource_id
 
         # get server metadata
         server_meta = db.http_request(object_type='input', object_name=resource_id, request='GET',
@@ -2215,6 +2214,7 @@ class ServerEntityType(EntityType):
 
         #  map server properties to entity type properties
         self._entity_type_id = server_meta['resourceId']
+        self._entity_type_uuid = server_meta['resourceUuId']
         self._db_schema = server_meta['schemaName']
         self._timestamp = server_meta['metricTimestampColumn']
         self._dimension_table_name = server_meta['dimensionsTable']
@@ -2242,7 +2242,7 @@ class ServerEntityType(EntityType):
         #    server and copied onto the entity type
 
         params = {}
-        c_meta = db.http_request(object_type='constants', object_name=resource_id, request='GET')
+        c_meta = db.http_request(object_type='constants', object_name=self._entity_type_uuid, request='GET')
         try:
             c_meta = json.loads(c_meta)
         except (TypeError, json.JSONDecodeError):
@@ -2539,7 +2539,7 @@ class BaseCustomEntityType(EntityType):
             if output_meta:
                 kpi_function_metadata['outputMeta'] = output_meta
             export.append(kpi_function_metadata)
-            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id,
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_uuid,
                                             request='POST',
                                             payload=kpi_function_metadata, raise_error=raise_error)
 
