@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2020, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2020, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -10,7 +10,6 @@
 
 import logging
 import os
-import uuid
 from pathlib import Path
 
 import dill as pickle

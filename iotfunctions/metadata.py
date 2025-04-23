@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -1894,7 +1894,7 @@ class EntityType(object):
                 'output': output_item_name
             }
             export.append(kpi_function_metadata)
-            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_uuid,
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id,
                                             request='POST',
                                             payload=kpi_function_metadata, raise_error=raise_error)
 
@@ -1945,7 +1945,7 @@ class EntityType(object):
                 # Write dimension data to the entity list
                 if self._generated_dimension_payload:
                     logger.debug(self._generated_dimension_payload)
-                    response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_uuid,
+                    response = self.db.http_request(object_type='dimensions', object_name=self._entity_type_id,
                                                     request='PUT',
                                                     payload=self._generated_dimension_payload, raise_error=True)
     
@@ -1959,7 +1959,7 @@ class EntityType(object):
             payload_new_devices.append({"name": self._start_entity_id + i})
 
         try:
-            response = self.db.http_request(object_type='devices', object_name=self._entity_type_uuid, request='POST',
+            response = self.db.http_request(object_type='devices', object_name=self._entity_type_id, request='POST',
                                             payload=payload_new_devices, raise_error=True)
         except Exception as ex:
             raise RuntimeError("Devices could not be created in configuration.") from ex
@@ -2076,7 +2076,7 @@ class EntityType(object):
             logger.debug(msg)
             return {}
 
-        meta = self.db.http_request(object_type='constants', object_name=self._entity_type_uuid, request='GET')
+        meta = self.db.http_request(object_type='constants', object_name=self._entity_type_id, request='GET')
         try:
             meta = json.loads(meta)
         except (TypeError, json.JSONDecodeError):
@@ -2164,13 +2164,13 @@ class ServerEntityType(EntityType):
     Initialize an entity type using AS Server metadata
     """
 
-    def __init__(self, resource_uuid, db, db_schema):
+    def __init__(self, resource_id, db, db_schema):
 
         self.db = db
-        self.resource_uuid = resource_uuid
+        self.resource_id = resource_id
 
         # get server metadata
-        server_meta = db.http_request(object_type='input', object_name=resource_uuid, request='GET',
+        server_meta = db.http_request(object_type='input', object_name=resource_id, request='GET',
                                       raise_error=True)
         try:
             server_meta = json.loads(server_meta)
@@ -2178,7 +2178,7 @@ class ServerEntityType(EntityType):
             server_meta = None
         if server_meta is None or 'exception' in server_meta:
             raise RuntimeError(('API call to server did not retrieve valid entity '
-                                ' type properties for %s.' % resource_uuid))
+                                ' type properties for %s.' % resource_id))
 
         # functions
         kpis = server_meta.get('kpiDeclarations', [])
@@ -2242,7 +2242,7 @@ class ServerEntityType(EntityType):
         #    server and copied onto the entity type
 
         params = {}
-        c_meta = db.http_request(object_type='constants', object_name=resource_uuid, request='GET')
+        c_meta = db.http_request(object_type='constants', object_name=resource_id, request='GET')
         try:
             c_meta = json.loads(c_meta)
         except (TypeError, json.JSONDecodeError):
@@ -2539,7 +2539,7 @@ class BaseCustomEntityType(EntityType):
             if output_meta:
                 kpi_function_metadata['outputMeta'] = output_meta
             export.append(kpi_function_metadata)
-            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_uuid,
+            response = self.db.http_request(object_type='kpiFunctions', object_name=self._entity_type_id,
                                             request='POST',
                                             payload=kpi_function_metadata, raise_error=raise_error)
 
