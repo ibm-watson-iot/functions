@@ -755,7 +755,7 @@ class ProduceAlerts(object):
 
                 # Setup alert event for DB
                 rows.append((self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp, severity, priority,
-                             domain_status))
+                             domain_status, self.dms.device_name_to_uid.get(tmp_entity_id)))
 
                 if len(rows) == DATALAKE_BATCH_UPDATE_ROWS:
                     # Push alert events in list 'rows' in chunks to alert table in database
@@ -775,14 +775,14 @@ class ProduceAlerts(object):
 
         if self.dms.is_postgre_sql:
             available_columns = ['entity_type_id', 'data_item_name', 'entity_id', 'timestamp', 'severity', 'priority',
-                                 'domain_status']
+                                 'domain_status', 'device_uid']
             all_columns_list = ', '.join(available_columns)
             statement = f"insert into {self.quoted_schema}.{self.quoted_table_name} ({all_columns_list}) " \
                         f"values ({', '.join(['%s'] * len(available_columns))} ) " \
                         f"on conflict on constraint uc_{self.ALERT_TABLE_NAME} do nothing "
         else:
             available_columns = ['ENTITY_TYPE_ID', 'DATA_ITEM_NAME', 'ENTITY_ID', 'TIMESTAMP', 'SEVERITY', 'PRIORITY',
-                                 'DOMAIN_STATUS']
+                                 'DOMAIN_STATUS', 'DEVICE_UID']
             all_columns_list = ', '.join(available_columns)
             raw_statement = f"MERGE INTO {self.quoted_schema}.{self.quoted_table_name} AS TARGET USING " \
                             f"(VALUES ({', '.join(['?'] * len(available_columns))})) AS SOURCE ({all_columns_list}) " \
