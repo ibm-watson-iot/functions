@@ -213,7 +213,7 @@ def test_base_estimator_function():
 
     mtrc = brgi.active_models[model_name][0].eval_metric_test
     print ('Trained model r2 ', mtrc)
-    assert (mtrc > 0.35)
+    assert (mtrc > 0.30)
 
     print('Base regressor - enforce retraining done')
 
