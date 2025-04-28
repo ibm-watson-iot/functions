@@ -113,7 +113,7 @@ def test_aggregation():
 
     et = aggobj._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
 
-    df_agg = aggobj.execute(df=df_i)
+    df_agg = aggobj.execute(df=df_i.copy())
     df_agg_comp = pd.read_csv('./data/aggregated.csv', index_col=False, parse_dates=['timestamp'])
 
     assert     (np.allclose(df_agg['x.max() - x.min()'].values, df_agg_comp['x.max() - x.min()'].values))
@@ -156,7 +156,7 @@ def test_aggregation():
 
     et = aggobjt._build_entity_type(columns=[Column(Temperature, Float())], **jobsettings)
 
-    df_agg2= aggobjt.execute(df=df_i)
+    df_agg2= aggobjt.execute(df=df_i.copy())
 
     df_myagg = df_i.reset_index().groupby(pd.Grouper(key='timestamp', freq='D'))['TEMP_AIR'].\
                       agg([('count', lambda x: (x>20).sum())])
