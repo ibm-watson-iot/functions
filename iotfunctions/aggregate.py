@@ -192,7 +192,7 @@ class Aggregation(BaseFunction):
                     time_reset = pd.DateOffset(hour=0, minute=0, second=0, microsecond=0, nanosecond=0)
 
                     # Roll back timestamp to, for example, begin of week, set time to 00:00:00.000000000 (and subtract
-                    # offset of timezone) to get timestamp indicating the begin of aggregation interval
+                    # offset of timezone) to get timestamp indicating the beginning of aggregation interval
                     if offset is not None:
                         group_labels = df.index.get_level_values(item.level).to_series().transform(lambda x: freq_date_offset.rollback(x + offset) + time_reset - offset)
                     else:
@@ -204,7 +204,12 @@ class Aggregation(BaseFunction):
                     corrected_group_base.append(item)
 
             else:
-                corrected_group_base.append(item)
+                # Clearly distinguish between index level and column. Otherwise, the groupby() can fail with duplicated
+                # names when the same name shows up as index level and column
+                if item == 'id':
+                    corrected_group_base.append(pd.Grouper(level=item))
+                else:
+                    corrected_group_base.append(pd.Grouper(key=item))
 
         group_base = corrected_group_base
 

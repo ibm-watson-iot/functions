@@ -49,7 +49,9 @@ def test_prophet_forecaster():
     # Run on the good pump first
     # Get stuff in
     print('Read occupancy data in')
-    df=pd.read_excel('./data/OccuFi_SpaceDetail.xlsx')  
+    # avoid openpyxl dependency
+    #df=pd.read_excel('./data/OccuFi_SpaceDetail.xlsx')  
+    df = pd.read_csv('./data/OccuFi_SpaceDetail.csv')  
 
 
     print('Data cleansing')
