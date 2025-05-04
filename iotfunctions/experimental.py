@@ -30,6 +30,7 @@ import pandas as pd
 from sqlalchemy import String
 
 import torch
+from torch.nn import functional as f
 
 import holidays
 import datetime as dt
@@ -46,95 +47,16 @@ from iotfunctions.ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingl
                  UIText, UIParameters)
 from iotfunctions.util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL
 
-#from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
+from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'
-
 
 # Do away with numba and onnxscript logs
 numba_logger = logging.getLogger('numba')
 numba_logger.setLevel(logging.INFO)
 onnx_logger = logging.getLogger('onnxscript')
 onnx_logger.setLevel(logging.ERROR)
-
-#
-# Transformation Invariant Loss function with Distance EQuilibrium
-#  https://arxiv.org/abs/2210.15050
-#  https://github.com/HyunWookL/TILDE-Q
-# as metric for forecasting accuracy
-#  TODO: we need a suitable threshold to differentiate "good" and "bad" forecasts
-#
-
-def amp_loss(outputs, targets):
-    #outputs = B, T, 1 --> B, 1, T
-    B,_, T = outputs.shape
-    fft_size = 1 << (2 * T - 1).bit_length()
-    out_fourier = torch.fft.fft(outputs, fft_size, dim = -1)
-    tgt_fourier = torch.fft.fft(targets, fft_size, dim = -1)
-
-    out_norm = torch.norm(outputs, dim = -1, keepdim = True)
-    tgt_norm = torch.norm(targets, dim = -1, keepdim = True)
-
-    #calculate normalized auto correlation
-    auto_corr = torch.fft.ifft(tgt_fourier * tgt_fourier.conj(), dim = -1).real
-    auto_corr = torch.cat([auto_corr[...,-(T-1):], auto_corr[...,:T]], dim = -1)
-    nac_tgt = auto_corr / (tgt_norm * tgt_norm)
-
-    # calculate cross correlation
-    cross_corr = torch.fft.ifft(tgt_fourier * out_fourier.conj(), dim = -1).real
-    cross_corr = torch.cat([cross_corr[...,-(T-1):], cross_corr[...,:T]], dim = -1)
-    nac_out = cross_corr / (tgt_norm * out_norm)
-    
-    loss = torch.mean(torch.abs(nac_tgt - nac_out))
-    return loss
-
-
-def ashift_loss(outputs, targets):
-    B, _, T = outputs.shape
-    return T * torch.mean(torch.abs(1 / T - torch.softmax(outputs - targets, dim = -1)))
-
-def phase_loss(outputs, targets):
-    B, _, T = outputs.shape
-    out_fourier = torch.fft.fft(outputs, dim = -1)
-    tgt_fourier = torch.fft.fft(targets, dim = -1)
-    tgt_fourier_sq = (tgt_fourier.real ** 2 + tgt_fourier.imag ** 2)
-    mask = (tgt_fourier_sq > (T)).float()
-    topk_indices = tgt_fourier_sq.topk(k = int(T**0.5), dim = -1).indices
-    mask = mask.scatter_(-1, topk_indices, 1.)
-    mask[...,0] = 1.
-    mask = torch.where(mask > 0, 1., 0.)
-    mask = mask.bool()
-    not_mask = (~mask).float()
-    not_mask /= torch.mean(not_mask)
-    out_fourier_sq = (torch.abs(out_fourier.real) + torch.abs(out_fourier.imag))
-    zero_error = torch.abs(out_fourier) * not_mask
-    zero_error = torch.where(torch.isnan(zero_error), torch.zeros_like(zero_error), zero_error)
-    mask = mask.float()
-    mask /= torch.mean(mask)
-    ae = torch.abs(out_fourier - tgt_fourier) * mask
-    ae = torch.where(torch.isnan(ae), torch.zeros_like(ae), ae)
-    phase_loss = (torch.mean(zero_error) + torch.mean(ae)) / (T ** .5)
-    return phase_loss
-
-def tildeq_loss(outputs, targets, alpha = .5, gamma = .0, beta = .5):
-    outputs = outputs.permute(0,2,1)
-    targets = targets.permute(0,2,1)
-    assert not torch.isnan(outputs).any(), "Nan value detected!"
-    assert not torch.isinf(outputs).any(), "Inf value detected!"
-    B,_, T = outputs.shape
-    l_ashift = ashift_loss(outputs, targets)
-    l_amp = amp_loss(outputs, targets)
-    l_phase = phase_loss(outputs, targets)
-    loss = alpha * l_ashift + (1 - alpha) * l_phase + gamma * l_amp
-
-    assert loss == loss, "Loss Nan!"
-    return loss, l_ashift, l_amp, l_phase   #, torch.nn.MSELoss(output, targets)
-
-# to be reenabled when we have a TTM as pip installable module
-
-def install_and_activate_granite_tsfm():
-    return True
 
 class TSFMZeroShotScorer(InvokeWMLModel):
     """
@@ -153,10 +75,13 @@ class TSFMZeroShotScorer(InvokeWMLModel):
             self.horizon = 96
         self.whoami = 'TSFMZeroShot'
 
+        # only use the first half of the forecast
+        self.use_horizon = self.horizon // 2
+
         # allow for expansion of the dataframe
         self.allowed_to_expand = True
     
-        self.init_local_model = install_and_activate_granite_tsfm()
+        self.init_local_model = True # install_and_activate_granite_tsfm()
         self.model = None              # cache model for multiple calls
 
 
@@ -169,7 +94,6 @@ class TSFMZeroShotScorer(InvokeWMLModel):
     def initialize_local_model(self):
         logger.info('initialize local model')
         try:
-            from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
             TTM_MODEL_REVISION = "main"
             # Forecasting parameters
             #context_length = 512
@@ -184,39 +108,69 @@ class TSFMZeroShotScorer(InvokeWMLModel):
 
     # inference on local model 
     def call_local_model(self, df):
-        logger.info('call local model')
+        logger.info('call local model ----- ')
 
         logger.debug('df columns  ' + str(df.columns))
         logger.debug('df index ' + str(df.index.names))
 
         # size of the df should be fine
-        len = self.context + self.horizon
+        full_length = self.context + self.horizon
+        df[self.output_items] = 0
 
         if self.model is not None:
 
-            logger.debug('Forecast ' + str(df.shape[0]/self.horizon) + ' times')
-            df[self.output_items] = 0
+            logger.debug('Forecast ' + str(df.shape[0]/self.use_horizon) + ' times')
 
-            # loop in forecasting horizon steps from the end of the dataframe to its beginning and
-            #  forecast from the context
-            for i in range(df.shape[0] - len, 0 , -self.horizon):
-                inputtensor_ = torch.from_numpy(df[i:i+self.context][self.input_items].values).to(torch.float32)
+            # for default overlap (use_horizon) we better use unfold
 
-                #logger.debug('shape   input ' + str(inputtensor_.shape))
-                # add dimension to satisfy the model
-                inputtensor = inputtensor_[None,:,:]              # only the historic context
+            # so we get all relevant features in a tensor with dimensions
+            #     features x time
+            inputtensor_ = torch.from_numpy(df[self.input_items].values).to(torch.float32)
 
-                #logger.debug('shape   input ' + str(inputtensor.shape))
-                outputtensor = self.model(inputtensor)['prediction_outputs']  # get the forecasting horizon back
-                #logger.debug('shapes   input ' + str(inputtensor.shape) + ' , output ' + str(outputtensor.shape))
+            if len(list(inputtensor_.shape)) < 2:
+                inputtensor_ = inputtensor_[None, :]
 
-                #   and update the dataframe with the forecast
-                try:
-                    df.loc[df[i:i + self.horizon].index, self.output_items] = outputtensor[0].detach().numpy().astype(float)
-                except:
-                    # indexing issue shouldn't happen
-                    logger.debug('Issue with ' + str(i) + ':' + str(i+self.horizon))
-                    pass
+            print("we got", inputtensor_.T.shape)
+            # and slice it up along the time dimension (potentially ditching last elements)
+            #   dimensions: features x slices x time
+            inputtensor = inputtensor_.T.unfold(1, self.context, self.use_horizon)
+            print("we unfolded it into", inputtensor.shape)
+
+            #print(inputtensor[0,14,:])
+
+            # TTM expects the dimensions permuted: features x time x slices
+            # and we get a result tensor back with dimensions features x forecast_time x slices
+            outputtensor = self.model(inputtensor.permute(0,2,1))['prediction_outputs']
+            print("the model produced", outputtensor.shape)
+
+            #print(outputtensor[0,:,14])
+
+            # we fold the sequence of forecasts back into its original shape: features x time
+            fold_back = f.fold(outputtensor, (1, self.use_horizon * (outputtensor.shape[2] + 1)) ,
+                          kernel_size=(1, outputtensor.shape[1]), stride=(1,self.use_horizon)).squeeze()
+            print(fold_back[512:1024])
+            #fold_back2 = f.fold(outputtensor, (1, 48 * (157+1)), kernel_size=(1, 96), stride=(1,48))
+            print("we folded it", fold_back.shape)
+
+            try:
+                nr_features = df[self.output_items].shape[1]
+                if len(list(fold_back.shape)) < 2:
+                    #fold_back = fold_back[None, :]
+                    nr_features = 1
+                    forecast_tensor = fold_back.detach().resize_(len(df.index) - self.context)
+                else:
+                    forecast_tensor = fold_back.detach().resize_(fold_back.shape[0], len(df.index) - self.context).permute(1,0)
+                forecast = forecast_tensor.numpy().astype(float)
+                #if nr_features > 1:
+                #    forecast = forecast.reshape(-1, nr_features)
+                print(nr_features, forecast.shape)
+                #forecast = fold_back.detach().numpy().astype(float)
+                print("finally", forecast.shape, df.loc[df[self.context:].index, self.output_items].shape)
+                df.loc[df[self.context:].index, self.output_items] = forecast
+            except Exception as e:
+                # indexing issue shouldn't happen
+                logger.debug('Issue with:' + str(self.use_horizon) + '    ' + str(e))
+                pass
 
         return df
 
