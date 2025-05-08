@@ -1584,6 +1584,7 @@ class EntityType(object):
                 df['device_uid'] = -1
             if 'rcv_timestamp_utc' not in df.columns:
                 df['rcv_timestamp_utc'] = df[self._timestamp]
+            df['default_timestamp_utc'] = df[self._timestamp]
             self.db.write_frame(table_name=self._metric_table_name, df=df, schema=self._db_schema,
                                 timestamp_col=self._timestamp)
 
