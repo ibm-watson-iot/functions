@@ -47,7 +47,12 @@ from iotfunctions.ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingl
                  UIText, UIParameters)
 from iotfunctions.util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL
 
-from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
+is_ttm_available = False
+try:
+    from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
+    is_ttm_available = True
+except Exception as e:
+    pass
 
 logger = logging.getLogger(__name__)
 PACKAGE_URL = 'git+https://github.com/ibm-watson-iot/functions.git@'

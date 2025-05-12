@@ -1,5 +1,5 @@
 dill==0.3.7
-granite-tsfm>=2
+#granite-tsfm>=2
 ibm-db==3.2.3
 ibm-db-sa==0.4.1
 ibm-watson-machine-learning==1.0.366
