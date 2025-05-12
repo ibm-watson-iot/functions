@@ -25,3 +25,4 @@ tabulate==0.8.10
 transformers==4.51.3
 urllib3==2.2.3
 protobuf==4.21.12
+granite-tsfm==0.2.25
