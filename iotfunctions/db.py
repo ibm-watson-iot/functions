@@ -24,7 +24,6 @@ import certifi
 import ibm_db
 import ibm_db_dbi
 import pandas as pd
-import psycopg2
 import sqlalchemy
 import urllib3
 import urllib.parse
@@ -210,10 +209,6 @@ class Database(object):
         except (KeyError, TypeError):
             self.credentials['iotp'] = None
 
-        try:
-            self.credentials['postgresql'] = credentials['postgresql']
-        except (KeyError, TypeError):
-            self.credentials['postgresql'] = None
 
         try:
             self.credentials['db2'] = credentials['db2']
@@ -402,21 +397,6 @@ class Database(object):
             self.db_type = 'db2'
             sqlalchemy_connection_kwargs['pool_size'] = 1
 
-        elif 'postgresql' in self.credentials and self.credentials.get('postgresql') is not None:
-            try:
-                native_connection_string = '%s:%s@%s:%s/%s' % (
-                    self.credentials['postgresql']['username'], self.credentials['postgresql']['password'],
-                    self.credentials['postgresql']['host'], self.credentials['postgresql']['port'],
-                    self.credentials['postgresql']['db'])
-
-                sqlalchemy_connection_string = 'postgresql+psycopg2://' + native_connection_string
-
-            except KeyError as ex:
-                msg = 'The credentials for PostgreSql are incomplete. ' \
-                      'You need username/password/host/port/db.'
-                raise ValueError(msg) from ex
-
-            self.db_type = 'postgresql'
 
         elif connection_string_from_env is not None and len(connection_string_from_env) > 0:
             if db_type_from_env is not None and len(db_type_from_env) > 0:
@@ -461,28 +441,6 @@ class Database(object):
                                          'DATABASE=xxx;HOSTNAME=xxx;PORT=xxx;UID=xxx;PWD=xxx[;SECURITY=xxx]' % connection_string_from_env)
                     self.db_type = 'db2'
 
-                elif db_type_from_env == 'POSTGRESQL':
-                    sqlalchemy_connection_string = 'postgresql+psycopg2://' + connection_string_from_env
-                    native_connection_string = connection_string_from_env
-                    try:
-                        # Split connection string according to user:password@hostname:port/database
-                        first, last = connection_string_from_env.split("@")
-                        uid, pwd = first.split(":", 1)
-                        hostname_port, database = last.split("/", 1)
-                        hostname, port = hostname_port.split(":", 1)
-                        self.credentials['postgresql'] = {"username": uid, "password": pwd, "db": database,
-                                                          "port": port, "host": hostname}
-                    except Exception:
-                        raise ValueError('Connection string \'%s\' is incorrect. Expected format for POSTGRESQL is '
-                                         'user:password@hostname:port/database' % connection_string_from_env)
-                    self.db_type = 'postgresql'
-
-                else:
-                    raise ValueError(
-                        'The database type \'%s\' is unknown. Supported types are DB2 and POSTGRESQL' % db_type_from_env)
-            else:
-                raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
-                                 'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
         else:
             # this is a test environment branch
             sqlalchemy_connection_string = 'sqlite:///sqldb.db'
@@ -529,36 +487,8 @@ class Database(object):
         EngineLogging.set_cos_client(self.cos_client)
 
         # Define any dialect specific configuration
-        if self.db_type == 'postgresql':
 
-            # Find out if we can use 'executemany_mode' keyword that is supported starting from SqlAlchemy 1.3.7
-            meets_requirement = True
-            version_split = sqlalchemy_version_string.split('.')
-
-            version_list = [0, 0, 0]
-            for i in range(min(3, len(version_split))):
-                try:
-                    number = int(version_split[i])
-                except:
-                    number = 0
-                version_list[i] = number
-
-            version_list_required = [1, 3, 7]
-            for i in range(3):
-                if version_list[i] < version_list_required[i]:
-                    meets_requirement = False
-                    break
-
-            if meets_requirement:
-                sqlalchemy_dialect_kwargs = {'executemany_mode': 'values', 'executemany_batch_page_size': 100,
-                                             'executemany_values_page_size': 1000, 'connect_args': {
-                        'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
-            else:
-                # 'use_batch_mode=True' is about 20 % slower than 'execute_many_mode=values'
-                sqlalchemy_dialect_kwargs = {'use_batch_mode': True, 'connect_args': {
-                    'application_name': 'AS %s SQLAlchemy Connection' % self.application_name}}
-        else:
-            sqlalchemy_dialect_kwargs = {}
+        sqlalchemy_dialect_kwargs = {}
 
         # Establish database connection via sqlalchemy
         logger.info('Establishing database connection via SqlAlchemy.')
@@ -579,20 +509,13 @@ class Database(object):
         self.metadata = MetaData()
         logger.info('Database connection via SqlAlchemy established.')
 
-        # Establish native database connection (for DB2 and PostgreSQL only)
+        # Establish native database connection (for DB2 only)
         logger.info('Establishing native database connection.')
         if self.db_type == 'db2':
             self.native_connection = self.connect_to_db2(native_connection_string)
             self.native_connection_dbi = ibm_db_dbi.Connection(self.native_connection)
             logger.info('Native database connection to DB2 established.')
 
-        elif self.db_type == 'postgresql':
-            cred = self.credentials['postgresql']
-            self.native_connection = psycopg2.connect(user=cred['username'], password=cred['password'],
-                                                      host=cred['host'], port=cred['port'], database=cred['db'],
-                                                      application_name="AS %s Native Connection" % self.application_name)
-            self.native_connection_dbi = self.native_connection
-            logger.info('Native database connection to PostgreSQL established.')
         else:
             self.native_connection = None
             self.native_connection_dbi = None
@@ -646,8 +569,7 @@ class Database(object):
 
     def init_model_store(self, schema):
         self.schema = schema
-        if self.model_store is None and self.db_type in ['db2',
-                                                         'postgresql'] and self.entity_type_id is not None and self.schema is not None:
+        if self.model_store is None and self.entity_type_id is not None and self.schema is not None:
             self.model_store = dbtables.DBModelStore(self.tenant_id, self.entity_type_id, self.schema,
                                                      self.native_connection, self.db_type)
 
@@ -1477,9 +1399,8 @@ class Database(object):
         return result_query
 
     def set_isolation_level(self, engine):
-        if self.db_type == 'db2':
-            with engine.connect() as con:
-                con.execute(text('SET ISOLATION TO DIRTY READ;'))  # specific for DB2; dirty read does not exist for postgres
+        with engine.connect() as con:
+            con.execute(text('SET ISOLATION TO DIRTY READ;'))
 
     def start_session(self):
         """
@@ -3015,12 +2936,7 @@ class Database(object):
 
         if self.native_connection is not None:
             try:
-                if self.db_type == 'postgresql':
-                    self.native_connection.close()
-                    self.native_connection_dbi.close()
-                else:
-                    ibm_db.close(self.native_connection)
-
+                ibm_db.close(self.native_connection)
             except Exception:
                 logger.warning('Error while closing native database connection.', exc_info=True)
             finally:

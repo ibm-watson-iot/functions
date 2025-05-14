@@ -799,10 +799,10 @@ class MsiOccupancyCount(DirectAggregator):
 
         # Schema name and table name of result table for sql statement
         sql_schema_name = check_sql_injection(self.dms.schema)
-        sql_quoted_schema_name = dbhelper.quotingSchemaName(sql_schema_name, self.dms.is_postgre_sql)
+        sql_quoted_schema_name = dbhelper.quotingSchemaName(sql_schema_name)
 
         sql_output_table_name = check_sql_injection(self.dms.entity_type_obj._data_items.get(self.output_name).get('sourceTableName'))
-        sql_quoted_output_table_name = dbhelper.quotingTableName(sql_output_table_name, self.dms.is_postgre_sql)
+        sql_quoted_output_table_name = dbhelper.quotingTableName(sql_output_table_name)
 
         # Find data item representing the result of this KPI function
         result_data_item = self.dms.entity_type_obj._data_items.get(self.output_name)
@@ -918,11 +918,13 @@ class MsiOccupancyCount(DirectAggregator):
                     input_data_item_is_raw = True
 
                     # Raw metric table as input source
-                    sql_quoted_input_table_name = dbhelper.quotingTableName(check_sql_injection(self.dms.eventTable),
-                                                                            self.dms.is_postgre_sql)
-                    sql_quoted_timestamp_col_name = dbhelper.quotingColumnName(check_sql_injection(self.dms.eventTimestampColumn), self.dms.is_postgre_sql)
-                    sql_quoted_device_id_col_name = dbhelper.quotingColumnName(check_sql_injection(self.dms.entityIdColumn), self.dms.is_postgre_sql)
-                    sql_quoted_input_data_item_col_name = dbhelper.quotingColumnName(check_sql_injection(input_data_item['columnName']), self.dms.is_postgre_sql)
+                    sql_quoted_input_table_name = dbhelper.quotingTableName(check_sql_injection(self.dms.eventTable))
+                    sql_quoted_timestamp_col_name = dbhelper.quotingColumnName(
+                        check_sql_injection(self.dms.eventTimestampColumn))
+                    sql_quoted_device_id_col_name = dbhelper.quotingColumnName(
+                        check_sql_injection(self.dms.entityIdColumn))
+                    sql_quoted_input_data_item_col_name = dbhelper.quotingColumnName(
+                        check_sql_injection(input_data_item['columnName']))
 
                     sql_statement = f'WITH PREVIOUS_VALUES AS ' \
                                         f'(SELECT {sql_quoted_input_data_item_col_name}, {sql_quoted_device_id_col_name}, ' \
@@ -934,8 +936,8 @@ class MsiOccupancyCount(DirectAggregator):
                     input_data_item_is_raw = False
 
                     # Output table as input source
-                    sql_quoted_input_table_name = dbhelper.quotingTableName(check_sql_injection(input_data_item.get('sourceTableName')),
-                                                                            self.dms.is_postgre_sql)
+                    sql_quoted_input_table_name = dbhelper.quotingTableName(
+                        check_sql_injection(input_data_item.get('sourceTableName')))
 
                     sql_statement = f'WITH PREVIOUS_VALUES AS ' \
                                         f'(SELECT "VALUE_N", "ENTITY_ID", ' \
