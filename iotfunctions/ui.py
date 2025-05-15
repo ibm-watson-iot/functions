@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -118,7 +118,7 @@ class UIFunctionOutMulti(BaseUIControl):
 
         meta = {'name': self.name, 'cardinalityFrom': self.cardinality_from, 'dataTypeForArray': datatype,
                 'description': self.description, 'tags': self.tags,
-                'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
                                "items": {"type": "string"}}}
 
         if self.is_datatype_derived:
@@ -230,7 +230,7 @@ class UIMultiItem(BaseUIControl):
 
         meta = {'name': self.name, 'type': self.type_, 'dataType': 'ARRAY', 'dataTypeForArray': datatype,
                 'required': self.required, 'description': self.description, 'tags': self.tags,
-                'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
                                "minItems": self.min_items, "maxItems": self.max_items, "items": {"type": "string"}}}
         return meta
 
@@ -244,7 +244,7 @@ class UIMultiItem(BaseUIControl):
 
             meta = {'name': self.output_item, 'cardinalityFrom': self.name, 'dataTypeForArray': datatype,
                     'description': self.description, 'tags': self.tags,
-                    'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                    'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
                                    "items": {"type": "string"}}}
 
             if self.is_output_datatype_derived:
@@ -318,7 +318,7 @@ class UIMulti(BaseUIControl):
 
         meta = {'name': self.name, 'type': self.type_, 'dataType': 'ARRAY', 'dataTypeForArray': datatype,
                 'required': self.required, 'description': self.description, 'tags': self.tags, 'values': self.values,
-                'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
                                "minItems": self.min_items, "maxItems": self.max_items,
                                "items": {"type": schema_datatype}}}
         return meta
@@ -335,7 +335,7 @@ class UIMulti(BaseUIControl):
 
             meta = {'name': self.output_item, 'cardinalityFrom': self.name, 'dataTypeForArray': datatype,
                     'description': self.description, 'tags': self.tags,
-                    'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                    'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
                                    "items": {"type": schema_type}}}
 
             if self.is_output_datatype_derived:
