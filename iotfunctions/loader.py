@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2020, 2024  All Rights Reserved.
+# © Copyright IBM Corp. 2020, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -76,13 +76,13 @@ class LoadTableAndConcat(BaseLoader):
              'dataType': 'LITERAL'},
             {'name': 'columns', 'description': 'Names of table columns to load (comma separated).', 'type': 'CONSTANT',
              'required': True, 'dataType': 'ARRAY', 'dataTypeForArray': ["LITERAL"],
-             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "columns", "type": "array",
+             'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "columns", "type": "array",
                             "minItems": 1, "items": {"type": "string"}}},
             {'name': 'where_clause', 'description': 'The where clause, excluding the time range filtering.',
              'type': 'CONSTANT', 'required': False, 'dataType': 'LITERAL'},
             {'name': 'parse_dates', 'description': 'Names of table columns to parse as dates (comma separated).',
              'type': 'CONSTANT', 'required': False, 'dataType': 'ARRAY', 'dataTypeForArray': ["LITERAL"],
-             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "parse_dates",
+             'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "parse_dates",
                             "type": "array", "minItems": 1, "items": {"type": "string"}}},
             {'name': 'id_col', 'description': 'Name of the column containing the entity ID.', 'type': 'CONSTANT',
              'required': True, 'dataType': 'LITERAL'},
