@@ -440,7 +440,12 @@ class Database(object):
                         raise ValueError('Connection string \'%s\' is incorrect. Expected format for DB2 is '
                                          'DATABASE=xxx;HOSTNAME=xxx;PORT=xxx;UID=xxx;PWD=xxx[;SECURITY=xxx]' % connection_string_from_env)
                     self.db_type = 'db2'
-
+                else:
+                    raise ValueError(
+                        'The database type \'%s\' is unknown. Supported types are DB2' % db_type_from_env)
+            else:
+                raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
+                                 'DB_TYPE is missing. Possible values for DB_TYPE are DB2')
         else:
             # this is a test environment branch
             sqlalchemy_connection_string = 'sqlite:///sqldb.db'
