@@ -527,7 +527,7 @@ class BaseFunction(object):
             column_metadata['jsonSchema'] = self.itemJsonSchema[arg]
         except KeyError:
             if is_array:
-                column_metadata['jsonSchema'] = {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                column_metadata['jsonSchema'] = {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
                                                  "minItems": min_items}
                 item_type = "string"
                 if is_constant:
