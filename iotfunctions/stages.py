@@ -52,7 +52,6 @@ class PersistColumns:
         self.dms = dms
         self.schema = self.dms.schema
         self.db_connection = self.dms.db_connection
-        self.is_postgre_sql = dms.is_postgre_sql
         self.sources = asList(sources)
         self.checkpoint = checkpoint
 
@@ -135,18 +134,10 @@ class PersistColumns:
                     first_source = source
                     break
                 grain = self.dms.target_grains[first_source]
-                sql = None
+                sql = self.create_upsert_statement(table_name, grain, has_clob_column)
                 try:
-
-                    if self.is_postgre_sql:
-                        sql = self.create_upsert_statement_postgres_sql(table_name, grain, has_clob_column)
-                        table_insert_stmt[table_name] = (sql, grain)
-
-                    else:
-                        sql = self.create_upsert_statement(table_name, grain, has_clob_column)
-                        stmt = ibm_db.prepare(self.db_connection, sql)
-                        table_insert_stmt[table_name] = (stmt, grain)
-
+                    stmt = ibm_db.prepare(self.db_connection, sql)
+                    table_insert_stmt[table_name] = (stmt, grain)
                     self.logger.debug('derived_metrics_upsert_sql = %s' % sql)
                 except Exception:
                     self.logger.warning('Error creating db upsert statement for sql = %s' % sql, exc_info=True)
@@ -203,11 +194,7 @@ class PersistColumns:
                                         rowVals.append(ix[index_name_pos[dimension]])
 
                             if metric_type[0]:
-                                if self.dms.is_postgre_sql:
-                                    rowVals.append(
-                                        False if (derivedMetricVal == False or derivedMetricVal == 0) else True)
-                                else:
-                                    rowVals.append(0 if (derivedMetricVal == False or derivedMetricVal == 0) else 1)
+                                rowVals.append(0 if (derivedMetricVal == False or derivedMetricVal == 0) else 1)
                             else:
                                 rowVals.append(None)
 
@@ -241,14 +228,8 @@ class PersistColumns:
                             try:
                                 # Bulk insert
 
-                                if self.is_postgre_sql:
-                                    dbhelper.execute_batch(self.db_connection, stmt, valueList,
-                                                           DATALAKE_BATCH_UPDATE_ROWS)
-                                    saved = cnt  # Work around because we don't receive row count from batch query.
-
-                                else:
-                                    res = ibm_db.execute_many(stmt, tuple(valueList))
-                                    saved = res if res is not None else ibm_db.num_rows(stmt)
+                                res = ibm_db.execute_many(stmt, tuple(valueList))
+                                saved = res if res is not None else ibm_db.num_rows(stmt)
 
                                 total_saved += saved
                                 self.logger.debug('Records saved so far = %d' % total_saved)
@@ -262,12 +243,9 @@ class PersistColumns:
                 if len(valueList) > 0:
                     try:
                         # Bulk insert
-                        if self.is_postgre_sql:
-                            dbhelper.execute_batch(self.db_connection, stmt, valueList, DATALAKE_BATCH_UPDATE_ROWS)
-                            saved = cnt  # Work around because we don't receive row count from batch query.
-                        else:
-                            res = ibm_db.execute_many(stmt, tuple(valueList))
-                            saved = res if res is not None else ibm_db.num_rows(stmt)
+
+                        res = ibm_db.execute_many(stmt, tuple(valueList))
+                        saved = res if res is not None else ibm_db.num_rows(stmt)
 
                         total_saved += saved
                     except Exception as ex:
@@ -317,35 +295,6 @@ class PersistColumns:
                 f"VALUES (SOURCE.KEY{sourceExtension}, SOURCE.VALUE_B, SOURCE.VALUE_N, SOURCE.VALUE_S, SOURCE.VALUE_T, "
                 f"{'SOURCE.VALUE_C, ' if with_clob_column else ''}CURRENT TIMESTAMP)")
 
-    def create_upsert_statement_postgres_sql(self, tableName, grain, with_clob_column):
-        dimensions = []
-        if grain is None or len(grain) == 0:
-            dimensions.append(KPI_ENTITY_ID_COLUMN.lower())
-            dimensions.append('timestamp')
-        else:
-            if grain[2]:
-                dimensions.append(KPI_ENTITY_ID_COLUMN.lower())
-            if grain[0] is not None:
-                dimensions.append('timestamp')
-            if grain[1] is not None:
-                dimensions.extend(grain[1])
-
-        colExtension = ''
-        parmExtension = ''
-
-        for dimension in dimensions:
-            # Note: the dimension grain need to be in lower case since the table will be created with lowercase column.
-            quoted_dimension = dbhelper.quotingColumnName(check_sql_injection(dimension.lower()), self.is_postgre_sql)
-            colExtension += ', ' + quoted_dimension
-            parmExtension += ', %s'
-
-        sql = f"insert into {self.schema}.{tableName} " \
-              f"(key {colExtension},value_b,value_n,value_s,value_t,{'value_c,' if with_clob_column else ''}last_update) " \
-              f"values (%s {parmExtension}, %s, %s, %s, %s, %s, current_timestamp) " \
-              f"on conflict on constraint uc_{tableName} do " \
-              f"update set value_b = EXCLUDED.value_b, value_n = EXCLUDED.value_n, value_s = EXCLUDED.value_s, " \
-              f"value_t = EXCLUDED.value_t, {'value_c = EXCLUDED.value_c, ' if with_clob_column else ''}last_update = EXCLUDED.last_update"
-        return sql
 
 
 def _timestamp_as_string(timestamp):
@@ -372,8 +321,8 @@ class ProduceAlerts(object):
         except AttributeError:
             self.entity_type_name = dms.entity_type
 
-        self.quoted_schema = dbhelper.quotingSchemaName(check_sql_injection(dms.default_db_schema), self.dms.is_postgre_sql)
-        self.quoted_table_name = dbhelper.quotingTableName(check_sql_injection(self.ALERT_TABLE_NAME), self.dms.is_postgre_sql)
+        self.quoted_schema = dbhelper.quotingSchemaName(check_sql_injection(dms.default_db_schema))
+        self.quoted_table_name = dbhelper.quotingTableName(check_sql_injection(self.ALERT_TABLE_NAME))
         self.alert_to_kpi_input_dict = dict()
 
         if alerts is not None:
@@ -750,44 +699,31 @@ class ProduceAlerts(object):
 
     def _get_sql_statement(self):
 
-        if self.dms.is_postgre_sql:
-            available_columns = ['entity_type_id', 'data_item_name', 'entity_id', 'timestamp', 'severity', 'priority',
-                                 'domain_status']
-            all_columns_list = ', '.join(available_columns)
-            statement = f"insert into {self.quoted_schema}.{self.quoted_table_name} ({all_columns_list}) " \
-                        f"values ({', '.join(['%s'] * len(available_columns))} ) " \
-                        f"on conflict on constraint uc_{self.ALERT_TABLE_NAME} do nothing "
-        else:
-            available_columns = ['ENTITY_TYPE_ID', 'DATA_ITEM_NAME', 'ENTITY_ID', 'TIMESTAMP', 'SEVERITY', 'PRIORITY',
-                                 'DOMAIN_STATUS']
-            all_columns_list = ', '.join(available_columns)
-            raw_statement = f"MERGE INTO {self.quoted_schema}.{self.quoted_table_name} AS TARGET USING " \
-                            f"(VALUES ({', '.join(['?'] * len(available_columns))})) AS SOURCE ({all_columns_list}) " \
-                            f"ON TARGET.ENTITY_TYPE_ID = SOURCE.ENTITY_TYPE_ID " \
-                            f"AND TARGET.DATA_ITEM_NAME = SOURCE.DATA_ITEM_NAME " \
-                            f"AND TARGET.ENTITY_ID = SOURCE.ENTITY_ID " \
-                            f"AND TARGET.TIMESTAMP = SOURCE.TIMESTAMP " \
-                            f"WHEN NOT MATCHED THEN " \
-                            f"INSERT ({all_columns_list}) " \
-                            f"VALUES (SOURCE.{', SOURCE.'.join(available_columns)})"
+        available_columns = ['ENTITY_TYPE_ID', 'DATA_ITEM_NAME', 'ENTITY_ID', 'TIMESTAMP', 'SEVERITY', 'PRIORITY',
+                                'DOMAIN_STATUS']
+        all_columns_list = ', '.join(available_columns)
+        raw_statement = f"MERGE INTO {self.quoted_schema}.{self.quoted_table_name} AS TARGET USING " \
+                        f"(VALUES ({', '.join(['?'] * len(available_columns))})) AS SOURCE ({all_columns_list}) " \
+                        f"ON TARGET.ENTITY_TYPE_ID = SOURCE.ENTITY_TYPE_ID " \
+                        f"AND TARGET.DATA_ITEM_NAME = SOURCE.DATA_ITEM_NAME " \
+                        f"AND TARGET.ENTITY_ID = SOURCE.ENTITY_ID " \
+                        f"AND TARGET.TIMESTAMP = SOURCE.TIMESTAMP " \
+                        f"WHEN NOT MATCHED THEN " \
+                        f"INSERT ({all_columns_list}) " \
+                        f"VALUES (SOURCE.{', SOURCE.'.join(available_columns)})"
 
-            try:
-                statement = ibm_db.prepare(self.dms.db_connection, raw_statement)
-            except Exception as ex:
-                raise RuntimeError("Preparation of sql statement failed for DB2.") from ex
+        try:
+            statement = ibm_db.prepare(self.dms.db_connection, raw_statement)
+        except Exception as ex:
+            raise RuntimeError("Preparation of sql statement failed for DB2.") from ex
 
         return statement
 
     def _push_rows_to_db(self, sql_statement, rows):
 
         try:
-            if self.dms.is_postgre_sql:
-                dbhelper.execute_batch(self.dms.db_connection, sql=sql_statement, params_list=rows,
-                                       page_size=DATALAKE_BATCH_UPDATE_ROWS)
-                row_count = len(rows)
-            else:
-                res = ibm_db.execute_many(sql_statement, tuple(rows))
-                row_count = res if res is not None else ibm_db.num_rows(sql_statement)
+            res = ibm_db.execute_many(sql_statement, tuple(rows))
+            row_count = res if res is not None else ibm_db.num_rows(sql_statement)
         except Exception as ex:
             raise RuntimeError(f"The attempt to write {len(rows)} alert events to alert table in database "
                                f"failed.") from ex
