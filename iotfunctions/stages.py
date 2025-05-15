@@ -717,8 +717,6 @@ class ProduceAlerts(object):
             f"reason={last_response.reason}")
 
     def _get_sql_statement(self):
-
-       
         available_columns = ['ENTITY_TYPE_ID', 'DATA_ITEM_NAME', 'ENTITY_ID', 'TIMESTAMP', 'SEVERITY', 'PRIORITY',
                                  'DOMAIN_STATUS']
         all_columns_list = ', '.join(available_columns)
@@ -733,9 +731,9 @@ class ProduceAlerts(object):
                             f"VALUES (SOURCE.{', SOURCE.'.join(available_columns)})"
 
         try:
-                statement = ibm_db.prepare(self.dms.db_connection, raw_statement)
+             statement = ibm_db.prepare(self.dms.db_connection, raw_statement)
         except Exception as ex:
-                raise RuntimeError("Preparation of sql statement failed for DB2.") from ex
+            raise RuntimeError("Preparation of sql statement failed for DB2.") from ex
 
         return statement
 

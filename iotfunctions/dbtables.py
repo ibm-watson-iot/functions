@@ -16,7 +16,6 @@ from pathlib import Path
 import dill as pickle
 import ibm_db
 import pandas as pd
-import psycopg2
 import pyarrow
 import pyarrow.parquet
 
@@ -409,8 +408,6 @@ class DBModelStore:
         self._handle_store_table()
 
     def _create_store_table(self):
-
-        
             sql_statement = "CREATE TABLE %s.%s ( " \
                             "ENTITY_TYPE_ID BIGINT NOT NULL, " \
                             "MODEL_NAME VARCHAR(2048) NOT NULL, " \

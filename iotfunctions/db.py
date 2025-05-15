@@ -24,7 +24,6 @@ import certifi
 import ibm_db
 import ibm_db_dbi
 import pandas as pd
-import psycopg2
 import sqlalchemy
 import urllib3
 import urllib.parse
@@ -382,10 +381,10 @@ class Database(object):
 
                 else:
                     raise ValueError(
-                        'The database type \'%s\' is unknown. Supported types are DB2 and POSTGRESQL' % db_type_from_env)
+                        'The database type \'%s\' is unknown. Supported types are DB2' % db_type_from_env)
             else:
                 raise ValueError('The variable DB_CONNECTION_STRING was found in the OS environement but the variable '
-                                 'DB_TYPE is missing. Possible values for DB_TYPE are DB2 and POSTGRESQL')
+                                 'DB_TYPE is missing. Possible values for DB_TYPE are DB2 ')
         else:
             # this is a test environment branch
             sqlalchemy_connection_string = 'sqlite:///sqldb.db'
@@ -454,7 +453,7 @@ class Database(object):
         self.metadata = MetaData()
         logger.info('Database connection via SqlAlchemy established.')
 
-        # Establish native database connection (for DB2 and PostgreSQL only)
+        # Establish native database connection (for DB2 only)
         logger.info('Establishing native database connection.')
         if self.db_type == 'db2':
             self.native_connection = self.connect_to_db2(native_connection_string)
@@ -1364,7 +1363,7 @@ class Database(object):
     def set_isolation_level(self, engine):
         if self.db_type == 'db2':
             with engine.connect() as con:
-                con.execute(text('SET ISOLATION TO DIRTY READ;'))  # specific for DB2; dirty read does not exist for postgres
+                con.execute(text('SET ISOLATION TO DIRTY READ;'))  # specific for DB2;
 
     def start_session(self):
         """
