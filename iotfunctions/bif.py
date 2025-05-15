@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -2369,7 +2369,7 @@ class Alert:
             'description': 'Create alerts that are triggered when data values reach a particular range.', 'input': [
                 {'name': 'sources', 'description': 'Select one or more data items to build your alert.',
                  'type': 'DATA_ITEM', 'required': True, 'dataType': 'ARRAY',
-                 'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "sources",
+                 'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "sources",
                                 "type": "array", "minItems": 1, "items": {"type": "string"}}}, {'name': 'expression',
                                                                                                 'description': 'Build the expression for your alert by using Python script. To reference a data item, use the format ${DATA_ITEM}.',
                                                                                                 'type': 'CONSTANT',
@@ -2421,7 +2421,7 @@ class NewColFromCalculation(BaseTransformer):
         return _generate_metadata(cls, {'description': 'Create a new data item by expression.', 'input': [
             {'name': 'sources', 'description': 'Select one or more data items to be used in the expression.',
              'type': 'DATA_ITEM', 'required': True, 'dataType': 'ARRAY',
-             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "sources", "type": "array",
+             'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "sources", "type": "array",
                             "minItems": 1, "items": {"type": "string"}}}, {'name': 'expression',
                                                                            'description': 'Build the expression by using Python script. To reference a data item, use the format ${DATA_ITEM}.',
                                                                            'type': 'CONSTANT', 'required': True,
@@ -2466,7 +2466,7 @@ class Filter(BaseTransformer):
         return _generate_metadata(cls, {'description': 'Filter data by expression.', 'input': [
             {'name': 'sources', 'description': 'Select one or more data items to be used in the expression.',
              'type': 'DATA_ITEM', 'required': True, 'dataType': 'ARRAY',
-             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "sources", "type": "array",
+             'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "sources", "type": "array",
                             "minItems": 1, "items": {"type": "string"}}}, {'name': 'expression',
                                                                            'description': 'Build the filtering expression by using Python script. To reference a data item, use the format ${DATA_ITEM}.',
                                                                            'type': 'CONSTANT', 'required': True,
@@ -2474,7 +2474,7 @@ class Filter(BaseTransformer):
             {'name': 'filtered_sources',
              'description': 'Data items to be kept when expression is evaluated to be true.', 'type': 'DATA_ITEM',
              'required': True, 'dataType': 'ARRAY',
-             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "filtered_sources",
+             'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "filtered_sources",
                             "type": "array", "minItems": 1, "items": {"type": "string"}}}], 'output': [
             {'name': 'names', 'description': 'The names of the new data items.', 'dataTypeFrom': 'filtered_sources',
              'cardinalityFrom': 'filtered_sources'}], 'tags': ['EVENT', 'JUPYTER']})
@@ -2556,7 +2556,7 @@ class NewColFromSql(BaseTransformer):
              'dataType': 'LITERAL'}, {'name': 'index_col',
                                       'description': 'Columns in the SQL query result to be joined (multiple items are comma separated).',
                                       'type': 'CONSTANT', 'required': True, 'dataType': 'ARRAY',
-                                      'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#",
+                                      'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#",
                                                      "title": "index_col", "type": "array", "minItems": 1,
                                                      "items": {"type": "string"}}}, {'name': 'parse_dates',
                                                                                      'description': 'Columns in the SQL query result to be parsed as dates (multiple items are comma separated).',
@@ -2564,13 +2564,13 @@ class NewColFromSql(BaseTransformer):
                                                                                      'required': True,
                                                                                      'dataType': 'ARRAY',
                                                                                      'jsonSchema': {
-                                                                                         "$schema": "http://json-schema.org/draft-07/schema#",
+                                                                                         "$schema": "https://json-schema.org/draft-07/schema#",
                                                                                          "title": "parse_dates",
                                                                                          "type": "array", "minItems": 1,
                                                                                          "items": {"type": "string"}}},
             {'name': 'join_on', 'description': 'Data items to join the query result to.', 'type': 'DATA_ITEM',
              'required': True, 'dataType': 'ARRAY',
-             'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "join_on", "type": "array",
+             'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "join_on", "type": "array",
                             "minItems": 1, "items": {"type": "string"}}}], 'output': [
             {'name': 'names', 'description': 'The names of the new data items.'}], 'tags': ['JUPYTER']})
 
@@ -3126,7 +3126,7 @@ class MergeByFirstValid(BaseTransformer):
             'description': 'Create alerts that are triggered when data values reach a particular range.', 'input': [
                 {'name': 'sources', 'description': 'Select one or more data items to be merged.', 'type': 'DATA_ITEM',
                  'required': True, 'dataType': 'ARRAY',
-                 'jsonSchema': {"$schema": "http://json-schema.org/draft-07/schema#", "title": "sources",
+                 'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "sources",
                                 "type": "array", "minItems": 1, "items": {"type": "string"}}}], 'output': [
                 {'name': 'name', 'description': 'The new data item name for the merge result to create.',
                  'dataTypeFrom': 'sources'}], 'tags': ['EVENT', 'JUPYTER']})
