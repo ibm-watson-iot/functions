@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -531,7 +531,7 @@ class BaseFunction(object):
             column_metadata['jsonSchema'] = self.itemJsonSchema[arg]
         except KeyError:
             if is_array:
-                column_metadata['jsonSchema'] = {"$schema": "http://json-schema.org/draft-07/schema#", "type": "array",
+                column_metadata['jsonSchema'] = {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
                                                  "minItems": min_items}
                 item_type = "string"
                 if is_constant:
