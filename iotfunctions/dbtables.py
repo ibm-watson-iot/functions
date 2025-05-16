@@ -408,22 +408,22 @@ class DBModelStore:
         self._handle_store_table()
 
     def _create_store_table(self):
-            sql_statement = "CREATE TABLE %s.%s ( " \
-                            "ENTITY_TYPE_ID BIGINT NOT NULL, " \
-                            "MODEL_NAME VARCHAR(2048) NOT NULL, " \
-                            "MODEL BLOB(2G), " \
-                            "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
-                            "LAST_UPDATED_BY VARCHAR(256), " \
-                            "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, MODEL_NAME) ENFORCED) " \
-                            "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_store_tablename, self.quoted_constraint_name)
-            try:
-                stmt = ibm_db.exec_immediate(self.db_connection, sql_statement)
-                ibm_db.free_result(stmt)
-            except Exception as ex:
-                raise Exception('Execution of sql statement "%s" failed.' % sql_statement) from ex
-        
+        sql_statement = "CREATE TABLE %s.%s ( " \
+                        "ENTITY_TYPE_ID BIGINT NOT NULL, " \
+                        "MODEL_NAME VARCHAR(2048) NOT NULL, " \
+                        "MODEL BLOB(2G), " \
+                        "UPDATED_TS TIMESTAMP  NOT NULL DEFAULT CURRENT TIMESTAMP, " \
+                        "LAST_UPDATED_BY VARCHAR(256), " \
+                        "CONSTRAINT %s UNIQUE(ENTITY_TYPE_ID, MODEL_NAME) ENFORCED) " \
+                        "ORGANIZE BY ROW" % (self.quoted_schema, self.quoted_store_tablename, self.quoted_constraint_name)
+        try:
+            stmt = ibm_db.exec_immediate(self.db_connection, sql_statement)
+            ibm_db.free_result(stmt)
+        except Exception as ex:
+            raise Exception('Execution of sql statement "%s" failed.' % sql_statement) from ex
 
-            logger.info('Table %s.%s has been created.' % (self.quoted_schema, self.quoted_store_tablename))
+
+        logger.info('Table %s.%s has been created.' % (self.quoted_schema, self.quoted_store_tablename))
 
     def _store_table_exists(self):
         exists = False
