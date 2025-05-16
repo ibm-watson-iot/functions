@@ -2036,11 +2036,8 @@ class EntityType(object):
             try:
                 table['schemaName'] = self.db.credentials['db2']['username']
             except KeyError:
-                try:
-                    username = self.db.credentials["postgresql"]['username']
-                    table["schemaName"] = "public"
-                except KeyError:
-                    raise KeyError('No database credentials found. Unable to register table.')
+                
+                raise KeyError('No database credentials found. Unable to register table.')
 
         response = self.db.http_request(request='POST', object_type='entityType', object_name=None,
                                         payload=table, raise_error=raise_error, sample_entity_type=sample_entity_type)
