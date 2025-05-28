@@ -582,10 +582,7 @@ class BaseFunction(object):
             except KeyError:
                 try:
                     index = df.index.get_level_values(col)
-                    if isinstance(index, pd.DatetimeIndex):
-                        series = index.to_series(keep_tz=True, index=df.index)
-                    else:
-                        series = index.to_series(index=df.index)
+                    series = index.to_series(index=df.index)
                 except KeyError:
                     pass
                 else:
