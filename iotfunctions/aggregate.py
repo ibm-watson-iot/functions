@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2022  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -385,22 +385,38 @@ class Aggregation(BaseFunction):
         return df
 
     def _apply_scope(self, df, input_col_name, scope):
-        eval_expression = ""
         if scope.get('type') == 'DIMENSIONS':
             self.logger.debug('Applying Dimensions Scope')
-            dimension_count = len(scope.get('dimensions'))
+            expressions = []
             for dimension_filter in scope.get('dimensions'):
                 dimension_name = dimension_filter['name']
-                dimension_value = dimension_filter['value']
-                dimension_count -= 1
-                if isinstance(dimension_value, str):
-                    dimension_value = [dimension_value]
-                else:
-                    # Convert to list explicitly to guarantee subsequent 'str(dimension_value)' returns a proper
-                    # string. Counter example: str(dict.values()) returns "dict_values([...])"
-                    dimension_value = list(dimension_value)
-                eval_expression += 'df[\'' + dimension_name + '\'].isin(' + str(dimension_value) + ')'
-                eval_expression += ' & ' if dimension_count != 0 else ''
+                dimension_values = dimension_filter['value']
+                # dimension_value is either a string or a list of strings. The list of strings contains more than one
+                # entry when the same dimension is used more than once in the scope definition
+                if isinstance(dimension_values, str):
+                    dimension_values = [dimension_values]
+                # Determine type of dimension
+                dimension_type = self.dms.data_items.data_items[dimension_name]['columnType']
+                formatted_string_df = f"df['{dimension_name}']"
+                subexpressions = []
+                # Remove any kind of None value (like None, np.nan, pd.NaT) from dimension_values and add a separate
+                # expression to subexpressions for them
+                old_length = len(dimension_values)
+                dimension_values = [val for val in dimension_values if val != 'None' and val != 'np.nan' and val != 'np.Nat']
+                new_length = len(dimension_values)
+                if new_length != old_length:
+                    subexpressions.append(f"pd.isna({formatted_string_df})")
+                if new_length > 0:
+                    # Handle the remaining dimension_values
+                    if dimension_type == 'LITERAL':
+                        # We have to quote entries in dimension_value when we deal with a dimension of type LITERAL.
+                        dimension_values = [f"'{val}'" for val in dimension_values]
+                    elif dimension_type == 'TIMESTAMP':
+                        # We have to convert any timestamp string to a pd.Timestamp.
+                        dimension_values = [f"pd.Timestamp('{val}')" for val in dimension_values]
+                    subexpressions.append(f"{formatted_string_df}.isin([{', '.join(dimension_values)}])")
+                expressions.append(f"( {' | '.join(subexpressions)} )")
+            eval_expression = ' & '.join(expressions)
         else:
             self.logger.debug('Applying Expression Scope')
             eval_expression = scope.get('expression')
