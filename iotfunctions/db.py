@@ -788,7 +788,7 @@ class Database(object):
                     table.delete().where(self.get_column_object(table, timestamp) < until_date))
                 msg = 'deleted data from table %s older than %s' % (table_name, until_date)
                 logger.debug(msg)
-            self.commit()
+            conn.commit()
 
     def drop_table(self, table_name, schema=None, recreate=False):
 
@@ -1404,7 +1404,7 @@ class Database(object):
         else:
             with self.engine.connect() as conn:
                 conn.execute(table.delete())
-                self.commit()
+                conn.commit()
             msg = 'Truncated table name %s' % table_name
         logger.debug(msg)
 
@@ -2893,19 +2893,16 @@ class Database(object):
                     raise KeyError(f'Dataframe does not have required columns {set(cols)-set(df.columns)}. '
                                    f'Available columns in df: {set(df.columns)}. '
                                    f'Required columns for table: {set(cols)}')
-        self.start_session()
         try:
             with self.engine.connect() as conn:
                 df.to_sql(name=table_name, con=conn, schema=schema, if_exists=if_exists, index=False,
                           chunksize=chunksize, dtype=dtypes)
                 conn.commit()
+                logger.debug('Wrote data to table %s ' % table_name)
         except:
-            self.session.rollback()
             logger.debug('Attempted write of %s data to table %s ' % (cols, table_name))
             raise
-        finally:
-            self.commit()
-            logger.debug('Wrote data to table %s ' % table_name)
+
         return 1
 
     def release_resource(self):
@@ -3009,15 +3006,11 @@ class BaseTable(object):
             msg = 'Dataframe does not have required columns %s. It has columns: %s and index: %s' % (
                 cols, df.columns, df.index.names)
             raise KeyError(msg)
-        self.database.start_session()
-        try:
-            df.to_sql(name=self.name, con=self.database.engine, schema=self.schema, if_exists='append', index=False,
+
+        with self.engine.connect() as conn:
+            df.to_sql(name=self.name, con=conn, schema=self.schema, if_exists='append', index=False,
                       chunksize=chunksize, dtype=dtypes)
-        except:
-            self.database.session.rollback()
-            raise
-        finally:
-            self.database.session.close()
+            conn.commit()
 
     def set_params(self, **params):
         """
