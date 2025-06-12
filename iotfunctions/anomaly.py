@@ -3602,6 +3602,11 @@ class ProphetForecaster(BaseTransformer):
             yhat = np.where(holiday_index, holiday_mean, prediction['yhat'].values)
             yhat_lower = np.where(holiday_index, holiday_mean - 3*holiday_std, prediction['yhat_lower'].values)
             yhat_upper = np.where(holiday_index, holiday_mean + 3*holiday_std, prediction['yhat_upper'].values)
+        else:
+            logger.debug('No holiday set')
+            yhat = prediction['yhat'].values
+            yhat_lower = prediction['yhat_lower'].values
+            yhat_upper = prediction['yhat_upper'].values
 
         df[self.y_hat] = yhat
         df[self.yhat_lower] = yhat_lower
