@@ -84,14 +84,20 @@ class AnomalyGenerator(BaseTransformer):
         idx = offset
 
         if a.size >= self.factor:
-            lim_size = a.size - a.size % self.factor
+            if self.factor != 0:
+                lim_size = a.size - a.size % self.factor
+            else:
+                lim_size = a.size
             logger.debug('InjectAnomaly:  Main:   entity ' + entity_name + ', a-Size: ' + str(a.size) + ', Lim: ' + str(
                 lim_size) + ', Factor: ' + str(self.factor) + ', Width: ' + str(self.width))
             a_reshape_arr = a[:lim_size].copy()
 
             # Final numpy array to be transformed into 2d array
             try:
-                a1 = np.reshape(a_reshape_arr, (-1, self.factor)).T
+                if self.factor != 0:
+                    a1 = np.reshape(a_reshape_arr, (-1, self.factor)).T
+                else:
+                    a1 = np.reshape(a_reshape_arr, (-1, 1)).T
             except Exception as e:
                 logger.error('InjectAnomaly: reshape failed with ' + str(e) + ' ' + str(input_array.shape) + ',' + str(
                     lim_size) + ',' + str(offset))
