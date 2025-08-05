@@ -1652,71 +1652,72 @@ class EntityType(object):
         df_existing = self.db.read_dimension(self._dimension_table_name, schema=self._db_schema, entities=entities)
         existing_entities = set(df_existing[self._entity_id])
         # do not generate data for existing entities
-        entities = list(set(entities) - existing_entities)
-        if len(entities) > 0:
+        # entities = list(set(entities) - existing_entities) # removing this as dimensions getting null for sample devicetype
+        # if len(entities) > 0: # removing this as dimensions getting null for sample devicetype
 
-            if data_item_mean is None:
-                data_item_mean = {}
-            if data_item_sd is None:
-                data_item_sd = {}
-            if data_item_domain is None:
-                data_item_domain = {}
+        if data_item_mean is None:
+            data_item_mean = {}
+        if data_item_sd is None:
+            data_item_sd = {}
+        if data_item_domain is None:
+            data_item_domain = {}
 
-            known_categoricals = set(data_item_domain.keys())
+        known_categoricals = set(data_item_domain.keys())
 
-            exclude_cols = self.get_excluded_cols()
+        exclude_cols = self.get_excluded_cols()
+        exclude_cols.append('device_uid')
 
-            (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(self._dimension_table_name,
+        (metrics, dates, categoricals, others) = self.db.get_column_lists_by_type(self._dimension_table_name,
                                                                                       self._db_schema,
                                                                                       exclude_cols=[self._entity_id],
                                                                                       known_categoricals_set=known_categoricals)
 
-            rows = len(entities)
-            data = {}
-            dimension_api_payload = []
-            data[self._entity_id] = entities
+        rows = len(entities)
+        data = {}
+        dimension_api_payload = []
+        data[self._entity_id] = entities
 
-            for m in metrics:
-                if m not in exclude_cols:
-                    mean = data_item_mean.get(m, 0)
-                    sd = data_item_sd.get(m, 1)
-                    data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
-                    for i, value in enumerate(data[m]):
-                        dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER",
+        for m in metrics:
+            if m not in exclude_cols:
+                mean = data_item_mean.get(m, 0)
+                sd = data_item_sd.get(m, 1)
+                data[m] = MetricGenerator(m, mean=mean, sd=sd).get_data(rows=rows)
+                for i, value in enumerate(data[m]):
+                    dimension_api_payload.append({"name": m, "id": data[self._entity_id][i], "type": "NUMBER",
                                                       "value": value})
 
-            for c in categoricals:
-                if c not in exclude_cols:
-                    categories = data_item_domain.get(c, None)
-                    data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
-                    for i, value in enumerate(data[c]):
-                        value_type = "LITERAL" if isinstance(value, np.str_) else "NUMBER"
-                        value = float(value) if value_type == "NUMBER" else value
-                        dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": value_type,
+        for c in categoricals:
+            if c not in exclude_cols:
+                categories = data_item_domain.get(c, None)
+                data[c] = CategoricalGenerator(c, categories).get_data(rows=rows)
+                for i, value in enumerate(data[c]):
+                    value_type = "LITERAL" if isinstance(value, np.str_) else "NUMBER"
+                    value = float(value) if value_type == "NUMBER" else value
+                    dimension_api_payload.append({"name": c, "id": data[self._entity_id][i], "type": value_type,
                                                       "value": value})
 
-            df = pd.DataFrame(data=data)
+        df = pd.DataFrame(data=data)
 
-            for d in dates:
-                df[d] = DateGenerator(d).get_data(rows=rows)
-                df[d] = pd.to_datetime(df[d])
-                time = df[d].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
-                for i, value in enumerate(time):
-                    dimension_api_payload.append({"name": d, "id": data[self._entity_id][i], "type": "TIMESTAMP",
+        for d in dates:
+            df[d] = DateGenerator(d).get_data(rows=rows)
+            df[d] = pd.to_datetime(df[d])
+            time = df[d].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+            for i, value in enumerate(time):
+                dimension_api_payload.append({"name": d, "id": data[self._entity_id][i], "type": "TIMESTAMP",
                                                   "value": value})
 
-            if write:
-                if self.db.db_type == 'db2':
-                    self._dimension_table_name = self._dimension_table_name.upper()
-                else:
-                    self._dimension_table_name = self._dimension_table_name.lower()
-                self.db.write_frame(df, table_name=self._dimension_table_name, if_exists='append',
-                                    schema=self._db_schema)
+        if write:
+            if self.db.db_type == 'db2':
+                self._dimension_table_name = self._dimension_table_name.upper()
             else:
-                self._generated_dimension_payload = dimension_api_payload
-
+                self._dimension_table_name = self._dimension_table_name.lower()
+            self.db.write_frame(df, table_name=self._dimension_table_name, if_exists='append',
+                                    schema=self._db_schema)
         else:
-            logger.debug('No new entities. Did not generate dimension data.')
+            self._generated_dimension_payload = dimension_api_payload
+
+        # else:
+        #     logger.debug('No new entities. Did not generate dimension data.') # removing this as dimensions getting null for sample devicetype
 
     def get_entity_filter(self):
         """
