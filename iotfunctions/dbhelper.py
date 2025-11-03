@@ -15,9 +15,9 @@ import pandas as pd
 import re
 
 logger = logging.getLogger(__name__)
-SQL_PATTERN = re.compile('\w*')
-SQL_PATTERN_EXTENDED = re.compile('[\w\-.]*')
-SQL_PATTERN_EXTENDED2 = re.compile('^[\w\-.][\w\-.\;\,\/\s?]*')
+SQL_PATTERN = re.compile(r'\w*')
+SQL_PATTERN_EXTENDED = re.compile(r'[\w\-.]*')
+SQL_PATTERN_EXTENDED2 = re.compile(r'^[\w\-.][\w\-.\;\,\/\s?]*')
 
 
 def quotingColumnName(schemaName):
