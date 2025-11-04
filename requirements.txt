@@ -12,7 +12,7 @@ prophet==1.1.6
 pyarrow==19.0.0
 pyod==2.0.2
 certifi>=2025.4.26
-requests==2.32.2
+requests==2.32.4
 ruptures==1.1.10
 scikit-learn==1.6.1
 scikit-image==0.25.2
