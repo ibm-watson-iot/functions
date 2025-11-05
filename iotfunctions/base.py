@@ -507,7 +507,7 @@ class BaseFunction(object):
             # get all quoted strings in expression
             e = e.replace('"', "'")
             e = re.sub(r"\$\{(\w+)\}", r"df['\1']", e)
-            detected_items = re.findall("df\['(.+?)'\]", e)
+            detected_items = re.findall(r"df\['(.+?)'\]", e)
             # check if they have df[] wrapped around them
             all_items |= set(detected_items)
 
