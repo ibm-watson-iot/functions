@@ -544,7 +544,9 @@ class Sum(SimpleAggregator):
         else:
             self.min_count = min_count
 
-    def execute(self, group):
+    def execute(self, group, scope=None):
+        if group.isna().all():
+            return None
         return group.sum(min_count=self.min_count)
 
 
