@@ -415,8 +415,8 @@ def infer_data_items(expressions):
     """
     if not isinstance(expressions, list):
         expressions = [expressions]
-    regex1 = "df\[\'(.+?)\'\]"
-    regex2 = 'df\[\"(.+?)\"\]'
+    regex1 = r"df\[\'(.+?)\'\]"
+    regex2 = r'df\[\"(.+?)\"\]'
     data_items = set()
     for e in expressions:
         data_items |= set(re.findall(regex1, e))
