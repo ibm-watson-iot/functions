@@ -3269,7 +3269,7 @@ class InvokeWMLModel(BaseTransformer):
             if key == 'deployment_id': deployment_id = wml_credentials[key]
 
         credentials = Credentials(url=url, api_key=api_key)
-        print(url, api_key, space_id, project, deployment_id)
+        print(url, space_id, project, deployment_id)
 
         # self.client = APIClient(wml_credentials)
         self.client = APIClient(credentials, space_id=space_id)
