@@ -3264,17 +3264,17 @@ class InvokeWMLModel(BaseTransformer):
         deployment_id = None
         for key in wml_credentials.keys():
             if key == 'token' or key == 'apikey': api_key = wml_credentials[key]
-            if key == 'space_id': space_id = wml_credentials[key]
-            if key == 'project_id': project_id = wml_credentials[key]  # for later usage
+            if key == 'space_id': space = wml_credentials[key]
+            if key == 'project_id': project = wml_credentials[key]  # for later usage
             if key == 'deployment_id': deployment_id = wml_credentials[key]
 
         credentials = Credentials(url=url, api_key=api_key)
-        print(url, space_id, project, deployment_id)
+        logger.debug(f'url={url}, space_id={space}, project={project}, deployment_id={deployment_id}')
 
         # self.client = APIClient(wml_credentials)
-        self.client = APIClient(credentials, space_id=space_id)
+        self.client = APIClient(credentials, space_id=space)
         # self.client.set.default_space(wml_credentials['space_id'])
-        self.client.set.default_space(space_id)
+        self.client.set.default_space(space)
 
         '''
         self.client = APIClient(wml_credentials)
