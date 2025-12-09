@@ -30,7 +30,8 @@ from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
 from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL
-from ibm_watson_machine_learning import APIClient
+# from ibm_watson_machine_learning import APIClient  # ibm_watson_machine_learning is deprecated
+from ibm_watsonx_ai import APIClient, Credentials
 
 
 logger = logging.getLogger(__name__)
@@ -3170,7 +3171,7 @@ class InvokeWMLModel(BaseTransformer):
     This name is passed to InvokeWMLModel in wml_auth.
     '''
     def __init__(self, input_items, wml_auth, output_items):
-        super().__init__()
+        super().__init__(input_items)
 
         logger.debug(input_items)
 
@@ -3193,6 +3194,7 @@ class InvokeWMLModel(BaseTransformer):
         self.client = None
 
         self.logged_on = False
+        self.init_local_model = False
 
 
     def __str__(self):
@@ -3211,7 +3213,15 @@ class InvokeWMLModel(BaseTransformer):
         except Exception:
             pass
         return out
+        # initialize local model is a NoOp for superclass
 
+    def initialize_local_model(self):
+        return False
+
+        # inference on local model is a NoOp for superclass
+
+    def call_local_model(self, df):
+        return df
 
     def login(self):
 
@@ -3225,6 +3235,9 @@ class InvokeWMLModel(BaseTransformer):
         if isinstance(self.wml_auth, dict):
             wml_credentials = self.wml_auth
         elif self.wml_auth is not None:
+            # check if exists, but empty
+            if not self.wml_auth:
+                self.init_local_model = self.initialize_local_model(self)
             try:
                 c = self._entity_type.get_attributes_dict()
             except Exception:
@@ -3244,6 +3257,26 @@ class InvokeWMLModel(BaseTransformer):
             raise RuntimeError("No valid WML credentials specified")
 
         # get client and check credentials
+        url = None
+        api_key = None
+        space = None
+        project = None
+        deployment_id = None
+        for key in wml_credentials.keys():
+            if key == 'token' or key == 'apikey': api_key = wml_credentials[key]
+            if key == 'space_id': space = wml_credentials[key]
+            if key == 'project_id': project = wml_credentials[key]  # for later usage
+            if key == 'deployment_id': deployment_id = wml_credentials[key]
+
+        credentials = Credentials(url=url, api_key=api_key)
+        logger.debug(f'url={url}, space_id={space}, project={project}, deployment_id={deployment_id}')
+
+        # self.client = APIClient(wml_credentials)
+        self.client = APIClient(credentials, space_id=space)
+        # self.client.set.default_space(wml_credentials['space_id'])
+        self.client.set.default_space(space)
+
+        '''
         self.client = APIClient(wml_credentials)
         if self.client is None:
             #logger.error('WML API Key invalid')
@@ -3251,6 +3284,7 @@ class InvokeWMLModel(BaseTransformer):
 
         # set space
         self.client.set.default_space(wml_credentials['space_id'])
+        '''
 
         # check deployment
         deployment_details = self.client.deployments.get_details(self.deployment_id, 1)
@@ -3275,6 +3309,10 @@ class InvokeWMLModel(BaseTransformer):
 
 
     def _calc(self, df):
+
+        if self.init_local_model:
+            logging.info("Calling local model")
+            return self.call_local_model(df)
 
         if len(self.input_items) >= 1:
             rows = df[self.input_items].fillna(0).values
