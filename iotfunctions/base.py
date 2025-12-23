@@ -1226,9 +1226,9 @@ class BaseFunction(object):
                  your own package and not iotfunctions')
         msg = 'Test import succeeded for function using %s with module url %s' % (exec_str, module_url)
         logger.debug(msg)
-        payload = {'name': name, 'description': description, 'category': self.category, 'tags': self.tags,
+        payload = {'name': name, 'status': 'ACTIVE', 'description': description, 'category': self.category, 'tags': self.tags,
                    'moduleAndTargetName': module_and_target, 'url': url, 'input': input_list, 'output': output_list,
-                   'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None}
+                   'incremental_update': incremental_update if self.category == 'AGGREGATOR' else None, "version": "V1"}
 
         if credentials is not None:
             msg = 'Passing credentials for registration is preserved for compatibility. Use old style credentials when doing so, \
