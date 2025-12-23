@@ -1704,9 +1704,9 @@ class Database(object):
             except (AttributeError, NotImplementedError):
                 msg = 'Function %s has no build_ui method. It cannot be registered.' % name
                 raise NotImplementedError(msg)
-            payload = {'name': name, 'description': f.__doc__, 'category': category,
+            payload = {'name': name, 'status': 'ACTIVE','description': f.__doc__, 'category': category,
                        'moduleAndTargetName': module_and_target, 'url': package_url, 'input': input_list,
-                       'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None,
+                       'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None, "version": "V1",
                        'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
