@@ -456,40 +456,11 @@ class Database(object):
             self.native_connection = None
             self.native_connection_dbi = None
 
-        # cache entity types
-        self.entity_type_metadata = {}
-
-        if entity_metadata is None:
-
-            # Load **all** entity types. This is required by Predict even when entity_type_id is None
-            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
-                                         object_name_2='')
-            if metadata is not None:
-                try:
-                    metadata = json.loads(metadata)
-                    if metadata is None:
-                        msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
-                        logger.warning(msg)
-                    for m in metadata:
-                        self.entity_type_metadata[m['entityTypeId']] = m
-                except Exception:
-                    pass
-        else:
-            metadata = entity_metadata
-            if metadata.get('entityTypeId') is not None:
-                entity_type_id = metadata['entityTypeId']
-            self.entity_type_metadata[entity_type_id] = metadata
 
         # Figure out entity_type, entity_type_id and schema
         self.entity_type_id = None
         self.entity_type = None
         self.schema = None
-        if entity_type_id is not None:
-            self.entity_type_id = entity_type_id
-            metadata = self.entity_type_metadata.get(entity_type_id)
-            if metadata is not None:
-                self.entity_type = metadata.get('name')
-                self.schema = metadata.get('schemaName')
 
         # Create DBModelStore if it was not handed in
         if entity_type_id is not None:
@@ -1051,7 +1022,7 @@ class Database(object):
         # self.url[('dataItem', 'PUT')] = '/'.join(
         #     [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
-        self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
+        # self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
 
         if sample_entity_type:
             self.url[('entityType', 'POST')] = '/'.join(
