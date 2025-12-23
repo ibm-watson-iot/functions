@@ -1056,8 +1056,8 @@ class Database(object):
         else:
             self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
         self.url[('catalogFunctions', 'DELETE')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
-        self.url[('catalogFunctions', 'PUT')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function', object_name])
-        self.url[('catalogFunctions', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function'])
+        self.url[('catalogFunctions', 'PUT')] = '/'.join([base_kpi_url, 'catalog', 'v2', self.tenant_id, 'function', object_name])
+        self.url[('catalogFunctions', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v2', self.tenant_id, 'function'])
 
         self.url[('granularity', 'POST')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
         self.url[('granularity', 'DELETE')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type, object_name_2])
