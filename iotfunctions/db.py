@@ -530,6 +530,7 @@ class Database(object):
         self.entity_type_id = None
         self.entity_type = None
         self.schema = None
+        self.resource_id = None
 
 
         # Create DBModelStore if it was not handed in
@@ -849,17 +850,33 @@ class Database(object):
 
         return (package, module, class_name)
 
+    def get_engine_input(self, uu_id):
+        try:
+            response = self.http_request(object_type='input', object_name=uu_id,
+                                         request='GET', raise_error=True)
+            engine_input = json.loads(response)
+            logger.debug(f"Retrieved engine input for resource_id: {uu_id}")
+            return engine_input
+        except Exception as e:
+            raise RuntimeError(f"Error getting engine input for resource_id '{uu_id}': {e}")
+
     def get_entity_type_by_name(self, name):
         # Warning: entity type name is not unique anymore. This function is used for backwards compatibility taken
         # the risk to return the wrong entity type. This function is only used in deprecated function 'GetEntityData'
-        entity_type_id = None
-        for id, metadata in self.entity_type_metadata.items():
-            try:
-                if metadata['name'] == name:
-                    entity_type_id = id
-                    break
-            except Exception as e:
-                print(e)
+        try:
+            query, table = self.query('ENTITY_TYPE', 'IOTANALYTICS',
+                                      ['ENTITY_TYPE_ID', 'UUID'], filters={'Name': name})
+            df = self.read_sql_query(query.statement)
+            if not df.empty:
+                entity_type_id = df.iloc[0]['entity_type_id']
+                self.resource_id = df.iloc[0]['uuid']
+                logger.debug(f"Found entity_type_id: {entity_type_id} for name: {name}")
+            else:
+                error_msg = f"No entity type found with name: '{name}'"
+                raise ValueError(error_msg)
+        except Exception as e:
+            error_msg = f"Error querying entity type by name '{name}': {e}"
+            raise RuntimeError(error_msg) from e
         return self.get_entity_type(entity_type_id)
 
     def get_entity_type(self, entity_type_id):
@@ -869,16 +886,16 @@ class Database(object):
         """
         metadata = None
         try:
-            metadata = self.entity_type_metadata[entity_type_id]
-        except KeyError:
-            msg = 'No entity type with id  %s in the cached metadata.' % entity_type_id
+            metadata = self.get_engine_input(self.resource_id)
+        except Exception as e:
+            msg = 'No entity type with id  %s could be retrieved. Error: %s' % (self.resource_id, str(e))
             raise ValueError(msg)
 
         try:
             timestamp = metadata['metricTimestampColumn']
             schema = metadata['schemaName']
-            dim_table = metadata['dimensionTableName']
-        except TypeError:
+            dim_table = metadata['dimensionsTable']
+        except (TypeError, KeyError):
             try:
                 is_entity_type = metadata.is_entity_type
             except AttributeError:
@@ -890,10 +907,10 @@ class Database(object):
                 msg = 'Entity type %s not found in the database metadata' % entity_type_id
                 raise KeyError(msg)
         else:
-            entity = md.EntityType(name=metadata['name'], db=self,
+            entity = md.EntityType(name=metadata['resourceName'], db=self,
                                    **{'auto_create_table': False, '_timestamp': timestamp, '_db_schema': schema,
                                       '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table,
-                                      'metric_table_name': metadata['metricTableName'], '_data_items': metadata.get('dataItemDto')})
+                                      'metric_table_name': metadata['metricsTableName'], '_data_items': metadata.get('dataItems')})
 
         return entity
 
