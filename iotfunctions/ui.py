@@ -119,7 +119,7 @@ class UIFunctionOutMulti(BaseUIControl):
         meta = {'name': self.name, 'cardinalityFrom': self.cardinality_from, 'dataTypeForArray': datatype,
                 'description': self.description, 'tags': self.tags,
                 'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
-                               "items": {"type": "string"}}}
+                               "items": {"type": "LITERAL"}}}
 
         if self.is_datatype_derived:
             meta['dataTypeFrom'] = self.cardinality_from
