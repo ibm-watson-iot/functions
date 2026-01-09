@@ -1049,8 +1049,8 @@ class Database(object):
         else:
             self.url[('catalogFunctions', 'GET')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
         self.url[('catalogFunctions', 'DELETE')] = '/'.join([core_url, 'v2', 'core','catalogFunctions', object_name])
-        self.url[('catalogFunctions', 'PUT')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function', object_name])
-        self.url[('catalogFunctions', 'POST')] = '/'.join([base_kpi_url, 'catalog', 'v1', self.tenant_id, 'function'])
+        self.url[('catalogFunctions', 'PUT')] = '/'.join([core_url, 'v2', 'core','catalogFunctions',  object_name])
+        self.url[('catalogFunctions', 'POST')] = '/'.join([core_url, 'v2', 'core','catalogFunctions'])
 
         self.url[('granularity', 'POST')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type])
         self.url[('granularity', 'DELETE')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', object_name, object_type, object_name_2])
@@ -1697,9 +1697,9 @@ class Database(object):
             except (AttributeError, NotImplementedError):
                 msg = 'Function %s has no build_ui method. It cannot be registered.' % name
                 raise NotImplementedError(msg)
-            payload = {'name': name, 'description': f.__doc__, 'category': category,
+            payload = {'name': name, 'status': 'ACTIVE','description': f.__doc__, 'category': category,
                        'moduleAndTargetName': module_and_target, 'url': package_url, 'input': input_list,
-                       'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None,
+                       'output': output_list, 'incremental_update': True if category == 'AGGREGATOR' else None, "version": "V1",
                        'tags': tags, 'scope': {'enabled': f.is_scope_enabled}}
 
             if not is_preinstalled:
