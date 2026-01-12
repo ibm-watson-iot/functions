@@ -530,7 +530,6 @@ class Database(object):
         self.entity_type_id = None
         self.entity_type = None
         self.schema = None
-        self.resource_id = None
 
 
         # Create DBModelStore if it was not handed in
@@ -879,6 +878,10 @@ class Database(object):
         return self.get_entity_type(entity_type_id)
 
     def get_resource_id_by_entity_type_id(self, entity_type_id):
+        """
+        Needed because get_entity_type is used to train supervised models.
+        Used in train_lightgbm_regressor.py, train_simple_regressor.py
+        """
         try:
             query, table = self.query('ENTITY_TYPE', 'IOTANALYTICS',
                                       ['UUID'], filters={'ENTITY_TYPE_ID': [entity_type_id]})
@@ -1081,7 +1084,6 @@ class Database(object):
         # self.url[('dataItem', 'PUT')] = '/'.join(
         #     [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
 
-        self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
 
         if sample_entity_type:
             self.url[('entityType', 'POST')] = '/'.join(
