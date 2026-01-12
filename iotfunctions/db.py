@@ -865,11 +865,10 @@ class Database(object):
         # the risk to return the wrong entity type. This function is only used in deprecated function 'GetEntityData'
         try:
             query, table = self.query('ENTITY_TYPE', 'IOTANALYTICS',
-                                      ['ENTITY_TYPE_ID', 'UUID'], filters={'Name': name})
+                                      ['ENTITY_TYPE_ID'], filters={'NAME': name})
             df = self.read_sql_query(query.statement)
             if not df.empty:
                 entity_type_id = df.iloc[0]['entity_type_id']
-                self.resource_id = df.iloc[0]['uuid']
                 logger.debug(f"Found entity_type_id: {entity_type_id} for name: {name}")
             else:
                 error_msg = f"No entity type found with name: '{name}'"
@@ -879,16 +878,34 @@ class Database(object):
             raise RuntimeError(error_msg) from e
         return self.get_entity_type(entity_type_id)
 
+    def get_resource_id_by_entity_type_id(self, entity_type_id):
+        try:
+            query, table = self.query('ENTITY_TYPE', 'IOTANALYTICS',
+                                      ['UUID'], filters={'ENTITY_TYPE_ID': [entity_type_id]})
+            df = self.read_sql_query(query.statement)
+            if not df.empty:
+                uuid = df.iloc[0]['uuid']
+                logger.debug(f"Found uuid: {uuid} for entity id: {entity_type_id}")
+                return uuid
+            else:
+                error_msg = f"No entity type found with entity id: '{entity_type_id}'"
+                raise ValueError(error_msg)
+        except Exception as e:
+            error_msg = f"Error querying entity type by entity id '{entity_type_id}': {e}"
+            raise RuntimeError(error_msg) from e
+
     def get_entity_type(self, entity_type_id):
         """
         Get an EntityType instance by name. Name may be the logical name shown in the UI or the table name.'
 
         """
         metadata = None
+        resource_id = None
         try:
-            metadata = self.get_engine_input(self.resource_id)
+            resource_id = self.get_resource_id_by_entity_type_id(entity_type_id)
+            metadata = self.get_engine_input(resource_id)
         except Exception as e:
-            msg = 'No entity type with id  %s could be retrieved. Error: %s' % (self.resource_id, str(e))
+            msg = 'No entity type with id  %s could be retrieved. Error: %s' % (resource_id, str(e))
             raise ValueError(msg)
 
         try:
