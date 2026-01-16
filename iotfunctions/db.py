@@ -831,7 +831,7 @@ class Database(object):
         try:
             # Get the ENTITY_TYPE table
             query, table = self.query('ENTITY_TYPE', 'IOTANALYTICS',
-                                      ['ENTITY_TYPE_ID'], filters={'Name': name})
+                                      ['ENTITY_TYPE_ID'], filters={'NAME': name})
             df = self.read_sql_query(query.statement)
             if not df.empty:
                 entity_type_id = df.iloc[0]['entity_type_id']
@@ -1040,8 +1040,6 @@ class Database(object):
 
         # self.url[('dataItem', 'PUT')] = '/'.join(
         #     [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
-
-        # self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
 
         if sample_entity_type:
             self.url[('entityType', 'POST')] = '/'.join(
