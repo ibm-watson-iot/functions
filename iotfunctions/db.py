@@ -845,6 +845,26 @@ class Database(object):
         
         return self.get_entity_type(entity_type_id)
 
+    def get_metadata_by_entity_type_name(self, name):
+        # this function is being used by predict, while migrating API V2 call,  created this
+        entity_type_id = None
+        try:
+            # Get the ENTITY_TYPE table
+            query, table = self.query('ENTITY_TYPE', 'IOTANALYTICS',
+                                      ['ENTITY_TYPE_ID'], filters={'NAME': name})
+            df = self.read_sql_query(query.statement)
+            if not df.empty:
+                entity_type_id = df.iloc[0]['entity_type_id']
+                logger.debug(f"Found entity_type_id: {entity_type_id} for name: {name}")
+            else:
+                error_msg = f"No entity type found with name: '{name}'"
+                raise ValueError(error_msg)
+        except Exception as e:
+            error_msg = f"Error querying entity type by name '{name}': {e}"
+            raise RuntimeError(error_msg) from e
+
+        return self.get_engine_input(entity_type_id)
+
     def get_engine_input(self, entity_type_id):
         try:
             response = self.http_request(object_type='input', object_name=str(entity_type_id),
