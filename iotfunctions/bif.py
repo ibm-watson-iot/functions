@@ -3118,45 +3118,6 @@ class SplitDataByActiveShifts(BaseTransformer):
         return df
 
 
-class MergeByFirstValid(BaseTransformer):
-
-    @classmethod
-    def metadata(cls):
-        return _generate_metadata(cls, {
-            'description': 'Create alerts that are triggered when data values reach a particular range.', 'input': [
-                {'name': 'sources', 'description': 'Select one or more data items to be merged.', 'type': 'DATA_ITEM',
-                 'required': True, 'dataType': 'ARRAY',
-                 'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "sources",
-                                "type": "array", "minItems": 1, "items": {"type": "string"}}}], 'output': [
-                {'name': 'name', 'description': 'The new data item name for the merge result to create.',
-                 'dataTypeFrom': 'sources'}], 'tags': ['EVENT', 'JUPYTER']})
-
-    def __init__(self, name=None, sources=None):
-        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
-
-        if name is None or not isinstance(name, str):
-            raise RuntimeError("argument name must be provided and must be a string")
-
-        self.name = name
-        self.sources = sources
-
-    def execute(self, df):
-        sources_not_in_column = df.index.names
-        df = df.reset_index()
-
-        df[self.name] = df[self.sources].bfill(axis=1).iloc[:, 0]
-        msg = 'MergeByFirstValid %s' % df[self.name].unique()[0:50]
-        self.logger.debug(msg)
-
-        msg = 'Null merge key: %s' % df[df[self.name].isna()].head(1).transpose()
-        self.logger.debug(msg)
-
-        # move back index
-        df = df.set_index(keys=sources_not_in_column)
-
-        return df
-
-
 class InvokeWMLModel(DataExpanderTransformer):
     '''
     Pass multivariate data in input_items to a regression function deployed to
