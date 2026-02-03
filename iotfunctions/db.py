@@ -1105,6 +1105,7 @@ class Database(object):
             [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
 
         self.url['devices', 'POST'] = '/'.join([core_url, 'v2', 'deviceTypes', object_name, object_type])
+        self.url[('deviceTypesSearch', 'POST')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', 'search'])
 
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
@@ -2831,6 +2832,20 @@ class Database(object):
         except AttributeError:
             msg = 'Constants deletion status: %s' % r
         logger.debug(msg)
+
+    def search_device_types(self):
+        """
+        Search device types.
+        """
+        payload = {
+            'search': '',
+            'filter': {}
+        }
+        try:
+            response = self.http_request(object_type='deviceTypesSearch', object_name=None, request='POST',payload=payload, raise_error=True)
+            return json.loads(response)
+        except Exception as e:
+            raise RuntimeError(f"Error occurred during search deviceType  ...")
 
     def write_frame(self, df, table_name, version_db_writes=False, if_exists='append', timestamp_col=None, schema=None,
                     chunksize=None, auto_index_name='_auto_index_'):
