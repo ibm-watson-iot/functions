@@ -390,7 +390,11 @@ class Database(object):
 
         is_icp = os.environ.get("isICP")
         if is_icp is not None and is_icp == 'true':
-            if os.path.exists('/secrets/iot-common/ca.crt'):
+            # Check for server.crt in container path (mounted from host resources/)
+            if os.path.exists('/var/www/as-pipeline/server.crt'):
+                self.http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10, read=60), cert_reqs='CERT_REQUIRED',
+                                                ca_certs='/var/www/as-pipeline/server.crt')
+            elif os.path.exists('/secrets/iot-common/ca.crt'):
                 self.http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10, read=60), cert_reqs='CERT_REQUIRED',
                                                 ca_certs='/secrets/iot-common/ca.crt')
             else:
@@ -456,40 +460,11 @@ class Database(object):
             self.native_connection = None
             self.native_connection_dbi = None
 
-        # cache entity types
-        self.entity_type_metadata = {}
-
-        if entity_metadata is None:
-
-            # Load **all** entity types. This is required by Predict even when entity_type_id is None
-            metadata = self.http_request(object_type='allEntityTypes', object_name='', request='GET', payload={},
-                                         object_name_2='')
-            if metadata is not None:
-                try:
-                    metadata = json.loads(metadata)
-                    if metadata is None:
-                        msg = 'Unable to retrieve entity metadata from the server. Proceeding with limited metadata'
-                        logger.warning(msg)
-                    for m in metadata:
-                        self.entity_type_metadata[m['entityTypeId']] = m
-                except Exception:
-                    pass
-        else:
-            metadata = entity_metadata
-            if metadata.get('entityTypeId') is not None:
-                entity_type_id = metadata['entityTypeId']
-            self.entity_type_metadata[entity_type_id] = metadata
 
         # Figure out entity_type, entity_type_id and schema
         self.entity_type_id = None
         self.entity_type = None
         self.schema = None
-        if entity_type_id is not None:
-            self.entity_type_id = entity_type_id
-            metadata = self.entity_type_metadata.get(entity_type_id)
-            if metadata is not None:
-                self.entity_type = metadata.get('name')
-                self.schema = metadata.get('schemaName')
 
         # Create DBModelStore if it was not handed in
         if entity_type_id is not None:
@@ -497,6 +472,38 @@ class Database(object):
 
         # Determine the precision of fractional seconds for timestamps in database
         self.precision_fractional_seconds = self.get_precision_fractional_seconds()
+
+    @property
+    def connection(self):
+        """
+        Property to provide backward compatibility for code that expects db.connection.
+        Returns the SQLAlchemy engine which supports execute() operations.
+        Note: For Table() constructor, use db.metadata directly instead.
+        """
+        return self.engine
+
+    def close(self):
+        """
+        Close database connections and dispose of the engine.
+        This method provides cleanup for database resources.
+        """
+        try:
+            if self.session is not None:
+                self.session.close()
+        except Exception:
+            pass
+        
+        try:
+            if self.engine is not None:
+                self.engine.dispose()
+        except Exception:
+            pass
+        
+        try:
+            if self.native_connection is not None:
+                ibm_db.close(self.native_connection)
+        except Exception:
+            pass
 
     def get_precision_fractional_seconds(self):
 
@@ -857,14 +864,32 @@ class Database(object):
         # Warning: entity type name is not unique anymore. This function is used for backwards compatibility taken
         # the risk to return the wrong entity type. This function is only used in deprecated function 'GetEntityData'
         entity_type_id = None
-        for id, metadata in self.entity_type_metadata.items():
-            try:
-                if metadata['name'] == name:
-                    entity_type_id = id
-                    break
-            except Exception as e:
-                print(e)
+        try:
+            # Get the ENTITY_TYPE table
+            query, table = self.query('ENTITY_TYPE', 'IOTANALYTICS',
+                                      ['ENTITY_TYPE_ID'], filters={'NAME': name})
+            df = self.read_sql_query(query.statement)
+            if not df.empty:
+                entity_type_id = df.iloc[0]['entity_type_id']
+                logger.debug(f"Found entity_type_id: {entity_type_id} for name: {name}")
+            else:
+                error_msg = f"No entity type found with name: '{name}'"
+                raise ValueError(error_msg)
+        except Exception as e:
+            error_msg = f"Error querying entity type by name '{name}': {e}"
+            raise RuntimeError(error_msg) from e
+        
         return self.get_entity_type(entity_type_id)
+
+    def get_engine_input(self, entity_type_id):
+        try:
+            response = self.http_request(object_type='input', object_name=str(entity_type_id),
+                                        request='GET', raise_error=True)
+            engine_input = json.loads(response)
+            logger.debug(f"Retrieved engine input for entity_type_id: {entity_type_id}")
+            return engine_input
+        except Exception as e:
+            raise RuntimeError(f"Error getting engine input for entity_type_id '{entity_type_id}': {e}")
 
     def get_entity_type(self, entity_type_id):
         """
@@ -873,16 +898,17 @@ class Database(object):
         """
         metadata = None
         try:
-            metadata = self.entity_type_metadata[entity_type_id]
-        except KeyError:
-            msg = 'No entity type with id  %s in the cached metadata.' % entity_type_id
+            # Use _get_engine_input to fetch metadata from API
+            metadata = self.get_engine_input(entity_type_id)
+        except Exception as e:
+            msg = 'No entity type with id  %s could be retrieved. Error: %s' % (entity_type_id, str(e))
             raise ValueError(msg)
 
         try:
             timestamp = metadata['metricTimestampColumn']
             schema = metadata['schemaName']
-            dim_table = metadata['dimensionTableName']
-        except TypeError:
+            dim_table = metadata['dimensionsTable']
+        except (TypeError, KeyError):
             try:
                 is_entity_type = metadata.is_entity_type
             except AttributeError:
@@ -894,10 +920,10 @@ class Database(object):
                 msg = 'Entity type %s not found in the database metadata' % entity_type_id
                 raise KeyError(msg)
         else:
-            entity = md.EntityType(name=metadata['name'], db=self,
+            entity = md.EntityType(name=metadata['resourceName'], db=self,
                                    **{'auto_create_table': False, '_timestamp': timestamp, '_db_schema': schema,
                                       '_entity_type_id': entity_type_id, '_dimension_table_name': dim_table,
-                                      'metric_table_name': metadata['metricTableName'], '_data_items': metadata.get('dataItemDto')})
+                                      'metric_table_name': metadata['metricsTableName'], '_data_items': metadata.get('dataItems')})
 
         return entity
 
@@ -1050,8 +1076,6 @@ class Database(object):
 
         # self.url[('dataItem', 'PUT')] = '/'.join(
         #     [base_meta_url, 'kpi', 'v1', self.tenant_id, 'entityType', object_name, object_type, object_name_2])
-
-        self.url[('allEntityTypes', 'GET')] = '/'.join([base_meta_url, 'meta', 'v1', self.tenant_id, 'entityType'])
 
         if sample_entity_type:
             self.url[('entityType', 'POST')] = '/'.join(

@@ -59,7 +59,7 @@ class JobLog(object):
                                 ' connection'))
         kw = {'schema': self.job.get_payload_param('_db_schema', None)}
 
-        self.table = Table(self.table_name.lower(), self.db.connection, Column('object_type', String(255), nullable=False),
+        self.table = Table(self.table_name.lower(), self.db.metadata, Column('object_type', String(255), nullable=False),
                            Column('object_name', String(255), nullable=False),
                            Column('schedule', String(255), nullable=False),
                            Column('execution_date', DateTime, nullable=False),
@@ -68,7 +68,7 @@ class JobLog(object):
                                   server_default=func.now()), Column('previous_execution_date', DateTime),
                            Column('next_execution_date', DateTime), Column('startup_log', String(255)),
                            Column('execution_log', String(255)), Column('trace', String(2000)), **kw)
-        self.table.create(bind=self.db.connection)
+        self.table.create(bind=self.db.engine, checkfirst=True)
 
     def clear_old_running(self, name, schedule):
 
@@ -82,7 +82,9 @@ class JobLog(object):
                 and_(self.table.c.object_type == self.job.payload.__class__.__name__, self.table.c.object_name == name,
                      self.table.c.schedule == schedule, self.table.c.status == 'running'))
 
-            self.db.connection.execute(upd)
+            with self.db.engine.connect() as conn:
+                conn.execute(upd)
+                conn.commit()
             logger.debug('Marked existing running jobs as abandoned  (%s,%s)', name, schedule)
             logger.debug(df)
             self.db.commit()
@@ -96,7 +98,9 @@ class JobLog(object):
                                          previous_execution_date=previous_execution_date,
                                          next_execution_date=next_execution_date, status=status,
                                          startup_log=startup_log, execution_log=execution_log, trace=trace)
-        self.db.connection.execute(ins)
+        with self.db.engine.connect() as conn:
+            conn.execute(ins)
+            conn.commit()
         logger.debug('Created job log entry (%s,%s): %s', name, schedule, execution_date)
         self.db.commit()
 
@@ -118,7 +122,9 @@ class JobLog(object):
             upd = self.table.update().where(
                 and_(self.table.c.object_type == self.job.payload.__class__.__name__, self.table.c.object_name == name,
                      self.table.c.schedule == schedule, self.table.c.execution_date == execution_date)).values(**values)
-            self.db.connection.execute(upd)
+            with self.db.engine.connect() as conn:
+                conn.execute(upd)
+                conn.commit()
             logger.debug('Updated job log (%s,%s): %s', name, schedule, execution_date)
             self.db.commit()
         else:
@@ -130,11 +136,12 @@ class JobLog(object):
         Last execution date for payload object name for particular schedule
         """
         col = func.max(self.table.c['execution_date'])
-        query = select([col.label('last_execution')]).where(
+        query = select(col.label('last_execution')).where(
             and_(self.table.c['object_type'] == self.job.payload.__class__.__name__,
                  self.table.c['object_name'] == name, self.table.c['schedule'] == schedule,
                  self.table.c['status'] == 'complete'))
-        result = self.db.connection.execute(query).first()
+        with self.db.engine.connect() as conn:
+            result = conn.execute(query).first()
 
         return result[0]
 
@@ -350,7 +357,7 @@ class JobController(object):
                 alerts.append(d['name'])
 
         # Add a data write to spec
-        params = {'db_connection': self.get_payload_param('db', None).connection,
+        params = {'db_connection': self.get_payload_param('db', None).engine,
                   'schema_name': self.get_payload_param('_db_schema', None),
                   'grains_metadata': self.get_payload_param('_granularities_dict', None),
                   'data_item_metadata': data_items_dict, 'alerts': alerts}
