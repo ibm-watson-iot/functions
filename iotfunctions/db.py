@@ -801,6 +801,26 @@ class Database(object):
 
         return (package, module, class_name)
 
+    def get_metadata_by_entity_type_name(self, name):
+        # this function is being used by predict, while migrating API V2 call,  created this
+        entity_type_id = None
+        try:
+            # Get the ENTITY_TYPE table
+            query, table = self.query('ENTITY_TYPE', 'IOTANALYTICS',
+                                      ['ENTITY_TYPE_ID'], filters={'NAME': name})
+            df = self.read_sql_query(query.statement)
+            if not df.empty:
+                entity_type_id = df.iloc[0]['entity_type_id']
+                logger.debug(f"Found entity_type_id: {entity_type_id} for name: {name}")
+            else:
+                error_msg = f"No entity type found with name: '{name}'"
+                raise ValueError(error_msg)
+        except Exception as e:
+            error_msg = f"Error querying entity type by name '{name}': {e}"
+            raise RuntimeError(error_msg) from e
+
+        return self.get_engine_input(entity_type_id)
+
     def get_engine_input(self, uu_id):
         try:
             response = self.http_request(object_type='input', object_name=uu_id,
@@ -1079,6 +1099,7 @@ class Database(object):
             [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
         self.url['dimensions', 'PUT'] = '/'.join(
             [core_url, 'v2', 'core', 'deviceTypes', object_name, 'devices', object_type])
+        self.url[('deviceTypesSearch', 'POST')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', 'search'])
 
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
@@ -2803,6 +2824,21 @@ class Database(object):
         except AttributeError:
             msg = 'Constants deletion status: %s' % r
         logger.debug(msg)
+
+    def search_device_types(self):
+        """
+        Search device types.
+        """
+        payload = {
+            'search': '',
+            'filter': {}
+        }
+        try:
+            response = self.http_request(object_type='deviceTypesSearch', object_name=None, request='POST',
+                                         payload=payload, raise_error=True)
+            return json.loads(response)
+        except Exception as e:
+            raise RuntimeError(f"Error occurred during search deviceType  ... {e}")
 
     def write_frame(self, df, table_name, version_db_writes=False, if_exists='append', timestamp_col=None, schema=None,
                     chunksize=None, auto_index_name='_auto_index_'):
