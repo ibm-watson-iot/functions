@@ -7,7 +7,7 @@ lxml==5.3.1
 lightgbm==4.6.0
 nose2==0.15.1
 pandas==2.2.3
-prophet==1.1.6
+prophet==1.2.1
 pyarrow==19.0.0
 pyod==2.0.2
 certifi>=2025.4.26
