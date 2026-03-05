@@ -475,7 +475,7 @@ class NOccurrenceAlert(BaseEvent):
         unit = self.TIME_UNITS.get(unit_str if unit_str else '', 'minutes')
         return dt.timedelta(**{unit: value})
 
-    def __init__(self, condition, min_occurrences, time_window, window_type, window_time_unit, occurrence_mode, cooldown, cooldown_time_unit, alert_name):
+    def __init__(self, condition, min_occurrences, time_window, window_type, window_time_unit, occurrence_mode, alert_name,cooldown=0, cooldown_time_unit=None):
         self.condition = condition
         self.min_occurrences = min_occurrences
         self.time_window = time_window
@@ -549,10 +549,10 @@ class NOccurrenceAlert(BaseEvent):
                     active_occurrences = [t for t in active_occurrences if t > cutoff]
                 else:
                     freq_map = {'Minutes': 'T', '': 'T', 'Hours': 'H', 'Days': 'D'}
-                    freq = f'{int(self.time_window)}{freq_map.get(self.time_unit, "T")}'
+                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "T")}'
                     window_start = pd.Timestamp(ts).floor(freq)
                     window_end = window_start + self.T
-                    active_occurrences = [t for t in active_occurrences 
+                    active_occurrences = [t for t in active_occurrences
                          if window_start <= t <= window_end]
 
                 if len(active_occurrences) >= self.min_occurrences and (cooldown_until is None or ts > cooldown_until):

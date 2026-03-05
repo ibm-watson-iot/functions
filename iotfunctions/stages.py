@@ -542,6 +542,8 @@ class ProduceAlerts(object):
         self.alert_id_col_name = 'alert_id'
         self.created_ts_col_name = 'created_ts'
         self.alert_col_name = 'data_item_name'
+        self.domain_status_col_name = 'DOMAIN_STATUS'
+        self.domain_status_resolved = 'Resolved'
 
         # Column names in data frame
         self.timestamp_df_name = self.dms.eventTimestampName
@@ -565,6 +567,13 @@ class ProduceAlerts(object):
                 # Determine if index of dataframe comes with or without entity id.
                 # Note: Indices containing dimensions are not supported and cause an exception
                 index_has_entity_id = self._verify_index_shape(df)
+
+                # Derive the full pipeline time window from the dataframe index. This is used to scope
+                # the stale-alert resolution to only the window currently being processed, avoiding
+                # accidental resolution of alerts outside this run's scope.
+                ts_level = df.index.get_level_values(self.dms.eventTimestampName)
+                window_start = ts_level.min()
+                window_end = ts_level.max()
 
                 # Do for each alert separately
                 new_alert_events = {}
@@ -596,16 +605,16 @@ class ProduceAlerts(object):
                         logger.warning(f"Dataframe contains {number_removed_events} duplicates with respect to "
                                        f"device id/ timestamp for alert {alert_name}. Duplicates are removed.")
 
-                    if calc_alert_events.index.size > 0:
-                        # Get earliest and latest timestamp of all alert events
-                        timestamp_level = calc_alert_events.index.get_level_values(self.dms.eventTimestampName)
-                        earliest = timestamp_level.min()
-                        latest = timestamp_level.max()
+                    # Retrieve existing active alert events from database (table DM_WIOT_AS_ALERT) for the full
+                    # pipeline time window.
+                    existing_alert_events = self._get_alert_events_from_db(alert_name=alert_name,
+                                                                           index_has_entity_id=index_has_entity_id,
+                                                                           start_ts=window_start, end_ts=window_end)
 
-                        # Retrieve existing alert events from database (table DM_WIOT_AS_ALERT) as index object
-                        existing_alert_events = self._get_alert_events_from_db(alert_name=alert_name,
-                                                                               index_has_entity_id=index_has_entity_id,
-                                                                               start_ts=earliest, end_ts=latest)
+                    if calc_alert_events.index.size > 0:
+                        # Resolve stale alert events: exist in DB as active but are no longer firing
+                        stale = existing_alert_events.index.difference(calc_alert_events.index)
+                        self._resolve_stale_alerts(alert_name, stale, index_has_entity_id)
 
                         # Determine all alert events which have been calculated in this pipeline run but which do not
                         # exist in database yet
@@ -613,10 +622,13 @@ class ProduceAlerts(object):
                         new_alert_events[alert_name] = calc_alert_events.reindex(difference)
 
                         logger.info(f"{difference.size} out of {calc_alert_events.index.size} calculated alert events "
-                                    f"for alert {alert_name} are new alert events.")
+                                    f"for alert {alert_name} are new. {stale.size} stale alert events resolved.")
                     else:
+                        # No alerts firing in this window — resolve all active alerts found in DB for this window
+                        self._resolve_stale_alerts(alert_name, existing_alert_events.index, index_has_entity_id)
                         new_alert_events[alert_name] = calc_alert_events
-                        logger.info(f"There are no calculated alert events for alert {alert_name}")
+                        logger.info(f"There are no calculated alert events for alert {alert_name}. "
+                                    f"{existing_alert_events.shape[0]} stale alert events resolved.")
 
                 # Push new alert events to database
                 self._push_alert_events_to_db(new_alert_events, index_has_entity_id)
@@ -753,6 +765,76 @@ class ProduceAlerts(object):
                                f"failed.") from ex
 
         return row_count
+
+    def _resolve_stale_alerts(self, alert_name, stale_index, index_has_entity_id):
+        """
+        Soft-delete stale alert events by setting DOMAIN_STATUS = 'resolved' for rows
+        that were active in dm_wiot_as_alert but are no longer firing within the
+        current pipeline time window.
+
+        Args:
+            alert_name: Name of the alert data item.
+            stale_index: Pandas Index of (entity_id, timestamp) or (timestamp,) tuples
+                         representing alert events that should be resolved.
+            index_has_entity_id: True if the index contains entity_id as the first level.
+
+        Returns:
+            Number of alert events resolved.
+        """
+        if stale_index.size == 0:
+            logger.debug(f"No stale alert events to resolve for alert {alert_name}.")
+            return 0
+
+        update_sql = (
+            f"UPDATE {self.quoted_schema}.{self.quoted_table_name} "
+            f"SET {self.domain_status_col_name} = '{self.domain_status_resolved}' "
+            f"WHERE ENTITY_TYPE_ID = ? AND DATA_ITEM_NAME = ? "
+            f"AND ENTITY_ID = ? AND TIMESTAMP = ? "
+            f"AND ({self.domain_status_col_name} IS NULL OR {self.domain_status_col_name} != '{self.domain_status_resolved}')"
+        )
+
+        try:
+            stmt = ibm_db.prepare(self.dms.db_connection, update_sql)
+        except Exception as ex:
+            raise RuntimeError(
+                f"Preparation of resolve sql statement failed for alert {alert_name}."
+            ) from ex
+
+        rows_to_resolve = []
+        total_resolved = 0
+
+        for index_values in stale_index:
+            if index_has_entity_id:
+                tmp_entity_id = index_values[0]
+                tmp_timestamp = index_values[1]
+            else:
+                tmp_entity_id = None
+                tmp_timestamp = index_values
+            rows_to_resolve.append(
+                (self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp)
+            )
+
+            if len(rows_to_resolve) == DATALAKE_BATCH_UPDATE_ROWS:
+                try:
+                    res = ibm_db.execute_many(stmt, tuple(rows_to_resolve))
+                    total_resolved += res if res is not None else ibm_db.num_rows(stmt)
+                except Exception as ex:
+                    raise RuntimeError(
+                        f"Failed to resolve {len(rows_to_resolve)} stale alert events for alert {alert_name}."
+                    ) from ex
+                rows_to_resolve.clear()
+
+        if rows_to_resolve:
+            try:
+                res = ibm_db.execute_many(stmt, tuple(rows_to_resolve))
+                total_resolved += res if res is not None else ibm_db.num_rows(stmt)
+            except Exception as ex:
+                raise RuntimeError(
+                    f"Failed to resolve {len(rows_to_resolve)} stale alert events for alert {alert_name}."
+                ) from ex
+
+        logger.info(f"Resolved {total_resolved} stale alert events for alert {alert_name}.")
+        return total_resolved
 
     @staticmethod
     def _serialize_converter(obj):
