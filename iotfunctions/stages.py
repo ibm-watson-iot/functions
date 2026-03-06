@@ -790,7 +790,6 @@ class ProduceAlerts(object):
             f"SET {self.domain_status_col_name} = '{self.domain_status_resolved}' "
             f"WHERE ENTITY_TYPE_ID = ? AND DATA_ITEM_NAME = ? "
             f"AND ENTITY_ID = ? AND TIMESTAMP = ? "
-            f"AND ({self.domain_status_col_name} IS NULL OR {self.domain_status_col_name} != '{self.domain_status_resolved}')"
         )
 
         try:
