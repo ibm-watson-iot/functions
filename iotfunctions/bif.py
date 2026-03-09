@@ -16,7 +16,6 @@ import datetime as dt
 import logging
 import re
 import time
-from typing import Any
 import warnings
 import ast 
 from collections import OrderedDict
@@ -504,10 +503,12 @@ class NOccurrenceAlert(BaseEvent):
                 'kpiFunctionId')
         if not kpi_function_id:
             raise ValueError(f'No KPI_FUNCTION_ID found for alert {self.alert_name}. Cannot persist alert state.')
-        cache_data = self.cache.retrieve_alert_cache(kpi_function_id)
-        logger.info(f'Data from cache: {cache_data}')
+        cache_data = None
+        if not self.dms.running_with_backtrack:
+            cache_data = self.cache.retrieve_alert_cache(kpi_function_id)
+            logger.info(f'Data from cache: {cache_data}')
         cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
-            columns=['last_condition_state', 'breach_timestamps', 'cooldown_until'])
+                columns=['last_condition_state', 'breach_timestamps', 'cooldown_until'])
         for entity_id in df.index.get_level_values('id').unique():
             logger.info(f'Processing device {entity_id}')
             entity_cond = cond.loc[entity_id]
@@ -569,7 +570,8 @@ class NOccurrenceAlert(BaseEvent):
                 'breach_timestamps': active_occurrences,  # Only save what's left in the current window
                 'cooldown_until': cooldown_until
             }
-        self.cache.store_alert_cache(kpi_function_id, cache_df)
+        if not self.dms.running_with_backtrack:
+            self.cache.store_alert_cache(kpi_function_id, cache_df)
         return df
 
     def get_input_items(self):
@@ -578,7 +580,6 @@ class NOccurrenceAlert(BaseEvent):
 
     @classmethod
     def build_ui(cls):
-        #define arguments that behave as function inputs
         inputs = [
             UIExpression(name='condition',
                          description='Condition expression (e.g., df["temp_c"] > 80)'),
