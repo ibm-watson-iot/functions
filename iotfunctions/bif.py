@@ -549,8 +549,8 @@ class NOccurrenceAlert(BaseEvent):
                     cutoff = ts - self.T
                     active_occurrences = [t for t in active_occurrences if t > cutoff]
                 else:
-                    freq_map = {'Minutes': 'T', '': 'T', 'Hours': 'H', 'Days': 'D'}
-                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "T")}'
+                    freq_map = {'Minutes': 'min', '': 'min', 'Hours': 'H', 'Days': 'D'}
+                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
                     window_start = pd.Timestamp(ts).floor(freq)
                     window_end = window_start + self.T
                     active_occurrences = [t for t in active_occurrences
