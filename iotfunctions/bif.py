@@ -509,6 +509,11 @@ class NOccurrenceAlert(BaseEvent):
             logger.info(f'Data from cache: {cache_data}')
         cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
                 columns=['last_condition_state', 'breach_timestamps', 'cooldown_until'])
+        # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
+        if cache_data is not None and 'breach_timestamps' in cache_df.columns:
+            cache_df['breach_timestamps'] = cache_df['breach_timestamps'].apply(
+                lambda x: x.tolist() if isinstance(x, np.ndarray) else (list(x) if x is not None else [])
+            )
         for entity_id in df.index.get_level_values('id').unique():
             logger.info(f'Processing device {entity_id}')
             entity_cond = cond.loc[entity_id]
@@ -519,11 +524,7 @@ class NOccurrenceAlert(BaseEvent):
             cooldown_until = None
             # load all cache data
             if cache_data is not None and entity_id in cache_data.index:
-                cached_timestamps = cache_data.loc[entity_id, 'breach_timestamps']
-                if isinstance(cached_timestamps, np.ndarray):
-                    breach_timestamps = cached_timestamps.tolist()
-                elif cached_timestamps is not None:
-                    breach_timestamps = list(cached_timestamps)
+                breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps']
                 last_condition_state = cache_data.loc[entity_id, 'last_condition_state']
                 cooldown_until = cache_data.loc[entity_id, 'cooldown_until']
             new_occurrences = []
@@ -549,12 +550,13 @@ class NOccurrenceAlert(BaseEvent):
                     cutoff = ts - self.T
                     active_occurrences = [t for t in active_occurrences if t > cutoff]
                 else:
-                    freq_map = {'Minutes': 'min', '': 'min', 'Hours': 'H', 'Days': 'D'}
+                    # Tumbling window: [start, end) - inclusive start, exclusive end
+                    freq_map = {'Minutes': 'min', '': 'min', 'Hours': 'h', 'Days': 'D'}
                     freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
                     window_start = pd.Timestamp(ts).floor(freq)
                     window_end = window_start + self.T
                     active_occurrences = [t for t in active_occurrences
-                         if window_start <= t <= window_end]
+                         if window_start <= t < window_end]
 
                 if len(active_occurrences) >= self.min_occurrences and (cooldown_until is None or ts > cooldown_until):
                     logger.info(f'BREACH FOUND for alert {self.alert_name} at {ts}')
