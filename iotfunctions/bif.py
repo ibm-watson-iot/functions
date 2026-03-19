@@ -474,7 +474,7 @@ class NOccurrenceAlert(BaseEvent):
         unit = self.TIME_UNITS.get(unit_str if unit_str else '', 'minutes')
         return dt.timedelta(**{unit: value})
 
-    def __init__(self, condition, min_occurrences, time_window, window_type, window_time_unit, occurrence_mode, alert_name,cooldown=0, cooldown_time_unit=None):
+    def __init__(self, condition, min_occurrences, time_window, window_type, window_time_unit, occurrence_mode, alert_name,cooldown=0, cooldown_time_unit=None, **kwargs):
         self.condition = condition
         self.min_occurrences = min_occurrences
         self.time_window = time_window
@@ -524,7 +524,7 @@ class NOccurrenceAlert(BaseEvent):
             cooldown_until = None
             # load all cache data
             if cache_data is not None and entity_id in cache_data.index:
-                breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps']
+                breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps'].tolist()
                 last_condition_state = cache_data.loc[entity_id, 'last_condition_state']
                 cooldown_until = cache_data.loc[entity_id, 'cooldown_until']
             new_occurrences = []
