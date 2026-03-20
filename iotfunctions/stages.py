@@ -494,6 +494,10 @@ def _timestamp_as_string(timestamp):
            f"{timestamp.microsecond:06}{timestamp.nanosecond:03}"
 
 
+def _send_alert_to_manage(df_alert_events):
+    #TODO Call core-API to send alert to manage
+    logger.info(f"Sending alert to manage {df_alert_events}")
+
 class ProduceAlerts(object):
     is_system_function = True
     produces_output_items = False
@@ -704,6 +708,9 @@ class ProduceAlerts(object):
             severity = kpi_input.get('Severity')
             priority = kpi_input.get('Priority')
             domain_status = kpi_input.get('Status')
+            send_alert_to_manage = bool(kpi_input.get('SendAlertToManage', False))
+            if send_alert_to_manage:
+                _send_alert_to_manage(df_alert_events)
 
             # Loop over all alert events
             for index_values in df_alert_events.index:
