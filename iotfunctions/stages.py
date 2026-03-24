@@ -708,8 +708,8 @@ class ProduceAlerts(object):
             severity = kpi_input.get('Severity')
             priority = kpi_input.get('Priority')
             domain_status = kpi_input.get('Status')
-            send_alert_to_manage = bool(kpi_input.get('SendAlertToManage', False))
-            if send_alert_to_manage:
+            send_alert_to_manage = kpi_input.get('Create_Alert_In_Manage', 'False') == 'True'
+            if send_alert_to_manage and not df_alert_events.empty:
                 _send_alert_to_manage(df_alert_events)
 
             # Loop over all alert events
