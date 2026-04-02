@@ -474,8 +474,8 @@ class NOccurrenceAlert(BaseEvent):
         unit = self.TIME_UNITS.get(unit_str if unit_str else '', 'minutes')
         return dt.timedelta(**{unit: value})
 
-    def __init__(self, condition, min_occurrences, time_window, window_type, window_time_unit, occurrence_mode, alert_name,cooldown=0, cooldown_time_unit=None, **kwargs):
-        self.condition = condition
+    def __init__(self, expression, min_occurrences, time_window, window_type, window_time_unit, occurrence_mode, alert_name,cooldown=0, cooldown_time_unit=None, **kwargs):
+        self.expression = expression
         self.min_occurrences = min_occurrences
         self.time_window = time_window
         self.window_type = window_type
@@ -492,12 +492,13 @@ class NOccurrenceAlert(BaseEvent):
         self.alert_name = alert_name
         self.cache = None
         super().__init__()
+
     def execute(self, df):
         self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema, self.dms.db_connection,
                                                                             self.dms.db_type)
         df = df.copy()
         df[self.alert_name] = None
-        cond = eval(self.condition)
+        cond = eval(self.expression)
         logger.info(f'Condition found: {cond}')
         kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get(
                 'kpiFunctionId')
@@ -577,13 +578,13 @@ class NOccurrenceAlert(BaseEvent):
         return df
 
     def get_input_items(self):
-        items = self.get_expression_items(self.condition)
+        items = self.get_expression_items(self.expression)
         return items
 
     @classmethod
     def build_ui(cls):
         inputs = [
-            UIExpression(name='condition',
+            UIExpression(name='expression',
                          description='Condition expression (e.g., df["temp_c"] > 80)'),
             UISingle(name='min_occurrences', datatype=int,
                      description='Minimum number of occurrences'),
