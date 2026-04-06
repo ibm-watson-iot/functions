@@ -462,16 +462,10 @@ class AlertExpression(BaseEvent):
         return (inputs, outputs)
 
 class NOccurrenceAlert(BaseEvent):
-    TIME_UNITS = {
-        '': 'minutes',
-        'Minutes': 'minutes',
-        'Hours': 'hours',
-        'Days': 'days'
-    }
 
     def _create_timedelta(self, value, unit_str):
         """Create timedelta from value and unit string."""
-        unit = self.TIME_UNITS.get(unit_str if unit_str else '', 'minutes')
+        unit = unit_str.lower() if unit_str else 'minutes'
         return dt.timedelta(**{unit: value})
 
     def __init__(self, expression, min_occurrences, time_window, window_type, window_time_unit, occurrence_mode, alert_name,cooldown=0, cooldown_time_unit=None, **kwargs):
@@ -499,7 +493,7 @@ class NOccurrenceAlert(BaseEvent):
         df = df.copy()
         df[self.alert_name] = None
         cond = eval(self.expression)
-        logger.info(f'Condition found: {cond}')
+        logger.debug(f'Condition found: {cond}')
         kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get(
                 'kpiFunctionId')
         if not kpi_function_id:
@@ -507,7 +501,6 @@ class NOccurrenceAlert(BaseEvent):
         cache_data = None
         if not self.dms.running_with_backtrack:
             cache_data = self.cache.retrieve_alert_cache(kpi_function_id)
-            logger.info(f'Data from cache: {cache_data}')
         cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
                 columns=['last_condition_state', 'breach_timestamps', 'cooldown_until'])
         # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
@@ -516,7 +509,7 @@ class NOccurrenceAlert(BaseEvent):
                 lambda x: x.tolist() if isinstance(x, np.ndarray) else (list(x) if x is not None else [])
             )
         for entity_id in df.index.get_level_values('id').unique():
-            logger.info(f'Processing device {entity_id}')
+            logger.debug(f'Processing device {entity_id}')
             entity_cond = cond.loc[entity_id]
             if len(entity_cond) == 0:
                 continue
@@ -537,7 +530,7 @@ class NOccurrenceAlert(BaseEvent):
                     new_occurrences.extend(rising_edges[rising_edges].index.tolist())
             elif self.occurrence_mode == 'EVERY TYPE EVALUATION':
                 new_occurrences.extend(entity_cond[entity_cond].index.tolist())
-            logger.info(f'New occurrences: {new_occurrences}')
+            logger.debug(f'New occurrences: {new_occurrences}')
             all_occurrences = breach_timestamps + new_occurrences
             all_occurrences.sort()  # Ensure we process time chronologically
 
@@ -560,7 +553,7 @@ class NOccurrenceAlert(BaseEvent):
                          if window_start <= t < window_end]
 
                 if len(active_occurrences) >= self.min_occurrences and (cooldown_until is None or ts > cooldown_until):
-                    logger.info(f'BREACH FOUND for alert {self.alert_name} at {ts}')
+                    logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts}')
                     df.loc[(entity_id, ts), self.alert_name] = True
 
                     if self.cooldown:
