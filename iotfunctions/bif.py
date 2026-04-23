@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2026  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -498,9 +498,10 @@ class NOccurrenceAlert(BaseEvent):
                 'kpiFunctionId')
         if not kpi_function_id:
             raise ValueError(f'No KPI_FUNCTION_ID found for alert {self.alert_name}. Cannot persist alert state.')
-        cache_data = None
         if not self.dms.running_with_backtrack:
             cache_data = self.cache.retrieve_alert_cache(kpi_function_id)
+        else:
+            cache_data = self.dms.alert_state_manager.get_state(kpi_function_id)
         cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
                 columns=['last_condition_state', 'breach_timestamps', 'cooldown_until'])
         # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
@@ -518,7 +519,9 @@ class NOccurrenceAlert(BaseEvent):
             cooldown_until = None
             # load all cache data
             if cache_data is not None and entity_id in cache_data.index:
-                breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps'].tolist()
+                breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps']
+                if isinstance(breach_timestamps, np.ndarray):
+                    breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps'].tolist()
                 last_condition_state = cache_data.loc[entity_id, 'last_condition_state']
                 cooldown_until = cache_data.loc[entity_id, 'cooldown_until']
             new_occurrences = []
@@ -568,6 +571,8 @@ class NOccurrenceAlert(BaseEvent):
             }
         if not self.dms.running_with_backtrack:
             self.cache.store_alert_cache(kpi_function_id, cache_df)
+        else:
+            self.dms.alert_state_manager.set_state(kpi_function_id, cache_df)
         return df
 
     def get_input_items(self):
