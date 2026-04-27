@@ -499,9 +499,8 @@ class NOccurrenceAlert(BaseEvent):
         if not kpi_function_id:
             raise ValueError(f'No KPI_FUNCTION_ID found for alert {self.alert_name}. Cannot persist alert state.')
         if not self.dms.running_with_backtrack:
-            cache_data = self.cache.retrieve_alert_cache(kpi_function_id)
-        else:
-            cache_data = self.dms.alert_state_manager.get_state(kpi_function_id)
+            self.cache.delete_backtrack_cache(kpi_function_id)
+        cache_data = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
         cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
                 columns=['last_condition_state', 'breach_timestamps', 'cooldown_until'])
         # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
@@ -569,10 +568,7 @@ class NOccurrenceAlert(BaseEvent):
                 'breach_timestamps': active_occurrences,  # Only save what's left in the current window
                 'cooldown_until': cooldown_until
             }
-        if not self.dms.running_with_backtrack:
-            self.cache.store_alert_cache(kpi_function_id, cache_df)
-        else:
-            self.dms.alert_state_manager.set_state(kpi_function_id, cache_df)
+        self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
         return df
 
     def get_input_items(self):

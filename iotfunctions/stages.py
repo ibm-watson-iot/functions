@@ -696,7 +696,7 @@ class ProduceAlerts(object):
         select_domain = f', {self.domain_status_col_name} as "{self.domain_status_col_name}"'
         select_last_updated_by = f', {self.last_updated_by_col_name} as "{self.last_updated_by_col_name}"'
 
-        sql_statement = f"SELECT {select_timestamp}{select_entity_id}{select_domain}{select_last_updated_by}" \
+        sql_statement = f"SELECT {select_timestamp}{select_entity_id}{select_domain}{select_last_updated_by} " \
                         f"FROM {self.quoted_schema}.{self.quoted_table_name} " \
                         f"WHERE entity_type_id = {self.dms.entity_type_id} AND {self.alert_col_name} = '{alert_name}'"
 
