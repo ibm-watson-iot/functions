@@ -8,7 +8,7 @@ lxml==5.3.1
 lightgbm==4.6.0
 nose2==0.15.1
 pandas==2.2.3
-prophet==1.1.6
+prophet==1.2.1
 pyarrow==19.0
 pyod==2.0.2
 certifi>=2025.4.26
@@ -23,6 +23,6 @@ stumpy==1.13.0
 numpy==2.0.2
 tabulate==0.9.0
 # torch==2.2.0 : installation moved to Dockerfile
-transformers==4.53.0
-urllib3==2.6.1
+transformers==4.57.6
+urllib3==2.6.3
 protobuf==4.25.3
