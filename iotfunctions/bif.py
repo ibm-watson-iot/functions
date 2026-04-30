@@ -502,12 +502,17 @@ class NOccurrenceAlert(BaseEvent):
             self.cache.delete_backtrack_cache(kpi_function_id)
         cache_data = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
         cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
-                columns=['last_condition_state', 'breach_timestamps', 'cooldown_until'])
+                columns=['last_condition_state', 'breach_timestamps', 'cooldown_until', 'first_alert_time'])
         # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
         if cache_data is not None and 'breach_timestamps' in cache_df.columns:
             cache_df['breach_timestamps'] = cache_df['breach_timestamps'].apply(
                 lambda x: x.tolist() if isinstance(x, np.ndarray) else (list(x) if x is not None else [])
             )
+            # Detect if this is the first cycle of a backtrack run
+        is_first_cycle = False
+        if hasattr(self.dms, 'cycle_id') and self.dms.cycle_id is not None:
+            is_first_cycle = (self.dms.cycle_id == 1)
+            logger.debug(f'Current cycle: {self.dms.cycle_id}, is_first_cycle: {is_first_cycle}')
         for entity_id in df.index.get_level_values('id').unique():
             logger.debug(f'Processing device {entity_id}')
             entity_cond = cond.loc[entity_id]
@@ -516,13 +521,17 @@ class NOccurrenceAlert(BaseEvent):
             breach_timestamps = []
             last_condition_state = None
             cooldown_until = None
+            first_alert_from_previous_run = None
             # load all cache data
             if cache_data is not None and entity_id in cache_data.index:
-                breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps']
-                if isinstance(breach_timestamps, np.ndarray):
-                    breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps'].tolist()
-                last_condition_state = cache_data.loc[entity_id, 'last_condition_state']
-                cooldown_until = cache_data.loc[entity_id, 'cooldown_until']
+                if is_first_cycle:
+                    first_alert_from_previous_run = cache_data.loc[entity_id, 'first_alert_time']
+                else:
+                    breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps']
+                    if isinstance(breach_timestamps, np.ndarray):
+                        breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps'].tolist()
+                    cooldown_until = cache_data.loc[entity_id, 'cooldown_until']
+                    last_condition_state = cache_data.loc[entity_id, 'last_condition_state']
             new_occurrences = []
             if self.occurrence_mode == 'RISING EDGE':
                 if len(entity_cond) > 0:
@@ -537,7 +546,13 @@ class NOccurrenceAlert(BaseEvent):
             all_occurrences.sort()  # Ensure we process time chronologically
 
             active_occurrences = []
+            first_alert_in_this_run = None  # Track first alert in current run
 
+            # During backtrack first cycle with previous alert, apply cooldown
+            if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and self.cooldown:
+                cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cool_down_period
+                logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
+            
             for ts in all_occurrences:
 
                 active_occurrences.append(ts)
@@ -553,20 +568,31 @@ class NOccurrenceAlert(BaseEvent):
                     window_end = window_start + self.T
                     active_occurrences = [t for t in active_occurrences
                          if window_start <= t < window_end]
-
+                if ts == first_alert_from_previous_run and (cooldown_until is None or ts > cooldown_until):
+                    logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts} from previous run')
+                    df.loc[(entity_id, ts), self.alert_name] = True
+                    active_occurrences.clear()
                 if len(active_occurrences) >= self.min_occurrences and (cooldown_until is None or ts > cooldown_until):
                     logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts}')
                     df.loc[(entity_id, ts), self.alert_name] = True
+
+                    # Track first alert in this run
+                    if is_first_cycle and first_alert_in_this_run is None:
+                        first_alert_in_this_run = ts
+                        logger.info(f'First alert in this run detected at {ts}')
+
 
                     if self.cooldown:
                         cooldown_until = ts + self.cool_down_period
 
                     active_occurrences.clear()
-
+            if is_first_cycle and first_alert_from_previous_run is not None and first_alert_in_this_run is not None:
+                first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
             cache_df.loc[entity_id] = {
                 'last_condition_state': entity_cond.iloc[-1] if len(entity_cond) > 0 else None,
                 'breach_timestamps': active_occurrences,  # Only save what's left in the current window
-                'cooldown_until': cooldown_until
+                'cooldown_until': cooldown_until,
+                'first_alert_time': first_alert_in_this_run if is_first_cycle else cache_df.loc[entity_id]['first_alert_time'],
             }
         self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
         return df
