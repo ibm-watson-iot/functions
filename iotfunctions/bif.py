@@ -1285,10 +1285,9 @@ class NoDataAlert(BaseEvent):
         if not kpi_function_id:
             raise ValueError(f'Not found KPI_FUNCTION_ID for alert {self.alert_name}.')
 
-        # Try to get state from AlertStateManager first (for subsequent cycles in backtrack)
-
+        self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema,self.dms.db_connection, self.dms.db_type)
         if not self.dms.running_with_backtrack:
-            self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema,self.dms.db_connection, self.dms.db_type)
+            self.cache.delete_backtrack_cache(kpi_function_id)
         cache_df = self._initialize_cache(kpi_function_id)
         
         # Initialize alert column in dataframe
@@ -1313,6 +1312,11 @@ class NoDataAlert(BaseEvent):
             logger.info("deviceType does not have any devices")
             return df
 
+        is_first_cycle = False
+        if hasattr(self.dms, 'cycle_id') and self.dms.cycle_id is not None:
+            is_first_cycle = (self.dms.cycle_id == 1)
+            logger.debug(f'Current cycle: {self.dms.cycle_id}, is_first_cycle: {is_first_cycle}')
+
         # Process each device
         for device_id in all_devices:
 
@@ -1320,6 +1324,7 @@ class NoDataAlert(BaseEvent):
             is_cached_device = device_id in  devices_in_cache
             has_current_data = device_id in devices_in_current_df
             device_registration_time = None
+            first_alert_from_previous_run = None
             if cache_df.empty:
                 device_registration_time = self._get_device_registration_time(device_id)
 
@@ -1328,31 +1333,36 @@ class NoDataAlert(BaseEvent):
                 # Device-metric exists in cache - load previous state
                 last_event_timestamp = cache_df.loc[device_id, 'last_event_timestamp']
                 cooldown_until = cache_df.loc[device_id, 'cooldown_until']
+                if is_first_cycle:
+                    first_alert_from_previous_run = cache_df.loc[device_id, 'first_alert_time']
             else:
                 # New device-metric combination, no cache
                 last_event_timestamp = None
                 cooldown_until = None
 
 
+            first_alert_in_this_run = None
+            # During backtrack first cycle with previous alert, apply cooldown
+            if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and self.cooldown:
+                cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown
+                logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
+
             if has_current_data:
                 df, last_event_timestamp, cooldown_until =  self._process_device_with_data(df, device_id, last_event_timestamp, cooldown_until,
-                                                      metrics_to_monitor, device_registration_time, start_ts, end_ts)
+                                                      metrics_to_monitor, device_registration_time, start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
             else:
                 df, last_event_timestamp, cooldown_until =  self._process_device_without_data(df, device_id,last_event_timestamp, cooldown_until,
-                                                         metrics_to_monitor, device_registration_time, start_ts, end_ts)
+                                                         metrics_to_monitor, device_registration_time, start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
 
-
-            # Update cache for this device
+            # Update cache for device
+            if is_first_cycle and first_alert_from_previous_run is not None and first_alert_in_this_run is not None:
+                first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
             cache_df.at[device_id, 'last_event_timestamp'] = last_event_timestamp
             cache_df.at[device_id, 'cooldown_until'] = cooldown_until
+            cache_df.at[device_id, 'first_alert_time'] = first_alert_in_this_run if is_first_cycle else cache_df.loc[device_id]['first_alert_time']
 
         # Store updated cache
-        if not self.dms.running_with_backtrack:
-            self.cache.store_alert_cache(kpi_function_id, cache_df)
-        else:
-            # Store updated state in AlertStateManager (for next cycle in backtrack)
-            self.dms.alert_state_manager.set_state(kpi_function_id, cache_df)
-        
+        self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
         return df
 
     def _collect_metric_timestamps(self, device_df, metrics_to_monitor):
@@ -1372,7 +1382,7 @@ class NoDataAlert(BaseEvent):
         return sorted(list(all_data_timestamps)), per_metric_timestamps
 
     def _process_device_without_data(self, df, device_id, last_event_timestamp,cooldown_until,
-    metrics_to_monitor, device_registration_time, start_ts, end_ts):
+    metrics_to_monitor, device_registration_time, start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run):
         """Process a metric that has no data in current batch
         """
         # Get last event timestamp if not in cache
@@ -1408,9 +1418,12 @@ class NoDataAlert(BaseEvent):
 
                 while next_alert_time <= ts:
                     df = pd.concat([df, self._create_synthetic_alert_row(device_id, next_alert_time)], sort=False)
-
+                    if is_first_cycle and first_alert_in_this_run is None:
+                        first_alert_in_this_run = next_alert_time
+                        logger.info(f'First alert in this run detected at {next_alert_time}')
                     last_alert_timestamp = next_alert_time
                     next_alert_time += self.cooldown_timedelta
+
 
                 if last_alert_timestamp is not None:
                     cooldown_until = last_alert_timestamp + self.cooldown_timedelta
@@ -1420,7 +1433,8 @@ class NoDataAlert(BaseEvent):
         return df, last_event_timestamp, cooldown_until
 
     def _process_device_with_data(self, df, device_id, last_event_timestamp,
-                                   cooldown_until,metrics_to_monitor, device_registration_time,  backtrack_start_ts, end_ts):
+                                   cooldown_until,metrics_to_monitor, device_registration_time,  backtrack_start_ts, end_ts,
+                                  is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run):
         """Device with data in current batch
         """
         device_df = df.loc[device_id]
@@ -1433,7 +1447,7 @@ class NoDataAlert(BaseEvent):
             # Treat as device without data
             logger.debug(f"Device {device_id}: Present in batch but no data for monitored metrics")
             return self._process_device_without_data(df, device_id, last_event_timestamp, cooldown_until,
-                                                    metrics_to_monitor, device_registration_time, backtrack_start_ts, end_ts)
+                                                    metrics_to_monitor, device_registration_time, backtrack_start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
         
         # Check if late data arrived during cooldown period
         if cooldown_until is not None and any(ts < cooldown_until for ts in all_data_timestamp):
@@ -1446,7 +1460,7 @@ class NoDataAlert(BaseEvent):
         gap_measurement_start_time = self._get_gap_measurement_start_time(backtrack_start_ts, last_event_timestamp, device_registration_time)
         timestamps_to_check = self._build_timeline(gap_measurement_start_time, all_data_timestamp, end_ts)
         df, gaps_detected, cooldown_until =  self._check_gaps_all_metrics(df, device_id, timestamps_to_check, per_metric_timestamps,
-                                metrics_to_monitor, cooldown_until)
+                                metrics_to_monitor, cooldown_until, is_first_cycle, first_alert_in_this_run)
 
         # Update last_event_timestamp to latest data in batch
         last_event_timestamp = last_data_timestamp
@@ -1468,7 +1482,7 @@ class NoDataAlert(BaseEvent):
         return timestamps_to_check
 
     def _check_gaps_all_metrics(self, df, device_id, timestamps_to_check, per_metric_timestamps,
-                                metrics_to_monitor, cooldown_until):
+                                metrics_to_monitor, cooldown_until, is_first_cycle, first_alert_in_this_run):
         """Check for gaps where ALL metrics have no data"""
         gaps_detected = False
         
@@ -1485,7 +1499,7 @@ class NoDataAlert(BaseEvent):
                 all_metrics_no_data = self._check_all_metrics_no_data_in_gap(device_id, gap_start_ts, gap_end_ts, per_metric_timestamps, metrics_to_monitor)
 
                 if all_metrics_no_data:
-                    df, cooldown_until, detected = self._generate_gap_alerts(df, device_id, gap_start_ts, gap_end_ts, cooldown_until)
+                    df, cooldown_until, detected = self._generate_gap_alerts(df, device_id, gap_start_ts, gap_end_ts, cooldown_until, is_first_cycle, first_alert_in_this_run)
                     gaps_detected = gaps_detected or detected
 
                     # Reset cooldown if gap alert was raised AND there's a subsequent timestamp (indicating data arrival after gap)
@@ -1516,13 +1530,10 @@ class NoDataAlert(BaseEvent):
     def _initialize_cache(self, kpi_function_id):
         """Initialize or load cache"""
         cache_data = None
-        if not self.dms.running_with_backtrack and self.cache is not None:
-            cache_data = self.cache.retrieve_alert_cache(kpi_function_id)
-        else:
-            cache_data = self.dms.alert_state_manager.get_state(kpi_function_id)
+        cache_data = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
 
         if cache_data is None or (hasattr(cache_data, 'empty') and cache_data.empty):
-            cache_df = pd.DataFrame(columns=['device_id', 'last_event_timestamp', 'cooldown_until'])
+            cache_df = pd.DataFrame(columns=['device_id', 'last_event_timestamp', 'cooldown_until', 'first_alert_time'])
             cache_df.set_index('device_id', inplace=True)
             logger.info("First run - no cache exists")
         else:
@@ -1583,7 +1594,7 @@ class NoDataAlert(BaseEvent):
             logger.error(f"Error querying database for device {device_id}, metric {metric_name}: {str(e)}")
             return None
 
-    def _generate_gap_alerts(self, df, device_id, start_time, end_time,cooldown_until):
+    def _generate_gap_alerts(self, df, device_id, start_time, end_time,cooldown_until, is_first_cycle, first_alert_in_this_run):
         """Generate alerts for a gap between start_time and end_time
         - First alert at start_time + duration
         - Subsequent alerts every cooldown_period if gap persists
@@ -1601,6 +1612,9 @@ class NoDataAlert(BaseEvent):
 
             while gap_alert_timestamp < end_time:
                 df = pd.concat([df, self._create_synthetic_alert_row(device_id, gap_alert_timestamp)], sort=False)
+                if is_first_cycle and first_alert_in_this_run is None:
+                    first_alert_in_this_run = gap_alert_timestamp
+                    logger.info(f'First alert in this run detected at {gap_alert_timestamp}')
                 cooldown_until = gap_alert_timestamp + self.cooldown_timedelta
                 gap_alert_timestamp += self.cooldown_timedelta
 
