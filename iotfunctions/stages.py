@@ -494,9 +494,34 @@ def _timestamp_as_string(timestamp):
            f"{timestamp.microsecond:06}{timestamp.nanosecond:03}"
 
 
-def _send_alert_to_manage(df_alert_events):
-    #TODO Call core-API to send alert to manage
-    logger.info(f"Sending alert to manage {df_alert_events}")
+def _format_manage_alert_details(alert_name, device_id, report_date, alert_row=None, kpi_input=None):
+
+    details_parts = [
+        f"Alert '{alert_name}' triggered for device '{device_id}' at {report_date}."
+    ]
+
+    if alert_row is not None:
+        # Extract only the scalar values from the Series, excluding entity_id and alert name columns
+        metrics = []
+        for col, val in alert_row.items():
+            # Skip entity_id and columns that contain Series/complex objects
+            if col.lower() in ('entity_id', alert_name.lower()):
+                continue
+            # Extract scalar value if it's a Series
+            if hasattr(val, 'iloc'):
+                val = val.iloc[0] if len(val) > 0 else val
+            metrics.append(f"{col}={val}")
+        
+        if metrics:
+            details_parts.append(f"Current metrics: {', '.join(metrics)}")
+
+    if kpi_input:
+        config_parts = [f"{key}={value}" for key, value in kpi_input.items() if value not in (None, '')]
+        if config_parts:
+            details_parts.append(f"Alert configuration: {', '.join(config_parts)}.")
+
+    return ' '.join(details_parts)
+
 
 class ProduceAlerts(object):
     is_system_function = True
@@ -633,9 +658,11 @@ class ProduceAlerts(object):
                         # Resolve stale alert events: exist in DB as active but are no longer firing
                         stale = active_alerts.index.difference(calc_alert_events.index)
                         self._resolve_stale_alerts(alert_name, stale, index_has_entity_id)
+                        self._resolve_stale_alerts_in_manage(alert_name, stale, index_has_entity_id)
 
                         reactivate = resolved_alerts.index.intersection(calc_alert_events.index)
                         self._resolve_stale_alerts(alert_name, reactivate, index_has_entity_id, self.alert_to_kpi_input_dict.get(alert_name).get('Status'))
+                        self._resolve_stale_alerts_in_manage(alert_name, reactivate, index_has_entity_id, self.alert_to_kpi_input_dict.get(alert_name).get('Status'))
 
                         # Determine all alert events which have been calculated in this pipeline run but which do not
                         # exist in database yet
@@ -647,12 +674,15 @@ class ProduceAlerts(object):
                     else:
                         # No alerts firing in this window — resolve all active alerts found in DB for this window
                         self._resolve_stale_alerts(alert_name, active_alerts.index, index_has_entity_id)
+                        self._resolve_stale_alerts_in_manage(alert_name, active_alerts, index_has_entity_id)
                         new_alert_events[alert_name] = calc_alert_events
                         logger.info(f"There are no calculated alert events for alert {alert_name}. "
                                     f"{active_alerts.shape[0]} stale alert events resolved.")
 
                 # Push new alert events to database
                 self._push_alert_events_to_db(new_alert_events, index_has_entity_id)
+
+                self._send_alerts_to_manage(new_alert_events, index_has_entity_id)
 
             else:
                 logger.info("No alerts have been defined for current grain.")
@@ -714,6 +744,26 @@ class ProduceAlerts(object):
 
         return result_df
 
+    def _get_alert_event_from_db(self, alert_name, timestamp_ts):
+
+        select_alert_id_col_name = f'{self.alert_id_col_name} as "{self.alert_id_col_name}"'
+
+
+        sql_statement = f"SELECT {select_alert_id_col_name} " \
+                        f"FROM {self.quoted_schema}.{self.quoted_table_name} " \
+                        f"WHERE entity_type_id = {self.dms.entity_type_id} AND {self.alert_col_name} = '{alert_name}'"
+
+
+        if timestamp_ts is not None:
+            sql_statement += f" AND {self.timestamp_col_name} = '{str(timestamp_ts)}'"
+
+        result_df = self.dms.db.read_sql_query(sql_statement,
+                                               log_message=f"Sql statement for alert {alert_name} and timestamp {timestamp_ts}")
+
+        logger.debug(f"{result_df.shape[0]} alert events have been read from database.")
+
+        return result_df[self.alert_id_col_name][0] if result_df is not None else None
+
     def _push_alert_events_to_db(self, alert_events, index_has_entity_id):
 
         total_count = 0
@@ -728,9 +778,6 @@ class ProduceAlerts(object):
             severity = kpi_input.get('Severity')
             priority = kpi_input.get('Priority')
             domain_status = kpi_input.get('Status')
-            send_alert_to_manage = kpi_input.get('Create_Alert_In_Manage', 'False') == 'True'
-            if send_alert_to_manage and not df_alert_events.empty:
-                _send_alert_to_manage(df_alert_events)
 
             # Loop over all alert events
             for index_values in df_alert_events.index:
@@ -759,6 +806,45 @@ class ProduceAlerts(object):
 
         logger.info(f"A total of {total_count} alert events have been written to alert table in "
                     f"{(dt.datetime.now() - start_time).total_seconds()} seconds.")
+
+    def _send_alerts_to_manage(self, alert_events, index_has_entity_id):
+        total_count = 0
+        start_time = dt.datetime.now()
+        for alert_name, df_alert_events in alert_events.items():
+            # Get attributes linked to this alert
+            kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+            send_alert_to_manage = kpi_input.get('Create_Alert_In_Manage', 'False') == 'True'
+            if send_alert_to_manage:
+                # Loop over all alert events
+                for index_values in df_alert_events.index:
+                    # Distinguish with/without entity id
+                    if index_has_entity_id is True:
+                        tmp_entity_id = index_values[0]
+                        tmp_timestamp = index_values[1]
+                    else:
+                        tmp_entity_id = None
+                        tmp_timestamp = index_values
+                    payload = {
+                        "deviceUid": self.dms.device_name_to_uid.get(tmp_entity_id) if self.dms.entity_type_type == 'DEVICE_TYPE' else None,
+                        "entityTypeId": self.dms.entity_type_id,
+                        "description": alert_name,
+                        "details": _format_manage_alert_details(
+                                    alert_name=alert_name,
+                                    device_id=tmp_entity_id,
+                                    report_date=tmp_timestamp,
+                                    alert_row=df_alert_events,
+                                    kpi_input=kpi_input
+                                ),
+                        "reportdate": tmp_timestamp,
+                        "status": kpi_input.get('Status').upper() if kpi_input else None,
+                        "alertId": int(self._get_alert_event_from_db(alert_name, tmp_timestamp))
+                    }
+                    logger.info(f"Sending alert to manage payload: {payload}")
+                    # TODO: Implement actual API call to send payload to Manage system
+                    total_count += 1
+
+            logger.info(f"A total of {total_count} alert events have been sent to manage in "
+                        f"{(dt.datetime.now() - start_time).total_seconds()} seconds.")
 
     def _get_sql_statement(self):
 
@@ -858,6 +944,54 @@ class ProduceAlerts(object):
                 raise RuntimeError(
                     f"Failed to resolve {len(rows_to_resolve)} stale alert events for alert {alert_name}."
                 ) from ex
+
+        logger.info(f"{domain_status} {total_resolved} stale alert events for alert {alert_name}.")
+        return total_resolved
+
+    def _resolve_stale_alerts_in_manage(self, alert_name, stale_index, index_has_entity_id, domain_status='Resolved'):
+        """
+        Update the status of alert to Resolved or the input status of the alerts that are not valid anymore
+        or reactivate alerts that are valid in the current run
+
+        Args:
+            alert_name: Name of the alert data item.
+            stale_index: Pandas Index of (entity_id, timestamp) or (timestamp,) tuples
+                         representing alert events that should be resolved.
+            index_has_entity_id: True if the index contains entity_id as the first level.
+            domain_status: Status of alert
+
+        Returns:
+            Number of alert events updated.
+        """
+        if stale_index.size == 0:
+            logger.debug(f"No stale alert events to resolve for alert {alert_name}.")
+            return 0
+
+
+        details = f'Alert status changed to {domain_status} in backtrack mode due to alert condition validity change'
+
+
+
+        rows_to_resolve = []
+        total_resolved = 0
+
+        for index_values in stale_index:
+            if index_has_entity_id:
+                tmp_entity_id = index_values[0]
+                tmp_timestamp = index_values[1]
+            else:
+                tmp_entity_id = None
+                tmp_timestamp = index_values
+            rows_to_resolve.append(
+                (self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp)
+            )
+
+            payload = {
+                'details': details,
+                'status': domain_status,
+                # TODO get action_id from db
+            }
+            total_resolved += 1
 
         logger.info(f"{domain_status} {total_resolved} stale alert events for alert {alert_name}.")
         return total_resolved
