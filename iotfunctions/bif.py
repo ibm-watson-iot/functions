@@ -1313,7 +1313,7 @@ class NoDataAlert(BaseEvent):
             return df
 
         is_first_cycle = False
-        if hasattr(self.dms, 'cycle_id') and self.dms.cycle_id is not None:
+        if hasattr(self.dms, 'cycle_id') and self.dms.cycle_id is not None and self.dms.running_with_backtrack:
             is_first_cycle = (self.dms.cycle_id == 1)
             logger.debug(f'Current cycle: {self.dms.cycle_id}, is_first_cycle: {is_first_cycle}')
 
