@@ -461,7 +461,7 @@ class AlertExpression(BaseEvent):
         outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
         return (inputs, outputs)
 
-class NOccurrenceAlert(BaseEvent):
+class AlertByOccurrencesCount(BaseEvent):
 
     def _create_timedelta(self, value, unit_str):
         """Create timedelta from value and unit string."""

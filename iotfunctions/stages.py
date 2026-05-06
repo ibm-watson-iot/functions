@@ -528,6 +528,7 @@ class ProduceAlerts(object):
     produces_output_items = False
 
     ALERT_TABLE_NAME = 'dm_wiot_as_alert'
+    ACTION_TABLE_NAME = 'dm_wiot_as_action'
 
     def __init__(self, dms, alerts=None, data_item_names=None, **kwargs):
 
@@ -543,6 +544,7 @@ class ProduceAlerts(object):
 
         self.quoted_schema = dbhelper.quotingSchemaName(check_sql_injection(dms.default_db_schema))
         self.quoted_table_name = dbhelper.quotingTableName(check_sql_injection(self.ALERT_TABLE_NAME))
+        self.quoted_action_table_name = dbhelper.quotingTableName(check_sql_injection(self.ACTION_TABLE_NAME))
         self.alert_to_kpi_input_dict = dict()
 
         if alerts is not None:
@@ -569,6 +571,7 @@ class ProduceAlerts(object):
         self.updated_ts_col_name = 'updated_ts'
         self.entity_id_col_name = 'entity_id'
         self.alert_id_col_name = 'alert_id'
+        self.action_id_col_name = 'action_id'
         self.created_ts_col_name = 'created_ts'
         self.alert_col_name = 'data_item_name'
         self.domain_status_col_name = 'domain_status'
@@ -746,23 +749,29 @@ class ProduceAlerts(object):
 
     def _get_alert_event_from_db(self, alert_name, timestamp_ts):
 
-        select_alert_id_col_name = f'{self.alert_id_col_name} as "{self.alert_id_col_name}"'
+        select_alert_id_col_name = f'alert.{self.alert_id_col_name} as "{self.alert_id_col_name}"'
+        select_action_id_col_name = f'action.{self.action_id_col_name} AS "{self.action_id_col_name}"'
 
-
-        sql_statement = f"SELECT {select_alert_id_col_name} " \
-                        f"FROM {self.quoted_schema}.{self.quoted_table_name} " \
-                        f"WHERE entity_type_id = {self.dms.entity_type_id} AND {self.alert_col_name} = '{alert_name}'"
-
+        sql_statement = f"SELECT {select_alert_id_col_name}, {select_action_id_col_name} " \
+                        f"FROM {self.quoted_schema}.{self.quoted_table_name} alert " \
+                        f"LEFT JOIN {self.quoted_schema}.{self.quoted_action_table_name} action " \
+                        f"ON alert.{self.alert_id_col_name} = action.{self.alert_id_col_name} " \
+                        f"WHERE alert.entity_type_id = {self.dms.entity_type_id} AND alert.{self.alert_col_name} = '{alert_name}'"
 
         if timestamp_ts is not None:
-            sql_statement += f" AND {self.timestamp_col_name} = '{str(timestamp_ts)}'"
+            sql_statement += f" AND alert.{self.timestamp_col_name} = '{str(timestamp_ts)}'"
 
         result_df = self.dms.db.read_sql_query(sql_statement,
                                                log_message=f"Sql statement for alert {alert_name} and timestamp {timestamp_ts}")
 
         logger.debug(f"{result_df.shape[0]} alert events have been read from database.")
 
-        return result_df[self.alert_id_col_name][0] if result_df is not None else None
+        if result_df is not None and not result_df.empty:
+            return {
+                'alert_id': int(result_df[self.alert_id_col_name][0]),
+                'action_id': int(result_df['action_id'][0]) if 'action_id' in result_df.columns and result_df['action_id'][0] is not None else None
+            }
+        return None
 
     def _push_alert_events_to_db(self, alert_events, index_has_entity_id):
 
@@ -824,6 +833,7 @@ class ProduceAlerts(object):
                     else:
                         tmp_entity_id = None
                         tmp_timestamp = index_values
+                    alert_data = self._get_alert_event_from_db(alert_name, tmp_timestamp)
                     payload = {
                         "deviceUid": self.dms.device_name_to_uid.get(tmp_entity_id) if self.dms.entity_type_type == 'DEVICE_TYPE' else None,
                         "entityTypeId": self.dms.entity_type_id,
@@ -837,7 +847,7 @@ class ProduceAlerts(object):
                                 ),
                         "reportdate": tmp_timestamp,
                         "status": kpi_input.get('Status').upper() if kpi_input else None,
-                        "alertId": int(self._get_alert_event_from_db(alert_name, tmp_timestamp))
+                        "alertId": alert_data['alert_id'] if alert_data else None
                     }
                     logger.info(f"Sending alert to manage payload: {payload}")
                     # TODO: Implement actual API call to send payload to Manage system
@@ -985,12 +995,12 @@ class ProduceAlerts(object):
             rows_to_resolve.append(
                 (self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp)
             )
-
+            action_id = self._get_alert_event_from_db(alert_name, tmp_timestamp)
             payload = {
                 'details': details,
-                'status': domain_status,
-                # TODO get action_id from db
+                'status': domain_status
             }
+            logger.debug(f"Payload for update: {payload}")
             total_resolved += 1
 
         logger.info(f"{domain_status} {total_resolved} stale alert events for alert {alert_name}.")
