@@ -1291,7 +1291,7 @@ class NoDataAlert(BaseEvent):
         cache_df = self._initialize_cache(kpi_function_id)
         
         # Initialize alert column in dataframe
-        if self.alert_name not in df.columns: #TODO need to check for empty df
+        if not df.empty and self.alert_name not in df.columns:
             df[self.alert_name] = None
         
         # Get device metrics to monitor
@@ -1444,7 +1444,7 @@ class NoDataAlert(BaseEvent):
         # Check if we actually have any data for monitored metrics
         if not all_data_timestamp:
             # Device exists in batch but has no data for monitored metrics
-            # Treat as device without data
+            # Treat as device without data in df
             logger.debug(f"Device {device_id}: Present in batch but no data for monitored metrics")
             return self._process_device_without_data(df, device_id, last_event_timestamp, cooldown_until,
                                                     metrics_to_monitor, device_registration_time, backtrack_start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
