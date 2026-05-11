@@ -35,6 +35,7 @@ from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION
 #from ibm_watson_machine_learning import APIClient
 from ibm_watsonx_ai import APIClient, Credentials
 #from ibm_watson_studio_lib import access_project_or_space
+from sqlalchemy import func
 from iotfunctions import  dbtables
 
 

@@ -845,7 +845,7 @@ class ProduceAlerts(object):
                                     alert_row=df_alert_events,
                                     kpi_input=kpi_input
                                 ),
-                        "reportdate": tmp_timestamp,
+                        "reportDate": tmp_timestamp,
                         "status": kpi_input.get('Status').upper() if kpi_input else None,
                         "alertId": alert_data['alert_id'] if alert_data else None
                     }
@@ -985,25 +985,29 @@ class ProduceAlerts(object):
         rows_to_resolve = []
         total_resolved = 0
 
-        for index_values in stale_index:
-            if index_has_entity_id:
-                tmp_entity_id = index_values[0]
-                tmp_timestamp = index_values[1]
-            else:
-                tmp_entity_id = None
-                tmp_timestamp = index_values
-            rows_to_resolve.append(
-                (self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp)
-            )
-            action_id = self._get_alert_event_from_db(alert_name, tmp_timestamp)
-            payload = {
-                'details': details,
-                'status': domain_status
-            }
-            logger.debug(f"Payload for update: {payload}")
-            total_resolved += 1
+        kpi_input = self.alert_to_kpi_input_dict.get(alert_name)
+        send_alert_to_manage = kpi_input.get('Create_Alert_In_Manage', 'False') == 'True'
 
-        logger.info(f"{domain_status} {total_resolved} stale alert events for alert {alert_name}.")
+        if send_alert_to_manage:
+            for index_values in stale_index:
+                if index_has_entity_id:
+                    tmp_entity_id = index_values[0]
+                    tmp_timestamp = index_values[1]
+                else:
+                    tmp_entity_id = None
+                    tmp_timestamp = index_values
+                rows_to_resolve.append(
+                    (self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp)
+                )
+                action_id = self._get_alert_event_from_db(alert_name, tmp_timestamp)
+                payload = {
+                    'details': details,
+                    'status': domain_status
+                }
+                logger.debug(f"Payload for update: {payload}")
+                total_resolved += 1
+
+            logger.info(f"{domain_status} {total_resolved} stale alert events for alert {alert_name}.")
         return total_resolved
 
     @staticmethod
