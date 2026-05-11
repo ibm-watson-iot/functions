@@ -36,7 +36,7 @@ from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION
 from ibm_watsonx_ai import APIClient, Credentials
 #from ibm_watson_studio_lib import access_project_or_space
 from sqlalchemy import func
-from iotfunctions import  dbtables 
+from iotfunctions import  dbtables
 
 
 logger = logging.getLogger(__name__)
@@ -1171,7 +1171,7 @@ class NoDataAlert(BaseEvent):
             has_current_data = device_id in devices_in_current_df
             device_registration_time = None
             first_alert_from_previous_run = None
-            if cache_df.empty:
+            if cache_df.empty or self.dms.running_with_backtrack:
                 device_registration_time = self._get_device_registration_time(device_id)
 
             # Load cache for this device
@@ -1432,7 +1432,7 @@ class NoDataAlert(BaseEvent):
             if result is not None and not result.empty:
                 last_timestamp = result['last_timestamp'].iloc[0]
                 if pd.notna(last_timestamp):
-                    logger.info(f"Found last event for device {device_id}, metric {metric_name}: {last_timestamp}")
+                    logger.info(f"Found last_event_timestamp for device {device_id}, metric {metric_name}: {last_timestamp}")
                     return pd.Timestamp(last_timestamp)
 
             logger.warning(f"No data found in database for device {device_id}, metric {metric_name}")
@@ -1494,7 +1494,8 @@ class NoDataAlert(BaseEvent):
 
     def _get_gap_measurement_start_time(self, backtrack_start_ts, last_event_timestamp, device_registration_time):
         """Determine starting point for gap measurement"""
-        if last_event_timestamp is not None and pd.notna(last_event_timestamp):
+        if last_event_timestamp is not None and pd.notna(last_event_timestamp) and backtrack_start_ts is None:
+            logger.info(f"nodata calculation started from last_event_timestamp : {last_event_timestamp}")
             return last_event_timestamp
         if backtrack_start_ts is not None:
             return max(backtrack_start_ts,device_registration_time) if device_registration_time is not None else backtrack_start_ts
