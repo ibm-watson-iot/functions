@@ -1,5 +1,5 @@
 # *****************************************************************************
-# © Copyright IBM Corp. 2018, 2025  All Rights Reserved.
+# © Copyright IBM Corp. 2018, 2026  All Rights Reserved.
 #
 # This program and the accompanying materials
 # are made available under the terms of the Apache V2.0 license
@@ -36,7 +36,7 @@ from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION
 from ibm_watsonx_ai import APIClient, Credentials
 #from ibm_watson_studio_lib import access_project_or_space
 from sqlalchemy import func
-from iotfunctions import  dbtables 
+from iotfunctions import  dbtables
 
 
 logger = logging.getLogger(__name__)
@@ -462,6 +462,228 @@ class AlertExpression(BaseEvent):
         outputs.append(UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function'))
         return (inputs, outputs)
 
+class AlertByOccurrencesCount(BaseEvent):
+
+    def _create_timedelta(self, value, unit_str):
+        """Create timedelta from value and unit string."""
+        unit = unit_str.lower() if unit_str else 'minutes'
+        return dt.timedelta(**{unit: value})
+
+    def __init__(self, expression, min_occurrences, time_window, window_type, window_time_unit, occurrence_mode, alert_name,cooldown=0, cooldown_time_unit=None, **kwargs):
+        self.expression = expression
+        self.min_occurrences = min_occurrences
+        self.time_window = time_window
+        self.window_type = window_type
+        self.window_time_unit = window_time_unit
+        self.cooldown = cooldown
+        self.cooldown_time_unit = cooldown_time_unit
+        self.occurrence_mode = occurrence_mode
+        if self.window_type == '':
+            self.window_type = 'Sliding'
+        if self.occurrence_mode == '':
+            self.occurrence_mode = 'RISING EDGE'
+        self.T = self._create_timedelta(self.time_window, self.window_time_unit)
+        self.cool_down_period = self._create_timedelta(self.cooldown, self.cooldown_time_unit)
+        self.alert_name = alert_name
+        self.cache = None
+        super().__init__()
+
+    def execute(self, df):
+        self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema, self.dms.db_connection,
+                                                                            self.dms.db_type)
+        df = df.copy()
+        df[self.alert_name] = None
+        cond = eval(self.expression)
+        logger.debug(f'Condition found: {cond}')
+        kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get(
+                'kpiFunctionId')
+        if not kpi_function_id:
+            raise ValueError(f'No KPI_FUNCTION_ID found for alert {self.alert_name}. Cannot persist alert state.')
+        if not self.dms.running_with_backtrack:
+            self.cache.delete_backtrack_cache(kpi_function_id)
+        cache_data = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
+        cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
+                columns=['last_condition_state', 'breach_timestamps', 'cooldown_until', 'first_alert_time', 'last_ts_had_alert'])
+        # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
+        if cache_data is not None and 'breach_timestamps' in cache_df.columns:
+            cache_df['breach_timestamps'] = cache_df['breach_timestamps'].apply(
+                lambda x: x.tolist() if isinstance(x, np.ndarray) else (list(x) if x is not None else [])
+            )
+            # Detect if this is the first cycle of a backtrack run
+        is_first_cycle = False
+        if hasattr(self.dms, 'cycle_id') and self.dms.cycle_id is not None and self.dms.running_with_backtrack:
+            is_first_cycle = (self.dms.cycle_id == 1)
+            logger.debug(f'Current cycle: {self.dms.cycle_id}, is_first_cycle: {is_first_cycle}')
+        for entity_id in df.index.get_level_values('id').unique():
+            logger.debug(f'Processing device {entity_id}')
+            entity_cond = cond.loc[entity_id]
+            if len(entity_cond) == 0:
+                continue
+            breach_timestamps = []
+            last_condition_state = None
+            cooldown_until = None
+            first_alert_from_previous_run = None
+            last_ts_had_alert_in_previous_run = False
+            
+            # load all cache data
+            if cache_data is not None and entity_id in cache_data.index:
+                if is_first_cycle:
+                    first_alert_from_previous_run = cache_data.loc[entity_id, 'first_alert_time']
+                else:
+                    breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps']
+                    if isinstance(breach_timestamps, np.ndarray):
+                        breach_timestamps = cache_data.loc[entity_id, 'breach_timestamps'].tolist()
+                    cooldown_until = cache_data.loc[entity_id, 'cooldown_until']
+                    last_condition_state = cache_data.loc[entity_id, 'last_condition_state']
+                    # Load the boolean flag for normal mode
+                    if not self.dms.running_with_backtrack and 'last_ts_had_alert' in cache_data.columns:
+                        last_ts_had_alert_in_previous_run = cache_data.loc[entity_id, 'last_ts_had_alert']
+                        if pd.isna(last_ts_had_alert_in_previous_run):
+                            last_ts_had_alert_in_previous_run = False
+            new_occurrences = []
+            if self.occurrence_mode == 'RISING EDGE':
+                if len(entity_cond) > 0:
+                    prev_state = last_condition_state if last_condition_state is not None else False
+                    shifted_cond = entity_cond.shift(1, fill_value=prev_state)
+                    rising_edges = entity_cond & ~shifted_cond
+                    new_occurrences.extend(rising_edges[rising_edges].index.tolist())
+            elif self.occurrence_mode == 'EVERY TYPE EVALUATION':
+                new_occurrences.extend(entity_cond[entity_cond].index.tolist())
+            logger.debug(f'New occurrences: {new_occurrences}')
+            all_occurrences = breach_timestamps + new_occurrences
+            all_occurrences.sort()  # Ensure we process time chronologically
+
+            active_occurrences = []
+            first_alert_in_this_run = None  # Track first alert in current run
+
+            # In normal mode, if last timestamp of previous run had alert, setting first timestamp to alert
+            if not self.dms.running_with_backtrack and last_ts_had_alert_in_previous_run and len(entity_cond) > 0:
+                first_ts = entity_cond.index[0]
+                df.loc[(entity_id, first_ts), self.alert_name] = True
+                logger.info(f'Set first timestamp {first_ts} to alert=True for entity {entity_id} (previous run last timestamp had alert)')
+
+            # During backtrack first cycle with previous alert, apply cooldown
+            if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and self.cooldown:
+                cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cool_down_period
+                logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
+            
+            for ts in all_occurrences:
+
+                active_occurrences.append(ts)
+
+                if self.window_type == 'Sliding':
+                    cutoff = ts - self.T
+                    active_occurrences = [t for t in active_occurrences if t > cutoff]
+                else:
+                    # Tumbling window: [start, end) - inclusive start, exclusive end
+                    freq_map = {'Minutes': 'min', '': 'min', 'Hours': 'h', 'Days': 'D'}
+                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
+                    window_start = pd.Timestamp(ts).floor(freq)
+                    window_end = window_start + self.T
+                    active_occurrences = [t for t in active_occurrences
+                         if window_start <= t < window_end]
+                if ts == first_alert_from_previous_run and (cooldown_until is None or ts > cooldown_until):
+                    logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts} from previous run in backtrack')
+                    df.loc[(entity_id, ts), self.alert_name] = True
+                    active_occurrences.clear()
+                elif len(active_occurrences) >= self.min_occurrences and (cooldown_until is None or ts > cooldown_until):
+                    logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts}')
+                    df.loc[(entity_id, ts), self.alert_name] = True
+
+                    # Track first alert in this run
+                    if is_first_cycle and first_alert_in_this_run is None:
+                        first_alert_in_this_run = ts
+                        logger.info(f'First alert in this run detected at {ts}')
+
+
+                    # For tumbling windows, set cooldown to prevent multiple alerts in same window
+                    if self.window_type == 'Tumbling':
+                        # Calculate end of current tumbling window
+                        freq_map = {'Minutes': 'min', '': 'min', 'Hours': 'h', 'Days': 'D'}
+                        freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
+                        window_start = pd.Timestamp(ts).floor(freq)
+                        window_end = window_start + self.T
+                        
+                        # If user specified cooldown, add it to window end
+                        # Otherwise, cooldown is just until window end
+                        if self.cooldown:
+                            cooldown_until = window_end + self.cool_down_period
+                            logger.debug(f'Tumbling window: Setting cooldown until window end + cooldown at {cooldown_until}')
+                        else:
+                            cooldown_until = window_end
+                            logger.debug(f'Tumbling window: Setting cooldown until end of window at {cooldown_until}')
+                    elif self.cooldown:
+                        # For sliding windows, use user-specified cooldown from alert timestamp
+                        cooldown_until = ts + self.cool_down_period
+
+                    active_occurrences.clear()
+            # Check if the LAST timestamp in the current cycle has an alert
+            last_ts_had_alert = False
+            if len(entity_cond) > 0:
+                last_ts_in_cycle = entity_cond.index[-1]
+                if (entity_id, last_ts_in_cycle) in df.index:
+                    last_ts_had_alert = (df.loc[(entity_id, last_ts_in_cycle), self.alert_name] == True)
+            
+            if is_first_cycle and first_alert_from_previous_run is not None and first_alert_in_this_run is not None:
+                first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
+            
+            cache_df.loc[entity_id] = {
+                'last_condition_state': entity_cond.iloc[-1] if len(entity_cond) > 0 else None,
+                'breach_timestamps': active_occurrences,  # Only save what's left in the current window
+                'cooldown_until': cooldown_until,
+                'first_alert_time': first_alert_in_this_run if is_first_cycle else (cache_df.loc[entity_id, 'first_alert_time'] if entity_id in cache_df.index else None),
+                'last_ts_had_alert': last_ts_had_alert if not self.dms.running_with_backtrack else False,
+            }
+        self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
+        return df
+
+    def get_input_items(self):
+        items = self.get_expression_items(self.expression)
+        return items
+
+    @classmethod
+    def build_ui(cls):
+        inputs = [
+            UIExpression(name='expression',
+                         description='Condition expression (e.g., df["temp_c"] > 80)'),
+            UISingle(name='min_occurrences', datatype=int,
+                     description='Minimum number of occurrences'),
+            UISingle(
+                name='occurrence_mode',
+                datatype=str,
+                description='RISING_EDGE - Count only on false → true transitions, '
+                            'EVERY_TYPE_EVALUATION  - counts every evaluation tick where condition is true',
+                values=['RISING EDGE', 'EVERY TYPE EVALUATION']
+            ),
+            UISingle(name='time_window', datatype=float,
+                     description='Time window'),
+            UISingle(
+                name='window_time_unit',
+                datatype=str,
+                description='Select the time unit for the window duration, default is minutes',
+                values=['Minutes', 'Hours', 'Days']
+            ),
+            UISingle(
+                name='window_type',
+                datatype=str,
+                description='Window type: sliding or tumbling',
+                values=['Sliding', 'Tumbling'],
+            ),
+            UISingle(name='cooldown', datatype=int, required=False,
+                     description='Cooldown period in minutes'),
+            UISingle(
+                name='cooldown_time_unit',
+                datatype=str,
+                description='Select the time unit for the cooldown duration, default is minutes',
+                values=['Minutes', 'Hours', 'Days'],
+                required=False
+            ),        
+        ]
+        outputs = [
+            UIFunctionOutSingle(name='alert_name', datatype=bool,
+                                description='Alert output')
+        ]
+        return (inputs, outputs)
 
 class AlertExpressionWithFilter(BaseEvent):
     """

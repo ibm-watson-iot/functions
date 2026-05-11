@@ -230,6 +230,89 @@ class DBDataCache:
 
         return df_loaded
 
+    def store_alert_cache(self, kpi_function_id, df, backtrack=False):
+
+        cache_filename, cache_pathname, base_path = self._get_alert_cache_filename(kpi_function_id, backtrack)
+
+        if df is not None:
+            try:
+                pyarrow_table = pyarrow.Table.from_pandas(df, schema=pyarrow.Schema.from_pandas(df))
+                pyarrow.parquet.write_table(pyarrow_table, cache_pathname, version='2.0')
+                logger.info(
+                    'Cache %s of size %s has been saved to file %s' % (cache_filename, str(df.shape), cache_pathname))
+            except pyarrow.lib.ArrowInvalid as ex:
+                raise Exception(
+                    'The dataframe could not be saved to file %s because pyarrow threw an exception.' % cache_pathname) from ex
+            except Exception as ex:
+                raise Exception('The dataframe could not be saved to file %s.' % cache_pathname) from ex
+            else:
+                self._push_cache(cache_filename, cache_pathname)
+        else:
+            logger.warning('Dataframe is None. Therefore no cache has been stored in database.')
+
+    def retrieve_alert_cache(self, kpi_function_id, backtrack=False):
+
+        cache_filename, cache_pathname, base_path = self._get_alert_cache_filename(kpi_function_id, backtrack)
+        self._get_cache(cache_filename, cache_pathname)
+        df_loaded = None
+        if os.path.exists(cache_pathname):
+            try:
+                df_loaded = pd.read_parquet(cache_pathname)
+                if df_loaded is not None:
+                    logger.info('Cache %s of size %s has been retrieved from file %s' % (
+                        cache_filename, str(df_loaded.shape), cache_pathname))
+            except Exception as ex:
+                raise Exception('The dataframe could not be loaded from parquet file %s' % cache_pathname) from ex
+
+        return df_loaded
+
+    def _get_alert_cache_filename(self, kpi_function_id, backtrack=False):
+
+        # Create local path for cache file on disk.
+        base_path = '%s/%s/%d' % (DBDataCache.PARQUET_DIRECTORY, self.tenant_id, self.entity_type_id)
+        Path(base_path).mkdir(parents=True, exist_ok=True)
+        filename = '%s__%s' % (DBDataCache.CACHE_FILE_STEM, kpi_function_id)
+        if backtrack:
+            filename = '%s__backtrack' % filename
+        local_path = '%s/%s' % (base_path, filename)
+
+        return filename, local_path, base_path
+
+    def delete_backtrack_cache(self, kpi_function_id):
+        """
+        Delete the backtrack cache file for a specific KPI function ID.
+        Removes both local file and database entry.
+
+        Args:
+            kpi_function_id: The KPI function ID whose backtrack cache should be deleted
+        """
+        filename, local_path, base_path = self._get_alert_cache_filename(kpi_function_id, backtrack=True)
+
+        # Delete local file if it exists
+        if os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+                logger.info(f'Deleted backtrack cache file: {local_path}')
+            except Exception as ex:
+                logger.error(f'Failed to delete backtrack cache file {local_path}: {ex}')
+
+        # Delete from database
+        sql_statement = "DELETE FROM %s.%s WHERE ENTITY_TYPE_ID = ? AND PARQUET_NAME = ?" % (
+            self.quoted_schema, self.quoted_cache_tablename)
+
+        try:
+            stmt = ibm_db.prepare(self.db_connection, sql_statement)
+            try:
+                ibm_db.bind_param(stmt, 1, self.entity_type_id)
+                ibm_db.bind_param(stmt, 2, filename)
+                ibm_db.execute(stmt)
+            finally:
+                ibm_db.free_result(stmt)
+        except Exception as ex:
+            logger.error(f'Failed to delete backtrack cache from database: {ex}')
+        logger.info('Cache file %s has been deleted from table %s.%s' % (
+            filename, self.quoted_schema, self.quoted_cache_tablename))
+
     def delete_cache(self, dep_grain, grain, old_name=False):
         # Delete single cache entry locally
         cache_filename, cache_pathname, base_path = self._get_cache_filename(dep_grain, grain, old_name)
@@ -270,14 +353,19 @@ class DBDataCache:
 
             for filename in file_listing:
                 if filename.startswith(DBDataCache.CACHE_FILE_STEM):
+                    # Skip files containing 'backtrack' in their name
+                    if 'backtrack' in filename.lower():
+                        logger.info('Skipping deletion of backtrack cache file: %s' % filename)
+                        continue
+                    
                     full_path = '%s/%s' % (base_path, filename)
                     try:
                         os.remove(full_path)
                     except Exception as ex:
                         raise Exception('Removal of file %s failed' % full_path) from ex
 
-        # Delete all cache entries for this entity type in database
-        sql_statement = "DELETE FROM %s.%s where ENTITY_TYPE_ID = ?" % (
+        # Delete all cache entries for this entity type in database (except backtrack caches)
+        sql_statement = "DELETE FROM %s.%s WHERE ENTITY_TYPE_ID = ? AND PARQUET_NAME NOT LIKE '%%backtrack%%'" % (
             self.quoted_schema, self.quoted_cache_tablename)
 
         try:
