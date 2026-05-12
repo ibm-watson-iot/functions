@@ -1412,7 +1412,7 @@ class NoDataAlert(BaseEvent):
             first_alert_in_this_run = None
             # During backtrack first cycle with previous alert, apply cooldown
             if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and self.cooldown:
-                cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown
+                cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
                 logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
 
             if has_current_data:
