@@ -1107,6 +1107,11 @@ class Database(object):
         self.url['devices', 'POST'] = '/'.join([core_url, 'v2', 'deviceTypes', object_name, object_type])
         self.url[('deviceTypesSearch', 'POST')] = '/'.join([core_url, 'v2', 'core', 'deviceTypes', 'search'])
 
+        self.url['alerts', 'POST'] = '/'.join(
+            [core_url, 'v2', 'core', 'internal', 'alert'])
+        self.url['alerts', 'PUT'] = '/'.join(
+            [core_url, 'v2', 'core', 'internal', 'alert', object_name])
+
         encoded_payload = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
                    'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache",

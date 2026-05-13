@@ -510,15 +510,15 @@ def _format_manage_alert_details(alert_name, device_id, report_date, alert_row=N
             # Extract scalar value if it's a Series
             if hasattr(val, 'iloc'):
                 val = val.iloc[0] if len(val) > 0 else val
-            metrics.append(f"{col}={val}")
+            metrics.append(f"{col}: {val}")
         
         if metrics:
             details_parts.append(f"Current metrics: {', '.join(metrics)}")
 
     if kpi_input:
-        config_parts = [f"{key}={value}" for key, value in kpi_input.items() if value not in (None, '')]
+        config_parts = [f"{key}: {value}" for key, value in kpi_input.items() if value not in (None, '')]
         if config_parts:
-            details_parts.append(f"Alert configuration: {', '.join(config_parts)}.")
+            details_parts.append(f"Alert configuration:  {', '.join(config_parts)}.")
 
     return ' '.join(details_parts)
 
@@ -677,7 +677,7 @@ class ProduceAlerts(object):
                     else:
                         # No alerts firing in this window — resolve all active alerts found in DB for this window
                         self._resolve_stale_alerts(alert_name, active_alerts.index, index_has_entity_id)
-                        self._resolve_stale_alerts_in_manage(alert_name, active_alerts, index_has_entity_id)
+                        self._resolve_stale_alerts_in_manage(alert_name, active_alerts.index, index_has_entity_id)
                         new_alert_events[alert_name] = calc_alert_events
                         logger.info(f"There are no calculated alert events for alert {alert_name}. "
                                     f"{active_alerts.shape[0]} stale alert events resolved.")
@@ -834,24 +834,28 @@ class ProduceAlerts(object):
                         tmp_entity_id = None
                         tmp_timestamp = index_values
                     alert_data = self._get_alert_event_from_db(alert_name, tmp_timestamp)
-                    payload = {
-                        "deviceUid": self.dms.device_name_to_uid.get(tmp_entity_id) if self.dms.entity_type_type == 'DEVICE_TYPE' else None,
-                        "entityTypeId": self.dms.entity_type_id,
-                        "description": alert_name,
-                        "details": _format_manage_alert_details(
-                                    alert_name=alert_name,
-                                    device_id=tmp_entity_id,
-                                    report_date=tmp_timestamp,
-                                    alert_row=df_alert_events,
-                                    kpi_input=kpi_input
-                                ),
-                        "reportDate": tmp_timestamp,
-                        "status": kpi_input.get('Status').upper() if kpi_input else None,
-                        "alertId": alert_data['alert_id'] if alert_data else None
-                    }
-                    logger.info(f"Sending alert to manage payload: {payload}")
-                    # TODO: Implement actual API call to send payload to Manage system
-                    total_count += 1
+                    # Only send alert to manage if there is no action event (Service Request can be present)
+                    if alert_data is not None and alert_data['action_id'] is None:
+                        tmp_timestamp = tmp_timestamp.isoformat()
+                        payload = {
+                            "deviceUid": self.dms.device_name_to_uid.get(tmp_entity_id) if self.dms.entity_type_type == 'DEVICE_TYPE' else None,
+                            "entityTypeId": self.dms.entity_type_id,
+                            "description": f"Alert generated from monitor for the {alert_name} KPI",
+                            "details": _format_manage_alert_details(
+                                        alert_name=alert_name,
+                                        device_id=tmp_entity_id,
+                                        report_date=tmp_timestamp,
+                                        alert_row=df_alert_events,
+                                        kpi_input=kpi_input
+                                    ),
+                            "reportedDate": tmp_timestamp,
+                            "status": kpi_input.get('Status').upper() if kpi_input else None,
+                            "alertId": alert_data['alert_id'] if alert_data else None
+                        }
+                        logger.info(f"Sending alert to manage payload: {payload}")
+                        self.dms.db.http_request(object_type='alerts', request='POST', object_name=None, payload=payload,
+                                                 raise_error=False)
+                        total_count += 1
 
             logger.info(f"A total of {total_count} alert events have been sent to manage in "
                         f"{(dt.datetime.now() - start_time).total_seconds()} seconds.")
@@ -961,7 +965,7 @@ class ProduceAlerts(object):
     def _resolve_stale_alerts_in_manage(self, alert_name, stale_index, index_has_entity_id, domain_status='Resolved'):
         """
         Update the status of alert to Resolved or the input status of the alerts that are not valid anymore
-        or reactivate alerts that are valid in the current run
+        or reactivate alerts that are valid in the current run in manage
 
         Args:
             alert_name: Name of the alert data item.
@@ -1002,9 +1006,12 @@ class ProduceAlerts(object):
                 action_id = self._get_alert_event_from_db(alert_name, tmp_timestamp)
                 payload = {
                     'details': details,
-                    'status': domain_status
+                    'status': domain_status.upper()
                 }
-                logger.debug(f"Payload for update: {payload}")
+                if action_id is not None and action_id['action_id'] is not None:
+                    logger.debug(f"Payload for update: {payload}")
+                    self.dms.db.http_request(object_type='alerts', request='PUT', object_name=str(action_id['action_id']), payload=payload,
+                                             raise_error=False)
                 total_resolved += 1
 
             logger.info(f"{domain_status} {total_resolved} stale alert events for alert {alert_name}.")
