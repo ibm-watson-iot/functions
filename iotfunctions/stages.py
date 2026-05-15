@@ -572,6 +572,7 @@ class ProduceAlerts(object):
         self.entity_id_col_name = 'entity_id'
         self.alert_id_col_name = 'alert_id'
         self.action_id_col_name = 'action_id'
+        self.result_json = 'result_json'
         self.created_ts_col_name = 'created_ts'
         self.alert_col_name = 'data_item_name'
         self.domain_status_col_name = 'domain_status'
@@ -612,6 +613,7 @@ class ProduceAlerts(object):
 
                 # Do for each alert separately
                 new_alert_events = {}
+                existing_active_to_check = {}
                 for alert_name in self.alerts_to_db:
 
                     # Extract rows from data frame which are alert events, i.e. column 'alert_name' is equal to True
@@ -671,6 +673,11 @@ class ProduceAlerts(object):
                         # exist in database yet
                         difference = calc_alert_events.index.difference(existing_alert_events.index)
                         new_alert_events[alert_name] = calc_alert_events.reindex(difference)
+                        
+                        # Collect existing active alerts to check for errors
+                        existing_not_new = existing_alert_events.index.difference(difference)
+                        if existing_not_new.size > 0:
+                            existing_active_to_check[alert_name] = existing_alert_events.reindex(existing_not_new)
 
                         logger.info(f"{difference.size} out of {calc_alert_events.index.size} calculated alert events "
                                     f"for alert {alert_name} are new. {stale.size} stale alert events resolved.")
@@ -686,6 +693,10 @@ class ProduceAlerts(object):
                 self._push_alert_events_to_db(new_alert_events, index_has_entity_id)
 
                 self._send_alerts_to_manage(new_alert_events, index_has_entity_id)
+                
+                # Also check existing active alerts for errors or missing action_id
+                if existing_active_to_check and self.dms.running_with_backtrack:
+                    self._send_alerts_to_manage(existing_active_to_check, index_has_entity_id)
 
             else:
                 logger.info("No alerts have been defined for current grain.")
@@ -747,12 +758,42 @@ class ProduceAlerts(object):
 
         return result_df
 
+    def _has_error_in_result_json(self, result_json):
+        """
+        Check if result_json contains an error by looking for any key containing 'error'.
+        
+        Args:
+            result_json: Dictionary or JSON string containing the result
+            
+        Returns:
+            True if any key contains 'error' (case-insensitive), False otherwise
+        """
+        if result_json is None:
+            return False
+            
+        try:
+            # Parse if it's a string
+            if isinstance(result_json, str):
+                result_json = json.loads(result_json)
+            
+            # Check if any key contains 'error' (case-insensitive)
+            if isinstance(result_json, dict):
+                for key in result_json.keys():
+                    if 'error' in key.lower():
+                        return True
+                        
+        except (json.JSONDecodeError, TypeError, AttributeError) as e:
+            logger.warning(f"Failed to check error in result_json: {e}")
+            
+        return False
+
     def _get_alert_event_from_db(self, alert_name, timestamp_ts):
 
         select_alert_id_col_name = f'alert.{self.alert_id_col_name} as "{self.alert_id_col_name}"'
         select_action_id_col_name = f'action.{self.action_id_col_name} AS "{self.action_id_col_name}"'
+        select_result_json_col_name = f'action.{self.result_json} AS "{self.result_json}"'
 
-        sql_statement = f"SELECT {select_alert_id_col_name}, {select_action_id_col_name} " \
+        sql_statement = f"SELECT {select_alert_id_col_name}, {select_action_id_col_name}, {select_result_json_col_name} " \
                         f"FROM {self.quoted_schema}.{self.quoted_table_name} alert " \
                         f"LEFT JOIN {self.quoted_schema}.{self.quoted_action_table_name} action " \
                         f"ON alert.{self.alert_id_col_name} = action.{self.alert_id_col_name} " \
@@ -767,9 +808,19 @@ class ProduceAlerts(object):
         logger.debug(f"{result_df.shape[0]} alert events have been read from database.")
 
         if result_df is not None and not result_df.empty:
+            has_error = False
+            
+            if self.result_json in result_df.columns and result_df[self.result_json][0] is not None:
+                try:
+                    result_json = json.loads(result_df[self.result_json][0]) if isinstance(result_df[self.result_json][0], str) else result_df[self.result_json][0]
+                    has_error = self._has_error_in_result_json(result_json)
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse result_json for alert {alert_name}: {e}")
+
             return {
                 'alert_id': int(result_df[self.alert_id_col_name][0]),
-                'action_id': int(result_df['action_id'][0]) if 'action_id' in result_df.columns and result_df['action_id'][0] is not None else None
+                'action_id': int(result_df['action_id'][0]) if 'action_id' in result_df.columns and result_df['action_id'][0] is not None else None,
+                'has_error': has_error
             }
         return None
 
@@ -834,8 +885,17 @@ class ProduceAlerts(object):
                         tmp_entity_id = None
                         tmp_timestamp = index_values
                     alert_data = self._get_alert_event_from_db(alert_name, tmp_timestamp)
-                    # Only send alert to manage if there is no action event (Service Request can be present)
-                    if alert_data is not None and alert_data['action_id'] is None:
+                    # Send alert to manage if:
+                    # 1. There is no action_id (Service Request not created yet), OR
+                    # 2. There is an action_id but it has an error in result_json
+                    should_send = alert_data is not None and (
+                        alert_data['action_id'] is None or
+                        alert_data.get('has_error', False)
+                    )
+                    
+                    if should_send:
+                        if alert_data.get('has_error', False):
+                            logger.info(f"Resending alert to manage due to error in result_json for alert {alert_name} at {tmp_timestamp}")
                         tmp_timestamp = tmp_timestamp.isoformat()
                         payload = {
                             "deviceUid": self.dms.device_name_to_uid.get(tmp_entity_id) if self.dms.entity_type_type == 'DEVICE_TYPE' else None,
@@ -852,7 +912,8 @@ class ProduceAlerts(object):
                             "status": kpi_input.get('Status').upper() if kpi_input else None,
                             "alertId": alert_data['alert_id'] if alert_data else None
                         }
-                        logger.info(f"Sending alert to manage payload: {payload}")
+                        if alert_data["has_error"]:
+                            payload["actionId"] = alert_data["action_id"]
                         self.dms.db.http_request(object_type='alerts', request='POST', object_name=None, payload=payload,
                                                  raise_error=False)
                         total_count += 1
