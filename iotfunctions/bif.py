@@ -1322,8 +1322,8 @@ class NoDataAlert(BaseEvent):
     """
 
     def _create_timedelta(self, value, unit_str):
-
-        return dt.timedelta(**{unit_str: value})
+        unit = unit_str.lower() if unit_str else 'minutes'
+        return dt.timedelta(**{unit: value})
 
     def __init__(self, duration, duration_unit, cooldown=None, cooldown_unit=None,
                  input_item=None, alert_name='no_data_alert', **kwargs):
@@ -1766,7 +1766,7 @@ class NoDataAlert(BaseEvent):
         inputs.append(UISingleItem(
             name='cooldown_unit',
             datatype=str,
-            description='Cooldown time unit',
+            description='Cooldown time unit, default is minutes',
             required=False,
             values=['minutes', 'hours', 'days']))
         inputs.append(UISingleItem(
