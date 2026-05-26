@@ -1396,7 +1396,7 @@ class NoDataAlert(BaseEvent):
             has_current_data = device_id in devices_in_current_df
             device_registration_time = None
             first_alert_from_previous_run = None
-            if cache_df.empty or self.dms.running_with_backtrack:
+            if cache_df.empty or self.dms.running_with_backtrack or not is_cached_device:
                 device_registration_time = self._get_device_registration_time(device_id)
 
             # Load cache for this device
