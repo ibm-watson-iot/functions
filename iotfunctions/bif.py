@@ -1359,7 +1359,7 @@ class NoDataAlert(BaseEvent):
         cache_df = self._initialize_cache(kpi_function_id)
 
         # Initialize alert column in dataframe
-        if not df.empty and self.alert_name not in df.columns:
+        if self.alert_name not in df.columns:
             df[self.alert_name] = None
 
         # Get device metrics to monitor
