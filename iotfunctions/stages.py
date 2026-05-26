@@ -787,7 +787,7 @@ class ProduceAlerts(object):
             
         return False
 
-    def _get_alert_event_from_db(self, alert_name, timestamp_ts):
+    def _get_alert_event_from_db(self, alert_name, timestamp_ts, entity_id):
 
         select_alert_id_col_name = f'alert.{self.alert_id_col_name} as "{self.alert_id_col_name}"'
         select_action_id_col_name = f'action.{self.action_id_col_name} AS "{self.action_id_col_name}"'
@@ -801,6 +801,9 @@ class ProduceAlerts(object):
 
         if timestamp_ts is not None:
             sql_statement += f" AND alert.{self.timestamp_col_name} = '{str(timestamp_ts)}'"
+
+        if entity_id is not None:
+            sql_statement += f" AND alert.{self.entity_id_col_name} = '{entity_id}'"
 
         result_df = self.dms.db.read_sql_query(sql_statement,
                                                log_message=f"Sql statement for alert {alert_name} and timestamp {timestamp_ts}")
@@ -884,7 +887,7 @@ class ProduceAlerts(object):
                     else:
                         tmp_entity_id = None
                         tmp_timestamp = index_values
-                    alert_data = self._get_alert_event_from_db(alert_name, tmp_timestamp)
+                    alert_data = self._get_alert_event_from_db(alert_name, tmp_timestamp, tmp_entity_id)
                     # Send alert to manage if:
                     # 1. There is no action_id (Service Request not created yet), OR
                     # 2. There is an action_id but it has an error in result_json
@@ -1064,7 +1067,7 @@ class ProduceAlerts(object):
                 rows_to_resolve.append(
                     (self.dms.entity_type_id, alert_name, tmp_entity_id, tmp_timestamp)
                 )
-                action_id = self._get_alert_event_from_db(alert_name, tmp_timestamp)
+                action_id = self._get_alert_event_from_db(alert_name, tmp_timestamp, tmp_entity_id)
                 payload = {
                     'details': details,
                     'status': domain_status.upper()
