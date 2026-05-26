@@ -621,8 +621,11 @@ class AlertByOccurrencesCount(BaseEvent):
             last_ts_had_alert = False
             if len(entity_cond) > 0:
                 last_ts_in_cycle = entity_cond.index[-1]
-                if (entity_id, last_ts_in_cycle) in df.index:
-                    last_ts_had_alert = (df.loc[(entity_id, last_ts_in_cycle), self.alert_name] == True)
+                try:
+                    last_status = df.at[(entity_id, last_ts_in_cycle), self.alert_name]
+                    last_ts_had_alert = bool(last_status) if not pd.isna(last_status) else False
+                except KeyError:
+                    last_ts_had_alert = False
             
             if is_first_cycle and first_alert_from_previous_run is not None and first_alert_in_this_run is not None:
                 first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
@@ -670,7 +673,7 @@ class AlertByOccurrencesCount(BaseEvent):
                 values=['Sliding', 'Tumbling'],
             ),
             UISingle(name='cooldown', datatype=int, required=False,
-                     description='Cooldown period in minutes'),
+                     description='Minimum time between consecutive alert firings'),
             UISingle(
                 name='cooldown_time_unit',
                 datatype=str,
