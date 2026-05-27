@@ -734,6 +734,19 @@ class ProduceAlerts(object):
                                                             (existing_alert_events[
                                                                  self.domain_status_col_name] == self.domain_status_resolved)]
 
+                    # Filter alerts to only include devices present in current dataframe
+                    # to avoid resolving/reactivating alerts for devices not in this processing cycle
+                    if index_has_entity_id:
+                        # Get unique entity IDs (devices) from current dataframe
+                        current_entities = df.index.get_level_values(self.entity_id_df_name).unique()
+                        # Filter both active and resolved alerts to only include entities in current cycle
+                        active_alerts = active_alerts[
+                            active_alerts.index.get_level_values(self.entity_id_df_name).isin(current_entities)
+                        ]
+                        resolved_alerts = resolved_alerts[
+                            resolved_alerts.index.get_level_values(self.entity_id_df_name).isin(current_entities)
+                        ]
+
                     if calc_alert_events.index.size > 0:
                         # Resolve stale alert events: exist in DB as active but are no longer firing
                         stale = active_alerts.index.difference(calc_alert_events.index)
