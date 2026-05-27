@@ -25,6 +25,8 @@ from .exceptions import StageException, DataWriterException
 from .util import asList, UNIQUE_EXTENSION_LABEL, log_data_frame
 from . import metadata as md
 
+import re
+
 logger = logging.getLogger(__name__)
 
 DATALAKE_BATCH_UPDATE_ROWS = 5000
@@ -494,33 +496,106 @@ def _timestamp_as_string(timestamp):
            f"{timestamp.microsecond:06}{timestamp.nanosecond:03}"
 
 
-def _format_manage_alert_details(alert_name, device_id, report_date, alert_row=None, kpi_input=None):
+def _format_manage_alert_details(alert_name, device_id, alert_row=None, kpi_input=None):
+    """
+    Format alert details in HTML format for Maximo Manage.
+    """
 
-    details_parts = [
-        f"Alert '{alert_name}' triggered for device '{device_id}' at {report_date}."
-    ]
+    html_parts = []
+    
+    # Alert Name
+    html_parts.append(
+        '<p class="editor-paragraph" dir="ltr">'
+        '<b><strong class="editor-text-bold" style="white-space: pre-wrap;">Alert Name</strong></b>'
+        f'<span style="white-space: pre-wrap;">: {alert_name}</span>'
+        '</p>'
+    )
+    html_parts.append('<p class="editor-paragraph"><br></p>')
 
-    if alert_row is not None:
-        # Extract only the scalar values from the Series, excluding entity_id and alert name columns
-        metrics = []
-        for col, val in alert_row.items():
-            # Skip entity_id and columns that contain Series/complex objects
-            if col.lower() in ('entity_id', alert_name.lower()):
-                continue
-            # Extract scalar value if it's a Series
-            if hasattr(val, 'iloc'):
-                val = val.iloc[0] if len(val) > 0 else val
-            metrics.append(f"{col}: {val}")
-        
-        if metrics:
-            details_parts.append(f"Current metrics: {', '.join(metrics)}")
-
+    # Device
+    if device_id:
+        html_parts.append(
+            '<p class="editor-paragraph" dir="ltr">'
+            '<b><strong class="editor-text-bold" style="white-space: pre-wrap;">Device</strong></b>'
+            f'<span style="white-space: pre-wrap;">: {device_id}</span>'
+            '</p>'
+        )
+        html_parts.append('<p class="editor-paragraph"><br></p>')
+    
+    # Alert Parameters - Show ALL parameters from kpi_input
     if kpi_input:
-        config_parts = [f"{key}: {value}" for key, value in kpi_input.items() if value not in (None, '')]
-        if config_parts:
-            details_parts.append(f"Alert configuration:  {', '.join(config_parts)}.")
+        html_parts.append(
+            '<p class="editor-paragraph" dir="ltr">'
+            '<b><strong class="editor-text-bold" style="color: rgb(0, 0, 0); white-space: pre-wrap;">Alert Parameters:</strong></b>'
+            '</p>'
+        )
+        html_parts.append('<p class="editor-paragraph"><br></p>')
+        html_parts.append('<ul class="editor-list-ul">')
+        
+        for key, value in kpi_input.items():
+            if value not in (None, '', 'None'):
+                html_parts.append(
+                    '<li value="1" class="editor-listitem">'
+                    f'<span style="white-space: pre-wrap;">{key}: {value}</span>'
+                    '</li>'
+                )
+        
+        html_parts.append('</ul>')
+        html_parts.append('<p class="editor-paragraph"><br></p>')
 
-    return ' '.join(details_parts)
+    
+    # Relevant Metrics
+    if alert_row is not None and kpi_input:
+        # Extract input columns from kpi_input
+        input_columns = set()
+        
+        # Check for input parameter names
+        for key in ['input_item', 'sources', 'input_items']:
+            if key in kpi_input and kpi_input[key]:
+                value = kpi_input[key]
+                if isinstance(value, list):
+                    input_columns.update(value)
+                elif isinstance(value, str):
+                    input_columns.add(value)
+        
+        # Parse expression to extract column names
+        if 'expression' in kpi_input and kpi_input['expression']:
+            expr = kpi_input['expression']
+            # Extract from df['column'] or df["column"]
+            df_pattern = r"df\[['\"]([\w]+)['\"]\]"
+            # Extract from ${column}
+            dollar_pattern = r"\$\{([\w]+)\}"
+            
+            df_matches = re.findall(df_pattern, expr)
+            dollar_matches = re.findall(dollar_pattern, expr)
+            
+            input_columns.update(df_matches)
+            input_columns.update(dollar_matches)
+        
+        # Build metrics list
+        if input_columns:
+            html_parts.append(
+                '<p class="editor-paragraph" dir="ltr">'
+                '<b><strong class="editor-text-bold" style="white-space: pre-wrap;">Relevant Metrics:</strong></b>'
+                '</p>'
+            )
+            html_parts.append('<p class="editor-paragraph"><br></p>')
+            html_parts.append('<ul class="editor-list-ul">')
+
+            for col, val in alert_row.items():
+                if col in input_columns:
+                    # Extract scalar value if it's a Series
+                    if hasattr(val, 'iloc'):
+                        val = val.iloc[0] if len(val) > 0 else val
+                    html_parts.append(
+                        '<li value="1" class="editor-listitem">'
+                        f'<span style="white-space: pre-wrap;">{col}: {val}</span>'
+                        '</li>'
+                    )
+            
+            html_parts.append('</ul>')
+
+    return ''.join(html_parts)
 
 
 class ProduceAlerts(object):
@@ -903,11 +978,10 @@ class ProduceAlerts(object):
                         payload = {
                             "deviceUid": self.dms.device_name_to_uid.get(tmp_entity_id) if self.dms.entity_type_type == 'DEVICE_TYPE' else None,
                             "entityTypeId": self.dms.entity_type_id,
-                            "description": f"Alert generated from monitor for the {alert_name} KPI",
+                            "description": f"{alert_name} Alert detected in {tmp_entity_id} via MAS Monitor",
                             "details": _format_manage_alert_details(
                                         alert_name=alert_name,
                                         device_id=tmp_entity_id,
-                                        report_date=tmp_timestamp,
                                         alert_row=df_alert_events,
                                         kpi_input=kpi_input
                                     ),
@@ -918,7 +992,7 @@ class ProduceAlerts(object):
                         if alert_data["has_error"]:
                             payload["actionId"] = alert_data["action_id"]
                         self.dms.db.http_request(object_type='alerts', request='POST', object_name=None, payload=payload,
-                                                 raise_error=False)
+                                                 raise_error=False, ensure_ascii=False)
                         total_count += 1
 
             logger.info(f"A total of {total_count} alert events have been sent to manage in "
