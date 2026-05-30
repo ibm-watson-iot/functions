@@ -627,7 +627,7 @@ class AlertByOccurrencesCount(BaseEvent):
                 except KeyError:
                     last_ts_had_alert = False
             
-            if is_first_cycle and first_alert_from_previous_run is not None and first_alert_in_this_run is not None:
+            if is_first_cycle and first_alert_from_previous_run is not None and pd.notna(first_alert_from_previous_run) and first_alert_in_this_run is not None and pd.notna(first_alert_in_this_run):
                 first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
             
             cache_df.loc[entity_id] = {
@@ -1396,7 +1396,9 @@ class NoDataAlert(BaseEvent):
             has_current_data = device_id in devices_in_current_df
             device_registration_time = None
             first_alert_from_previous_run = None
-            if cache_df.empty or self.dms.running_with_backtrack or not is_cached_device:
+            if self.dms.entity_type_type is not 'DEVICE_TYPE' and (cache_df.empty or self.dms.running_with_backtrack):
+                device_registration_time = self._get_resource_registration_time(device_id)
+            elif (cache_df.empty or self.dms.running_with_backtrack or not is_cached_device) and self.dms.entity_type_type is 'DEVICE_TYPE':
                 device_registration_time = self._get_device_registration_time(device_id)
 
             # Load cache for this device
@@ -1414,7 +1416,7 @@ class NoDataAlert(BaseEvent):
 
             first_alert_in_this_run = None
             # During backtrack first cycle with previous alert, apply cooldown
-            if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and self.cooldown:
+            if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and pd.notna(first_alert_from_previous_run) and self.cooldown:
                 cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
                 logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
 
@@ -1426,7 +1428,7 @@ class NoDataAlert(BaseEvent):
                                                          metrics_to_monitor, device_registration_time, start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
 
             # Update cache for device
-            if is_first_cycle and first_alert_from_previous_run is not None and first_alert_in_this_run is not None:
+            if is_first_cycle and first_alert_from_previous_run is not None and pd.notna(first_alert_from_previous_run) and first_alert_in_this_run is not None and pd.notna(first_alert_in_this_run):
                 first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
             cache_df.at[device_id, 'last_event_timestamp'] = last_event_timestamp
             cache_df.at[device_id, 'cooldown_until'] = cooldown_until
@@ -1459,7 +1461,7 @@ class NoDataAlert(BaseEvent):
         logger.info( f"Device : {device_id} has no data in current batch")
         # Get last event timestamp if not in cache
         now = self.dms.launch_date
-        if last_event_timestamp is None or pd.isna(last_event_timestamp):
+        if (last_event_timestamp is None or pd.isna(last_event_timestamp)) and self.dms.entity_type_type is 'DEVICE_TYPE':
             last_event_timestamp = self._get_last_event_from_database(device_id, metrics_to_monitor)
 
             if last_event_timestamp is None:
@@ -1715,6 +1717,25 @@ class NoDataAlert(BaseEvent):
             return None
         except Exception as e:
             logger.error(f"Error querying DEVICE_LIST for {device_id}: {str(e)}")
+            return None
+
+    def _get_resource_registration_time(self, device_id):
+        """Get resource registration time Entity_type"""
+        try:
+            logger.info(f"Quering DB to get resource registration time, resource_id = {self.dms.entity_type_id}")
+            query, table = self.dms.db.query( 'ENTITY_TYPE',  'IOTANALYTICS', column_names=['CREATED_TS'] )
+
+            query = query.filter( self.dms.db.get_column_object(table, 'ENTITY_TYPE_ID') == self.dms.entity_type_id)
+
+            result = self.dms.db.read_sql_query(query.statement)
+
+            if result is not None and not result.empty:
+                created_ts = result['created_ts'].iloc[0]
+                if pd.notna(created_ts):
+                    return pd.Timestamp(created_ts)
+            return None
+        except Exception as e:
+            logger.error(f"Error querying ENTITY_TYPE for {device_id}: {str(e)}")
             return None
 
     def _get_gap_measurement_start_time(self, backtrack_start_ts, last_event_timestamp, device_registration_time):
