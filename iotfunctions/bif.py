@@ -1432,7 +1432,12 @@ class NoDataAlert(BaseEvent):
                 first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
             cache_df.at[device_id, 'last_event_timestamp'] = last_event_timestamp
             cache_df.at[device_id, 'cooldown_until'] = cooldown_until
-            cache_df.at[device_id, 'first_alert_time'] = first_alert_in_this_run if is_first_cycle else cache_df.loc[device_id]['first_alert_time']
+            if is_first_cycle:
+                cache_df.at[device_id, 'first_alert_time'] = first_alert_in_this_run
+            elif is_cached_device and device_id in cache_df.index:
+                cache_df.at[device_id, 'first_alert_time'] = cache_df.loc[device_id, 'first_alert_time']
+            else:
+                cache_df.at[device_id, 'first_alert_time'] = None
 
         # Store updated cache
         self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
@@ -1740,11 +1745,12 @@ class NoDataAlert(BaseEvent):
 
     def _get_gap_measurement_start_time(self, backtrack_start_ts, last_event_timestamp, device_registration_time):
         """Determine starting point for gap measurement"""
-        if last_event_timestamp is not None and pd.notna(last_event_timestamp) and backtrack_start_ts is None:
+        # Prioritize last_event_timestamp if available (most recent data point)
+        if last_event_timestamp is not None and pd.notna(last_event_timestamp):
             logger.info(f"nodata calculation started from last_event_timestamp : {last_event_timestamp}")
             return last_event_timestamp
         if backtrack_start_ts is not None:
-            return max(backtrack_start_ts,device_registration_time) if device_registration_time is not None else backtrack_start_ts
+            return max(backtrack_start_ts, device_registration_time) if device_registration_time is not None else backtrack_start_ts
         return device_registration_time
 
     def _create_synthetic_alert_row(self, device_id, alert_timestamp):
