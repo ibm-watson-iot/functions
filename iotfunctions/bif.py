@@ -622,7 +622,8 @@ class AlertByOccurrencesCount(BaseEvent):
             if len(entity_cond) > 0:
                 last_ts_in_cycle = entity_cond.index[-1]
                 try:
-                    last_status = df.loc[(entity_id, last_ts_in_cycle), self.alert_name].iloc[-1]
+                    last_status = df.loc[(entity_id, last_ts_in_cycle), self.alert_name]
+                    last_status = last_status.iloc[-1] if isinstance(last_status, pd.Series) else last_status
                     last_ts_had_alert = bool(last_status) if not pd.isna(last_status) else False
                 except KeyError:
                     last_ts_had_alert = False
