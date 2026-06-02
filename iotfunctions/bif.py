@@ -1417,11 +1417,13 @@ class NoDataAlert(BaseEvent):
             first_alert_in_this_run = None
             # During backtrack first cycle with previous alert, apply cooldown
             if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and pd.notna(first_alert_from_previous_run) and self.cooldown:
-                if df.empty and last_event_timestamp is not None and pd.Timestamp(last_event_timestamp):
-                    cooldown_until = pd.Timestamp(last_event_timestamp)+ self.duration_timedelta + self.cooldown_timedelta
-                else:
-                    cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
-                logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
+                    if last_event_timestamp is not None:
+                        no_data_condition = ( df.empty or ( self.input_item is not None and ( self.input_item not in df.columns or df[self.input_item].isna().all())))
+                        if no_data_condition:
+                            cooldown_until =  pd.Timestamp(last_event_timestamp) + self.duration_timedelta + self.cooldown_timedelta
+                    else:
+                        cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
+            logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
 
             if has_current_data:
                 df, last_event_timestamp, cooldown_until, first_alert_in_this_run =  self._process_device_with_data(df, device_id, last_event_timestamp, cooldown_until,
