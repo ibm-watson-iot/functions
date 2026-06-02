@@ -1396,9 +1396,9 @@ class NoDataAlert(BaseEvent):
             has_current_data = device_id in devices_in_current_df
             device_registration_time = None
             first_alert_from_previous_run = None
-            if self.dms.entity_type_type is not 'DEVICE_TYPE' and (cache_df.empty or self.dms.running_with_backtrack):
+            if self.dms.entity_type_type != 'DEVICE_TYPE' and (cache_df.empty or self.dms.running_with_backtrack):
                 device_registration_time = self._get_resource_registration_time(device_id)
-            elif (cache_df.empty or self.dms.running_with_backtrack or not is_cached_device) and self.dms.entity_type_type is 'DEVICE_TYPE':
+            elif (cache_df.empty or self.dms.running_with_backtrack or not is_cached_device) and self.dms.entity_type_type == 'DEVICE_TYPE':
                 device_registration_time = self._get_device_registration_time(device_id)
 
             # Load cache for this device
@@ -1417,7 +1417,10 @@ class NoDataAlert(BaseEvent):
             first_alert_in_this_run = None
             # During backtrack first cycle with previous alert, apply cooldown
             if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and pd.notna(first_alert_from_previous_run) and self.cooldown:
-                cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
+                if df.empty and last_event_timestamp is not None and pd.Timestamp(last_event_timestamp):
+                    cooldown_until = pd.Timestamp(last_event_timestamp)+ self.duration_timedelta + self.cooldown_timedelta
+                else:
+                    cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
                 logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
 
             if has_current_data:
@@ -1466,7 +1469,7 @@ class NoDataAlert(BaseEvent):
         logger.info( f"Device : {device_id} has no data in current batch")
         # Get last event timestamp if not in cache
         now = self.dms.launch_date
-        if (last_event_timestamp is None or pd.isna(last_event_timestamp)) and self.dms.entity_type_type is 'DEVICE_TYPE':
+        if (last_event_timestamp is None or pd.isna(last_event_timestamp)) and self.dms.entity_type_type == 'DEVICE_TYPE':
             last_event_timestamp = self._get_last_event_from_database(device_id, metrics_to_monitor)
 
             if last_event_timestamp is None:
