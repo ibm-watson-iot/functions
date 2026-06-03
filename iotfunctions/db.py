@@ -1007,7 +1007,7 @@ class Database(object):
         return [column.key for column in table.columns]
 
     def http_request(self, object_type, object_name, request, payload=None, object_name_2='', raise_error=True,
-                     sample_entity_type=False):
+                     sample_entity_type=False, ensure_ascii=True):
         """
         Make an api call to AS.
 
@@ -1029,6 +1029,9 @@ class Database(object):
             Dictionary will be encoded as JSON
         sample_entity_type : boolean
             When true calls meta api will additional parameter
+        ensure_ascii : boolean
+            When false payload can contain non-ASCII characters if they appear in strings contained in ``obj``. Otherwise, all
+            such characters are escaped in JSON strings
         """
         if object_name is None:
             object_name = ''
@@ -1112,7 +1115,7 @@ class Database(object):
         self.url['alerts', 'PUT'] = '/'.join(
             [core_url, 'v2', 'core', 'internal', 'alert', object_name])
 
-        encoded_payload = json.dumps(payload).encode('utf-8')
+        encoded_payload = json.dumps(payload, ensure_ascii=ensure_ascii).encode('utf-8')
         headers = {'Content-Type': "application/json", 'X-api-key': self.credentials['as']['api_key'],
                    'X-api-token': self.credentials['as']['api_token'], 'Cache-Control': "no-cache",
                    'tenantId': self.tenant_id, 'mam_user_email': 'analyticsService@ibm.com'}
