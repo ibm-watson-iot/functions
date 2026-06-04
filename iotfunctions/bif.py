@@ -1640,7 +1640,7 @@ class NoDataAlert(BaseEvent):
         try:
             table_name = self.dms.entity_type_obj.table.name
             timestamp_col = self.dms.eventTimestampName
-            query = f"SELECT max({timestamp_col}) FROM MAIN_MAM.{table_name} WHERE DEVICEID = '{device_id}';"
+            query = f"SELECT max({timestamp_col}) FROM {self.dms.db.schema}.{table_name} WHERE DEVICEID = '{device_id}';"
             if self.input_item is not None:
                 try:
                     data_item_info = self.dms.data_items.get(self.input_item)
@@ -1648,13 +1648,13 @@ class NoDataAlert(BaseEvent):
                     if data_item_info.get('type').upper() == 'DERIVED_METRIC':
                         # Get the table name from metadata
                         table_name = data_item_info.get('sourceTableName').upper()
-                        query = f"SELECT max(TIMESTAMP) FROM MAIN_MAM.{table_name} WHERE KEY = '{self.input_item}' AND ENTITY_ID = '{device_id}'"
+                        query = f"SELECT max(TIMESTAMP) FROM {self.dms.db.schema}.{table_name} WHERE KEY = '{self.input_item}' AND ENTITY_ID = '{device_id}'"
                     else:
                         if data_item_info and 'columnName' in data_item_info:
                             metric_column = data_item_info['columnName']
                         else:
                             metric_column = self.input_item.upper()
-                        query = f"SELECT max({timestamp_col}) FROM MAIN_MAM.{table_name} WHERE {metric_column} IS NOT NULL AND DEVICEID = '{device_id}'"
+                        query = f"SELECT max({timestamp_col}) FROM {self.dms.db.schema}.{table_name} WHERE {metric_column} IS NOT NULL AND DEVICEID = '{device_id}'"
                 except:
                     logging.info("metric name missing in data_item_info")
 
