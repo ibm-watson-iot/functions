@@ -1424,7 +1424,7 @@ class NoDataAlert(BaseEvent):
                             cooldown_until =  pd.Timestamp(last_event_timestamp) + self.duration_timedelta + self.cooldown_timedelta
                     else:
                         cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
-            logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
+            logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until} last_event_timestamp {last_event_timestamp}')
 
             if has_current_data:
                 df, last_event_timestamp, cooldown_until, first_alert_in_this_run =  self._process_device_with_data(df, device_id, last_event_timestamp, cooldown_until,
@@ -1531,7 +1531,7 @@ class NoDataAlert(BaseEvent):
         if not all_data_timestamp:
             # Device exists in batch but has no data for monitored metrics
             # Treat as device without data in df
-            logger.debug(f"Device {device_id}: Present in batch but no data for monitored metrics")
+            logger.info(f"Device {device_id}: Present in batch but no data for monitored metrics")
             return self._process_device_without_data(df, device_id, last_event_timestamp, cooldown_until,
                                                     metrics_to_monitor, device_registration_time, backtrack_start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
 
@@ -1545,6 +1545,8 @@ class NoDataAlert(BaseEvent):
         # Check gap from history to first data
         gap_measurement_start_time = self._get_gap_measurement_start_time(backtrack_start_ts, last_event_timestamp, device_registration_time)
         timestamps_to_check = self._build_timeline(gap_measurement_start_time, all_data_timestamp, end_ts)
+        logger.info(f'gap_measurement_start_time : {gap_measurement_start_time}')
+        logger.info(f'timestamps_to_check : {timestamps_to_check}')
         df, gaps_detected, cooldown_until, first_alert_in_this_run =  self._check_gaps_all_metrics(df, device_id, timestamps_to_check, per_metric_timestamps,
                                 metrics_to_monitor, cooldown_until, is_first_cycle, first_alert_in_this_run)
 
@@ -1637,41 +1639,36 @@ class NoDataAlert(BaseEvent):
         """
         try:
             table_name = self.dms.entity_type_obj.table.name
-            entity_id_col = self.dms.entityIdColumn
             timestamp_col = self.dms.eventTimestampName
-
-            # Get table object
-            table = self.dms.db.get_table(table_name, self.dms.schema)
-
-            # Build query with MAX aggregation directly
-            max_timestamp = func.max(self.dms.db.get_column_object(table, timestamp_col)).label('last_timestamp')
-            query = self.dms.db.session.query(max_timestamp)
-
-            # Filter by device_id
-            query = query.filter(self.dms.db.get_column_object(table, entity_id_col) == device_id)
-
+            query = f"SELECT max({timestamp_col}) FROM {self.dms.db.schema}.{table_name} WHERE DEVICEID = '{device_id}';"
             if self.input_item is not None:
                 try:
                     data_item_info = self.dms.data_items.get(self.input_item)
-                    if data_item_info and 'columnName' in data_item_info:
-                        metric_column = data_item_info['columnName']
+                    # Check if it's a derived metric
+                    if data_item_info.get('type').upper() == 'DERIVED_METRIC':
+                        # Get the table name from metadata
+                        table_name = data_item_info.get('sourceTableName').upper()
+                        query = f"SELECT max(TIMESTAMP) FROM {self.dms.db.schema}.{table_name} WHERE KEY = '{self.input_item}' AND ENTITY_ID = '{device_id}'"
                     else:
-                        metric_column = metric_name
+                        if data_item_info and 'columnName' in data_item_info:
+                            metric_column = data_item_info['columnName']
+                        else:
+                            metric_column = self.input_item.upper()
+                        query = f"SELECT max({timestamp_col}) FROM {self.dms.db.schema}.{table_name} WHERE {metric_column} IS NOT NULL AND DEVICEID = '{device_id}'"
                 except:
-                    metric_column = metric_name
+                    logging.info("metric name missing in data_item_info")
 
-                # Add metric IS NOT NULL condition
-                query = query.filter(self.dms.db.get_column_object(table, metric_column).isnot(None))
-                logger.debug(f"Parameters: device_id={device_id}, metric={metric_name}, column={metric_column}")
-
+                logger.info(f"Parameters: device_id={device_id}, metric={metric_name}")
             # Execute query
-            result = self.dms.db.read_sql_query(query.statement)
+            result = self.dms.db.read_sql_query(query)
 
             if result is not None and not result.empty:
-                last_timestamp = result['last_timestamp'].iloc[0]
+                last_timestamp = result.iloc[0, 0]
                 if pd.notna(last_timestamp):
                     logger.info(f"Found last_event_timestamp for device {device_id}, metric {metric_name}: {last_timestamp}")
                     return pd.Timestamp(last_timestamp)
+                else:
+                    return self._get_device_registration_time(device_id)
 
             logger.warning(f"No data found in database for device {device_id}, metric {metric_name}")
             return None
