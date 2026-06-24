@@ -1370,9 +1370,11 @@ class NoDataAlert(BaseEvent):
         if self.input_item is not None:
             metrics_to_monitor =  [self.input_item]
         else:
-            all_metrics = self.dms.data_items.get_names(['METRIC'])
+            metrics = self.dms.data_items.get_names(['METRIC'])
+            derived_metrics = self.dms.data_items.get_names(['DERIVED_METRIC'])
             system_columns = {'DEFAULT_TIMESTAMP_UTC', 'ENTITY_ID', 'RCV_TIMESTAMP_UTC'}
-            metrics_to_monitor = [m for m in all_metrics if m not in system_columns]
+            all_metrics = metrics | derived_metrics
+            metrics_to_monitor = [m for m in all_metrics if m not in system_columns and not m.startswith('###IBM###') and m != self.alert_name]
 
         # Get all devices to process
         devices_in_current_df = set(df.index.get_level_values('id').unique()) if not df.empty else set()
@@ -1771,7 +1773,7 @@ class NoDataAlert(BaseEvent):
     def get_input_items(self):
         """Return input items for dependency tracking"""
         if self.input_item is None:
-            all_metrics = self.dms.data_items.get_names(['METRIC'])
+            all_metrics = self.dms.data_items.get_names(['METRIC']) | self.dms.data_items.get_names(['DERIVED_METRIC'])
             system_columns = {'DEFAULT_TIMESTAMP_UTC', 'ENTITY_ID', 'RCV_TIMESTAMP_UTC'}
             return set([m for m in all_metrics if m not in system_columns])
         return set()
