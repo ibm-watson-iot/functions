@@ -1370,11 +1370,7 @@ class NoDataAlert(BaseEvent):
         if self.input_item is not None:
             metrics_to_monitor =  [self.input_item]
         else:
-            metrics = self.dms.data_items.get_names(['METRIC'])
-            derived_metrics = self.dms.data_items.get_names(['DERIVED_METRIC'])
-            system_columns = {'DEFAULT_TIMESTAMP_UTC', 'ENTITY_ID', 'RCV_TIMESTAMP_UTC'}
-            all_metrics = metrics | derived_metrics
-            metrics_to_monitor = [m for m in all_metrics if m not in system_columns and not m.startswith('###IBM###') and m != self.alert_name]
+            metrics_to_monitor = self.get_metrics_to_monitor()
 
         # Get all devices to process
         devices_in_current_df = set(df.index.get_level_values('id').unique()) if not df.empty else set()
@@ -1770,12 +1766,25 @@ class NoDataAlert(BaseEvent):
         synthetic_row.index.names = ['id', self.dms.eventTimestampName]
         return synthetic_row
 
+    def get_metrics_to_monitor(self):
+        metrics = self.dms.data_items.get_names(['METRIC'])
+        derived_metrics = self.dms.data_items.get_names(['DERIVED_METRIC'])
+        system_columns = {'DEFAULT_TIMESTAMP_UTC', 'ENTITY_ID', 'RCV_TIMESTAMP_UTC'}
+        metrics_to_monitor = None
+        if self.dms.entity_type_type != 'DEVICE_TYPE':
+            metrics_to_monitor = {item for item in derived_metrics if self.dms.data_items.get(item).get('kpiFunctionDto', {}).get('catalogFunctionName') != 'NoDataAlert'
+                                  and item != self.alert_name
+                                  and not item.startswith('###IBM###')}
+        elif self.dms.entity_type_type == 'DEVICE_TYPE':
+            metrics_to_monitor = set([m for m in metrics if m not in system_columns])
+
+        logger.info(f"metrics_to_monitor : {metrics_to_monitor}")
+        return metrics_to_monitor
+
     def get_input_items(self):
         """Return input items for dependency tracking"""
         if self.input_item is None:
-            all_metrics = self.dms.data_items.get_names(['METRIC']) | self.dms.data_items.get_names(['DERIVED_METRIC'])
-            system_columns = {'DEFAULT_TIMESTAMP_UTC', 'ENTITY_ID', 'RCV_TIMESTAMP_UTC'}
-            return set([m for m in all_metrics if m not in system_columns])
+            return self.get_metrics_to_monitor()
         return set()
 
     @classmethod
