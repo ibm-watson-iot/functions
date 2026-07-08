@@ -1356,6 +1356,8 @@ class NoDataAlert(BaseEvent):
         kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get('kpiFunctionId')
         if not kpi_function_id:
             raise ValueError(f'Not found KPI_FUNCTION_ID for alert {self.alert_name}.')
+        if self.dms.entity_type_type != 'DEVICE_TYPE' and self.input_item is None:
+            raise ValueError(f'Validation Error: The input_item parameter is required for NoDataAlert {self.alert_name} on hierarchy levels. Please select a input_item.')
 
         self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema,self.dms.db_connection, self.dms.db_type)
         if not self.dms.running_with_backtrack:
@@ -1805,7 +1807,7 @@ class NoDataAlert(BaseEvent):
         inputs.append(UISingleItem(
             name='input_item',
             datatype=str,
-            description="Optional: specific metric to monitor (if not specified, monitors all metrics)",
+            description="input_item is optional only for the Device_Type, It is required for all other resource types.",
             output_item='output_items',
             is_output_datatype_derived=False,
             required=False))
