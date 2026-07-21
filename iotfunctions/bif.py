@@ -586,6 +586,8 @@ class AlertByOccurrencesCount(BaseEvent):
                     logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts} from previous run in backtrack')
                     df.loc[(entity_id, ts), self.alert_name] = True
                     active_occurrences.clear()
+                    if self.cooldown:
+                        cooldown_until = ts + self.cool_down_period
                 elif len(active_occurrences) >= self.min_occurrences and (cooldown_until is None or ts > cooldown_until):
                     logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts}')
                     df.loc[(entity_id, ts), self.alert_name] = True
