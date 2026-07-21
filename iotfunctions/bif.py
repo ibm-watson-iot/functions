@@ -586,8 +586,6 @@ class AlertByOccurrencesCount(BaseEvent):
                     logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts} from previous run in backtrack')
                     df.loc[(entity_id, ts), self.alert_name] = True
                     active_occurrences.clear()
-                    if self.cooldown:
-                        cooldown_until = ts + self.cool_down_period
                 elif len(active_occurrences) >= self.min_occurrences and (cooldown_until is None or ts > cooldown_until):
                     logger.debug(f'BREACH FOUND for alert {self.alert_name} at {ts}')
                     df.loc[(entity_id, ts), self.alert_name] = True
@@ -629,9 +627,14 @@ class AlertByOccurrencesCount(BaseEvent):
                     last_ts_had_alert = bool(last_status) if not pd.isna(last_status) else False
                 except KeyError:
                     last_ts_had_alert = False
-            
-            if is_first_cycle and pd.notna(first_alert_from_previous_run) and pd.notna(first_alert_in_this_run):
-                first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
+
+            if is_first_cycle:
+                # If this run generated a new alert, use it.
+                # Otherwise, carry forward the previous cycle's alert.
+                if pd.notna(first_alert_in_this_run):
+                    first_alert_in_this_run = first_alert_in_this_run
+                else:
+                    first_alert_in_this_run = first_alert_from_previous_run
             
             cache_df.loc[entity_id] = {
                 'last_condition_state': entity_cond.iloc[-1] if len(entity_cond) > 0 else None,
