@@ -566,6 +566,7 @@ class AlertByOccurrencesCount(BaseEvent):
             if self.dms.running_with_backtrack and is_first_cycle and pd.notna(first_alert_from_previous_run) and self.cooldown:
                 cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cool_down_period
                 logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
+                active_occurrences.clear()
             
             for ts in all_occurrences:
 
