@@ -564,7 +564,14 @@ class AlertByOccurrencesCount(BaseEvent):
 
             # During backtrack first cycle with previous alert, apply cooldown
             if self.dms.running_with_backtrack and is_first_cycle and pd.notna(first_alert_from_previous_run) and self.cooldown:
-                cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cool_down_period
+                if self.window_type == 'Tumbling':
+                    freq_map = {'Minutes': 'min', '': 'min', 'Hours': 'h', 'Days': 'D'}
+                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
+                    window_start = pd.Timestamp(first_alert_from_previous_run).floor(freq)
+                    window_end = window_start + self.T
+                    cooldown_until = window_end + self.cool_down_period
+                else:
+                    cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cool_down_period
                 logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until}')
                 active_occurrences.clear()
             
