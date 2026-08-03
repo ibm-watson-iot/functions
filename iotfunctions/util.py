@@ -33,6 +33,8 @@ import requests
 from lxml import etree
 from tabulate import tabulate
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -1336,3 +1338,74 @@ def compare_frequency(freq1, freq2):
         rc = 1
 
     return rc
+
+_OUT_COL_ENTITY_ID = 'entity_id'
+_OUT_COL_TIMESTAMP = 'timestamp'
+_OUT_COL_KEY = 'key'
+_OUT_TYPE_VALUE_COL = {
+    'NUMBER':    'VALUE_N',
+    'LITERAL':   'VALUE_S',
+    'BOOLEAN':   'VALUE_B',
+    'TIMESTAMP': 'VALUE_T',
+}
+
+
+def get_calc_metric_data(dms, data_item_name, data_type, column_key,
+                         schema_name, table_name, start_ts, end_ts, entities=None):
+    """Load a single calculated (output-table) metric for the given time range.
+
+    Parameters
+    ----------
+    dms :
+        Provides ``dms.db``, ``dms.entityIdName``, and ``dms.eventTimestampName``.
+    data_item_name : str
+        Name of the metric; becomes the column name in the returned DataFrame.
+    data_type : str
+        One of ``'NUMBER'``, ``'LITERAL'``, ``'BOOLEAN'``, ``'TIMESTAMP'``.
+    column_key : str
+        The value stored in the ``KEY`` column of the output table.
+    schema_name : str
+    table_name : str
+    start_ts : datetime-like or None
+    end_ts : datetime-like or None
+    entities : list or None
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: ``dms.entityIdName``, ``dms.eventTimestampName``,
+        ``data_item_name``.  Empty DataFrame when no data exists.
+    """
+    value_col = _OUT_TYPE_VALUE_COL[data_type]
+    column_names = [_OUT_COL_ENTITY_ID, _OUT_COL_TIMESTAMP, _OUT_COL_KEY, value_col]
+    filters = {_OUT_COL_KEY: [column_key]}
+
+    query, table = dms.db.query(table_name, schema_name, timestamp_col=_OUT_COL_TIMESTAMP,
+                            start_ts=start_ts, end_ts=end_ts, entities=entities,
+                            filters=filters, column_names=column_names, column_aliases=column_names,
+                            deviceid_col=_OUT_COL_ENTITY_ID)
+    df = dms.db.read_sql_query(sql=query.statement)
+
+    if not df.empty:
+        # Pivot the single key from row-per-key into its own column
+        df = df.pivot(values=value_col,
+                      index=[_OUT_COL_ENTITY_ID, _OUT_COL_TIMESTAMP],
+                      columns=_OUT_COL_KEY)
+        df.rename(columns={column_key: data_item_name}, inplace=True)
+    else:
+        df = pd.DataFrame(columns=[_OUT_COL_ENTITY_ID, _OUT_COL_TIMESTAMP, data_item_name])
+        df = df.astype({_OUT_COL_ENTITY_ID: str, _OUT_COL_TIMESTAMP: 'datetime64[ns]'})
+        df.set_index(keys=[_OUT_COL_ENTITY_ID, _OUT_COL_TIMESTAMP], inplace=True)
+
+    # Guarantee the metric column exists even when there was no data
+    if data_item_name not in df.columns:
+        df[data_item_name] = np.nan
+
+    # Flatten index back to plain columns and rename to dms conventions
+    df.reset_index(inplace=True)
+    df.rename(columns={_OUT_COL_ENTITY_ID: dms.entityIdName,
+                        _OUT_COL_TIMESTAMP: dms.eventTimestampName}, inplace=True)
+
+    log_data_frame("get_calc_metric_data result", df)
+
+    return df
