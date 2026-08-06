@@ -1440,10 +1440,15 @@ class NoDataAlert(BaseEvent):
                 first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
             cache_df.at[device_id, 'last_event_timestamp'] = last_event_timestamp
             cache_df.at[device_id, 'cooldown_until'] = cooldown_until
-            if is_first_cycle:
-                cache_df.at[device_id, 'first_alert_time'] = first_alert_in_this_run
+            if first_alert_in_this_run is not None and pd.notna(first_alert_in_this_run):
+                if (is_first_cycle and first_alert_from_previous_run is not None
+                        and pd.notna(first_alert_from_previous_run)):
+                    cache_df.at[device_id, 'first_alert_time'] = min(
+                        first_alert_from_previous_run, first_alert_in_this_run)
+                else:
+                    cache_df.at[device_id, 'first_alert_time'] = first_alert_in_this_run
             elif is_cached_device and device_id in cache_df.index:
-                cache_df.at[device_id, 'first_alert_time'] = cache_df.loc[device_id, 'first_alert_time']
+                pass
             else:
                 cache_df.at[device_id, 'first_alert_time'] = None
 
@@ -1546,19 +1551,23 @@ class NoDataAlert(BaseEvent):
 
         # Check gap from history to first data
         gap_measurement_start_time = self._get_gap_measurement_start_time(backtrack_start_ts, last_event_timestamp, device_registration_time)
+        real_data_timestamp_set = set(all_data_timestamp)
         timestamps_to_check = self._build_timeline(gap_measurement_start_time, all_data_timestamp, end_ts)
         logger.info(f'gap_measurement_start_time : {gap_measurement_start_time}')
         logger.info(f'timestamps_to_check : {timestamps_to_check}')
         df, gaps_detected, cooldown_until, first_alert_in_this_run =  self._check_gaps_all_metrics(df, device_id, timestamps_to_check, per_metric_timestamps,
-                                metrics_to_monitor, cooldown_until, is_first_cycle, first_alert_in_this_run)
+                                metrics_to_monitor, cooldown_until, is_first_cycle, first_alert_in_this_run,
+                                real_data_timestamp_set=real_data_timestamp_set)
 
         # Update last_event_timestamp to latest data in batch
         last_event_timestamp = last_data_timestamp
         # Reset cooldown if no gaps detected
         if not gaps_detected:
             cooldown_until = None
-            df.loc[device_id, self.alert_name] = None
-
+            try:
+                df.loc[device_id, self.alert_name] = None
+            except KeyError:
+                pass
         return df, last_event_timestamp, cooldown_until, first_alert_in_this_run
 
     def _build_timeline(self, gap_measurement_start, sorted_timestamps, end_ts):
@@ -1572,7 +1581,7 @@ class NoDataAlert(BaseEvent):
         return timestamps_to_check
 
     def _check_gaps_all_metrics(self, df, device_id, timestamps_to_check, per_metric_timestamps,
-                                metrics_to_monitor, cooldown_until, is_first_cycle, first_alert_in_this_run):
+                                metrics_to_monitor, cooldown_until, is_first_cycle, first_alert_in_this_run, real_data_timestamp_set=None):
         """Check for gaps where ALL metrics have no data"""
         gaps_detected = False
 
@@ -1594,9 +1603,17 @@ class NoDataAlert(BaseEvent):
 
                     # Reset cooldown if gap alert was raised AND there's a subsequent timestamp (indicating data arrival after gap)
                     if detected and i + 2 < len(timestamps_to_check):
-                        if cooldown_until is not None:
-                            cooldown_until = None  # Clear cooldown since data resumed after the gap
-                            logger.info(f"Device {device_id}: At least one metric has data in gap, resetting cooldown")
+                        # if cooldown_until is not None:
+                        #     cooldown_until = None  # Clear cooldown since data resumed after the gap
+                        #     logger.info(f"Device {device_id}: At least one metric has data in gap, resetting cooldown")
+                        next_boundary = timestamps_to_check[i + 1]  # same as gap_end_ts
+                        is_real_data = real_data_timestamp_set is not None and next_boundary in real_data_timestamp_set
+                        if is_real_data:
+                            cooldown_until = None
+                            logger.info(f"Device {device_id}: Real data at {next_boundary} after gap — cooldown cleared")
+                        else:
+                           logger.info(f"Device {device_id}: Boundary {next_boundary} is the cycle-end sentinel — cooldown preserved to protect "
+                             f"historical alerts from stale-resolution")
                 # else:
                 #     # At least one metric has data, reset cooldown
                 #     if cooldown_until is not None:
