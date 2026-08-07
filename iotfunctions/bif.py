@@ -1371,6 +1371,8 @@ class NoDataAlert(BaseEvent):
         kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get('kpiFunctionId')
         if not kpi_function_id:
             raise ValueError(f'Not found KPI_FUNCTION_ID for alert {self.alert_name}.')
+        if self.dms.entity_type_type != 'DEVICE_TYPE' and self.input_item is None:
+            raise ValueError(f'Validation Error: The input_item parameter is required for NoDataAlert {self.alert_name} on hierarchy levels. Please select a input_item.')
 
         self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema,self.dms.db_connection, self.dms.db_type)
         if not self.dms.running_with_backtrack:
@@ -1433,12 +1435,12 @@ class NoDataAlert(BaseEvent):
             first_alert_in_this_run = None
             # During backtrack first cycle with previous alert, apply cooldown
             if self.dms.running_with_backtrack and is_first_cycle and first_alert_from_previous_run is not None and pd.notna(first_alert_from_previous_run) and self.cooldown:
-                    if last_event_timestamp is not None:
                         no_data_condition = ( df.empty or ( self.input_item is not None and ( self.input_item not in df.columns or df[self.input_item].isna().all())))
-                        if no_data_condition:
+                        if no_data_condition and last_event_timestamp is not None:
                             cooldown_until =  pd.Timestamp(last_event_timestamp) + self.duration_timedelta + self.cooldown_timedelta
-                    else:
-                        cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
+                        else:
+                            cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cooldown_timedelta
+
             logger.info(f'Backtrack: Applying cooldown from previous run first alert {first_alert_from_previous_run} until {cooldown_until} last_event_timestamp {last_event_timestamp}')
 
             if has_current_data:
@@ -1820,7 +1822,7 @@ class NoDataAlert(BaseEvent):
         inputs.append(UISingleItem(
             name='input_item',
             datatype=str,
-            description="Optional: specific metric to monitor (if not specified, monitors all metrics)",
+            description="input_item is optional only for the Device_Type, It is required for all other resource types.",
             output_item='output_items',
             is_output_datatype_derived=False,
             required=False))
@@ -3854,45 +3856,6 @@ class SplitDataByActiveShifts(BaseTransformer):
             df[self.shift_end] = generated_values['self.shift_end']
 
         df = df.set_index(keys=indexes_moved_to_columns, drop=True, append=False)
-
-        return df
-
-
-class MergeByFirstValid(BaseTransformer):
-
-    @classmethod
-    def metadata(cls):
-        return _generate_metadata(cls, {
-            'description': 'Create alerts that are triggered when data values reach a particular range.', 'input': [
-                {'name': 'sources', 'description': 'Select one or more data items to be merged.', 'type': 'DATA_ITEM',
-                 'required': True, 'dataType': 'ARRAY',
-                 'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "title": "sources",
-                                "type": "array", "minItems": 1, "items": {"type": "string"}}}], 'output': [
-                {'name': 'name', 'description': 'The new data item name for the merge result to create.',
-                 'dataTypeFrom': 'sources'}], 'tags': ['EVENT', 'JUPYTER']})
-
-    def __init__(self, name=None, sources=None):
-        self.logger = logging.getLogger('%s.%s' % (self.__module__, self.__class__.__name__))
-
-        if name is None or not isinstance(name, str):
-            raise RuntimeError("argument name must be provided and must be a string")
-
-        self.name = name
-        self.sources = sources
-
-    def execute(self, df):
-        sources_not_in_column = df.index.names
-        df = df.reset_index()
-
-        df[self.name] = df[self.sources].bfill(axis=1).iloc[:, 0]
-        msg = 'MergeByFirstValid %s' % df[self.name].unique()[0:50]
-        self.logger.debug(msg)
-
-        msg = 'Null merge key: %s' % df[df[self.name].isna()].head(1).transpose()
-        self.logger.debug(msg)
-
-        # move back index
-        df = df.set_index(keys=sources_not_in_column)
 
         return df
 
