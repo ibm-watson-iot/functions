@@ -1436,12 +1436,15 @@ class NoDataAlert(BaseEvent):
                                                          metrics_to_monitor, device_registration_time, start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
 
             # Update cache for device
+            if is_first_cycle and first_alert_from_previous_run is not None and pd.notna(first_alert_from_previous_run) and first_alert_in_this_run is not None and pd.notna(first_alert_in_this_run):
+                first_alert_in_this_run = min(first_alert_from_previous_run, first_alert_in_this_run)
             cache_df.at[device_id, 'last_event_timestamp'] = last_event_timestamp
             cache_df.at[device_id, 'cooldown_until'] = cooldown_until
             if first_alert_in_this_run is not None and pd.notna(first_alert_in_this_run):
                 if (is_first_cycle and first_alert_from_previous_run is not None
                         and pd.notna(first_alert_from_previous_run)):
-                    cache_df.at[device_id, 'first_alert_time'] = min(first_alert_from_previous_run, first_alert_in_this_run)
+                    cache_df.at[device_id, 'first_alert_time'] = min(
+                        first_alert_from_previous_run, first_alert_in_this_run)
                 else:
                     cache_df.at[device_id, 'first_alert_time'] = first_alert_in_this_run
             elif is_cached_device and device_id in cache_df.index:
