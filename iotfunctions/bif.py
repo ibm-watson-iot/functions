@@ -1518,6 +1518,23 @@ class NoDataAlert(BaseEvent):
                 if last_alert_timestamp is not None:
                     cooldown_until = last_alert_timestamp + self.cooldown_timedelta
 
+            else:
+                # Still within cooldown — no new alert generated in this cycle.
+                # We must re-inject the most-recently-alerted timestamp as a synthetic
+                # True row so ProduceAlerts.execute() sees this alert as still-firing.
+                # Without this, calc_alert_events is empty and ProduceAlerts enters its
+                # else-branch which resolves ALL active DB alerts for the query window,
+                # incorrectly marking all outstanding no-data alerts as Resolved.
+                last_alerted_ts = cooldown_until - self.cooldown_timedelta
+                if last_alerted_ts >= alert_threshold:
+                    df = pd.concat(
+                        [df, self._create_synthetic_alert_row(device_id, last_alerted_ts)],
+                        sort=False)
+                    logger.info(
+                        f"Device {device_id}: still in cooldown until {cooldown_until}, "
+                        f"re-injecting last alert row at {last_alerted_ts} to prevent "
+                        f"stale resolution of active no-data alerts")
+
 
 
         return df, last_event_timestamp, cooldown_until, first_alert_in_this_run
