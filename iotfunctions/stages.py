@@ -719,11 +719,9 @@ class ProduceAlerts(object):
 
                     # Retrieve existing active alert events from database for the full
                     # pipeline time window.
-                    query_window_start = start_ts if start_ts is not None else window_start
-                    query_window_end = end_ts if end_ts is not None else window_end
                     existing_alert_events = self._get_alert_events_from_db(alert_name=alert_name,
                                                                            index_has_entity_id=index_has_entity_id,
-                                                                           start_ts=query_window_start, end_ts=query_window_end)
+                                                                           start_ts=window_start, end_ts=window_end)
 
                     modifiable_mask = (existing_alert_events[self.last_updated_by_col_name].isna()) | \
                                       (existing_alert_events[self.last_updated_by_col_name] == 'IBM')
@@ -752,11 +750,6 @@ class ProduceAlerts(object):
                     if calc_alert_events.index.size > 0:
                         # Resolve stale alert events: exist in DB as active but are no longer firing
                         stale = active_alerts.index.difference(calc_alert_events.index)
-                        if start_ts is not None and end_ts is not None:
-                            stale_ts_vals = (stale.get_level_values(self.timestamp_df_name)
-                                             if index_has_entity_id else stale)
-                            in_window = (stale_ts_vals >= start_ts) & (stale_ts_vals <= end_ts)
-                            stale = stale[in_window]
                         self._resolve_stale_alerts(alert_name, stale, index_has_entity_id)
                         self._resolve_stale_alerts_in_manage(alert_name, stale, index_has_entity_id)
 
