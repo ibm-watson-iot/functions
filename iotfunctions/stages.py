@@ -770,12 +770,14 @@ class ProduceAlerts(object):
                         logger.info(f"{difference.size} out of {calc_alert_events.index.size} calculated alert events "
                                     f"for alert {alert_name} are new. {stale.size} stale alert events resolved.")
                     else:
-                        # No alerts firing in this window — resolve all active alerts found in DB for this window
-                        self._resolve_stale_alerts(alert_name, active_alerts.index, index_has_entity_id)
-                        self._resolve_stale_alerts_in_manage(alert_name, active_alerts.index, index_has_entity_id)
+                        # No calculated alert events in this cycle.
+                        # Do NOT resolve any active DB alerts here.
+
+
                         new_alert_events[alert_name] = calc_alert_events
-                        logger.info(f"There are no calculated alert events for alert {alert_name}. "
-                                    f"{active_alerts.shape[0]} stale alert events resolved.")
+                        logger.info(
+                            f"No calculated alert events for alert {alert_name} in this cycle. "
+                            f"Skipping stale resolution to preserve valid active alerts.")
 
                 # Push new alert events to database
                 self._push_alert_events_to_db(new_alert_events, index_has_entity_id)
