@@ -1537,32 +1537,10 @@ class NoDataAlert(BaseEvent):
             return self._process_device_without_data(df, device_id, last_event_timestamp, cooldown_until,
                                                     metrics_to_monitor, device_registration_time, backtrack_start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
 
-        # Check if truly late data arrived BEFORE the gap threshold would have fired.
-        # This covers the case where a delayed batch delivers data with a timestamp
-        # that is earlier than last_event_ts + duration — meaning no actual gap existed.
-        # We must NOT reset cooldown simply because data arrived within the cooldown window
-        # (that is the normal "data resumed after a valid gap" scenario and the previously
-        # fired alerts for that gap remain valid).
-        gap_meas_start_for_late_check = self._get_gap_measurement_start_time(
-            backtrack_start_ts, last_event_timestamp, device_registration_time)
-        alert_threshold_for_late_check = (
-            gap_meas_start_for_late_check + self.duration_timedelta
-            if gap_meas_start_for_late_check is not None
-            else None)
-        if (cooldown_until is not None
-                and alert_threshold_for_late_check is not None
-                and any(ts < alert_threshold_for_late_check for ts in all_data_timestamp)):
-            # Data arrived before the gap would have triggered any alert — the
-            # reported gap was a false positive; clear the stale cooldown.
-            logger.info(
-                f"Device {device_id}: Truly late data detected (arrived before alert threshold "
-                f"{alert_threshold_for_late_check}), resetting cooldown")
+        # Check if late data arrived during cooldown period
+        if cooldown_until is not None and any(ts < cooldown_until for ts in all_data_timestamp):
+            logger.info(f"Device {device_id}: Late data detected during cooldown period, resetting cooldown")
             cooldown_until = None
-        else:
-            if cooldown_until is not None:
-                logger.info(
-                    f"Device {device_id}: Data resumed after valid gap — cooldown preserved "
-                    f"(cooldown_until={cooldown_until})")
 
         last_data_timestamp = all_data_timestamp[-1]
 
@@ -1613,14 +1591,12 @@ class NoDataAlert(BaseEvent):
                 if all_metrics_no_data:
                     df, cooldown_until, detected, first_alert_in_this_run = self._generate_gap_alerts(df, device_id, gap_start_ts, gap_end_ts, cooldown_until, is_first_cycle, first_alert_in_this_run)
                     gaps_detected = gaps_detected or detected
-                    # Do NOT clear cooldown here when data resumes after the gap.
-                    # The gap was valid; the alerts fired for it are real.
-                    # Clearing cooldown_until would cause _generate_gap_alerts on the
-                    # next run to re-fire from a different base timestamp, producing
-                    # new alert rows whose timestamps don't match the DB rows → those
-                    # DB rows become "stale" and ProduceAlerts wrongly resolves them.
-                    # The caller (_process_device_with_data) handles the one legitimate
-                    # case for clearing: `if not gaps_detected: cooldown_until = None`.
+
+                    # Reset cooldown if gap alert was raised AND there's a subsequent timestamp (indicating data arrival after gap)
+                    if detected and i + 2 < len(timestamps_to_check):
+                        if cooldown_until is not None:
+                            cooldown_until = None  # Clear cooldown since data resumed after the gap
+                            logger.info(f"Device {device_id}: At least one metric has data in gap, resetting cooldown")
                 # else:
                 #     # At least one metric has data, reset cooldown
                 #     if cooldown_until is not None:
