@@ -1538,9 +1538,9 @@ class NoDataAlert(BaseEvent):
                                                     metrics_to_monitor, device_registration_time, backtrack_start_ts, end_ts, is_first_cycle, first_alert_in_this_run, first_alert_from_previous_run)
 
         # Check if late data arrived during cooldown period
-        if cooldown_until is not None and any(ts < cooldown_until for ts in all_data_timestamp):
-            logger.info(f"Device {device_id}: Late data detected during cooldown period, resetting cooldown")
-            cooldown_until = None
+        # if cooldown_until is not None and any(ts < cooldown_until for ts in all_data_timestamp):
+        #     logger.info(f"Device {device_id}: Late data detected during cooldown period, resetting cooldown")
+        #     cooldown_until = None
 
         last_data_timestamp = all_data_timestamp[-1]
 
@@ -1549,15 +1549,20 @@ class NoDataAlert(BaseEvent):
         timestamps_to_check = self._build_timeline(gap_measurement_start_time, all_data_timestamp, end_ts)
         logger.info(f'gap_measurement_start_time : {gap_measurement_start_time}')
         logger.info(f'timestamps_to_check : {timestamps_to_check}')
+        cooldown_until_before_check = cooldown_until
         df, gaps_detected, cooldown_until, first_alert_in_this_run =  self._check_gaps_all_metrics(df, device_id, timestamps_to_check, per_metric_timestamps,
                                 metrics_to_monitor, cooldown_until, is_first_cycle, first_alert_in_this_run)
 
         # Update last_event_timestamp to latest data in batch
         last_event_timestamp = last_data_timestamp
-        # Reset cooldown if no gaps detected
-        if not gaps_detected:
+        if not gaps_detected and cooldown_until_before_check is None:
             cooldown_until = None
-            df.loc[device_id, self.alert_name] = None
+        elif not gaps_detected:
+            logger.info(
+                f"Device {device_id}: gap exists but fully covered by cooldown "
+                f"({cooldown_until}) — preserving cooldown to protect historical "
+                f"DB alerts from stale-resolution"
+            )
 
         return df, last_event_timestamp, cooldown_until, first_alert_in_this_run
 
@@ -1581,8 +1586,15 @@ class NoDataAlert(BaseEvent):
             gap_end_ts = timestamps_to_check[i + 1]
             gap_duration = gap_end_ts - gap_start_ts
 
-            # Skip this gap if we're still in cooldown period
+
             if cooldown_until is not None and gap_end_ts <= cooldown_until:
+                if gap_duration >= self.duration_timedelta:
+                    all_metrics_no_data = self._check_all_metrics_no_data_in_gap(
+                        device_id, gap_start_ts, gap_end_ts, per_metric_timestamps, metrics_to_monitor)
+                    if all_metrics_no_data:
+                        df, cooldown_until, _, first_alert_in_this_run = self._generate_gap_alerts(
+                            df, device_id, gap_start_ts, gap_end_ts, cooldown_until,
+                            is_first_cycle, first_alert_in_this_run)
                 continue
 
             if gap_duration >= self.duration_timedelta:
@@ -1679,7 +1691,7 @@ class NoDataAlert(BaseEvent):
             logger.error(f"Error querying database for device {device_id}, metric {metric_name}: {str(e)}")
             return None
 
-    def _generate_gap_alerts(self, df, device_id, start_time, end_time,cooldown_until, is_first_cycle, first_alert_in_this_run):
+    def _generate_gap_alerts(self, df, device_id, start_time, end_time, cooldown_until, is_first_cycle, first_alert_in_this_run):
         """Generate alerts for a gap between start_time and end_time
         - First alert at start_time + duration
         - Subsequent alerts every cooldown_period if gap persists
@@ -1688,6 +1700,19 @@ class NoDataAlert(BaseEvent):
         gap_alert_time = start_time + self.duration_timedelta
 
         if cooldown_until is not None and gap_alert_time <= cooldown_until:
+            # Reconstruct the alert timestamps that were already written to DB by
+            # previous runs (from gap_alert_time up to the earlier of cooldown_until
+            # and end_time) and add them as True rows so ProduceAlerts does not
+            # stale-resolve them in this run.
+            reconstruct_ts = gap_alert_time
+            reconstruct_end = min(cooldown_until, end_time)
+            while reconstruct_ts < reconstruct_end:
+                df = pd.concat([df, self._create_synthetic_alert_row(device_id, reconstruct_ts)], sort=False)
+                logger.info(
+                    f"BACKFILL (already in DB): device={device_id}, "
+                    f"timestamp={reconstruct_ts}"
+                )
+                reconstruct_ts += self.cooldown_timedelta
             return df, cooldown_until, False, first_alert_in_this_run
 
         gaps_detected = False

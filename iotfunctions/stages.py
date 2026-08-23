@@ -678,13 +678,18 @@ class ProduceAlerts(object):
                 # Determine if index of dataframe comes with or without entity id.
                 # Note: Indices containing dimensions are not supported and cause an exception
                 index_has_entity_id = self._verify_index_shape(df)
-
-                # Derive the full pipeline time window from the dataframe index. This is used to scope
-                # the stale-alert resolution to only the window currently being processed, avoiding
-                # accidental resolution of alerts outside this run's scope.
                 ts_level = df.index.get_level_values(self.dms.eventTimestampName)
-                window_start = ts_level.min()
+                window_start_raw = ts_level.min()
                 window_end = ts_level.max()
+                previous_launch = getattr(self.dms, 'previous_launch_date', None)
+                if previous_launch is not None:
+                    window_start = max(pd.Timestamp(previous_launch), window_start_raw)
+                    logger.debug(
+                        f"ProduceAlerts window_start clamped from {window_start_raw} "
+                        f"to {window_start} (previous_launch_date)"
+                    )
+                else:
+                    window_start = window_start_raw
 
                 # Do for each alert separately
                 new_alert_events = {}
@@ -760,6 +765,18 @@ class ProduceAlerts(object):
                         # Determine all alert events which have been calculated in this pipeline run but which do not
                         # exist in database yet
                         difference = calc_alert_events.index.difference(existing_alert_events.index)
+                        if index_has_entity_id:
+                            ts_in_difference = difference.get_level_values(self.dms.eventTimestampName)
+                        else:
+                            ts_in_difference = difference
+                        within_window_mask = ts_in_difference >= pd.Timestamp(window_start)
+                        if not within_window_mask.all():
+                            logger.debug(
+                                f"Excluding {(~within_window_mask).sum()} backfill alert event(s) "
+                                f"for alert {alert_name} that predate window_start ({window_start}) "
+                                f"— already in DB from a prior run."
+                            )
+                            difference = difference[within_window_mask]
                         new_alert_events[alert_name] = calc_alert_events.reindex(difference)
                         
                         # Collect existing active alerts to check for errors
