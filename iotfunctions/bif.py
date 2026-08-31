@@ -1834,6 +1834,445 @@ class NoDataAlert(BaseEvent):
         return (inputs, outputs)
 
 
+
+class SustainedConditionAlert(BaseEvent):
+    """
+    Fire an alert when a user-defined boolean expression remains continuously
+    ``True`` for at least a configured duration **D**.
+
+    Alert firing logic
+    ------------------
+    - Alert fires at the first row where ``elapsed = ts - condition_start_time >= D``.
+    - After the first alert, re-alerts every ``cooldown`` period as long as condition
+      stays True.  When ``cooldown`` is not supplied (or ``0``), it defaults to ``D``
+    - Any single ``False`` row immediately resets the run timer, cooldown, and
+      fired-marker.
+    - Synthetic catch-up rows are injected at every expired cooldown boundary that
+      fell inside a pipeline gap so no alert is lost between batches.
+
+    State is persisted to ``KPI_DATA_CACHE`` between pipeline batches so a condition
+    starting in one batch can satisfy ``D`` in a later one.
+    """
+
+    # ------------------------------------------------------------------ #
+    #  Cache column name constants                                         #
+    # ------------------------------------------------------------------ #
+    _COL_CONDITION_START  = 'condition_start_time'
+    _COL_LAST_STATE       = 'last_condition_state'
+    _COL_COOLDOWN_UNTIL   = 'cooldown_until'
+    _COL_LAST_ALERT_FIRED = 'last_alert_fired_at'
+    _COL_FIRST_ALERT      = 'first_alert_time'
+
+    # ------------------------------------------------------------------ #
+    #  Construction                                                        #
+    # ------------------------------------------------------------------ #
+
+    def __init__(self, expression, duration, duration_unit, cooldown=None,
+        cooldown_unit='minutes', severity=2, status='New', send_to_manage=False, alert_name='sustained_condition_alert',**kwargs):
+
+        self.expression     = expression
+        self.duration       = duration
+        self.duration_unit  = duration_unit
+        self.cooldown       = cooldown
+        self.cooldown_unit  = cooldown_unit
+        self.severity       = severity
+        self.status         = status
+        self.send_to_manage = send_to_manage
+        self.alert_name     = alert_name
+
+        self.duration_timedelta = self._build_timedelta(duration, duration_unit)
+        if cooldown and cooldown > 0:
+            self.cooldown_timedelta = self._build_timedelta(cooldown, cooldown_unit)
+        else:
+            self.cooldown_timedelta = self.duration_timedelta
+
+        self.cache = None
+        super().__init__()
+
+    # ------------------------------------------------------------------ #
+    #  execute                                                      #
+    # ------------------------------------------------------------------ #
+
+    def execute(self, df):
+        """
+        Main pipeline entry point.
+
+        Evaluates the boolean expression for every entity in the batch,
+        walks each entity's rows in ascending timestamp order, and writes
+        ``True`` into ``df[alert_name]`` wherever the sustained-condition
+        alert fires.  Per-entity state is loaded from and saved back to the
+        ``KPI_CACHE`` table after every batch.
+        """
+        logger.info('SustainedConditionAlert.execute started for KPI %s', self.alert_name)
+
+        kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get('kpiFunctionId')
+        if not kpi_function_id:
+            raise ValueError( f'No kpiFunctionId found for alert {self.alert_name}. Cannot persist state.' )
+
+        self.cache = dbtables.DBDataCache( self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema, self.dms.db_connection, self.dms.db_type)
+        if not self.dms.running_with_backtrack:
+            self.cache.delete_backtrack_cache(kpi_function_id)
+
+        cache_df = self._load_cache(kpi_function_id)
+
+        # Do not mutate the caller's DataFrame
+        df = df.copy()
+        df[self.alert_name] = None
+
+        # Evaluate the boolean expression once for the whole batch; NaN -> False
+        try:
+            cond_series = eval(self.expression)  # noqa: S307
+        except Exception as exc:
+            raise ValueError(f'SustainedConditionAlert: expression evaluation failed — {exc}') from exc
+
+        cond_series = cond_series.fillna(False).astype(bool)
+
+        is_first_cycle = self._is_first_backtrack_cycle()
+        logger.debug(f'SustainedConditionAlert: cycle_id={self.dms.cycle_id}')
+
+        for entity_id in df.index.get_level_values('id').unique():
+            try:
+                entity_cond = cond_series.loc[entity_id]
+            except KeyError:
+                continue
+
+            if entity_cond.empty:
+                continue
+
+            state = self._load_entity_state(cache_df, entity_id, is_first_cycle)
+            state, df = self._process_entity(df, entity_id, entity_cond, state, is_first_cycle)
+            self._save_entity_state(cache_df, entity_id, state, is_first_cycle)
+
+        # Persist updated state after processing all entities
+        self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
+
+        logger.info('SustainedConditionAlert.execute finished for KPI %s', self.alert_name)
+        return df
+
+    # ------------------------------------------------------------------ #
+    #  Per-entity state machine                                            #
+    # ------------------------------------------------------------------ #
+
+    def _process_entity(self, df, entity_id, entity_cond, state, is_first_cycle):
+        """
+        Walk ``entity_cond`` rows in ascending timestamp order and fire the
+        alert wherever the sustained-condition rule is satisfied.
+        """
+        cst  = state['condition_start_time']
+        lcs  = state['last_condition_state']
+        cu   = state['cooldown_until']
+        laf  = state['last_alert_fired_at']
+        fat  = state['first_alert_in_this_run']
+        fapr = state['first_alert_from_previous_run']
+
+        # Deduplicate timestamps — keep the last value for each ts (matches pipeline row order)
+        entity_cond = entity_cond[~entity_cond.index.duplicated(keep='last')]
+        sorted_ts = sorted(entity_cond.index)
+
+        # Collect all synthetic alert rows here; one concat at the end is far
+        # cheaper than hundreds of small concats inside the loops.
+        synthetic_alert_ts = []
+
+        def _fire(threshold):
+            """Record a fired alert and advance state."""
+            nonlocal laf, cu, fat
+            synthetic_alert_ts.append(threshold)
+            laf = threshold
+            cu  = threshold   # next threshold (cu+cd) will be strictly > cu
+            if is_first_cycle and fat is None:
+                fat = threshold
+
+        # ── Catch-up: fire at cooldown boundaries that expired in a pipeline gap
+        #    while condition stayed True.
+        # Guards: previous state True, timer running, boundary already passed.
+        if (
+            lcs
+            and cst is not None
+            and cu is not None
+            and sorted_ts
+            and cu < sorted_ts[0]
+        ):
+            catch_ts = cu + self.cooldown_timedelta  # first un-fired boundary
+            while catch_ts < sorted_ts[0]:
+                if (catch_ts - cst) >= self.duration_timedelta:
+                    _fire(catch_ts)
+                    logger.info('CATCH-UP ALERT: entity=%s ts=%s', entity_id, catch_ts)
+                    catch_ts = catch_ts + self.cooldown_timedelta
+                else:
+                    break
+
+        # ── Main per-row loop ──────────────────────────────────────────────
+        for ts in sorted_ts:
+            is_true: bool = bool(entity_cond.loc[ts])
+
+            if is_true:
+                # Start a fresh timer on each True-run entry
+                if not lcs or cst is None:
+                    cst = ts
+                    laf = None  # new run — clear fired marker
+
+                elapsed = ts - cst
+
+                if elapsed >= self.duration_timedelta:
+                    # Fire at the exact threshold time (cst+D for first, laf+cd for subsequent).
+                    # Firing at the threshold — not at ts — gives precise evenly-spaced
+                    # alert timestamps regardless of when the next real data row arrives.
+                    next_thr = (laf + self.cooldown_timedelta) if laf is not None else (cst + self.duration_timedelta)
+                    while next_thr <= ts:
+                        if cu is None or next_thr > cu:
+                            _fire(next_thr)
+                            logger.info(
+                                'ALERT FIRED: entity=%s threshold=%s (data row ts=%s)',
+                                entity_id, next_thr, ts,
+                            )
+                        next_thr = next_thr + self.cooldown_timedelta
+            else:
+                # False — reset everything immediately
+                if cst is not None or cu is not None:
+                    logger.debug(
+                        'Condition False: entity=%s ts=%s — timer and cooldown cleared',
+                        entity_id, ts,
+                    )
+                cst = None
+                cu  = None
+                laf = None
+
+            lcs = is_true
+
+        # Append all synthetic rows in a single concat (avoids O(n²) cost)
+        if synthetic_alert_ts:
+            cols = list(df.columns)
+            ts_col = df.index.names[1]
+            synthetic_idx = pd.MultiIndex.from_arrays(
+                [[entity_id] * len(synthetic_alert_ts), synthetic_alert_ts],
+                names=['id', ts_col],
+            )
+            synthetic_df = pd.DataFrame(
+                {col: (True if col == self.alert_name else None)
+                 for col in cols},
+                index=synthetic_idx,
+            )
+            df = pd.concat([df, synthetic_df], sort=False)
+
+        # Backtrack: keep the earliest first-alert across runs
+        if (
+            is_first_cycle
+            and fapr is not None and pd.notna(fapr)
+            and fat  is not None and pd.notna(fat)
+        ):
+            fat = min(fapr, fat)
+
+        return {
+            'condition_start_time':          cst,
+            'last_condition_state':          lcs,
+            'cooldown_until':                cu,
+            'last_alert_fired_at':           laf,
+            'first_alert_in_this_run':       fat,
+            'first_alert_from_previous_run': fapr,
+        }, df
+
+    # ------------------------------------------------------------------ #
+    #  Cache management                                                    #
+    # ------------------------------------------------------------------ #
+
+    def _load_cache(self, kpi_function_id) -> pd.DataFrame:
+        """
+        Retrieve the cache DataFrame from the store, or create an empty one
+        with the correct schema.
+
+        Schema migration: if the loaded cache pre-dates ``last_alert_fired_at``,
+        the column is added with ``None`` values (at most one extra alert per
+        ongoing run on the first post-upgrade cycle — acceptable per spec).
+        """
+        cache_data = self.cache.retrieve_alert_cache(
+            kpi_function_id, self.dms.running_with_backtrack
+        )
+        if cache_data is None or (hasattr(cache_data, 'empty') and cache_data.empty):
+            logger.info('SustainedConditionAlert: no cache found — starting fresh.')
+            return pd.DataFrame(
+                columns=[
+                    self._COL_CONDITION_START,
+                    self._COL_LAST_STATE,
+                    self._COL_COOLDOWN_UNTIL,
+                    self._COL_LAST_ALERT_FIRED,
+                    self._COL_FIRST_ALERT,
+                ]
+            )
+
+        cache_df = cache_data.copy()
+
+        if self._COL_LAST_ALERT_FIRED not in cache_df.columns:
+            logger.info(
+                'SustainedConditionAlert: migrating cache schema — adding %s.',
+                self._COL_LAST_ALERT_FIRED,
+            )
+            cache_df[self._COL_LAST_ALERT_FIRED] = None
+
+        return cache_df
+
+    def _load_entity_state(self, cache_df, entity_id, is_first_cycle) -> dict:
+        """
+        Extract per-entity state from ``cache_df``.
+
+        Backtrack first-cycle: only ``first_alert_time`` is loaded to seed the
+        cooldown; all other run state is re-derived from the batch data.
+        Normal mode: full run state is restored.
+        """
+
+        lcs  = None
+        fapr = None
+
+        if entity_id not in cache_df.index:
+            return self._blank_state()
+
+        row = cache_df.loc[entity_id]
+
+        raw = row.get(self._COL_CONDITION_START)
+        cst = pd.Timestamp(raw) if raw is not None and pd.notna(raw) else None
+
+        raw = row.get(self._COL_LAST_STATE)
+        if raw is not None and not (isinstance(raw, float) and np.isnan(raw)):
+            lcs = bool(raw)
+
+        raw = row.get(self._COL_COOLDOWN_UNTIL)
+        cu = pd.Timestamp(raw) if raw is not None and pd.notna(raw) else None
+
+        raw = row.get(self._COL_LAST_ALERT_FIRED)
+        laf = pd.Timestamp(raw) if raw is not None and pd.notna(raw) else None
+
+        if is_first_cycle:
+            raw = row.get(self._COL_FIRST_ALERT)
+            if raw is not None and pd.notna(raw):
+                fapr = pd.Timestamp(raw)
+                cu   = fapr + self.cooldown_timedelta
+                logger.info(f'Backtrack first cycle: entity={entity_id} first_alert={fapr} cooldown_until={cu}')
+
+        return {
+            'condition_start_time':          cst,
+            'last_condition_state':          lcs,
+            'cooldown_until':                cu,
+            'last_alert_fired_at':           laf,
+            'first_alert_in_this_run':       None,
+            'first_alert_from_previous_run': fapr,
+        }
+
+    def _save_entity_state(self, cache_df, entity_id, state, is_first_cycle):
+        """Write entity state into ``cache_df`` in-place."""
+        cache_df.loc[entity_id, self._COL_CONDITION_START]  = state['condition_start_time']
+        cache_df.loc[entity_id, self._COL_LAST_STATE]       = state['last_condition_state']
+        cache_df.loc[entity_id, self._COL_COOLDOWN_UNTIL]   = state['cooldown_until']
+        cache_df.loc[entity_id, self._COL_LAST_ALERT_FIRED] = state['last_alert_fired_at']
+
+        if is_first_cycle:
+            cache_df.loc[entity_id, self._COL_FIRST_ALERT] = state['first_alert_in_this_run']
+        elif (
+            entity_id not in cache_df.index
+            or self._COL_FIRST_ALERT not in cache_df.columns
+            or pd.isna(cache_df.loc[entity_id, self._COL_FIRST_ALERT])
+        ):
+            cache_df.loc[entity_id, self._COL_FIRST_ALERT] = None
+        # else: preserve the existing first_alert_time for this entity
+
+    def _is_first_backtrack_cycle(self) -> bool:
+        """Return ``True`` only on the first cycle of a backtrack run."""
+        if self.dms.running_with_backtrack and hasattr(self.dms, 'cycle_id') and self.dms.cycle_id is not None:
+            result = self.dms.cycle_id == 1
+            return result
+        return False
+
+    def _blank_state(self) -> dict:
+        return {
+            'condition_start_time':          None,
+            'last_condition_state':          None,
+            'cooldown_until':                None,
+            'last_alert_fired_at':           None,
+            'first_alert_in_this_run':       None,
+            'first_alert_from_previous_run': None,
+        }
+
+    # ------------------------------------------------------------------ #
+    #  Utilities                                                           #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _build_timedelta(value, unit_str) -> dt.timedelta:
+        """Convert a numeric value and unit string to a :class:`datetime.timedelta`."""
+        unit = (unit_str or 'minutes').lower()
+        return dt.timedelta(**{unit: value})
+
+    def get_input_items(self):
+        return self.get_expression_items(self.expression)
+
+    # ------------------------------------------------------------------ #
+    #  UI metadata                                                         #
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def build_ui(cls):
+        inputs = [
+            UIExpression(
+                name='expression',
+                description="Boolean pandas expression. Example: df['temp_c'] > 85",
+            ),
+            UISingle(
+                name='duration',
+                datatype=float,
+                required=True,
+                description='Minimum sustained duration before alert fires (numeric; unit set by duration_unit)',
+            ),
+            UISingle(
+                name='duration_unit',
+                datatype=str,
+                required=True,
+                description='Time unit for the sustained duration D',
+                values=['seconds', 'minutes', 'hours', 'days'],
+            ),
+            UISingle(
+                name='cooldown',
+                datatype=float,
+                required=False,
+                description=(
+                    'Gap between consecutive alert firings for the same entity. '
+                    'Omit or 0 to default to the duration value.'
+                ),
+            ),
+            UISingle(
+                name='cooldown_unit',
+                datatype=str,
+                required=False,
+                description='Time unit for the cooldown period (default: minutes)',
+                values=['seconds', 'minutes', 'hours', 'days'],
+            ),
+            UISingle(
+                name='severity',
+                datatype=int,
+                required=False,
+                description='Alert severity: 1 = High, 2 = Medium, 3 = Low',
+                values=[1, 2, 3],
+            ),
+            UISingle(
+                name='status',
+                datatype=str,
+                required=False,
+                description='Initial alert status when the alert fires',
+                values=['New', 'Acknowledged', 'Resolved'],
+            ),
+            UISingle(
+                name='send_to_manage',
+                datatype=bool,
+                required=False,
+                description='When True, forward the fired alert to IBM Maximo Manage',
+            ),
+        ]
+        outputs = [
+            UIFunctionOutSingle(
+                name='alert_name',
+                datatype=bool,
+                description='Alert output column — True at timestamps where the sustained condition alert fires',
+            )
+        ]
+        return (inputs, outputs)
+
 class DeleteInputData(BasePreload):
     """
     Delete data from time series input table for entity type
