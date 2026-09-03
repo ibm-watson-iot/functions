@@ -27,11 +27,12 @@ from sqlalchemy import String
 
 from .base import (BaseTransformer, BaseEvent, BaseSCDLookup, BaseSCDLookupWithDefault, BaseMetadataProvider,
                    BasePreload, BaseDatabaseLookup, BaseDataSource, BaseDBActivityMerge, BaseSimpleAggregator,
-                   DataExpanderTransformer)
+                   DataExpanderTransformer, BaseFunction)
 from .loader import _generate_metadata
 from .ui import (UISingle, UIMultiItem, UIFunctionOutSingle, UISingleItem, UIFunctionOutMulti, UIMulti, UIExpression,
                  UIText, UIParameters)
-from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL
+from .util import adjust_probabilities, reset_df_index, asList, UNIQUE_EXTENSION_LABEL, \
+    rollback_to_interval_boundary, find_frequency_from_data_item, get_calc_metric_data
 #from ibm_watson_machine_learning import APIClient
 from ibm_watsonx_ai import APIClient, Credentials
 #from ibm_watson_studio_lib import access_project_or_space
@@ -4307,6 +4308,131 @@ class MsiFrequencyRate(BaseTransformer):
         df[self.output_name] = (df_occupancy[self.input_name] / df_occupancy[availability_name]) * 100
 
         return df
+
+class Mist(BaseFunction):
+    """
+    Pass-through aggregator for Mist presence metrics.
+
+    Mist data is inserted directly into the output table by backend team.
+    This function skips all computation and reads the pre-existing values from
+    the DB so that downstream KPIs can consume them.
+    """
+    is_direct_aggregator = True
+
+
+    def __init__(self, name=None):
+        super().__init__()
+        self.output_name = name
+
+    def _has_dependents(self):
+        """
+        Return True when at least one other KPI in the entity type declares
+        ``self.output_name`` as one of its inputs.
+
+        Uses ``dms.data_items`` as the source of truth.  Each entry's
+        ``kpiFunctionDto['input']`` dict holds the argument values exactly as
+        configured on the server — the same values that are unpacked as kwargs
+        when the function object is instantiated (metadata.py:2307).  This is
+        always populated at execute() time regardless of pipeline build order,
+        unlike ``_input_set`` which is only resolved later during registration.
+        """
+        try:
+            data_items = self.dms.data_items.data_items
+        except AttributeError:
+            # dms not available — assume we are needed.
+            return True
+
+        for item_name, item_meta in data_items.items():
+            if item_name == self.output_name:
+                # This entry describes Mist's own output — skip it.
+                continue
+            kpi_dto = item_meta.get('kpiFunctionDto') if item_meta else None
+            if kpi_dto is None:
+                continue
+            for v in kpi_dto.get('input', {}).values():
+                if isinstance(v, list):
+                    if self.output_name in v:
+                        return True
+                elif v == self.output_name:
+                    return True
+
+        return False
+
+    def execute(self, df, group_base, group_base_names, start_ts=None, end_ts=None, entities=None, offset=None):
+
+        # Skip the DB read entirely when no other KPI consumes this output.
+        if not self._has_dependents():
+            logger.debug('Mist: skipping DB read for %s — no dependents found', self.output_name)
+            empty = pd.Series(
+                [],
+                index=pd.MultiIndex.from_arrays([[], pd.DatetimeIndex([])], names=group_base_names),
+                name=self.output_name,
+                dtype='float64',
+            )
+            return empty.to_frame()
+
+        result_data_item = self.dms.entity_type_obj._data_items.get(self.output_name)
+        sql_output_table_name = result_data_item.get('sourceTableName')
+
+        agg_frequency = find_frequency_from_data_item(result_data_item, self.dms.granularities)
+
+        aligned_run_end = rollback_to_interval_boundary(self.dms.launch_date, agg_frequency)
+        if self.dms.previous_launch_date is not None:
+            aligned_run_start = rollback_to_interval_boundary(self.dms.previous_launch_date, agg_frequency)
+        else:
+            time_min = df.index.get_level_values(level=group_base_names[1]).min() if not df.empty else pd.NaT
+            if pd.notna(time_min):
+                aligned_run_start = rollback_to_interval_boundary(time_min, agg_frequency)
+            else:
+                aligned_run_start = aligned_run_end
+
+        if self.dms.running_with_backtrack:
+            aligned_cycle_start = rollback_to_interval_boundary(start_ts + offset, agg_frequency) - offset
+            aligned_cycle_end = rollback_to_interval_boundary(end_ts + offset, agg_frequency) - offset
+        else:
+            aligned_cycle_start = aligned_run_start
+            aligned_cycle_end = aligned_run_end
+
+        logger.debug(
+            'Mist: output_name=%s, aligned_cycle_start=%s, aligned_cycle_end=%s',
+            self.output_name, aligned_cycle_start, aligned_cycle_end)
+
+        data_type = result_data_item.get('columnType', 'NUMBER')
+
+        s_result = None
+        if aligned_cycle_start < aligned_cycle_end:
+            loaded_df = get_calc_metric_data(
+                dms=self.dms,
+                data_item_name=self.output_name,
+                data_type=data_type,
+                column_key=self.output_name,
+                schema_name=self.dms.schema,
+                table_name=sql_output_table_name,
+                start_ts=aligned_cycle_start,
+                end_ts=aligned_cycle_end,
+                entities=entities,
+            )
+
+            if not loaded_df.empty:
+                loaded_df = loaded_df.set_index(group_base_names)
+                s_result = loaded_df[self.output_name].rename(self.output_name)
+                logger.debug('Mist: loaded %d rows from DB for %s', len(s_result), self.output_name)
+
+        if s_result is None:
+            s_result = pd.Series(
+                [],
+                index=pd.MultiIndex.from_arrays([[], pd.DatetimeIndex([])], names=group_base_names),
+                name=self.output_name,
+                dtype='float64',
+            )
+
+        # Mark this output as transient in dms.data_items so PersistColumns skips it.
+        # Mist data is inserted externally — the pipeline must never overwrite it.
+        item_meta = self.dms.data_items.get(self.output_name)
+        if item_meta is not None:
+            item_meta['transient'] = True
+
+        return s_result.to_frame()
 
 
 def pairwise(iterable):
