@@ -1930,7 +1930,19 @@ class SustainedConditionAlert(BaseEvent):
         is_first_cycle = self._is_first_backtrack_cycle()
         logger.debug(f'SustainedConditionAlert: cycle_id={self.dms.cycle_id}')
 
-        for entity_id in df.index.get_level_values('id').unique():
+        # now = pipeline launch time, used for silent-entity catch-up boundary
+        _raw_now = getattr(self.dms, 'launch_date', None)
+        now = pd.Timestamp(_raw_now) if isinstance(_raw_now, (pd.Timestamp, str)) else (
+            pd.Timestamp(_raw_now) if hasattr(_raw_now, 'year') and not callable(_raw_now) else None
+        )
+
+        entities_in_batch = set(df.index.get_level_values('id').unique())
+
+        # Track which entities need silent catch-up after their batch processing
+        # (entity had data but condition still True at end of batch, D not yet met)
+        batch_processed_states = {}
+
+        for entity_id in entities_in_batch:
             try:
                 entity_cond = cond_series.loc[entity_id]
             except KeyError:
@@ -1942,6 +1954,37 @@ class SustainedConditionAlert(BaseEvent):
             state = self._load_entity_state(cache_df, entity_id, is_first_cycle)
             state, df = self._process_entity(df, entity_id, entity_cond, state, is_first_cycle)
             self._save_entity_state(cache_df, entity_id, state, is_first_cycle)
+            batch_processed_states[entity_id] = state
+
+        # ── Silent-entity / post-batch catch-up ───────────────────────────
+        # Two cases handled here, both require now (pipeline launch time):
+        #
+        # Case A — Entity absent from batch: cached last_condition_state=True,
+        #   device went silent. Fire at every expired cooldown boundary up to now.
+        #
+        # Case B — Entity present in batch: condition still True at end of batch
+        #   but D not yet fully met (no alert fired yet this run, laf=None), OR
+        #   an alert was already fired and the next cooldown boundary has now
+        #   passed beyond the last data row. Fire thresholds up to now.
+        #
+        # Both cases use _process_entity_no_data which walks thresholds up to now.
+        if now is not None:
+            # Case A: entities in cache but not in this batch
+            for entity_id in cache_df.index:
+                if entity_id in entities_in_batch:
+                    continue
+                state = self._load_entity_state(cache_df, entity_id, is_first_cycle)
+                if not state['last_condition_state'] or state['condition_start_time'] is None:
+                    continue
+                state, df = self._process_entity_no_data(df, entity_id, state, now, is_first_cycle)
+                self._save_entity_state(cache_df, entity_id, state, is_first_cycle)
+
+            # Case B: entities in batch whose condition is still True after processing
+            for entity_id, state in batch_processed_states.items():
+                if not state['last_condition_state'] or state['condition_start_time'] is None:
+                    continue  # condition ended False in this batch — nothing to catch up
+                state, df = self._process_entity_no_data(df, entity_id, state, now, is_first_cycle)
+                self._save_entity_state(cache_df, entity_id, state, is_first_cycle)
 
         # Persist updated state after processing all entities
         self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
@@ -2065,6 +2108,82 @@ class SustainedConditionAlert(BaseEvent):
         return {
             'condition_start_time':          cst,
             'last_condition_state':          lcs,
+            'cooldown_until':                cu,
+            'last_alert_fired_at':           laf,
+            'first_alert_in_this_run':       fat,
+            'first_alert_from_previous_run': fapr,
+        }, df
+
+
+    def _process_entity_no_data(self, df, entity_id, state, now, is_first_cycle):
+        """
+        Handle a silent entity — one that has no rows in the current batch but
+        whose cached ``last_condition_state`` is ``True``.
+
+        The condition is assumed to have remained continuously True since the last
+        batch.  Any cooldown boundaries that expired between the last batch and
+        ``now`` (pipeline launch time) are fired as synthetic alert rows.
+
+        Returns (updated_state, df).
+        """
+        cst = state['condition_start_time']
+        laf = state['last_alert_fired_at']
+        cu  = state['cooldown_until']
+        fat = state['first_alert_in_this_run']
+        fapr= state['first_alert_from_previous_run']
+
+        synthetic_alert_ts = []
+
+        def _fire(threshold):
+            nonlocal laf, cu, fat
+            synthetic_alert_ts.append(threshold)
+            laf = threshold
+            cu  = threshold
+            if is_first_cycle and fat is None:
+                fat = threshold
+
+        # First un-fired boundary: cu+cd if we've already fired before, else cst+D
+        if cu is not None:
+            next_thr = cu + self.cooldown_timedelta
+        elif laf is not None:
+            next_thr = laf + self.cooldown_timedelta
+        else:
+            next_thr = cst + self.duration_timedelta
+
+        while next_thr <= now:
+            if (next_thr - cst) >= self.duration_timedelta:
+                _fire(next_thr)
+                logger.info(
+                    'SILENT-ENTITY ALERT: entity=%s threshold=%s (no data since last batch)',
+                    entity_id, next_thr,
+                )
+            next_thr = next_thr + self.cooldown_timedelta
+
+        if synthetic_alert_ts:
+            ts_col = df.index.names[1] if df.index.nlevels > 1 else 'evt_timestamp'
+            synthetic_idx = pd.MultiIndex.from_arrays(
+                [[entity_id] * len(synthetic_alert_ts), synthetic_alert_ts],
+                names=['id', ts_col],
+            )
+            cols = list(df.columns)
+            synthetic_df = pd.DataFrame(
+                {col: (True if col == self.alert_name else None) for col in cols},
+                index=synthetic_idx,
+            )
+            df = pd.concat([df, synthetic_df], sort=False)
+
+        # Backtrack: keep earliest first-alert
+        if (
+            is_first_cycle
+            and fapr is not None and pd.notna(fapr)
+            and fat  is not None and pd.notna(fat)
+        ):
+            fat = min(fapr, fat)
+
+        # last_condition_state stays True — device is still assumed True (silent)
+        return {
+            'condition_start_time':          cst,
+            'last_condition_state':          True,
             'cooldown_until':                cu,
             'last_alert_fired_at':           laf,
             'first_alert_in_this_run':       fat,
