@@ -1200,6 +1200,9 @@ def rollback_to_interval_boundary(timestamp, grain_frequency):
         boundary = timestamp - pd.DateOffset(microsecond=0, nanosecond=0)
     elif grain_frequency == 'T' or grain_frequency == 'min':
         boundary = timestamp - pd.DateOffset(second=0, microsecond=0, nanosecond=0)
+    elif grain_frequency == '15T' or grain_frequency == '15min':
+        aligned_minute = (timestamp.minute // 15) * 15
+        boundary = timestamp - pd.DateOffset(minute=aligned_minute, second=0, microsecond=0, nanosecond=0)
     elif grain_frequency == 'H' or grain_frequency == 'h':
         boundary = timestamp - pd.DateOffset(minute=0, second=0, microsecond=0, nanosecond=0)
     elif grain_frequency == 'D':
@@ -1285,6 +1288,8 @@ def get_max_frequency(active_agg_frequencies):
             max_frequency = 'H'
         elif 'T' in active_agg_frequencies or 'min' in active_agg_frequencies:
             max_frequency = 'T'
+        elif '15T' in active_agg_frequencies or '15min' in active_agg_frequencies:
+            max_frequency = '15T'
         elif 'S' in active_agg_frequencies or 's' in active_agg_frequencies:
             max_frequency = 'S'
 
