@@ -1938,10 +1938,6 @@ class SustainedConditionAlert(BaseEvent):
 
         entities_in_batch = set(df.index.get_level_values('id').unique())
 
-        # Track which entities need silent catch-up after their batch processing
-        # (entity had data but condition still True at end of batch, D not yet met)
-        batch_processed_states = {}
-
         for entity_id in entities_in_batch:
             try:
                 entity_cond = cond_series.loc[entity_id]
@@ -1954,35 +1950,29 @@ class SustainedConditionAlert(BaseEvent):
             state = self._load_entity_state(cache_df, entity_id, is_first_cycle)
             state, df = self._process_entity(df, entity_id, entity_cond, state, is_first_cycle)
             self._save_entity_state(cache_df, entity_id, state, is_first_cycle)
-            batch_processed_states[entity_id] = state
 
-        # ── Silent-entity / post-batch catch-up ───────────────────────────
-        # Two cases handled here, both require now (pipeline launch time):
+        # ── Silent-entity catch-up ────────────────────────────────────────
+        # Entities absent from this batch whose cached last_condition_state is
+        # True are assumed to have remained continuously True since the last
+        # batch.  Any cooldown boundaries that expired between the last batch
+        # and ``now`` (pipeline launch time) are fired as synthetic alert rows.
         #
-        # Case A — Entity absent from batch: cached last_condition_state=True,
-        #   device went silent. Fire at every expired cooldown boundary up to now.
-        #
-        # Case B — Entity present in batch: condition still True at end of batch
-        #   but D not yet fully met (no alert fired yet this run, laf=None), OR
-        #   an alert was already fired and the next cooldown boundary has now
-        #   passed beyond the last data row. Fire thresholds up to now.
-        #
-        # Both cases use _process_entity_no_data which walks thresholds up to now.
+        # NOTE: entities that *had* data in this batch are intentionally
+        # excluded here.  _process_entity already fired every threshold up to
+        # the last real data row.  The gap between that row and ``now`` is at
+        # most one pipeline interval (typically minutes), which is always
+        # shorter than the configured cooldown (hours).  Calling
+        # _process_entity_no_data for batch-processed entities would advance
+        # ``cu`` beyond the last real data row and cause the next pipeline
+        # run to skip the first cooldown boundary, doubling the effective
+        # cooldown period (the reported bug).
         if now is not None:
-            # Case A: entities in cache but not in this batch
             for entity_id in cache_df.index:
                 if entity_id in entities_in_batch:
                     continue
                 state = self._load_entity_state(cache_df, entity_id, is_first_cycle)
                 if not state['last_condition_state'] or state['condition_start_time'] is None:
                     continue
-                state, df = self._process_entity_no_data(df, entity_id, state, now, is_first_cycle)
-                self._save_entity_state(cache_df, entity_id, state, is_first_cycle)
-
-            # Case B: entities in batch whose condition is still True after processing
-            for entity_id, state in batch_processed_states.items():
-                if not state['last_condition_state'] or state['condition_start_time'] is None:
-                    continue  # condition ended False in this batch — nothing to catch up
                 state, df = self._process_entity_no_data(df, entity_id, state, now, is_first_cycle)
                 self._save_entity_state(cache_df, entity_id, state, is_first_cycle)
 
