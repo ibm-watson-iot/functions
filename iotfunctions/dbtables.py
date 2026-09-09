@@ -201,7 +201,7 @@ class DBDataCache:
         if df is not None:
             try:
                 pyarrow_table = pyarrow.Table.from_pandas(df, schema=pyarrow.Schema.from_pandas(df))
-                pyarrow.parquet.write_table(pyarrow_table, cache_pathname, version='2.0')
+                pyarrow.parquet.write_table(pyarrow_table, cache_pathname, version='2.6')
                 logger.info(
                     'Cache %s of size %s has been saved to file %s' % (cache_filename, str(df.shape), cache_pathname))
             except pyarrow.lib.ArrowInvalid as ex:
@@ -237,7 +237,7 @@ class DBDataCache:
         if df is not None:
             try:
                 pyarrow_table = pyarrow.Table.from_pandas(df, schema=pyarrow.Schema.from_pandas(df))
-                pyarrow.parquet.write_table(pyarrow_table, cache_pathname, version='2.0')
+                pyarrow.parquet.write_table(pyarrow_table, cache_pathname, version='2.6')
                 logger.info(
                     'Cache %s of size %s has been saved to file %s' % (cache_filename, str(df.shape), cache_pathname))
             except pyarrow.lib.ArrowInvalid as ex:
