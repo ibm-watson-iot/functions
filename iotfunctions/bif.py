@@ -4320,7 +4320,7 @@ class Mist(BaseFunction):
     is_direct_aggregator = True
 
 
-    def __init__(self, name=None):
+    def __init__(self, name=None, **kwargs):
         super().__init__()
         self.output_name = name
 
