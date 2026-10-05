@@ -1895,8 +1895,6 @@ class SustainedConditionAlert(BaseEvent):
 
     def execute(self, df):
         """
-        Main pipeline entry point.
-
         Evaluates the boolean expression for every entity in the batch,
         walks each entity's rows in ascending timestamp order, and writes
         ``True`` into ``df[alert_name]`` wherever the sustained-condition
@@ -1965,7 +1963,7 @@ class SustainedConditionAlert(BaseEvent):
         # _process_entity_no_data for batch-processed entities would advance
         # ``cu`` beyond the last real data row and cause the next pipeline
         # run to skip the first cooldown boundary, doubling the effective
-        # cooldown period (the reported bug).
+        # cooldown period.
         if now is not None:
             for entity_id in cache_df.index:
                 if entity_id in entities_in_batch:
@@ -2188,10 +2186,6 @@ class SustainedConditionAlert(BaseEvent):
         """
         Retrieve the cache DataFrame from the store, or create an empty one
         with the correct schema.
-
-        Schema migration: if the loaded cache pre-dates ``last_alert_fired_at``,
-        the column is added with ``None`` values (at most one extra alert per
-        ongoing run on the first post-upgrade cycle — acceptable per spec).
         """
         cache_data = self.cache.retrieve_alert_cache(
             kpi_function_id, self.dms.running_with_backtrack
