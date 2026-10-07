@@ -119,7 +119,7 @@ class UIFunctionOutMulti(BaseUIControl):
         meta = {'name': self.name, 'cardinalityFrom': self.cardinality_from, 'dataTypeForArray': datatype,
                 'description': self.description, 'tags': self.tags,
                 'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
-                               "items": {"type": "string"}}}
+                               "items": {"type": "LITERAL"}}}
 
         if self.is_datatype_derived:
             meta['dataTypeFrom'] = self.cardinality_from
@@ -231,7 +231,7 @@ class UIMultiItem(BaseUIControl):
         meta = {'name': self.name, 'type': self.type_, 'dataType': 'ARRAY', 'dataTypeForArray': datatype,
                 'required': self.required, 'description': self.description, 'tags': self.tags,
                 'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
-                               "minItems": self.min_items, "maxItems": self.max_items, "items": {"type": "string"}}}
+                               "minItems": self.min_items, "maxItems": self.max_items, "items": {"type": "LITERAL"}}}
         return meta
 
     def to_output_metadata(self):
@@ -243,9 +243,9 @@ class UIMultiItem(BaseUIControl):
                 datatype = None
 
             meta = {'name': self.output_item, 'cardinalityFrom': self.name, 'dataTypeForArray': datatype,
-                    'description': self.description, 'tags': self.tags,
+                    'description': self.description, 'tags': self.tags, 'type' : self.type_,
                     'jsonSchema': {"$schema": "https://json-schema.org/draft-07/schema#", "type": "array",
-                                   "items": {"type": "string"}}}
+                                   "items": {"type": "LITERAL"}}}
 
             if self.is_output_datatype_derived:
                 meta['dataTypeFrom'] = self.name
