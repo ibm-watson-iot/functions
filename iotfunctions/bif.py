@@ -815,6 +815,252 @@ class AlertExpressionWithFilter(BaseEvent):
         return (inputs, outputs)
 
 
+def _create_timedelta(value, unit_str):
+    """Create timedelta from value and unit string."""
+    unit = unit_str.lower() if unit_str else 'minutes'
+    return dt.timedelta(**{unit: value})
+
+
+class AlertByAtMostCount(BaseEvent):
+    """
+    Fire an alert when the condition has been true at most max_occurrences times within the time window.
+    Supports sliding and tumbling windows, plus an optional cooldown between consecutive alerts.
+    """
+
+    def __init__(self, expression, max_occurrences, time_window, window_type, window_time_unit, alert_name,cooldown=0, cooldown_time_unit=None, **kwargs):
+        self.expression = expression
+        self.max_occurrences = max_occurrences
+        self.time_window = time_window
+        self.window_type = window_type
+        self.window_time_unit = window_time_unit
+        self.cooldown = cooldown
+        self.cooldown_time_unit = cooldown_time_unit
+        if self.window_type == '':
+            self.window_type = 'Sliding'
+        self.T = _create_timedelta(self.time_window, self.window_time_unit)
+        self.cool_down_period = _create_timedelta(self.cooldown, self.cooldown_time_unit)
+        self.alert_name = alert_name
+        self.cache = None
+        super().__init__()
+
+    def execute(self, df):
+        """
+        Evaluate every row and fire an alert where the count of true-condition
+        rows within the window is <= max_occurrences (at-most semantics).
+
+        Sliding window: at row ts, count true-condition rows in (ts-T, ts].
+        Tumbling window: at row ts, count true-condition rows in [floor(ts,T), floor(ts,T)+T).
+          One alert per tumbling window (suppressed via cooldown_until = window_end).
+
+        breach_timestamps in the cache carries over the true-condition timestamps
+        from the previous cycle that still fall inside the window.
+        """
+        self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema,
+                                          self.dms.db_connection,
+                                          self.dms.db_type)
+        df = df.copy()
+        df[self.alert_name] = None
+        cond = eval(self.expression)
+        logger.debug(f'Condition found: {cond}')
+        kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get(
+            'kpiFunctionId')
+        if not kpi_function_id:
+            raise ValueError(f'No KPI_FUNCTION_ID found for alert {self.alert_name}. Cannot persist alert state.')
+        if not self.dms.running_with_backtrack:
+            self.cache.delete_backtrack_cache(kpi_function_id)
+        cache_data = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
+        cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
+            columns=pd.Index(['last_condition_state', 'breach_timestamps', 'cooldown_until', 'first_alert_time',
+                              'last_ts_had_alert']))
+        # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
+        if cache_data is not None and 'breach_timestamps' in cache_df.columns:
+            cache_df['breach_timestamps'] = cache_df['breach_timestamps'].apply(
+                lambda x: x.tolist() if isinstance(x, np.ndarray) else (list(x) if x is not None else [])
+            )
+        # Detect if this is the first cycle of a backtrack run
+        is_first_cycle = False
+        if hasattr(self.dms, 'cycle_id') and self.dms.cycle_id is not None and self.dms.running_with_backtrack:
+            is_first_cycle = (self.dms.cycle_id == 1)
+            logger.debug(f'Current cycle: {self.dms.cycle_id}, is_first_cycle: {is_first_cycle}')
+
+        freq_map = {'Minutes': 'min', '': 'min', 'Hours': 'h', 'Days': 'D'}
+
+        for entity_id in df.index.get_level_values('id').unique():
+            logger.debug(f'Processing device {entity_id}')
+            entity_cond = cond.loc[entity_id]
+            if len(entity_cond) == 0:
+                continue
+
+            # Timestamps from the current cycle where the condition is True
+            new_true_ts = entity_cond[entity_cond].index.tolist()
+
+            # State loaded from cache
+            cached_true_ts = []      # true-condition timestamps from previous cycles still in range
+            cooldown_until = None
+            first_alert_from_previous_run = None
+            last_ts_had_alert_in_previous_run = False
+
+            if cache_data is not None and entity_id in cache_data.index:
+                if is_first_cycle:
+                    first_alert_from_previous_run = cache_data.loc[entity_id, 'first_alert_time']
+                else:
+                    raw = cache_data.loc[entity_id, 'breach_timestamps']
+                    cached_true_ts = raw.tolist() if isinstance(raw, np.ndarray) else (list(raw) if raw is not None else [])
+                    cooldown_until = cache_data.loc[entity_id, 'cooldown_until']
+                    if not self.dms.running_with_backtrack and 'last_ts_had_alert' in cache_data.columns:
+                        last_ts_had_alert_in_previous_run = cache_data.loc[entity_id, 'last_ts_had_alert']
+                        if pd.isna(last_ts_had_alert_in_previous_run):
+                            last_ts_had_alert_in_previous_run = False
+
+            # All true-condition timestamps (cached + this cycle), sorted
+            all_true_ts = sorted(set(cached_true_ts + new_true_ts))
+
+            # In normal mode, carry forward alert from last timestamp of previous run
+            if not self.dms.running_with_backtrack and last_ts_had_alert_in_previous_run and len(entity_cond) > 0:
+                first_ts = entity_cond.index[0]
+                df.loc[(entity_id, first_ts), self.alert_name] = True
+                logger.info(
+                    f'Set first timestamp {first_ts} to alert=True for entity {entity_id} (previous run last ts had alert)')
+
+            # Backtrack first-cycle cooldown from the previous run's first alert
+            if self.dms.running_with_backtrack and is_first_cycle and pd.notna(
+                    first_alert_from_previous_run) and self.cooldown:
+                if self.window_type == 'Tumbling':
+                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
+                    window_start = pd.Timestamp(first_alert_from_previous_run).floor(freq)
+                    window_end = window_start + self.T
+                    cooldown_until = window_end + self.cool_down_period
+                else:
+                    cooldown_until = pd.Timestamp(first_alert_from_previous_run) + self.cool_down_period
+                logger.info(
+                    f'Backtrack: Applying cooldown from previous run first alert '
+                    f'{first_alert_from_previous_run} until {cooldown_until}')
+
+            first_alert_in_this_run = None
+            last_alert_ts = None   # most recent timestamp where an alert fired
+
+            # Evaluate every row (not just true-condition rows)
+            for ts in entity_cond.index:
+
+                if self.window_type == 'Sliding':
+                    # Count true-condition rows in the half-open interval (ts-T, ts]
+                    cutoff = ts - self.T
+                    window_true_count = sum(1 for t in all_true_ts if cutoff < t <= ts)
+                else:
+                    # Tumbling window [floor(ts,T), floor(ts,T)+T)
+                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
+                    window_start = pd.Timestamp(ts).floor(freq)
+                    window_end = window_start + self.T
+                    window_true_count = sum(1 for t in all_true_ts if window_start <= t < window_end)
+
+                logger.debug(f'ts={ts}, window_true_count={window_true_count}, max={self.max_occurrences}')
+
+                # Check at-most condition and cooldown
+                if window_true_count <= self.max_occurrences and (cooldown_until is None or ts > cooldown_until):
+                    logger.debug(f'ALERT fired for {self.alert_name} at {ts}')
+                    df.loc[(entity_id, ts), self.alert_name] = True
+                    last_alert_ts = ts
+
+                    if is_first_cycle and first_alert_in_this_run is None:
+                        first_alert_in_this_run = ts
+                        logger.info(f'First alert in this run detected at {ts}')
+
+                    # Set cooldown after firing
+                    if self.window_type == 'Tumbling':
+                        freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
+                        window_start = pd.Timestamp(ts).floor(freq)
+                        window_end = window_start + self.T
+                        cooldown_until = window_end + self.cool_down_period if self.cooldown else window_end
+                        logger.debug(f'Tumbling: cooldown_until={cooldown_until}')
+                    else:
+                        if self.cooldown:
+                            cooldown_until = ts + self.cool_down_period
+                        else:
+                            cooldown_until = ts + self.T
+                        logger.debug(f'Sliding: cooldown_until={cooldown_until}')
+
+            # Determine what true-condition timestamps remain in the window at end of cycle
+            # (used by next cycle to seed the window)
+            if len(entity_cond) > 0:
+                last_ts = entity_cond.index[-1]
+                if self.window_type == 'Sliding':
+                    cutoff = last_ts - self.T
+                    remaining_true_ts = [t for t in all_true_ts if t > cutoff]
+                else:
+                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
+                    window_start = pd.Timestamp(last_ts).floor(freq)
+                    window_end = window_start + self.T
+                    remaining_true_ts = [t for t in all_true_ts if window_start <= t < window_end]
+            else:
+                remaining_true_ts = []
+
+            # Check if the last row in this cycle had an alert
+            last_ts_had_alert = False
+            if len(entity_cond) > 0:
+                last_ts_in_cycle = entity_cond.index[-1]
+                try:
+                    last_status = df.loc[(entity_id, last_ts_in_cycle), self.alert_name]
+                    last_status = last_status.iloc[-1] if isinstance(last_status, pd.Series) else last_status
+                    last_ts_had_alert = bool(last_status) if not pd.isna(last_status) else False
+                except KeyError:
+                    last_ts_had_alert = False
+
+            if is_first_cycle:
+                first_alert_in_this_run = first_alert_in_this_run if pd.notna(first_alert_in_this_run) else first_alert_from_previous_run
+
+            cache_df.loc[entity_id] = {
+                'last_condition_state': entity_cond.iloc[-1] if len(entity_cond) > 0 else None,
+                'breach_timestamps': remaining_true_ts,
+                'cooldown_until': cooldown_until,
+                'first_alert_time': first_alert_in_this_run if is_first_cycle else (
+                    cache_df.loc[entity_id, 'first_alert_time'] if entity_id in cache_df.index else None),
+                'last_ts_had_alert': last_ts_had_alert if not self.dms.running_with_backtrack else False,
+            }
+        self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
+        return df
+
+    def get_input_items(self):
+        items = self.get_expression_items(self.expression)
+        return items
+
+    @classmethod
+    def build_ui(cls):
+        inputs = [
+            UIExpression(name='expression',
+                         description='Condition expression (e.g., df["temp_c"] > 80)'),
+            UISingle(name='max_occurrences', datatype=int,
+                     description='Maximum number of occurrences allowed before an alert fires'),
+            UISingle(name='time_window', datatype=float,
+                     description='Time window duration'),
+            UISingle(
+                name='window_time_unit',
+                datatype=str,
+                description='Time unit for the window duration, default is minutes',
+                values=['Minutes', 'Hours', 'Days']
+            ),
+            UISingle(
+                name='window_type',
+                datatype=str,
+                description='Window type: sliding or tumbling',
+                values=['Sliding', 'Tumbling'],
+            ),
+            UISingle(name='cooldown', datatype=int, required=False,
+                     description='Minimum time between consecutive alert firings'),
+            UISingle(
+                name='cooldown_time_unit',
+                datatype=str,
+                description='Time unit for the cooldown duration, default is minutes',
+                values=['Minutes', 'Hours', 'Days'],
+                required=False
+            ),
+        ]
+        outputs = [
+            UIFunctionOutSingle(name='alert_name', datatype=bool,
+                                description='Alert output')
+        ]
+        return (inputs, outputs)
+
+
 class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
     """
     Create alerts that are triggered when data values the expression is True
