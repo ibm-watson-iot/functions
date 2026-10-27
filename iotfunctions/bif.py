@@ -846,11 +846,21 @@ class AlertByAtMostCount(BaseEvent):
     def execute(self, df):
         """
         Evaluate every row and fire an alert where the count of true-condition
-        rows within the window is <= max_occurrences (at-most semantics).
+        rows within the COMPLETED window is <= max_occurrences (at-most semantics).
 
-        Sliding window: at row ts, count true-condition rows in (ts-T, ts].
-        Tumbling window: at row ts, count true-condition rows in [floor(ts,T), floor(ts,T)+T).
-          One alert per tumbling window (suppressed via cooldown_until = window_end).
+        A window is only evaluated once it is complete (mature):
+
+        Sliding window:
+          Only fire at ts if ts >= first_data_ts + T.  At that point the window
+          (ts-T, ts] is full — at least T worth of data preceded it.
+          Firing on a partial window is incorrect: with max_occ=3 and 5 breaches
+          arriving in the first 5 min, the alert must NOT fire at t=0 just because
+          only 1 row is in the window at that moment.
+
+        Tumbling window:
+          Only fire once the window closes, i.e. at the first row that belongs to
+          the NEXT tumbling window (ts >= prev_window_end).  The count of the
+          just-closed window is evaluated and alert fires if count <= max_occurrences.
 
         breach_timestamps in the cache carries over the true-condition timestamps
         from the previous cycle that still fall inside the window.
@@ -871,7 +881,7 @@ class AlertByAtMostCount(BaseEvent):
         cache_data = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
         cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
             columns=pd.Index(['last_condition_state', 'breach_timestamps', 'cooldown_until', 'first_alert_time',
-                              'last_ts_had_alert']))
+                              'last_ts_had_alert', 'prev_window_end']))
         # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
         if cache_data is not None and 'breach_timestamps' in cache_df.columns:
             cache_df['breach_timestamps'] = cache_df['breach_timestamps'].apply(
@@ -899,6 +909,7 @@ class AlertByAtMostCount(BaseEvent):
             cooldown_until = None
             first_alert_from_previous_run = None
             last_ts_had_alert_in_previous_run = False
+            cached_prev_window_end = None   # tumbling: last window boundary from previous cycle
 
             if cache_data is not None and entity_id in cache_data.index:
                 if is_first_cycle:
@@ -911,6 +922,9 @@ class AlertByAtMostCount(BaseEvent):
                         last_ts_had_alert_in_previous_run = cache_data.loc[entity_id, 'last_ts_had_alert']
                         if pd.isna(last_ts_had_alert_in_previous_run):
                             last_ts_had_alert_in_previous_run = False
+                    if self.window_type == 'Tumbling' and 'prev_window_end' in cache_data.columns:
+                        pwe = cache_data.loc[entity_id, 'prev_window_end']
+                        cached_prev_window_end = None if pd.isna(pwe) else pwe
 
             # All true-condition timestamps (cached + this cycle), sorted
             all_true_ts = sorted(set(cached_true_ts + new_true_ts))
@@ -939,6 +953,20 @@ class AlertByAtMostCount(BaseEvent):
             first_alert_in_this_run = None
             last_alert_ts = None   # most recent timestamp where an alert fired
 
+            # For sliding: the window is mature once ts >= first_data_ts + T.
+            # first_data_ts is the earliest timestamp seen across cache + current cycle.
+            if all_true_ts:
+                earliest_data_ts = min(all_true_ts[0], entity_cond.index[0])
+            else:
+                earliest_data_ts = entity_cond.index[0]
+            # If the cache was populated from a previous cycle, the window is already
+            # mature from the very first row of this cycle.
+            cache_was_populated = len(cached_true_ts) > 0
+
+            # For tumbling: track the window boundary of the previous row so we know
+            # when a window closes.  Seed from cache so cross-cycle boundary detection works.
+            prev_window_end = cached_prev_window_end
+
             # Evaluate every row (not just true-condition rows)
             for ts in entity_cond.index:
 
@@ -946,41 +974,78 @@ class AlertByAtMostCount(BaseEvent):
                     # Count true-condition rows in the half-open interval (ts-T, ts]
                     cutoff = ts - self.T
                     window_true_count = sum(1 for t in all_true_ts if cutoff < t <= ts)
-                else:
-                    # Tumbling window [floor(ts,T), floor(ts,T)+T)
-                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
-                    window_start = pd.Timestamp(ts).floor(freq)
-                    window_end = window_start + self.T
-                    window_true_count = sum(1 for t in all_true_ts if window_start <= t < window_end)
 
-                logger.debug(f'ts={ts}, window_true_count={window_true_count}, max={self.max_occurrences}')
+                    # Window maturity guard: only evaluate once a full T has elapsed
+                    # since the first data point.  If the cache already has data from a
+                    # previous cycle the window is considered mature immediately.
+                    window_mature = cache_was_populated or (ts >= earliest_data_ts + self.T)
 
-                # Check at-most condition and cooldown
-                if window_true_count <= self.max_occurrences and (cooldown_until is None or ts > cooldown_until):
-                    logger.debug(f'ALERT fired for {self.alert_name} at {ts}')
-                    df.loc[(entity_id, ts), self.alert_name] = True
-                    last_alert_ts = ts
+                    logger.debug(f'ts={ts}, window_true_count={window_true_count}, max={self.max_occurrences}, mature={window_mature}')
 
-                    if is_first_cycle and first_alert_in_this_run is None:
-                        first_alert_in_this_run = ts
-                        logger.info(f'First alert in this run detected at {ts}')
+                    if not window_mature:
+                        continue
 
-                    # Set cooldown after firing
-                    if self.window_type == 'Tumbling':
-                        freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
-                        window_start = pd.Timestamp(ts).floor(freq)
-                        window_end = window_start + self.T
-                        cooldown_until = window_end + self.cool_down_period if self.cooldown else window_end
-                        logger.debug(f'Tumbling: cooldown_until={cooldown_until}')
-                    else:
+                    # Check at-most condition and cooldown
+                    if window_true_count <= self.max_occurrences and (cooldown_until is None or ts > cooldown_until):
+                        logger.debug(f'ALERT fired for {self.alert_name} at {ts}')
+                        df.loc[(entity_id, ts), self.alert_name] = True
+                        last_alert_ts = ts
+
+                        if is_first_cycle and first_alert_in_this_run is None:
+                            first_alert_in_this_run = ts
+                            logger.info(f'First alert in this run detected at {ts}')
+
                         if self.cooldown:
                             cooldown_until = ts + self.cool_down_period
                         else:
                             cooldown_until = ts + self.T
                         logger.debug(f'Sliding: cooldown_until={cooldown_until}')
 
+                else:
+                    # Tumbling window: fire at the FIRST ROW of each new window,
+                    # evaluating the count of the JUST-CLOSED previous window.
+                    freq = f'{int(self.time_window)}{freq_map.get(self.window_time_unit, "min")}'
+                    window_start = pd.Timestamp(ts).floor(freq)
+                    window_end = window_start + self.T
+
+                    if prev_window_end is None:
+                        # First row ever seen — record the boundary, nothing to evaluate yet
+                        prev_window_end = window_end
+                        logger.debug(f'ts={ts}: first tumbling window boundary set to {window_end}')
+                        continue
+
+                    if window_end <= prev_window_end:
+                        # Still inside the same tumbling window — nothing to fire yet
+                        logger.debug(f'ts={ts}: still in tumbling window ending {prev_window_end}')
+                        continue
+
+                    # The window just closed (ts has moved into the next window).
+                    # Evaluate the count for the closed window [prev_window_start, prev_window_end).
+                    closed_window_start = prev_window_end - self.T
+                    closed_window_count = sum(
+                        1 for t in all_true_ts
+                        if closed_window_start <= t < prev_window_end
+                    )
+                    logger.debug(f'ts={ts}: tumbling window [{closed_window_start}, {prev_window_end}) closed, count={closed_window_count}, max={self.max_occurrences}')
+
+                    # The alert timestamp is the first row of the NEW window (ts itself)
+                    if closed_window_count <= self.max_occurrences and (cooldown_until is None or ts > cooldown_until):
+                        logger.debug(f'ALERT fired for {self.alert_name} at {ts} (closed window count={closed_window_count})')
+                        df.loc[(entity_id, ts), self.alert_name] = True
+                        last_alert_ts = ts
+
+                        if is_first_cycle and first_alert_in_this_run is None:
+                            first_alert_in_this_run = ts
+                            logger.info(f'First alert in this run detected at {ts}')
+
+                        cooldown_until = window_end + self.cool_down_period if self.cooldown else window_end
+                        logger.debug(f'Tumbling: cooldown_until={cooldown_until}')
+
+                    prev_window_end = window_end
+
             # Determine what true-condition timestamps remain in the window at end of cycle
             # (used by next cycle to seed the window)
+            final_prev_window_end = None   # tumbling only: persist for cross-cycle boundary detection
             if len(entity_cond) > 0:
                 last_ts = entity_cond.index[-1]
                 if self.window_type == 'Sliding':
@@ -991,6 +1056,8 @@ class AlertByAtMostCount(BaseEvent):
                     window_start = pd.Timestamp(last_ts).floor(freq)
                     window_end = window_start + self.T
                     remaining_true_ts = [t for t in all_true_ts if window_start <= t < window_end]
+                    # prev_window_end after all rows processed is the window boundary of the last row
+                    final_prev_window_end = prev_window_end if prev_window_end is not None else window_end
             else:
                 remaining_true_ts = []
 
@@ -1015,6 +1082,7 @@ class AlertByAtMostCount(BaseEvent):
                 'first_alert_time': first_alert_in_this_run if is_first_cycle else (
                     cache_df.loc[entity_id, 'first_alert_time'] if entity_id in cache_df.index else None),
                 'last_ts_had_alert': last_ts_had_alert if not self.dms.running_with_backtrack else False,
+                'prev_window_end': final_prev_window_end,
             }
         self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
         return df
