@@ -881,7 +881,7 @@ class AlertByAtMostCount(BaseEvent):
         cache_data = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
         cache_df = cache_data.copy() if cache_data is not None else pd.DataFrame(
             columns=pd.Index(['last_condition_state', 'breach_timestamps', 'cooldown_until', 'first_alert_time',
-                              'last_ts_had_alert', 'prev_window_end']))
+                              'last_ts_had_alert', 'prev_window_end', 'earliest_data_ts']))
         # Normalize breach_timestamps to lists to avoid mixed ndarray/list types in PyArrow
         if cache_data is not None and 'breach_timestamps' in cache_df.columns:
             cache_df['breach_timestamps'] = cache_df['breach_timestamps'].apply(
@@ -910,6 +910,7 @@ class AlertByAtMostCount(BaseEvent):
             first_alert_from_previous_run = None
             last_ts_had_alert_in_previous_run = False
             cached_prev_window_end = None   # tumbling: last window boundary from previous cycle
+            cached_earliest_data_ts = None  # sliding: earliest ts seen across all cycles
 
             if cache_data is not None and entity_id in cache_data.index:
                 if is_first_cycle:
@@ -925,6 +926,9 @@ class AlertByAtMostCount(BaseEvent):
                     if self.window_type == 'Tumbling' and 'prev_window_end' in cache_data.columns:
                         pwe = cache_data.loc[entity_id, 'prev_window_end']
                         cached_prev_window_end = None if pd.isna(pwe) else pwe
+                    if 'earliest_data_ts' in cache_data.columns:
+                        edt = cache_data.loc[entity_id, 'earliest_data_ts']
+                        cached_earliest_data_ts = None if pd.isna(edt) else edt
 
             # All true-condition timestamps (cached + this cycle), sorted
             all_true_ts = sorted(set(cached_true_ts + new_true_ts))
@@ -953,12 +957,17 @@ class AlertByAtMostCount(BaseEvent):
             first_alert_in_this_run = None
             last_alert_ts = None   # most recent timestamp where an alert fired
 
-            # For sliding: the window is mature once ts >= first_data_ts + T.
-            # first_data_ts is the earliest timestamp seen across cache + current cycle.
-            if all_true_ts:
-                earliest_data_ts = min(all_true_ts[0], entity_cond.index[0])
+            # For sliding: the window is mature once ts >= earliest_data_ts + T.
+            # earliest_data_ts is the true start of data across ALL cycles (loaded from cache).
+            # This ensures maturity works correctly even when T > cycle size.
+            current_cycle_first_ts = entity_cond.index[0]
+            if cached_earliest_data_ts is not None:
+                # Previous cycle recorded the true start — use it
+                earliest_data_ts = cached_earliest_data_ts
+            elif all_true_ts:
+                earliest_data_ts = min(all_true_ts[0], current_cycle_first_ts)
             else:
-                earliest_data_ts = entity_cond.index[0]
+                earliest_data_ts = current_cycle_first_ts
             # If the cache was populated from a previous cycle, the window is already
             # mature from the very first row of this cycle.
             cache_was_populated = len(cached_true_ts) > 0
@@ -1075,6 +1084,14 @@ class AlertByAtMostCount(BaseEvent):
             if is_first_cycle:
                 first_alert_in_this_run = first_alert_in_this_run if pd.notna(first_alert_in_this_run) else first_alert_from_previous_run
 
+            # earliest_data_ts: persist until the window has matured at least once
+            # (i.e. until cooldown_until is set, meaning an alert has fired).
+            # Once maturity has been reached, None is fine — all future cycles are mature.
+            if cooldown_until is not None:
+                persist_earliest_data_ts = None   # maturity already achieved
+            else:
+                persist_earliest_data_ts = earliest_data_ts
+
             cache_df.loc[entity_id] = {
                 'last_condition_state': entity_cond.iloc[-1] if len(entity_cond) > 0 else None,
                 'breach_timestamps': remaining_true_ts,
@@ -1083,6 +1100,7 @@ class AlertByAtMostCount(BaseEvent):
                     cache_df.loc[entity_id, 'first_alert_time'] if entity_id in cache_df.index else None),
                 'last_ts_had_alert': last_ts_had_alert if not self.dms.running_with_backtrack else False,
                 'prev_window_end': final_prev_window_end,
+                'earliest_data_ts': persist_earliest_data_ts,
             }
         self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
         return df
