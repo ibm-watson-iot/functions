@@ -12,6 +12,7 @@
 The Built In Functions module contains preinstalled functions
 """
 
+import bisect
 import datetime as dt
 import logging
 import re
@@ -19,6 +20,7 @@ import time
 import warnings
 import ast 
 from collections import OrderedDict
+from decimal import Decimal
 
 import numpy as np
 import scipy as sp
@@ -2376,6 +2378,432 @@ class SustainedConditionAlert(BaseEvent):
             )
         ]
         return (inputs, outputs)
+
+class PercentageBasedAlert(BaseEvent):
+    """
+    Fire an alert when the percentage of valid samples satisfying a boolean
+    expression inside a time window **T** is greater than or equal to **P**.
+
+    Qualification uses exact arithmetic (``breach_count * 100 >= P * total_count``).
+    Samples whose expression inputs are null/NaN are invalid and excluded from
+    both numerator and denominator.  All valid samples sharing a timestamp are
+    added before a single evaluation is performed for that timestamp.
+
+    Sliding window
+        Window is ``(ts - T, ts]``.  An alert is only emitted once the window is
+        complete (``ts - first_sample_time >= T``).  Alert timestamp = ``ts``.
+    Tumbling window
+        Windows are ``[floor(ts, T), floor(ts, T) + T)``.  A window is finalized
+        when a later sample or the batch-end watermark reaches ``window_end``.
+        Empty windows are not evaluated.  Alert timestamp = ``window_end``.
+
+    Cooldown: ``cooldown_until = alert_ts + cooldown``; an alert is suppressed
+    while ``ts <= cooldown_until``.  Cooldown starts only when an alert fires.
+
+    Samples with a timestamp ``<= last_evaluation_time`` (replays / late data) or
+    older than the current tumbling window are dropped and logged.
+
+    State is persisted to ``KPI_DATA_CACHE`` between pipeline batches.
+    """
+
+    # Cache columns (also used as keys of the per-entity state dict)
+    _F_WINDOW_TS     = 'window_sample_ts'
+    _F_WINDOW_FLAGS  = 'window_sample_breach'
+    _F_BREACH        = 'breach_count'
+    _F_TOTAL         = 'total_count'
+    _F_FIRST_SAMPLE  = 'first_sample_time'
+    _F_COOLDOWN      = 'cooldown_until'
+    _F_LAST_ALERT    = 'last_alert_time'
+    _F_LAST_EVAL     = 'last_evaluation_time'
+    _F_WIN_START     = 'current_window_start'
+    _F_WIN_END       = 'current_window_end'
+    _F_FIRST_ALERT   = 'first_alert_time'
+    _STATE_FIELDS = [_F_WINDOW_TS, _F_WINDOW_FLAGS, _F_BREACH, _F_TOTAL, _F_FIRST_SAMPLE, _F_COOLDOWN,
+                     _F_LAST_ALERT, _F_LAST_EVAL, _F_WIN_START, _F_WIN_END, _F_FIRST_ALERT]
+
+    # Maximum number of samples kept in a sliding-window buffer
+    MAX_WINDOW_SAMPLES = 100000
+
+    _VALID_UNITS = ('minutes', 'hours', 'days')
+
+    def __init__(self, expression, P, T, time_unit='Minutes', window_type='Sliding', cooldown=0,
+                 cooldown_unit='minutes', severity=2, status='New', Create_Alert_In_Manage=False,
+                 alert_name='percentage_based_alert', **kwargs):
+
+        self.expression = expression
+        self.P = P
+        self.T = T
+        self.time_unit = (time_unit or 'minutes').lower()
+        self.window_type = (window_type or 'Sliding').capitalize()
+        self.cooldown = cooldown or 0
+        self.cooldown_unit = (cooldown_unit or 'minutes').lower()
+        self.severity = severity
+        self.status = status
+        self.Create_Alert_In_Manage = Create_Alert_In_Manage
+        self.alert_name = alert_name
+
+        if P is None or not 0 <= P <= 100:
+            raise ValueError(f'PercentageBasedAlert: P must be between 0 and 100 inclusive, got {P}')
+        if T is None or T <= 0:
+            raise ValueError(f'PercentageBasedAlert: T must be greater than zero, got {T}')
+        if self.cooldown < 0:
+            raise ValueError(f'PercentageBasedAlert: cooldown must be non-negative, got {cooldown}')
+        if self.window_type not in ('Sliding', 'Tumbling'):
+            raise ValueError(f'PercentageBasedAlert: window_type must be Sliding or Tumbling, got {window_type}')
+        if self.time_unit not in self._VALID_UNITS or self.cooldown_unit not in self._VALID_UNITS:
+            raise ValueError(f'PercentageBasedAlert: time units must be one of {self._VALID_UNITS}')
+
+        self._P_dec = Decimal(str(P))
+        self.T_delta = pd.Timedelta(**{self.time_unit: T})
+        self.cooldown_timedelta = pd.Timedelta(**{self.cooldown_unit: self.cooldown})
+        self._floor_freq = f'{int(self.T_delta.total_seconds())}s'
+
+        self.cache = None
+        super().__init__()
+
+    # ------------------------------------------------------------------ #
+    #  execute                                                             #
+    # ------------------------------------------------------------------ #
+
+    def execute(self, df, start_ts=None, end_ts=None, entities=None):
+        logger.info('PercentageBasedAlert.execute started for KPI %s', self.alert_name)
+
+        kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get('kpiFunctionId')
+        if not kpi_function_id:
+            raise ValueError(f'No kpiFunctionId found for alert {self.alert_name}. Cannot persist state.')
+
+        self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema,
+                                          self.dms.db_connection, self.dms.db_type)
+        if not self.dms.running_with_backtrack:
+            self.cache.delete_backtrack_cache(kpi_function_id)
+
+        cache_df = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
+        is_first_cycle = self._is_first_backtrack_cycle()
+
+        df = df.copy()
+        df[self.alert_name] = None
+
+        groups = self._build_sample_groups(df)
+        global_watermark = self._watermark(end_ts)
+
+        states = {}
+        if cache_df is not None and not cache_df.empty:
+            for entity_id in cache_df.index:
+                states[entity_id] = self._load_entity_state(cache_df, entity_id, is_first_cycle)
+        for entity_id in groups:
+            if entity_id not in states:
+                states[entity_id] = self._blank_state()
+
+        for entity_id, state in states.items():
+            entity_groups = groups.get(entity_id, [])
+            if not entity_groups and self.window_type == 'Sliding':
+                continue  # sliding windows are only evaluated when data arrives
+
+            watermark = global_watermark
+            if entity_groups:
+                last_ts = entity_groups[-1][0]
+                watermark = last_ts if watermark is None else max(watermark, last_ts)
+
+            alerts = []
+            if self.window_type == 'Sliding':
+                self._process_sliding(entity_id, state, entity_groups, alerts)
+            else:
+                self._process_tumbling(entity_id, state, entity_groups, watermark, alerts)
+
+            if is_first_cycle:
+                candidates = [t for t in (state[self._F_FIRST_ALERT], alerts[0] if alerts else None) if t is not None]
+                state[self._F_FIRST_ALERT] = min(candidates) if candidates else None
+
+            if alerts:
+                logger.info('PercentageBasedAlert: entity=%s alerts at %s', entity_id, alerts)
+                df = self._apply_alerts(df, entity_id, alerts)
+
+        if states:
+            out = pd.DataFrame.from_dict(states, orient='index', columns=self._STATE_FIELDS)
+            self.cache.store_alert_cache(kpi_function_id, out, self.dms.running_with_backtrack)
+
+        logger.info('PercentageBasedAlert.execute finished for KPI %s', self.alert_name)
+        return df
+
+    # ------------------------------------------------------------------ #
+    #  Sample preparation                                                  #
+    # ------------------------------------------------------------------ #
+
+    def _build_sample_groups(self, df):
+        """
+        Evaluate the expression and return ``{entity_id: [(ts, breaches, total), ...]}``
+        in ascending timestamp order.  Invalid samples are excluded.
+        """
+        if df.empty:
+            return {}
+
+        try:
+            result = eval(self.expression)  # noqa: S307
+        except Exception as exc:
+            raise ValueError(f'PercentageBasedAlert: expression evaluation failed — {exc}') from exc
+        if not isinstance(result, pd.Series):
+            result = pd.Series(result, index=df.index)
+
+        valid = result.notna().to_numpy()
+        items = [i for i in self.get_expression_items(self.expression) if i in df.columns]
+        if items:
+            valid = valid & df[items].notna().all(axis=1).to_numpy()
+        breach = result.where(valid, False).astype(bool).to_numpy().astype(int)
+
+        frame = pd.DataFrame({
+            'id': df.index.get_level_values(0),
+            'ts': df.index.get_level_values(1),
+            'breach': breach,
+        })[valid]
+        if frame.empty:
+            return {}
+
+        agg = frame.groupby(['id', 'ts'])['breach'].agg(['sum', 'count']).reset_index()
+        groups = {}
+        for entity_id, sub in agg.groupby('id', sort=False):
+            groups[entity_id] = list(zip(sub['ts'], sub['sum'].astype(int), sub['count'].astype(int)))
+        return groups
+
+    def _watermark(self, end_ts):
+        raw = getattr(self.dms, 'launch_date', None)
+        if raw is None or callable(raw):
+            return None
+        watermark = pd.Timestamp(raw)
+        if end_ts is not None:
+            watermark = min(watermark, pd.Timestamp(end_ts))
+        return watermark
+
+    # ------------------------------------------------------------------ #
+    #  Window processing                                                   #
+    # ------------------------------------------------------------------ #
+
+    def _process_sliding(self, entity_id, state, groups, alerts):
+        ts_list = state[self._F_WINDOW_TS]
+        flags = state[self._F_WINDOW_FLAGS]
+
+        for ts, breaches, total in groups:
+            last_eval = state[self._F_LAST_EVAL]
+            if last_eval is not None and ts <= last_eval:
+                logger.warning('PercentageBasedAlert: entity=%s dropped late/replayed samples at %s '
+                               '(last evaluation %s)', entity_id, ts, last_eval)
+                continue
+
+            # Remove expired samples: timestamp <= ts - T
+            expired = bisect.bisect_right(ts_list, ts - self.T_delta)
+            if expired:
+                state[self._F_BREACH] -= sum(flags[:expired])
+                state[self._F_TOTAL] -= expired
+                del ts_list[:expired]
+                del flags[:expired]
+
+            if len(ts_list) + total > self.MAX_WINDOW_SAMPLES:
+                logger.error('PercentageBasedAlert: entity=%s sliding buffer capacity (%d) exceeded at %s; '
+                             'window state is reset and will be rebuilt before alerts resume',
+                             entity_id, self.MAX_WINDOW_SAMPLES, ts)
+                ts_list.clear()
+                flags.clear()
+                state[self._F_BREACH] = 0
+                state[self._F_TOTAL] = 0
+                state[self._F_FIRST_SAMPLE] = None
+
+            ts_list.extend([ts] * total)
+            flags.extend([1] * breaches + [0] * (total - breaches))
+            state[self._F_BREACH] += breaches
+            state[self._F_TOTAL] += total
+            if state[self._F_FIRST_SAMPLE] is None:
+                state[self._F_FIRST_SAMPLE] = ts
+            state[self._F_LAST_EVAL] = ts
+
+            window_complete = (ts - state[self._F_FIRST_SAMPLE]) >= self.T_delta
+            if (window_complete
+                    and self._qualifies(state[self._F_BREACH], state[self._F_TOTAL])
+                    and not self._cooldown_active(state, ts)):
+                self._fire(state, ts, alerts)
+
+    def _process_tumbling(self, entity_id, state, groups, watermark, alerts):
+        for ts, breaches, total in groups:
+            last_eval = state[self._F_LAST_EVAL]
+            window_start = state[self._F_WIN_START]
+            if (last_eval is not None and ts <= last_eval) or (window_start is not None and ts < window_start):
+                logger.warning('PercentageBasedAlert: entity=%s dropped late/replayed samples at %s', entity_id, ts)
+                continue
+
+            if state[self._F_WIN_END] is None:
+                self._open_window(state, ts)
+            elif ts >= state[self._F_WIN_END]:
+                self._close_window(state, alerts)
+                self._open_window(state, ts)
+
+            state[self._F_BREACH] += breaches
+            state[self._F_TOTAL] += total
+            if state[self._F_FIRST_SAMPLE] is None:
+                state[self._F_FIRST_SAMPLE] = ts
+            state[self._F_LAST_EVAL] = ts
+
+        # Finalize every window that the batch-end watermark has reached, in chronological order
+        if watermark is not None:
+            while state[self._F_WIN_END] is not None and state[self._F_WIN_END] <= watermark:
+                self._close_window(state, alerts)
+                window_start = state[self._F_WIN_END]
+                window_end = window_start + self.T_delta
+                if window_end <= watermark:
+                    # window is empty here, so skip directly to the one containing the watermark
+                    window_start = watermark.floor(self._floor_freq)
+                    window_end = window_start + self.T_delta
+                state[self._F_WIN_START] = window_start
+                state[self._F_WIN_END] = window_end
+
+    def _open_window(self, state, ts):
+        window_start = ts.floor(self._floor_freq)
+        state[self._F_WIN_START] = window_start
+        state[self._F_WIN_END] = window_start + self.T_delta
+
+    def _close_window(self, state, alerts):
+        """Evaluate the current tumbling window (if it has valid samples) and clear its counters."""
+        window_end = state[self._F_WIN_END]
+        if (state[self._F_TOTAL] > 0
+                and self._qualifies(state[self._F_BREACH], state[self._F_TOTAL])
+                and not self._cooldown_active(state, window_end)):
+            self._fire(state, window_end, alerts)
+        state[self._F_BREACH] = 0
+        state[self._F_TOTAL] = 0
+
+    # ------------------------------------------------------------------ #
+    #  Alert helpers                                                       #
+    # ------------------------------------------------------------------ #
+
+    def _qualifies(self, breach_count, total_count):
+        """``breach_count * 100 >= P * total_count`` evaluated without float rounding."""
+        return total_count > 0 and Decimal(int(breach_count)) * 100 >= self._P_dec * int(total_count)
+
+    @staticmethod
+    def _cooldown_active(state, ts):
+        cooldown_until = state[PercentageBasedAlert._F_COOLDOWN]
+        return cooldown_until is not None and ts <= cooldown_until
+
+    def _fire(self, state, alert_ts, alerts):
+        alerts.append(alert_ts)
+        state[self._F_LAST_ALERT] = alert_ts
+        state[self._F_COOLDOWN] = alert_ts + self.cooldown_timedelta
+
+    def _apply_alerts(self, df, entity_id, alert_ts):
+        """Mark existing rows and add synthetic rows (e.g. tumbling window ends) for the alert timestamps."""
+        ids = df.index.get_level_values(0)
+        timestamps = df.index.get_level_values(1)
+        entity_mask = np.asarray(ids == entity_id)
+        df.loc[entity_mask & np.asarray(timestamps.isin(alert_ts)), self.alert_name] = True
+
+        existing = set(timestamps[entity_mask])
+        new_ts = sorted(t for t in set(alert_ts) if t not in existing)
+        if new_ts:
+            ts_col = df.index.names[1]
+            synthetic_idx = pd.MultiIndex.from_arrays([[entity_id] * len(new_ts), new_ts],
+                                                      names=[df.index.names[0], ts_col])
+            synthetic_df = pd.DataFrame({col: (True if col == self.alert_name else None) for col in df.columns},
+                                        index=synthetic_idx)
+            df = pd.concat([df, synthetic_df], sort=False)
+        return df
+
+    # ------------------------------------------------------------------ #
+    #  Cache management                                                    #
+    # ------------------------------------------------------------------ #
+
+    def _blank_state(self):
+        state = {field: None for field in self._STATE_FIELDS}
+        state[self._F_WINDOW_TS] = []
+        state[self._F_WINDOW_FLAGS] = []
+        state[self._F_BREACH] = 0
+        state[self._F_TOTAL] = 0
+        return state
+
+    @staticmethod
+    def _to_timestamp(value):
+        return pd.Timestamp(value) if value is not None and pd.notna(value) else None
+
+    @staticmethod
+    def _to_list(value):
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return []
+        return value.tolist() if isinstance(value, np.ndarray) else list(value)
+
+    def _load_entity_state(self, cache_df, entity_id, is_first_cycle):
+        """
+        Normal mode: restore the full window/alert state.
+        Backtrack first cycle: window state is re-derived from scratch; only
+        ``first_alert_time`` is loaded to seed the cooldown.
+        """
+        state = self._blank_state()
+        row = cache_df.loc[entity_id]
+        first_alert = self._to_timestamp(row.get(self._F_FIRST_ALERT))
+        state[self._F_FIRST_ALERT] = first_alert
+
+        if is_first_cycle:
+            if first_alert is not None:
+                state[self._F_COOLDOWN] = first_alert + self.cooldown_timedelta
+                logger.info('Backtrack first cycle: entity=%s first_alert=%s cooldown_until=%s',
+                            entity_id, first_alert, state[self._F_COOLDOWN])
+            return state
+
+        state[self._F_WINDOW_TS] = [pd.Timestamp(t) for t in self._to_list(row.get(self._F_WINDOW_TS))]
+        state[self._F_WINDOW_FLAGS] = [int(f) for f in self._to_list(row.get(self._F_WINDOW_FLAGS))]
+        for field in (self._F_FIRST_SAMPLE, self._F_COOLDOWN, self._F_LAST_ALERT, self._F_LAST_EVAL,
+                      self._F_WIN_START, self._F_WIN_END):
+            state[field] = self._to_timestamp(row.get(field))
+
+        if self.window_type == 'Sliding':
+            state[self._F_BREACH] = int(sum(state[self._F_WINDOW_FLAGS]))
+            state[self._F_TOTAL] = len(state[self._F_WINDOW_FLAGS])
+        else:
+            for field in (self._F_BREACH, self._F_TOTAL):
+                value = row.get(field)
+                state[field] = int(value) if value is not None and pd.notna(value) else 0
+        return state
+
+    def _is_first_backtrack_cycle(self) -> bool:
+        """Return ``True`` only on the first cycle of a backtrack run."""
+        return bool(self.dms.running_with_backtrack and getattr(self.dms, 'cycle_id', None) is not None
+                    and self.dms.cycle_id == 1)
+
+    # ------------------------------------------------------------------ #
+    #  UI metadata                                                         #
+    # ------------------------------------------------------------------ #
+
+    def get_input_items(self):
+        return self.get_expression_items(self.expression)
+
+    @classmethod
+    def build_ui(cls):
+        inputs = [
+            UIExpression(name='expression',
+                         description="Boolean pandas expression. Example: df['noise_level'] > 60"),
+            UISingle(name='P', datatype=float, required=True,
+                     description='Required breach percentage (0-100). Alert qualifies when percentage >= P'),
+            UISingle(name='T', datatype=float, required=True,
+                     description='Size of the evaluation time window (unit set by time_unit)'),
+            UISingle(name='time_unit', datatype=str, required=True,
+                     description='Time unit for T, default is Minutes', values=['Minutes', 'Hours', 'Days']),
+            UISingle(name='window_type', datatype=str, required=False,
+                     description='Window type: Sliding (default) or Tumbling', values=['Sliding', 'Tumbling']),
+            UISingle(name='cooldown', datatype=float, required=False,
+                     description='Minimum interval between consecutive alert firings. 0 disables cooldown'),
+            UISingle(name='cooldown_unit', datatype=str, required=False,
+                     description='Time unit for the cooldown, default is minutes',
+                     values=['minutes', 'hours', 'days']),
+            UISingle(name='severity', datatype=int, required=False,
+                     description='Alert severity: 1 = High, 2 = Medium, 3 = Low', values=[1, 2, 3]),
+            UISingle(name='status', datatype=str, required=False,
+                     description='Initial alert status when the alert fires',
+                     values=['New', 'Acknowledged', 'Resolved']),
+            UISingle(name='Create_Alert_In_Manage', datatype=bool, required=False,
+                     description='When True, forward the fired alert to IBM Maximo Manage'),
+        ]
+        outputs = [
+            UIFunctionOutSingle(name='alert_name', datatype=bool,
+                                description='Alert output column — True where the percentage-based alert fires')
+        ]
+        return (inputs, outputs)
+
+
 
 class DeleteInputData(BasePreload):
     """
