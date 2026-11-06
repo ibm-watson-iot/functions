@@ -8,7 +8,7 @@ lightgbm==4.6.0
 nose2==0.15.1
 pandas==2.2.3
 prophet==1.1.6
-pyarrow==24.0.0
+pyarrow==26.0.1
 pyod==2.0.2
 certifi>=2026.4.22
 requests==2.34.2
