@@ -2421,9 +2421,6 @@ class PercentageBasedAlert(BaseEvent):
     _STATE_FIELDS = [_F_WINDOW_TS, _F_WINDOW_FLAGS, _F_BREACH, _F_TOTAL, _F_FIRST_SAMPLE, _F_COOLDOWN,
                      _F_LAST_ALERT, _F_LAST_EVAL, _F_WIN_START, _F_WIN_END, _F_FIRST_ALERT]
 
-    # Maximum number of samples kept in a sliding-window buffer
-    MAX_WINDOW_SAMPLES = 100000
-
     _VALID_UNITS = ('minutes', 'hours', 'days')
 
     def __init__(self, expression, P, T, time_unit='Minutes', window_type='Sliding', cooldown=0,
@@ -2595,16 +2592,6 @@ class PercentageBasedAlert(BaseEvent):
                 state[self._F_TOTAL] -= expired
                 del ts_list[:expired]
                 del flags[:expired]
-
-            if len(ts_list) + total > self.MAX_WINDOW_SAMPLES:
-                logger.error('PercentageBasedAlert: entity=%s sliding buffer capacity (%d) exceeded at %s; '
-                             'window state is reset and will be rebuilt before alerts resume',
-                             entity_id, self.MAX_WINDOW_SAMPLES, ts)
-                ts_list.clear()
-                flags.clear()
-                state[self._F_BREACH] = 0
-                state[self._F_TOTAL] = 0
-                state[self._F_FIRST_SAMPLE] = None
 
             ts_list.extend([ts] * total)
             flags.extend([1] * breaches + [0] * (total - breaches))
