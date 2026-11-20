@@ -2382,18 +2382,18 @@ class SustainedConditionAlert(BaseEvent):
 class PercentageBasedAlert(BaseEvent):
     """
     Fire an alert when the percentage of valid samples satisfying a boolean
-    expression inside a time window **T** is greater than or equal to **P**.
+    expression inside a time window of size **time** is greater than or equal to **percentage**.
 
-    Qualification uses exact arithmetic (``breach_count * 100 >= P * total_count``).
+    Qualification uses exact arithmetic (``breach_count * 100 >= percentage * total_count``).
     Samples whose expression inputs are null/NaN are invalid and excluded from
     both numerator and denominator.  All valid samples sharing a timestamp are
     added before a single evaluation is performed for that timestamp.
 
     Sliding window
-        Window is ``(ts - T, ts]``.  An alert is only emitted once the window is
-        complete (``ts - first_sample_time >= T``).  Alert timestamp = ``ts``.
+        Window is ``(ts - time, ts]``.  An alert is only emitted once the window is
+        complete (``ts - first_sample_time >= time``).  Alert timestamp = ``ts``.
     Tumbling window
-        Windows are ``[floor(ts, T), floor(ts, T) + T)``.  A window is finalized
+        Windows are ``[floor(ts, time), floor(ts, time) + time)``.  A window is finalized
         when a later sample or the batch-end watermark reaches ``window_end``.
         Empty windows are not evaluated.  Alert timestamp = ``window_end``.
 
@@ -2423,13 +2423,13 @@ class PercentageBasedAlert(BaseEvent):
 
     _VALID_UNITS = ('minutes', 'hours', 'days')
 
-    def __init__(self, expression, P, T, time_unit='Minutes', window_type='Sliding', cooldown=0,
+    def __init__(self, expression, percentage, time, time_unit='Minutes', window_type='Sliding', cooldown=0,
                  cooldown_unit='minutes', severity=2, status='New', Create_Alert_In_Manage=False,
                  alert_name='percentage_based_alert', **kwargs):
 
         self.expression = expression
-        self.P = P
-        self.T = T
+        self.percentage = percentage
+        self.time = time
         self.time_unit = (time_unit or 'minutes').lower()
         self.window_type = (window_type or 'Sliding').capitalize()
         self.cooldown = cooldown or 0
@@ -2439,10 +2439,10 @@ class PercentageBasedAlert(BaseEvent):
         self.Create_Alert_In_Manage = Create_Alert_In_Manage
         self.alert_name = alert_name
 
-        if P is None or not 0 <= P <= 100:
-            raise ValueError(f'PercentageBasedAlert: P must be between 0 and 100 inclusive, got {P}')
-        if T is None or T <= 0:
-            raise ValueError(f'PercentageBasedAlert: T must be greater than zero, got {T}')
+        if percentage is None or not 0 <= percentage <= 100:
+            raise ValueError(f'PercentageBasedAlert: percentage must be between 0 and 100 inclusive, got {percentage}')
+        if time is None or time <= 0:
+            raise ValueError(f'PercentageBasedAlert: time must be greater than zero, got {time}')
         if self.cooldown < 0:
             raise ValueError(f'PercentageBasedAlert: cooldown must be non-negative, got {cooldown}')
         if self.window_type not in ('Sliding', 'Tumbling'):
@@ -2450,10 +2450,10 @@ class PercentageBasedAlert(BaseEvent):
         if self.time_unit not in self._VALID_UNITS or self.cooldown_unit not in self._VALID_UNITS:
             raise ValueError(f'PercentageBasedAlert: time units must be one of {self._VALID_UNITS}')
 
-        self._P_dec = Decimal(str(P))
-        self.T_delta = pd.Timedelta(**{self.time_unit: T})
+        self._percentage_dec = Decimal(str(percentage))
+        self.time_delta = pd.Timedelta(**{self.time_unit: time})
         self.cooldown_timedelta = pd.Timedelta(**{self.cooldown_unit: self.cooldown})
-        self._floor_freq = f'{int(self.T_delta.total_seconds())}s'
+        self._floor_freq = f'{int(self.time_delta.total_seconds())}s'
 
         self.cache = None
         super().__init__()
@@ -2585,8 +2585,8 @@ class PercentageBasedAlert(BaseEvent):
                                '(last evaluation %s)', entity_id, ts, last_eval)
                 continue
 
-            # Remove expired samples: timestamp <= ts - T
-            expired = bisect.bisect_right(ts_list, ts - self.T_delta)
+            # Remove expired samples: timestamp <= ts - time
+            expired = bisect.bisect_right(ts_list, ts - self.time_delta)
             if expired:
                 state[self._F_BREACH] -= sum(flags[:expired])
                 state[self._F_TOTAL] -= expired
@@ -2601,7 +2601,7 @@ class PercentageBasedAlert(BaseEvent):
                 state[self._F_FIRST_SAMPLE] = ts
             state[self._F_LAST_EVAL] = ts
 
-            window_complete = (ts - state[self._F_FIRST_SAMPLE]) >= self.T_delta
+            window_complete = (ts - state[self._F_FIRST_SAMPLE]) >= self.time_delta
             if (window_complete
                     and self._qualifies(state[self._F_BREACH], state[self._F_TOTAL])
                     and not self._cooldown_active(state, ts)):
@@ -2632,18 +2632,18 @@ class PercentageBasedAlert(BaseEvent):
             while state[self._F_WIN_END] is not None and state[self._F_WIN_END] <= watermark:
                 self._close_window(state, alerts)
                 window_start = state[self._F_WIN_END]
-                window_end = window_start + self.T_delta
+                window_end = window_start + self.time_delta
                 if window_end <= watermark:
                     # window is empty here, so skip directly to the one containing the watermark
                     window_start = watermark.floor(self._floor_freq)
-                    window_end = window_start + self.T_delta
+                    window_end = window_start + self.time_delta
                 state[self._F_WIN_START] = window_start
                 state[self._F_WIN_END] = window_end
 
     def _open_window(self, state, ts):
         window_start = ts.floor(self._floor_freq)
         state[self._F_WIN_START] = window_start
-        state[self._F_WIN_END] = window_start + self.T_delta
+        state[self._F_WIN_END] = window_start + self.time_delta
 
     def _close_window(self, state, alerts):
         """Evaluate the current tumbling window (if it has valid samples) and clear its counters."""
@@ -2660,8 +2660,8 @@ class PercentageBasedAlert(BaseEvent):
     # ------------------------------------------------------------------ #
 
     def _qualifies(self, breach_count, total_count):
-        """``breach_count * 100 >= P * total_count`` evaluated without float rounding."""
-        return total_count > 0 and Decimal(int(breach_count)) * 100 >= self._P_dec * int(total_count)
+        """``breach_count * 100 >= percentage * total_count`` evaluated without float rounding."""
+        return total_count > 0 and Decimal(int(breach_count)) * 100 >= self._percentage_dec * int(total_count)
 
     @staticmethod
     def _cooldown_active(state, ts):
@@ -2763,12 +2763,12 @@ class PercentageBasedAlert(BaseEvent):
         inputs = [
             UIExpression(name='expression',
                          description="Boolean pandas expression. Example: df['noise_level'] > 60"),
-            UISingle(name='P', datatype=float, required=True,
-                     description='Required breach percentage (0-100). Alert qualifies when percentage >= P'),
-            UISingle(name='T', datatype=float, required=True,
+            UISingle(name='percentage', datatype=float, required=True,
+                     description='Required breach percentage (0-100). Alert qualifies when actual percentage >= this value'),
+            UISingle(name='time', datatype=float, required=True,
                      description='Size of the evaluation time window (unit set by time_unit)'),
             UISingle(name='time_unit', datatype=str, required=True,
-                     description='Time unit for T, default is Minutes', values=['Minutes', 'Hours', 'Days']),
+                     description='Time unit for time, default is Minutes', values=['Minutes', 'Hours', 'Days']),
             UISingle(name='window_type', datatype=str, required=False,
                      description='Window type: Sliding (default) or Tumbling', values=['Sliding', 'Tumbling']),
             UISingle(name='cooldown', datatype=float, required=False,
