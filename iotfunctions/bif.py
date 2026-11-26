@@ -815,6 +815,415 @@ class AlertExpressionWithFilter(BaseEvent):
         return (inputs, outputs)
 
 
+class AlertByCumulativeDuration(BaseEvent):
+    """
+    Fire an alert when the total accumulated time during which a condition is True inside a
+    time window **T** reaches or exceeds a duration threshold **D** (``cumulative_duration >= D``).
+
+    The function tracks *intervals* of consecutive True rows instead of counting rows.  A True
+    interval starts at the first True row of a run and ends at the first non-True row that follows
+    (a False row closes the interval at its own timestamp; a NaN row closes it at the last True row).
+    A run that is still True is an *open* interval and is evaluated up to the current timestamp
+    (Sliding) or clipped at the window end (Tumbling).
+
+    Window types
+    ------------
+    Tumbling:
+        Fixed, clock aligned windows ``[floor(ts, T), floor(ts, T) + T)``.  A window is evaluated once the
+        first row with ``ts >= window_end`` arrives.  The alert timestamp is ``window_end``.  Intervals that
+        span a boundary are clipped; the open portion continues in the next window.
+    Sliding:
+        At every row the window ``(ts - T, ts]`` is evaluated.  The alert timestamp is ``ts``.
+
+    Cooldown
+    --------
+    After an alert fires, further alerts are suppressed while ``alert_ts <= cooldown_until`` where
+    ``cooldown_until = alert_ts + cooldown``.  A cooldown of ``0`` disables the cooldown.
+
+    D and T share ``time_unit``; both must be whole numbers with ``0 <= D <= T`` and ``T > 0``.
+
+    State (true intervals, interval in progress, window start, cooldown ...) is persisted per entity in the
+    alert cache so that runs which start in one pipeline batch can be completed in a later one.
+    """
+
+    _TIME_UNITS = {'minutes': 'minutes', 'hours': 'hours', 'days': 'days'}
+    _FLOOR_FREQ = {'minutes': 'min', 'hours': 'h', 'days': 'D'}
+    _WINDOW_TYPES = {'tumbling': 'Tumbling', 'sliding': 'Sliding'}
+    DEFAULT_COOLDOWN = 0
+
+    # Cache columns (one row per entity)
+    _COL_INTERVALS = 'true_intervals'              # flat list [start1, end1, start2, end2, ...]
+    _COL_IN_PROGRESS = 'interval_in_progress'
+    _COL_WINDOW_START = 'current_window_start'
+    _COL_COOLDOWN = 'cooldown_until'
+    _COL_FIRST_ALERT = 'first_alert_in_cycle'
+    _COL_LAST_TRUE = 'last_true_ts'
+    _COL_LAST_TS = 'last_processed_ts'
+    _COL_LAST_ALERT = 'last_alert_ts'
+    _CACHE_COLUMNS = [_COL_INTERVALS, _COL_IN_PROGRESS, _COL_WINDOW_START, _COL_COOLDOWN, _COL_FIRST_ALERT,
+                      _COL_LAST_TRUE, _COL_LAST_TS, _COL_LAST_ALERT]
+
+    def __init__(self, expression, duration_threshold, time_window, time_unit, window_type, alert_name,
+                 cooldown=DEFAULT_COOLDOWN, cooldown_unit='minutes', **kwargs):
+        self.expression = expression
+        self.duration_threshold = self._validate_whole_number('duration_threshold', duration_threshold)
+        self.time_window = self._validate_whole_number('time_window', time_window)
+        self.time_unit = time_unit
+        self.window_type = window_type
+        self.alert_name = alert_name
+        self.cooldown = self.DEFAULT_COOLDOWN if cooldown is None else cooldown
+        self.cooldown_unit = cooldown_unit
+
+        unit = (time_unit or 'minutes').lower()
+        if unit not in self._TIME_UNITS:
+            raise ValueError(f"AlertByCumulativeDuration: time_unit must be one of Minutes, Hours, Days; got '{time_unit}'")
+        self._unit = unit
+
+        wtype = (window_type or 'Sliding').lower()
+        if wtype not in self._WINDOW_TYPES:
+            raise ValueError(f"AlertByCumulativeDuration: window_type must be Sliding or Tumbling; got '{window_type}'")
+        self._window_type = self._WINDOW_TYPES[wtype]
+
+        if self.time_window <= 0:
+            raise ValueError('AlertByCumulativeDuration: time_window (T) must be greater than zero')
+        if self.duration_threshold < 0:
+            raise ValueError('AlertByCumulativeDuration: duration_threshold (D) must not be negative')
+        if self.duration_threshold > self.time_window:
+            raise ValueError(f'AlertByCumulativeDuration: duration_threshold (D={self.duration_threshold}) '
+                             f'must not exceed time_window (T={self.time_window})')
+
+        cd_unit = (cooldown_unit or 'minutes').lower()
+        if cd_unit not in self._TIME_UNITS:
+            raise ValueError(
+                f"AlertByCumulativeDuration: cooldown_unit must be one of minutes, hours, days; got '{cooldown_unit}'")
+        if isinstance(self.cooldown, bool) or not isinstance(self.cooldown, (int, float, np.integer, np.floating)) \
+                or self.cooldown < 0:
+            raise ValueError('AlertByCumulativeDuration: cooldown must be a non-negative number')
+
+        self._D = dt.timedelta(**{unit: self.duration_threshold})
+        self._T = dt.timedelta(**{unit: self.time_window})
+        self._cooldown_td = dt.timedelta(**{cd_unit: self.cooldown})
+        self._floor_freq = f'{self.time_window}{self._FLOOR_FREQ[unit]}'
+        self.cache = None
+        super().__init__()
+
+    # ------------------------------------------------------------------ #
+    #  Helpers                                                             #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _validate_whole_number(name, value):
+        if isinstance(value, bool) or value is None:
+            raise ValueError(f'AlertByCumulativeDuration: {name} must be a whole number; got {value!r}')
+        try:
+            as_float = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f'AlertByCumulativeDuration: {name} must be a whole number; got {value!r}')
+        if not as_float.is_integer():
+            raise ValueError(f'AlertByCumulativeDuration: {name} must be a whole number; got {value!r}')
+        return int(as_float)
+
+    @staticmethod
+    def _to_ts(value):
+        """Convert a cached value to pd.Timestamp or None."""
+        if value is None:
+            return None
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return pd.Timestamp(value)
+
+    @staticmethod
+    def _overlap(start, end, win_start, win_end):
+        """Length of the intersection of [start, end] with [win_start, win_end] (never negative)."""
+        overlap = min(end, win_end) - max(start, win_start)
+        return overlap if overlap > dt.timedelta(0) else dt.timedelta(0)
+
+    def _cumulative_duration(self, intervals, in_progress, win_start, win_end):
+        """Sum of the overlaps of all closed intervals and the open interval with the window."""
+        total = dt.timedelta(0)
+        for start, end in intervals:
+            total += self._overlap(start, end, win_start, win_end)
+        if in_progress is not None:
+            total += self._overlap(in_progress, win_end, win_start, win_end)
+        return total
+
+    def _cooldown_until_after(self, alert_ts):
+        return alert_ts + self._cooldown_td if self._cooldown_td > dt.timedelta(0) else None
+
+    @staticmethod
+    def _fresh_state():
+        return {
+            'intervals': [], 'in_progress': None, 'window_start': None, 'cooldown_until': None,
+            'first_alert': None, 'last_true': None, 'last_ts': None, 'last_alert': None,
+        }
+
+    # ------------------------------------------------------------------ #
+    #  Cache (de)serialisation                                             #
+    # ------------------------------------------------------------------ #
+
+    def _state_from_cache_row(self, row):
+        flat = row.get(self._COL_INTERVALS)
+        flat = [] if flat is None or (isinstance(flat, float) and np.isnan(flat)) else list(flat)
+        stamps = [self._to_ts(x) for x in flat]
+        return {
+            'intervals': list(zip(stamps[0::2], stamps[1::2])),
+            'in_progress': self._to_ts(row.get(self._COL_IN_PROGRESS)),
+            'window_start': self._to_ts(row.get(self._COL_WINDOW_START)),
+            'cooldown_until': self._to_ts(row.get(self._COL_COOLDOWN)),
+            'first_alert': self._to_ts(row.get(self._COL_FIRST_ALERT)),
+            'last_true': self._to_ts(row.get(self._COL_LAST_TRUE)),
+            'last_ts': self._to_ts(row.get(self._COL_LAST_TS)),
+            'last_alert': self._to_ts(row.get(self._COL_LAST_ALERT)),
+        }
+
+    def _cache_row_from_state(self, state):
+        flat = [ts for interval in state['intervals'] for ts in interval]
+        return {
+            self._COL_INTERVALS: flat,
+            self._COL_IN_PROGRESS: state['in_progress'],
+            self._COL_WINDOW_START: state['window_start'],
+            self._COL_COOLDOWN: state['cooldown_until'],
+            self._COL_FIRST_ALERT: state['first_alert'],
+            self._COL_LAST_TRUE: state['last_true'],
+            self._COL_LAST_TS: state['last_ts'],
+            self._COL_LAST_ALERT: state['last_alert'],
+        }
+
+    # ------------------------------------------------------------------ #
+    #  Per-entity state machine                                            #
+    # ------------------------------------------------------------------ #
+
+    def _process_entity(self, entity_cond, entity_nan, state):
+        """
+        Walk the rows of one entity in ascending timestamp order.
+
+        Returns ``(alert_timestamps, state)``.
+        """
+        intervals = list(state['intervals'])
+        in_progress = state['in_progress']
+        window_start = state['window_start']
+        cooldown_until = state['cooldown_until']
+        last_true = state['last_true']
+        last_ts = state['last_ts']
+        alerts = []
+        zero = dt.timedelta(0)
+
+        def fire(alert_ts):
+            nonlocal cooldown_until
+            alerts.append(alert_ts)
+            cooldown_until = self._cooldown_until_after(alert_ts)
+
+        for ts in entity_cond.index:
+            ts = pd.Timestamp(ts)
+            # Rows that were already processed in a previous batch (overlapping batch boundary) are skipped
+            if last_ts is not None and ts <= last_ts:
+                continue
+
+            if self._window_type == 'Tumbling':
+                if window_start is None:
+                    window_start = ts.floor(self._floor_freq)
+                # Close every window that ended at or before ts, in chronological order
+                while ts >= window_start + self._T:
+                    window_end = window_start + self._T
+                    if self._D > zero and not intervals and in_progress is None:
+                        # Nothing can accumulate in the skipped (empty) windows; jump to the window of ts
+                        window_start = ts.floor(self._floor_freq)
+                        break
+                    duration = self._cumulative_duration(intervals, in_progress, window_start, window_end)
+                    if duration >= self._D and (cooldown_until is None or window_end > cooldown_until):
+                        fire(window_end)
+                    # Discard intervals of the closed window; an open interval continues in the next window
+                    intervals = [iv for iv in intervals if iv[1] > window_end]
+                    if in_progress is not None and in_progress < window_end:
+                        in_progress = window_end
+                    window_start = window_end
+
+            # Update interval tracking
+            if entity_nan.loc[ts]:
+                # NaN breaks a run: the open interval ends at the last True row before the NaN
+                if in_progress is not None:
+                    end = max(in_progress, last_true) if last_true is not None else in_progress
+                    if end > in_progress:
+                        intervals.append((in_progress, end))
+                    in_progress = None
+            elif entity_cond.loc[ts]:
+                if in_progress is None:
+                    in_progress = ts
+                last_true = ts
+            elif in_progress is not None:
+                if ts > in_progress:
+                    intervals.append((in_progress, ts))
+                in_progress = None
+
+            if self._window_type == 'Sliding':
+                cutoff = ts - self._T
+                intervals = [iv for iv in intervals if iv[1] > cutoff]
+                duration = self._cumulative_duration(intervals, in_progress, cutoff, ts)
+                if duration >= self._D and (cooldown_until is None or ts > cooldown_until):
+                    fire(ts)
+
+            last_ts = ts
+
+        # Trim state that can no longer influence a future evaluation
+        if last_ts is not None:
+            horizon = window_start if self._window_type == 'Tumbling' else last_ts - self._T
+            intervals = [iv for iv in intervals if iv[1] > horizon]
+
+        state = dict(state)
+        state.update({
+            'intervals': intervals, 'in_progress': in_progress,
+            'window_start': window_start if self._window_type == 'Tumbling' else None,
+            'cooldown_until': cooldown_until, 'last_true': last_true, 'last_ts': last_ts,
+        })
+        if alerts:
+            state['last_alert'] = alerts[-1]
+        return alerts, state
+
+    # ------------------------------------------------------------------ #
+    #  execute                                                             #
+    # ------------------------------------------------------------------ #
+
+    def execute(self, df):
+        """
+        Evaluate the expression, track True intervals per entity and write ``True`` into
+        ``df[alert_name]`` wherever ``cumulative_duration >= D``.  Tumbling alerts are written at the
+        window end; if no row exists at that timestamp a synthetic row is added.
+        """
+        self.cache = dbtables.DBDataCache(self.dms.tenant_id, self.dms.entity_type_id, self.dms.schema,
+                                          self.dms.db_connection, self.dms.db_type)
+        df = df.copy()
+        df[self.alert_name] = None
+
+        try:
+            cond = eval(self.expression)
+        except Exception as exc:
+            raise ValueError(f'AlertByCumulativeDuration: expression evaluation failed - {exc}') from exc
+        nan_mask = cond.isna()
+        cond = cond.where(~nan_mask, False).astype(bool)
+        # A comparison against a missing input yields False, not NaN. Such rows are still "NaN rows":
+        # they end the open interval at the last True row instead of at the NaN row itself.
+        input_items = [item for item in self.get_input_items() if item in df.columns]
+        if input_items:
+            nan_mask = nan_mask | (~cond & df[input_items].isna().any(axis=1))
+
+        kpi_function_id = self.dms.data_items.get(self.alert_name).get('kpiFunctionDto').get('kpiFunctionId')
+        if not kpi_function_id:
+            raise ValueError(f'No KPI_FUNCTION_ID found for alert {self.alert_name}. Cannot persist alert state.')
+        if not self.dms.running_with_backtrack:
+            self.cache.delete_backtrack_cache(kpi_function_id)
+        cache_data = self.cache.retrieve_alert_cache(kpi_function_id, self.dms.running_with_backtrack)
+
+        is_first_cycle = False
+        if hasattr(self.dms, 'cycle_id') and self.dms.cycle_id is not None and self.dms.running_with_backtrack:
+            is_first_cycle = (self.dms.cycle_id == 1)
+
+        # Previously persisted state of every entity (entities not in this batch are kept untouched)
+        cached_states = {}
+        if cache_data is not None:
+            for entity_id, row in cache_data.to_dict(orient='index').items():
+                cached_states[entity_id] = self._state_from_cache_row(row)
+
+        new_states = dict(cached_states)
+        alert_events = {}
+
+        for entity_id in df.index.get_level_values('id').unique():
+            entity_cond = cond.loc[entity_id]
+            if len(entity_cond) == 0:
+                continue
+            entity_nan = nan_mask.loc[entity_id]
+            # One value per timestamp (keep last), chronological order
+            entity_cond = entity_cond[~entity_cond.index.duplicated(keep='last')].sort_index()
+            entity_nan = entity_nan[~entity_nan.index.duplicated(keep='last')].sort_index()
+
+            previous = cached_states.get(entity_id)
+            state = self._fresh_state()
+            first_alert_from_previous_run = None
+            if previous is not None:
+                if is_first_cycle:
+                    # Backtrack cycle 1 re-derives the state; only the previous first alert seeds the cooldown
+                    first_alert_from_previous_run = previous['first_alert']
+                    if first_alert_from_previous_run is not None:
+                        state['cooldown_until'] = self._cooldown_until_after(first_alert_from_previous_run)
+                else:
+                    state = previous
+
+            carried_alert = None
+            if (not self.dms.running_with_backtrack and state['last_alert'] is not None
+                    and state['last_alert'] >= pd.Timestamp(entity_cond.index[0])):
+                # An alert already stored for a timestamp inside this batch must stay True, otherwise the
+                # stale-alert handling would resolve it
+                carried_alert = state['last_alert']
+
+            alerts, state = self._process_entity(entity_cond, entity_nan, state)
+            if is_first_cycle:
+                state['first_alert'] = alerts[0] if alerts else first_alert_from_previous_run
+            new_states[entity_id] = state
+
+            all_alerts = alerts
+            if carried_alert is not None:
+                all_alerts.append(carried_alert)
+            if all_alerts:
+                alert_events[entity_id] = sorted(all_alerts)
+
+        df = self._write_alerts(df, alert_events)
+
+        cache_df = pd.DataFrame.from_dict(
+            {eid: self._cache_row_from_state(st) for eid, st in new_states.items()},
+            orient='index', columns=self._CACHE_COLUMNS)
+        self.cache.store_alert_cache(kpi_function_id, cache_df, self.dms.running_with_backtrack)
+        return df
+
+    def _write_alerts(self, df, alert_events):
+        """Set the alert column to True at existing rows and append synthetic rows where none exists."""
+        synthetic = []
+        for entity_id, timestamps in alert_events.items():
+            for ts in timestamps:
+                if (entity_id, ts) in df.index:
+                    df.loc[(entity_id, ts), self.alert_name] = True
+                else:
+                    synthetic.append((entity_id, ts))
+        if synthetic:
+            ts_name = df.index.names[1]
+            synthetic_df = pd.DataFrame(
+                {col: (True if col == self.alert_name else None) for col in df.columns},
+                index=pd.MultiIndex.from_tuples(synthetic, names=['id', ts_name]))
+            df = pd.concat([df, synthetic_df], sort=False)
+        return df
+
+    def get_input_items(self):
+        return self.get_expression_items(self.expression)
+
+    @classmethod
+    def build_ui(cls):
+        inputs = [
+            UIExpression(name='expression',
+                         description='Condition expression (e.g., df["temp_c"] > 80)'),
+            UISingle(name='duration_threshold', datatype=int,
+                     description='Duration D (whole number, in time unit). Alert fires when the accumulated '
+                                 'duration of the condition within the window is >= D. Must not exceed the window'),
+            UISingle(name='time_window', datatype=int,
+                     description='Time window T (whole number, in time unit)'),
+            UISingle(name='time_unit', datatype=str,
+                     description='Time unit for both D and T, default is minutes',
+                     values=['Minutes', 'Hours', 'Days']),
+            UISingle(name='window_type', datatype=str,
+                     description='Window type: sliding or tumbling',
+                     values=['Tumbling', 'Sliding']),
+            UISingle(name='cooldown', datatype=int, required=False,
+                     description='Minimum time between consecutive alert firings, 0 disables cooldown'),
+            UISingle(name='cooldown_unit', datatype=str, required=False,
+                     description='Time unit for the cooldown, default is minutes',
+                     values=['Minutes', 'Hours', 'Days']),
+        ]
+        outputs = [
+            UIFunctionOutSingle(name='alert_name', datatype=bool, description='Output of alert function')
+        ]
+        return (inputs, outputs)
+
+
 class AlertExpressionWithFilterExt(AlertExpressionWithFilter):
     """
     Create alerts that are triggered when data values the expression is True
